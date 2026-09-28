@@ -19,7 +19,7 @@ import { renderDocument } from "../server/materials-render.mjs";
 import { letterWordBand, resolveFamily, validateFamily } from "../server/materials-templates.mjs";
 import { callWriter } from "../server/materials-writer.mjs";
 import { EXAMPLE_RESUME_SOURCE, EXAMPLE_RESUME_TEXT, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 /* The drafter reads the profile and builds the claim ledger beside it; keep
  * both out of the real HOME (a run without this overwrote the user's
@@ -144,7 +144,7 @@ describe("the writer is asked for the family's band", () => {
       });
       await drafter.enqueue({ slug: "acme-band", company: "Acme", title: "Ops", feature: "both", jobUrl: "", notes: "", jobDescription: "operations analytics carrier scorecard forecasting ".repeat(30), resume: EXAMPLE_RESUME_SOURCE, template: "dossier" });
       await drafter.runUntilIdle();
-      const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+      const draftCall = stub.calls.find((c) => c.system.startsWith("Goal: Write truthful"));
       assert.ok(draftCall, "draft call issued");
       assert.match(draftCall.system, /120-200 words/);
     } finally {

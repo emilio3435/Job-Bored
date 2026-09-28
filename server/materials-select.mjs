@@ -1,11 +1,8 @@
 /**
  * Materials v3 — claims.select (plan slice 4, mechanism §6.3).
  *
- * The model returns claim IDs, slots, and reasons — never prose — so it
- * cannot invent a claim. Hard rules run after the call: verified only,
- * 4–7 kept across ≤3 employers, letter proofs from kept claims, and
- * every omission recorded with a code. A model failure falls back to a
- * deterministic top-N with recorded reasons.
+ * Ranked claims are selected deterministically, then hard rules enforce
+ * supported IDs, budgets, proof coverage and recorded omissions.
  */
 
 import { isAiClaim, isAiRole } from "./materials-positioning.mjs";
@@ -17,13 +14,11 @@ import addFormats from "ajv-formats";
 import { outcomeCoverage } from "./materials-claim-score.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { planResume } from "./materials-outline.mjs";
-import { runJsonStage, schemaInvalidCall } from "./materials-writer.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = resolvePath(__dirname, "..", "schemas", "materials-selection.v1.schema.json");
 
 export const SELECTION_CONTRACT = "materials.selection.v1";
-export const SELECT_MAX_OUTPUT_TOKENS = 4096;
 /* Proof-run design call: up to 14 resume claims (5 for the lead
  * employer, 3-4 for the next two), at least 8 when the ledger has them. */
 export const KEPT_MIN = 8;
@@ -79,21 +74,6 @@ function selectionBudget(letterWords) {
     letterWords: [...letterWords],
   };
 }
-
-const SELECT_SYSTEM_PROMPT = [
-  "You select resume claims for one job. Return JSON only:",
-  '{"kept":[{"claimId","slot","reason"}],"dropped":[{"claimId","code","reason"}],"transfers":[{"id","from","to","allowed":"prose-only","note"}],"letter":{"proof1":{"claimId","painId"},"proof2":{"claimId","painId"}}}.',
-  `Keep ${KEPT_MIN}-${KEPT_MAX} claims across 2-3 employers (the most recent employers first, including a current venture when its claims fit), ranked by how directly they answer the job's outcomes; prefer claims that carry a number. Never keep two claims that state the same fact.`,
-  "Slots look like resume.featured.<employer>.<b1..b5>.",
-  "Drop codes: no_jd_mapping, low_signal, duplicate_signal, budget, unverified.",
-  "Drop every claim you do not keep, with a code and a reason.",
-  "transfers: JD tools with no ledger evidence the letter may name as new (allowed is always prose-only).",
-  "letter: two proofs for the cover letter, each a kept claim id paired with the outcome id (painId) it answers.",
-  "Both proofs must carry a number. proof1 is the kept claim with the single biggest number that answers one of the three heaviest outcomes; proof2 answers a different one of those three with a different claim.",
-  "Pick proofs that fit the role family: sales roles lead with revenue, book size, ranking and team results; analytics roles with measurement and analysis; engineering roles with systems shipped.",
-  "When the job is about AI, automation or AI strategy, the proofs are the candidate's AI-builder claims (systems, models, forecasters, agentic pipelines they built) mapped to the outcomes, ahead of sales or account claims with bigger numbers.",
-  "IDs must come from the shortlist and the outcome list. No prose outside the JSON.",
-].join(" ");
 
 /** @param {string} text */
 function factWords(text) {
@@ -245,65 +225,9 @@ export function pickLetterProofs({ extract, keptIds, textOf }) {
  * @param {Array<{ claimId: string, score?: { total?: number }, mapsTo?: string[] }>} input.shortlist
  * @param {{ ledgerHash?: unknown, employers?: Array<{ id?: unknown }>, claims?: Array<{ id?: unknown, employerId?: unknown, text?: unknown }> }} input.ledger
  * @param {number[]} [input.letterWords]
- * @param {import("./materials-writer.mjs").WriterPin | null} input.pin
- * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  */
-export async function selectClaims({ extract, shortlist, ledger, letterWords = [120, 200], pin, fetchImpl }) {
-  const claims = new Map((ledger.claims || []).map((c) => [c && c.id, c]));
-  const shortIds = new Set(shortlist.map((s) => s.claimId));
-  /** @param {string} id */
-  const employerOf = (id) => {
-    const claim = claims.get(id);
-    return claim && typeof claim.employerId === "string" ? claim.employerId : "";
-  };
-
-  /* Degraded path: no pin, no model call — deterministic ranks. */
-  if (!pin) {
-    return { selection: deterministicSelection({ extract, shortlist, ledger, letterWords }), degraded: true };
-  }
-
-  const role = /** @type {{ title?: unknown, company?: unknown, family?: unknown, seniority?: unknown }} */ (
-    extract.role && typeof extract.role === "object" ? extract.role : {}
-  );
-  const userText = [
-      `Role: ${String(role.title || "unknown")} at ${String(role.company || "unknown")} (family: ${String(role.family || "general")}, seniority: ${String(role.seniority || "unknown")})`,
-      "Outcomes the hire must deliver (painId: text):",
-      ...(extract.outcomes || []).map((o) => `- ${String(o.id)} (weight ${o.weight ?? "?"}): ${String(o.text || "").slice(0, 300)}`),
-      ...((extract.differentiators || []).length
-        ? ["Differentiators:", ...(extract.differentiators || []).map((d) => `- ${String(d.text || "").slice(0, 200)}`)]
-        : []),
-      `Job nouns: ${(extract.nouns || []).slice(0, 16).map((n) => String(n.term)).join(", ")}`,
-      "",
-      `Shortlist (ranked):`,
-      ...shortlist.map((s, i) => {
-        const claim = claims.get(s.claimId);
-        const text = claim && typeof claim.text === "string" ? claim.text.slice(0, 240) : "";
-        return `${i + 1}. ${s.claimId} [${employerOf(s.claimId) || "no employer"}] score=${s.score?.total ?? "?"} mapsTo=${(s.mapsTo || []).join(",")}: ${text}`;
-      }),
-    ].join("\n");
-  const { value: picked, call } = await runJsonStage({
-      stage: "claims.select",
-      pin,
-      systemPrompt: SELECT_SYSTEM_PROMPT,
-      userText,
-      maxOutputTokens: SELECT_MAX_OUTPUT_TOKENS,
-      fetchImpl,
-    });
-  if (!picked) {
-    return { selection: deterministicSelection({ extract, shortlist, ledger, letterWords }), degraded: true, call };
-  }
-
-  const selection = enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, employerOf });
-  const validation = validateSelection(selection);
-  if (!validation.ok) {
-    return {
-      selection: deterministicSelection({ extract, shortlist, ledger, letterWords }),
-      degraded: true,
-      call: schemaInvalidCall(call),
-      rawReply: { stage: "claims.select", errors: validation.errors, reply: picked },
-    };
-  }
-  return { selection, degraded: false, call };
+export async function selectClaims({ extract, shortlist, ledger, letterWords = [120, 200] }) {
+  return { selection: selectRankedClaims({ extract, shortlist, ledger, letterWords }), degraded: false };
 }
 
 /**
@@ -655,12 +579,12 @@ function omittedEmployers({ ledger, finalKept, employerOf }) {
  * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown, employerId?: unknown }> }} input.ledger
  * @param {number[]} input.letterWords
  */
-function deterministicSelection({ extract, shortlist, ledger, letterWords }) {
+export function selectRankedClaims({ extract, shortlist, ledger, letterWords = [120, 200] }) {
   const picked = {
     kept: shortlist.slice(0, KEPT_MAX).map((s, i) => ({
       claimId: s.claimId,
       slot: `resume.featured.pick.b${i + 1}`,
-      reason: `deterministic rank ${i + 1} (model select unavailable)`,
+      reason: `relevance rank ${i + 1}`,
     })),
     dropped: [],
     transfers: [],

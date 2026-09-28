@@ -237,3 +237,96 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-intel__fact { display: gri
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__meta { font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__text { overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__src { justify-self: start; color: var(--jb-action); font-size: var(--jb-type-small); overflow-wrap: anywhere; }
+
+/* ---------------- MREV D1 · the judge's scorecard (materials.qa.v2) ---------------- */
+body.jb-v2 [data-region="role"] .brief-materials .mat-score .mat-score__old { margin: 0; font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict {
+  padding: var(--jb-space-2) var(--jb-space-3); border-radius: var(--jb-radius-sm); border-left: 3px solid var(--jb-accent-ink);
+  background: var(--jb-paper-2); font-family: var(--jb-font-body); font-size: var(--jb-type-small); line-height: 1.45;
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--review { border-left-color: var(--jb-warn); background: var(--jb-warn-tint); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--fail { border-left-color: var(--jb-err); background: var(--jb-err-tint); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__why { margin: 0; font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="unavailable"] { color: var(--jb-warn); font-weight: 600; }
+
+/* Blockers, facts to confirm and writing feedback: three boxes, never one list. */
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues {
+  min-width: 0; padding: var(--jb-space-2) var(--jb-space-3); border: 1px solid var(--jb-line-soft); border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper); font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink);
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues--facts { border-color: var(--jb-err); border-left-width: 3px; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues--check { border-color: var(--jb-warn); border-left-width: 3px; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues .mat-issues__head {
+  margin: 0; font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues--facts .mat-issues__head { color: var(--jb-err); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues .mat-issues__sub { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issues__list { list-style: none; margin: var(--jb-space-2) 0 0; padding: 0; display: grid; gap: var(--jb-space-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issue { display: grid; gap: 2px; min-width: 0; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issue__kind { font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issue__quote {
+  display: block; padding-left: var(--jb-space-2); border-left: 2px solid var(--jb-line); font-family: var(--jb-font-serif); font-style: italic;
+  color: var(--jb-ink); overflow-wrap: anywhere; quotes: "\201C" "\201D";
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-issue--hard .mat-issue__quote { border-left-color: var(--jb-err); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-issue__why { color: var(--jb-ink-2); overflow-wrap: anywhere; }
+
+body.jb-v2 [data-region="role"] .brief-materials .mat-dims,
+body.jb-v2 [data-region="role"] .brief-materials .mat-gaps { font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+/* The 44px touch floor the case's buttons already meet. */
+body.jb-v2 [data-region="role"] .brief-materials .mat-dims > summary,
+body.jb-v2 [data-region="role"] .brief-materials .mat-gaps > summary {
+  cursor: pointer; min-height: 2.75rem; box-sizing: border-box; padding-block: var(--jb-space-2); color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-dims__rows { list-style: none; margin: var(--jb-space-1) 0 0; padding: 0; display: grid; gap: var(--jb-space-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-dim {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--jb-space-2); row-gap: 2px;
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-dim__label { min-width: 0; color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-dim__n { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); text-align: right; white-space: nowrap; color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-dim__why { grid-column: 1 / -1; color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-dim--low .mat-pip--on { background: var(--jb-warn); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-gaps .mat-gaps__hint { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-gaps__list { margin: var(--jb-space-1) 0 0; padding-left: var(--jb-space-5); color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-score__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); }
+
+/* ---------------- MREV D3 · the Repair dialog ---------------- */
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair,
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired {
+  grid-column: 1 / -1; min-width: 0; margin-top: var(--jb-space-2); padding: var(--jb-space-3); border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm); background: var(--jb-surface-raised); font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink);
+  display: grid; gap: var(--jb-space-2);
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair .mat-repair__title,
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired .mat-repaired__head { margin: 0; font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__label { color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__input {
+  display: block; width: 100%; box-sizing: border-box; min-height: 4.5em; padding: var(--jb-space-2); border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-sm); background: var(--jb-paper); color: var(--jb-ink); font: inherit; resize: vertical;
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__input:focus-visible { outline: none; box-shadow: var(--jb-shadow-focus); }
+/* Under 16px, focusing the box zooms the page on a phone. */
+@media (max-width: 600px), (pointer: coarse) {
+  body.jb-v2 [data-region="role"] .brief-materials .mat-repair__input { font-size: 1rem; }
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__count { justify-self: end; font-family: var(--jb-font-mono); font-size: var(--jb-type-data); color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issues { min-width: 0; margin: 0; padding: 0; border: 0; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issues legend { padding: 0; margin-bottom: var(--jb-space-1); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issues ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--jb-space-1); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issue label {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; column-gap: var(--jb-space-2); min-height: 2.75rem; cursor: pointer;
+}
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issue input { width: 18px; height: 18px; margin: 0; accent-color: var(--jb-accent-ink); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__issue-text { overflow-wrap: anywhere; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair .mat-repair__err { margin: 0; color: var(--jb-err); font-weight: 600; font-size: var(--jb-type-small); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair__acts,
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repair button[disabled] { opacity: 0.6; cursor: progress; }
+
+/* ---------------- MREV D4 · what the repair changed ---------------- */
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired:focus-visible { outline: none; box-shadow: var(--jb-shadow-focus); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired--kept { border-color: var(--jb-err); border-left-width: 3px; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired--same { border-color: var(--jb-warn); border-left-width: 3px; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired .mat-repaired__sub { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-repaired .mat-diff__sum { margin: 0; }

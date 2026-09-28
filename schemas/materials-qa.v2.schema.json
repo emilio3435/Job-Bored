@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-qa.v2.schema.json",
+  "title": "materials.qa.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "document", "runId", "disposition", "dispositionReason", "textHash", "quality", "gates", "sentences", "issues", "qualificationGaps", "judge", "degraded", "repair"],
+  "properties": {
+    "contract": { "const": "materials.qa.v2" },
+    "document": { "enum": ["letter", "resume"] },
+    "runId": { "type": "string", "minLength": 1 },
+    "disposition": { "enum": ["READY", "REVIEW", "FAIL"] },
+    "dispositionReason": { "type": "string", "minLength": 1 },
+    "textHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "quality": {
+      "type": "object", "additionalProperties": false, "required": ["score", "ratings"],
+      "properties": {
+        "score": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "ratings": { "type": "array", "items": { "$ref": "#/$defs/rating" } }
+      }
+    },
+    "gates": { "type": "array", "items": { "$ref": "#/$defs/gate" } },
+    "sentences": { "type": "array", "items": { "$ref": "#/$defs/sentence" } },
+    "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+    "qualificationGaps": { "type": "array", "items": { "type": "string" } },
+    "judge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "provider", "model", "independent", "promptVersion", "latencyMs"],
+      "properties": {
+        "status": { "enum": ["ok", "unavailable", "invalid"] },
+        "provider": { "type": "string" }, "model": { "type": "string" },
+        "independent": { "type": "boolean" }, "promptVersion": { "type": "string" },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "tokensIn": { "type": ["integer", "null"], "minimum": 0 },
+        "tokensOut": { "type": ["integer", "null"], "minimum": 0 },
+        "error": { "type": "string" }
+      }
+    },
+    "degraded": { "type": "array", "items": { "type": "string" } },
+    "repair": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempted", "parentRunId", "changed", "adopted", "before", "after"],
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "parentRunId": { "type": ["string", "null"] },
+        "changed": { "type": ["boolean", "null"] },
+        "adopted": { "type": ["boolean", "null"] },
+        "before": { "type": ["string", "null"] },
+        "after": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "rating": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimension", "score", "weight", "reason", "sentenceIds"],
+      "properties": {
+        "dimension": { "enum": ["role_relevance", "evidence_quality", "voice", "coherence", "economy"] },
+        "score": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "reason": { "type": "string", "minLength": 1 },
+        "sentenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "pass", "reason", "sentenceIds"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["hard", "advisory", "constraint"] },
+        "pass": { "type": "boolean" }, "reason": { "type": "string" },
+        "sentenceIds": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "citation": {
+      "type": "object", "additionalProperties": false, "required": ["sourceId", "quote"],
+      "properties": { "sourceId": { "type": "string", "minLength": 1 }, "quote": { "type": "string", "minLength": 1 } }
+    },
+    "sentence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "text", "status", "reason", "citations"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 }, "text": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["supported", "unsupported", "uncertain", "nonfactual"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "citations": { "type": "array", "items": { "$ref": "#/$defs/citation" } }
+      }
+    },
+    "issue": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "code", "kind", "severity", "sentenceIds", "reason", "action", "origin"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^i[1-9][0-9]*$" }, "code": { "type": "string", "pattern": "^i[1-9][0-9]*$" },
+        "kind": { "enum": ["fact", "scope", "voice", "relevance", "clarity", "format"] },
+        "severity": { "enum": ["hard", "review", "note"] },
+        "sentenceIds": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["rewrite", "needs_evidence", "none"] },
+        "origin": { "enum": ["judge", "gate", "constraint"] }
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { scoreClaims } from "../server/materials-claim-score.mjs";
 import { selectClaims } from "../server/materials-select.mjs";
 import { buildOutline } from "../server/materials-outline.mjs";
-import { draftSlots, validateDraft } from "../server/materials-draft.mjs";
+import { draftSlots, draftSystemPrompt, draftPromptLines, validateDraft } from "../server/materials-draft.mjs";
 import { delint, loadVoicePack, rewriteFlagged } from "../server/materials-delint.mjs";
 
 const voicePack = await loadVoicePack();
@@ -77,6 +77,61 @@ async function plan() {
 }
 
 describe("draft", () => {
+  it("B2/B3: gives the writer a fresh close and a three-paragraph word band without a literal close or sentence quota", async () => {
+    const { ledger, extract, outline } = await plan();
+    const prompt = [
+      draftSystemPrompt([120, 200]),
+      ...draftPromptLines({ outline, extract, ledger, feature: "cover_letter", featuredIds: [], earlierIds: [], letterWords: [120, 200] }),
+    ].join("\n");
+    assert.match(prompt, /three (short )?paragraphs/i);
+    assert.match(prompt, /120.?200 words/i);
+    assert.match(prompt, /fresh|original|new/i);
+    assert.doesNotMatch(prompt, /Worth a quick call|e\.g\. .*call|exactly 3 or 4 sentences|two numbered proofs|within (the first )?40 words|exact words|nine words or fewer/i);
+  });
+
+  it("B3: five stubbed writers follow fresh-ask guidance without copying a sample close", async () => {
+    const { ledger, extract, outline } = await plan();
+    const closes = [
+      "Could we trace one Harbor route together?",
+      "Would you review a dispatch readout with me?",
+      "Can we sketch the next forecast in a call?",
+      "Could I show your team one failure map?",
+      "May I walk through one schedule with you?",
+    ];
+    const produced = [];
+    for (const close of closes) {
+      const { fetchImpl, calls } = stubFetch([JSON.stringify({
+        statement: "", bullets: [], earlier: [],
+        letter: { hook: "I build route tools.", companyInsight: "", proof1: "I ran 620 vans.", proof2: "I kept the data clear.", ask: close },
+      })]);
+      const { draft } = await draftSlots({ outline, ledger, extract, feature: "cover_letter", pin: PIN, fetchImpl });
+      const body = JSON.parse(calls[0].init.body);
+      const prompt = body.messages.map((message) => message.content).join("\n");
+      assert.match(prompt, /fresh short ask|ask afresh/i);
+      assert.ok(!closes.some((candidate) => prompt.includes(candidate)), "the prompt supplied no close to echo");
+      assert.doesNotMatch(prompt, /\be\.g\.\b[^\n]*\b(?:close|ask|call)\b|[“"][^”"\n]*\?[”"]|^- Ask:/im, "the full writer prompt has no copyable ask");
+      assert.doesNotMatch(prompt, /Name the company within the first two sentences|Summary line:.*twenty-eight to forty words/i, "the letter prompt has no sentence or summary quota");
+      produced.push(draft.letter.ask);
+    }
+    assert.equal(new Set(produced).size, 5);
+  });
+
+  it("B1: returns only sentence references to known claims and actual drafted text", async () => {
+    const { ledger, extract, outline } = await plan();
+    const claimId = ledger.claims[0].id;
+    const sentence = "I built a route tool for 620 vans.";
+    const { fetchImpl } = stubFetch([JSON.stringify({
+      statement: "", bullets: [], earlier: [], letter: { hook: sentence, companyInsight: "", proof1: "", proof2: "", ask: "Could we trace a route?" },
+      sourceRefs: [
+        { sentence, claimIds: [claimId] },
+        { sentence: "A fabricated sentence.", claimIds: [claimId] },
+        { sentence, claimIds: ["missing-claim"] },
+      ],
+    })]);
+    const result = await draftSlots({ outline, ledger, extract, feature: "cover_letter", pin: PIN, fetchImpl });
+    assert.deepEqual(result.sourceRefs, [{ sentence, claimIds: [claimId] }]);
+  });
+
   it("one call produces schema-valid slots keyed to kept claims", async () => {
     const { ledger, extract, selection, outline } = await plan();
     const bullets = outline.featured.flatMap((f) => f.claimIds);

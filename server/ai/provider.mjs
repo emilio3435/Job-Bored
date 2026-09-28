@@ -591,6 +591,8 @@ export async function chat(input) {
       responseFormat = openAISupportsStrictSchema(model)
         ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema } }
         : { type: "json_object" };
+    } else if (schema && provider === "openai_compatible") {
+      responseFormat = { type: "json_object" };
     }
     body = {
       model,

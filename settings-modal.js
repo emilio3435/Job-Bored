@@ -1005,7 +1005,270 @@ async function refreshLlmStatus(opts) {
     nowMs,
   });
   renderLlmStatus(view);
+  renderJudgeModel(status, Boolean(opts && opts.resetJudge));
   return view;
+}
+
+/* ============================================================
+   Judge model (MREV K1).
+
+   An optional second model grades the writing; the drafter's pin is never
+   edited here. The group sits at the end of the AI pane, reads `judge`
+   from GET and POST /api/llm-config (G9) and shows a stored key only as
+   present. Saving re-posts the server's own writer pin WITHOUT an apiKey,
+   which the server reads as "keep the stored key".
+   ============================================================ */
+
+const JUDGE_GROUP_ID = "settingsJudgeGroup";
+const JUDGE_FIELD_IDS = Object.freeze([
+  "settingsJudgeProvider",
+  "settingsJudgeModel",
+  "settingsJudgeBaseUrl",
+  "settingsJudgeApiKey",
+]);
+const JUDGE_PROVIDERS = Object.freeze([
+  ["", "None: use my writing model"],
+  ["openai_compatible", "OpenAI-compatible (xAI and others)"],
+  ["openrouter", "OpenRouter"],
+  ["openai", "OpenAI"],
+  ["anthropic", "Anthropic"],
+  ["gemini", "Google Gemini"],
+  ["local", "Local"],
+]);
+/** What the server holds: { provider, model, baseUrl, keyPresent } or null. */
+let judgeLoaded = null;
+
+function judgeFromServer(body) {
+  const j = body && typeof body === "object" ? body.judge : null;
+  if (!j || typeof j !== "object") return null;
+  return {
+    provider: String(j.provider || "").trim(),
+    model: String(j.model || "").trim(),
+    baseUrl: String(j.baseUrl || "").trim(),
+    keyPresent: Boolean(j.keyPresent),
+  };
+}
+
+function appendJudgeField(group, labelText, control) {
+  const label = llmStatusEl("label", "field-label", labelText);
+  label.setAttribute("for", control.id);
+  group.appendChild(label);
+  group.appendChild(control);
+}
+
+function judgeInput(id, type, placeholder) {
+  const input = llmStatusEl("input", "modal-input");
+  input.id = id;
+  input.type = type;
+  input.placeholder = placeholder;
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("spellcheck", "false");
+  return input;
+}
+
+function ensureJudgeGroup() {
+  if (typeof document === "undefined" || !document.getElementById) return null;
+  const existing = document.getElementById(JUDGE_GROUP_ID);
+  if (existing) return existing;
+  const receipt = document.querySelector('[data-receipt="ai"]');
+  const pane = receipt && receipt.parentNode;
+  if (!pane) return null;
+  const group = llmStatusEl("div", "settings-judge");
+  group.id = JUDGE_GROUP_ID;
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-labelledby", "settingsJudgeTitle");
+  const title = llmStatusEl("p", "field-label settings-judge__title", "Judge model (optional)");
+  title.id = "settingsJudgeTitle";
+  group.appendChild(title);
+  group.appendChild(
+    llmStatusEl(
+      "p",
+      "settings-field-hint settings-field-hint--compact",
+      "A different model grades the writing. Leave empty to use your writing model.",
+    ),
+  );
+  const provider = llmStatusEl("select", "status-select settings-select");
+  provider.id = "settingsJudgeProvider";
+  for (const [value, label] of JUDGE_PROVIDERS) {
+    const opt = llmStatusEl("option", "", label);
+    opt.value = value;
+    provider.appendChild(opt);
+  }
+  // None means "use my writing model": the other judge boxes empty with it.
+  provider.addEventListener("change", () => {
+    if (String(provider.value || "")) return;
+    for (const id of ["settingsJudgeModel", "settingsJudgeBaseUrl", "settingsJudgeApiKey"]) {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    }
+    showJudgeError("");
+  });
+  appendJudgeField(group, "Judge provider", provider);
+  appendJudgeField(group, "Judge model name", judgeInput("settingsJudgeModel", "text", "e.g. grok-4"));
+  appendJudgeField(group, "Judge base URL", judgeInput("settingsJudgeBaseUrl", "url", "https://api.x.ai/v1 (for xAI)"));
+  appendJudgeField(group, "Judge API key", judgeInput("settingsJudgeApiKey", "password", "Paste a key to save or replace it"));
+  const keyState = llmStatusEl("p", "settings-field-hint settings-field-hint--compact");
+  keyState.id = "settingsJudgeKeyState";
+  group.appendChild(keyState);
+  const error = llmStatusEl("p", "settings-field-hint settings-judge__error");
+  error.id = "settingsJudgeError";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  group.appendChild(error);
+  pane.appendChild(group);
+  return group;
+}
+
+function readJudgeForm() {
+  const value = (id) => {
+    const el = document.getElementById(id);
+    return el ? String(el.value || "").trim() : "";
+  };
+  return {
+    provider: value("settingsJudgeProvider"),
+    model: value("settingsJudgeModel"),
+    baseUrl: value("settingsJudgeBaseUrl"),
+    apiKey: value("settingsJudgeApiKey"),
+  };
+}
+
+/** True once the user typed a key or moved a judge field off the server's value. */
+function judgeFormIsDirty() {
+  if (typeof document === "undefined" || !document.getElementById(JUDGE_GROUP_ID)) return false;
+  const f = readJudgeForm();
+  const j = judgeLoaded || { provider: "", model: "", baseUrl: "" };
+  return Boolean(f.apiKey) || f.provider !== j.provider || f.model !== j.model || f.baseUrl !== j.baseUrl;
+}
+
+function showJudgeError(message) {
+  const el = document.getElementById("settingsJudgeError");
+  if (!el) return;
+  el.textContent = message || "";
+  el.hidden = !message;
+}
+
+function fillJudgeForm(judge) {
+  const j = judge || { provider: "", model: "", baseUrl: "", keyPresent: false };
+  const provider = document.getElementById("settingsJudgeProvider");
+  if (provider) {
+    const known = provider.options && [...provider.options].some((o) => o.value === j.provider);
+    if (!known && j.provider) {
+      const opt = llmStatusEl("option", "", j.provider);
+      opt.value = j.provider;
+      provider.appendChild(opt);
+    }
+    provider.value = j.provider;
+  }
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  };
+  set("settingsJudgeModel", j.model);
+  set("settingsJudgeBaseUrl", j.baseUrl);
+  set("settingsJudgeApiKey", "");
+  const keyState = document.getElementById("settingsJudgeKeyState");
+  if (keyState) {
+    keyState.textContent = j.keyPresent
+      ? "A key is saved for the judge. Paste a new one to replace it."
+      : "No key saved for the judge.";
+  }
+  // A fill from the server is not an edit: move the open-time snapshot too.
+  if (settingsFormSnapshot) {
+    for (const id of JUDGE_FIELD_IDS) {
+      const el = document.getElementById(id);
+      if (el) settingsFormSnapshot[id] = String(el.value || "");
+    }
+  }
+}
+
+function renderJudgeModel(status, reset) {
+  if (!ensureJudgeGroup()) return;
+  const dirty = judgeFormIsDirty();
+  if (!status || !status.reachable) {
+    showJudgeError("Can’t reach the JobBored server on this computer, so the judge model can’t be changed here.");
+    return;
+  }
+  judgeLoaded = judgeFromServer(status.server);
+  if (reset || !dirty) {
+    fillJudgeForm(judgeLoaded);
+    showJudgeError("");
+  }
+}
+
+function judgeFormError(f) {
+  // Provider None clears the judge, whatever the other boxes still hold.
+  if (!f.provider) return "";
+  if (!f.model) return "Name the judge model, or set the provider back to None.";
+  if (f.baseUrl && !/^https?:\/\//i.test(f.baseUrl)) return "The judge’s base URL must start with http:// or https://.";
+  return "";
+}
+
+/**
+ * K1 POST body: the server's writer pin as it stands (no apiKey, so its key
+ * is kept) plus `judge`, or null when the server has no writer pin.
+ */
+function buildJudgeRequestBody(server, form) {
+  const s = server && typeof server === "object" ? server : {};
+  const provider = String(s.alias || s.provider || "").trim();
+  const model = String(s.model || "").trim();
+  if (!provider || !model) return null;
+  let judge = null;
+  if (form.provider) {
+    judge = { provider: form.provider, model: form.model, baseUrl: form.baseUrl };
+    if (form.apiKey) judge.apiKey = form.apiKey;
+  }
+  return { provider, model, baseUrl: String(s.baseUrl || "").trim(), judge };
+}
+
+/** Save the judge group. Resolves true when the server took it. */
+async function saveJudgeModel() {
+  const form = readJudgeForm();
+  const invalid = judgeFormError(form);
+  if (invalid) {
+    showJudgeError(invalid);
+    return false;
+  }
+  const status = await fetchLlmStatus();
+  if (!status.reachable) {
+    showJudgeError("Can’t reach the JobBored server on this computer, so the judge model wasn’t saved.");
+    return false;
+  }
+  const body = buildJudgeRequestBody(status.server, form);
+  if (!body) {
+    showJudgeError("Set a drafting model first: the judge is saved alongside it.");
+    return false;
+  }
+  let answer = null;
+  try {
+    const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    try {
+      answer = await resp.json();
+    } catch (_) {
+      answer = null;
+    }
+    if (!resp || resp.ok === false) {
+      const why = answer && answer.error ? String(answer.error) : `the server answered ${resp ? resp.status : "nothing"}`;
+      showJudgeError(`The judge model wasn’t saved: ${why}`);
+      return false;
+    }
+  } catch (err) {
+    const message = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
+    showJudgeError(`The judge model wasn’t saved: ${message}`);
+    return false;
+  }
+  // G9: the POST answers in the GET shape, judge included.
+  judgeLoaded = answer && typeof answer === "object" && "judge" in answer
+    ? judgeFromServer(answer)
+    : body.judge
+      ? { provider: body.judge.provider, model: body.judge.model, baseUrl: body.judge.baseUrl, keyPresent: Boolean(form.apiKey) }
+      : null;
+  fillJudgeForm(judgeLoaded);
+  showJudgeError("");
+  return true;
 }
 
 /**
@@ -1125,7 +1388,7 @@ async function openCommandCenterSettingsModal(opts) {
   if (modal) applySettingsInertBackground(modal);
   snapshotSettingsForm();
   // The drafting-model block reads the local API; it never blocks opening.
-  void refreshLlmStatus();
+  void refreshLlmStatus({ resetJudge: true });
   // Escape-to-close + auto-focus the close button. The brief asks for both:
   // - Escape lets keyboard users dismiss without hunting for the X.
   // - Focusing #settingsModalClose lands the user inside the trap with a
@@ -1592,6 +1855,15 @@ async function saveCommandCenterSettingsFromForm() {
   // the drawer's Connection tab now — a Settings save cannot change it, so
   // there is nothing here to re-record (GREENFIELD D5).
   host().syncDiscoveryButtonState();
+  // MREV K1: the judge group posts only when its own fields changed.
+  if (judgeFormIsDirty() && !(await saveJudgeModel())) {
+    const Tabs = window.JobBoredSettingsTabs;
+    if (Tabs && typeof Tabs.activateTabForField === "function") {
+      Tabs.activateTabForField("settingsJudgeModel");
+    }
+    showToast("Your other settings are saved; the judge model isn’t. See the AI tab.", "error", true);
+    return;
+  }
   finishSettingsSave(beforeSave, payload, sheetId);
 }
 
@@ -1864,6 +2136,9 @@ function initCommandCenterSettings() {
     buildLlmStatusView,
     formatLlmRelativeTime,
     refreshLlmStatus,
+    buildJudgeRequestBody,
+    judgeFormIsDirty,
+    saveJudgeModel,
     settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,

@@ -334,7 +334,16 @@ export function createMaterialsVersionService(deps = {}) {
       if (!model.documents?.[doc]) throw failure("Document not in version", 404, "document_not_found");
       const docIds = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
       if (Array.isArray(body.ops) && body.ops.some((/** @type {any} */ op) => !docIds.has(op?.op === "insert" ? op.after : op?.node))) throw failure("Edit targets another document", 400, "out_of_scope");
-      const candidate = applyOps(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), body.ops ?? []);
+      // A published draft can be renderable while falling outside edit shape
+      // limits. Only validate edit shape when there are edits to apply.
+      const ops = body.ops ?? [];
+      const baseModel = /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model));
+      let candidate = baseModel;
+      if (Array.isArray(ops) && ops.length === 0) {
+        if (baseModel.contract !== "materials.render-model.v1") throw new MaterialsEditError("invalid_model", "Invalid render model contract");
+      } else {
+        candidate = applyOps(baseModel, ops);
+      }
       return { html: renderDocument(candidate, doc), words: wordCount(deriveNodes(candidate).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.text).join(" ")), pageBudget: candidate.template.pageBudget };
     },
     /** @param {string} slug @param {Record<string, any>} body */

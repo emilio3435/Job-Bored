@@ -72,7 +72,7 @@ after(async () => {
 });
 
 let sequence = 0;
-async function seed() {
+async function seed(renderModel = model) {
   const slug = `example-${++sequence}`;
   const dir = join(root, slug);
   const runDir = join(dir, "runs", "r0");
@@ -80,7 +80,7 @@ async function seed() {
   const run = { runId: "r0", slug, feature: "both", requestedAt: "2026-09-27T10:00:00.000Z", finishedAt: "2026-09-27T10:00:00.000Z", template: { family: "signal", source: "default" }, artifacts: [{ path: "resume.pdf", pages: 1 }] };
   for (const folder of [dir, runDir]) {
     await writeFile(join(folder, "run.json"), JSON.stringify(run));
-    await writeFile(join(folder, "render-model.json"), JSON.stringify(model));
+    await writeFile(join(folder, "render-model.json"), JSON.stringify(renderModel));
   }
   await writeFile(join(dir, "manifest.json"), JSON.stringify({ company: "Example", title: "Analyst", runId: "r0" }));
   await writeFile(join(dir, "resume.pdf"), "old PDF");
@@ -442,6 +442,40 @@ it("POST preview renders base plus validated ops without a browser", async (t) =
   const invalid = await request(`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0", ops: [{ ...op, node: "seat:acme" }] });
   assert.equal(invalid.status, 400);
   assert.equal(invalid.data.code, "locked");
+});
+
+it("POST preview renders valid draft models that fall outside edit shape limits", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const cases = [
+    ["resume short statement", "resume", (draft) => { draft.documents.resume.statement.runs = [{ t: "Staff analyst" }]; }],
+    ["cover letter with a short resume statement", "cover_letter", (draft) => { draft.documents.resume.statement.runs = [{ t: "Staff analyst" }]; }],
+    ["resume one bullet", "resume", (draft) => { draft.documents.resume.sections.find((section) => section.kind === "experience").entries[0].bullets.splice(1); }],
+    ["resume no bullets", "resume", (draft) => { draft.documents.resume.sections.find((section) => section.kind === "experience").entries[0].bullets = []; }],
+    ["cover letter one paragraph", "cover_letter", (draft) => { draft.documents.coverLetter.paragraphs.splice(1); }],
+    ["cover letter two paragraphs", "cover_letter", (draft) => { draft.documents.coverLetter.paragraphs.splice(2); }],
+  ];
+
+  for (const [label, doc, alter] of cases) {
+    const draft = structuredClone(model);
+    alter(draft);
+    const pkg = await seed(draft);
+    for (const payload of [{ doc, baseRunId: "r0" }, { doc, baseRunId: "r0", ops: [] }]) {
+      const preview = await request(`${pkg.path}/preview`, "POST", payload);
+      assert.equal(preview.status, 200, `${label} should render without edit-shape validation: ${preview.data.code || preview.data.error || preview.status}`);
+      assert.match(preview.data.html, /^<!doctype html>/);
+      assert.ok(preview.data.words > 0, `${label} should return a useful word count`);
+    }
+  }
+  const pkg = await seed();
+  const invalid = await request(`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0", ops: { length: 0 } });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.data.code, "invalid_model");
+  const malformedModel = structuredClone(model);
+  malformedModel.contract = "wrong-contract";
+  const malformedPkg = await seed(malformedModel);
+  const malformedPreview = await request(`${malformedPkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0" });
+  assert.equal(malformedPreview.status, 400);
+  assert.equal(malformedPreview.data.code, "invalid_model");
 });
 
 it("POST edits enforces stale base and one open proposal; SSE event order and shape", async (t) => {

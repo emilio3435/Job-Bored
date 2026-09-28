@@ -40,6 +40,7 @@ import { fileURLToPath } from "node:url";
 import {
   normalizeRequestBody,
   spawnMaterialsRequest,
+  withRepairIdempotency,
 } from "./materials-request.mjs";
 import {
   assertAllowedUploadName,
@@ -51,9 +52,9 @@ import {
 } from "./brand-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
-import { regeneratePackage } from "./materials-regenerate.mjs";
+import { regeneratePackage, templateRegenerateResponse } from "./materials-regenerate.mjs";
 import { registerMaterialsEditRoutes } from "./materials-versions.mjs";
-import { diffRuns, listRuns, promoteRun } from "./materials-history.mjs";
+import { diffRuns, listRuns, loadRepairSource, promoteRun } from "./materials-history.mjs";
 import { loadChecklist, setChecklistItem } from "./materials-checklist.mjs";
 import { buildDocx, DOCX_CONTENT_TYPE, EXPORTS, isExportName, linkedinText, servedRenderModel } from "./materials-export.mjs";
 import { listFamilies } from "./materials-templates.mjs";
@@ -1101,23 +1102,36 @@ app.post("/api/applications/:slug/request", async (req, res) => {
 app.post("/api/applications/:slug/repair", async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
-    const manifest = await buildManifest(req.params.slug);
-    const { payload: rawPayload, repair } = buildRepairRequestPayload(manifest, {
-      feature: body.feature,
-      jobUrl: body.jobUrl || body.job_url,
-      notes: body.notes,
+    if (body.requestId !== undefined && typeof body.requestId !== "string") {
+      throw Object.assign(new Error("Invalid requestId"), { statusCode: 400, code: "invalid_request_id" });
+    }
+    const result = await withRepairIdempotency(req.params.slug, body.requestId, async () => {
+      const manifest = await buildManifest(req.params.slug);
+      const feature = String(body.feature || "");
+      const source = await loadRepairSource(req.params.slug, /** @type {"resume" | "cover_letter"} */ (feature), typeof body.parentRunId === "string" ? body.parentRunId : undefined);
+      const { payload: rawPayload, repair } = buildRepairRequestPayload(manifest, {
+        feature,
+        source,
+        jobUrl: body.jobUrl || body.job_url,
+        instruction: body.instruction ?? body.notes,
+        issueIds: body.issueIds,
+        baseDocumentHash: body.baseDocumentHash,
+        requestId: body.requestId,
+      });
+      /* A repair keeps the package's family unless the request names one. */
+      const manifestTemplate = manifest && manifest.template && typeof manifest.template === "object"
+        ? /** @type {{ family?: unknown }} */ (manifest.template).family
+        : undefined;
+      const payload = normalizeRequestBody({
+        ...rawPayload,
+        template: body.template,
+        preferredTemplate: body.preferredTemplate || manifestTemplate,
+      });
+      payload.repair = rawPayload.repair;
+      const accepted = await spawnMaterialsRequest(payload);
+      return { ...accepted, repair };
     });
-    /* A repair keeps the package's family unless the request names one. */
-    const manifestTemplate = manifest && manifest.template && typeof manifest.template === "object"
-      ? /** @type {{ family?: unknown }} */ (manifest.template).family
-      : undefined;
-    const payload = normalizeRequestBody({
-      ...rawPayload,
-      template: body.template,
-      preferredTemplate: body.preferredTemplate || manifestTemplate,
-    });
-    const result = await spawnMaterialsRequest(payload);
-    res.json({ ...result, repair });
+    res.json(result);
   } catch (e) {
     sendAppError(res, e);
   }
@@ -1141,7 +1155,7 @@ app.post("/api/applications/:slug/regenerate", async (req, res) => {
         return saved.ok && isRecord(saved.profile) ? saved.profile.identity : null;
       },
     });
-    res.json(result);
+    res.json(templateRegenerateResponse(result));
   } catch (e) {
     sendAppError(res, e);
   }
@@ -1284,7 +1298,7 @@ app.post("/api/applications/:slug/runs/:runId/promote", async (req, res) => {
 app.get("/api/applications/:slug/runs-diff", async (req, res) => {
   try {
     const q = req.query;
-    res.json(await diffRuns(req.params.slug, String(q.a || ""), String(q.b || ""), String(q.doc || "")));
+    res.json(await diffRuns(req.params.slug, String(q.from || q.a || ""), String(q.to || q.b || ""), String(q.doc || "")));
   } catch (e) {
     sendAppError(res, e);
   }

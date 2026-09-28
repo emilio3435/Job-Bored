@@ -35,11 +35,18 @@ const RESUME_TWO_PAGE_MIN_PAGE_WORDS = 240;
  * as the UI reads it: rubric rows, disposition and why, degraded stages.
  * @typedef {object} DocumentQa
  * @property {string} runId
- * @property {"pass" | "review" | "fail"} status
+ * @property {"pass" | "review" | "fail"} [status]
  * @property {"READY" | "REVIEW" | "FAIL"} disposition
  * @property {string} dispositionReason
  * @property {string[]} degraded
- * @property {{ score: number, max: number, threshold: number, rows: Array<{ id: string, score: number, max: number, note: string }> }} rubric
+ * @property {{ score: number, max: number, threshold: number, rows: Array<{ id: string, score: number, max: number, note: string }> }} [rubric]
+ * @property {string} [textHash]
+ * @property {Record<string, unknown>} [quality]
+ * @property {Array<Record<string, unknown>>} [gates]
+ * @property {Array<Record<string, unknown>>} [issues]
+ * @property {string[]} [qualificationGaps]
+ * @property {Array<Record<string, unknown>>} [sentences]
+ * @property {Record<string, unknown>} [judge]
  * @property {{ attempted: boolean, before?: { status: string, score: number, max: number, codes: string[] } }} [repair]
  */
 
@@ -349,6 +356,16 @@ export async function auditApplicationMaterials(dir) {
   for (const [key, verdict] of /** @type {const} */ ([["resume", verdicts.resume], ["cover_letter", verdicts.letter]])) {
     const doc = documents[key];
     if (!doc || !verdict) continue;
+    if (verdict.contract === "materials.qa.v2") {
+      doc.status = verdict.disposition === "FAIL" ? "fail" : verdict.disposition === "REVIEW" ? "review" : "pass";
+      doc.qa = {
+        runId: verdict.runId, disposition: verdict.disposition, dispositionReason: verdict.dispositionReason,
+        textHash: verdict.textHash, quality: verdict.quality, gates: verdict.gates, issues: verdict.issues,
+        qualificationGaps: verdict.qualificationGaps, sentences: verdict.sentences, judge: verdict.judge,
+        degraded: verdict.degraded, repair: verdict.repair,
+      };
+      continue;
+    }
     for (const check of verdict.checks || []) {
       if (check.severity !== "fail" && check.severity !== "review") continue;
       if (doc.issues.some((item) => item.code === check.code)) continue;
@@ -356,22 +373,17 @@ export async function auditApplicationMaterials(dir) {
     }
     const rank = { pass: 0, review: 1, fail: 2 };
     const fromIssues = statusFor(doc.issues);
-    doc.status = (rank[verdict.status] ?? 0) > rank[fromIssues] ? verdict.status : fromIssues;
-    doc.qa = {
-      runId: verdict.runId,
-      status: verdict.status,
-      disposition: verdict.disposition,
-      dispositionReason: verdict.dispositionReason || "",
-      degraded: Array.isArray(verdict.degraded) ? verdict.degraded : [],
-      rubric: verdict.rubric,
-      ...(verdict.repair ? { repair: verdict.repair } : {}),
-    };
+    doc.status = (rank[/** @type {keyof typeof rank} */ (verdict.status)] ?? 0) > rank[fromIssues] ? verdict.status : fromIssues;
+    doc.qa = verdict;
   }
 
   const allIssues = Object.values(documents).flatMap((doc) => doc.issues || []);
+  const documentStatuses = Object.values(documents).map((doc) => doc.status);
+  const aggregateStatus = documentStatuses.includes("fail") ? "fail"
+    : documentStatuses.includes("review") ? "review" : statusFor(allIssues);
   return {
     version: QUALITY_VERSION,
-    status: statusFor(allIssues),
+    status: aggregateStatus,
     documents,
   };
 }

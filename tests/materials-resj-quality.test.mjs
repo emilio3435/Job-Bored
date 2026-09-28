@@ -107,10 +107,9 @@ describe("Q2, Q3, Q4 through the pipeline", () => {
       const extract = JSON.parse(await readFile(join(dir, "jd-extract.json"), "utf8"));
       assert.deepEqual(extract.degraded, { code: "no_pin", reason: "no model configured" });
       assert.equal(typeof extract.quality.score, "number");
-      const gateStage = run.stages.find((/** @type {{ stage: string }} */ s) => s.stage === "jd.gate");
-      assert.match(gateStage.detail, /2 role section\(s\), 8 duty line\(s\), 2 requirements block\(s\), 3 company fact\(s\)/);
-      const extractStage = run.stages.find((/** @type {{ stage: string }} */ s) => s.stage === "jd.extract");
-      assert.match(extractStage.detail, /evidence \d/);
+      const prepare = run.stages.find((/** @type {{ stage: string }} */ s) => s.stage === "prepare");
+      assert.match(prepare.detail, /2 role section\(s\), 8 duty line\(s\), 2 requirements block\(s\), 3 company fact\(s\)/);
+      assert.match(prepare.detail, /evidence \d/);
 
       /* Q4 */
       const selection = JSON.parse(await readFile(join(dir, "selection.json"), "utf8"));
@@ -118,8 +117,8 @@ describe("Q2, Q3, Q4 through the pipeline", () => {
       assert.equal(selection.coverage.length, extract.outcomes.length);
       for (const row of selection.coverage) assert.ok(Array.isArray(row.claimIds));
       assert.equal(typeof selection.dropTally, "object");
-      const selectStage = run.stages.find((/** @type {{ stage: string }} */ s) => s.stage === "claims.select");
-      assert.match(selectStage.detail, /outcomes \S+:\d/);
+      assert.match(prepare.detail, /outcomes \S+:\d/);
+      assert.match(prepare.detail, /drops (?:\S+:\d|none)/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

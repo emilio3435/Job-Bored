@@ -18,7 +18,7 @@ import {
   spawnMaterialsRequest,
 } from "../server/materials-request.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 import { buildRepairRequestPayload } from "../server/materials-repair.mjs";
 import { critiqueMaterials } from "../server/materials-critic.mjs";
 import {
@@ -123,8 +123,14 @@ describe("C11 repair path redrafts from the resume snapshot", () => {
       slug: "acme-ops-analyst",
       company: "Acme",
       title: "Ops Analyst",
-      quality: { documents: { resume: { issues: [{ code: "keyword_coverage_low", message: "thin" }] } } },
-    }, { feature: "resume" });
+    }, {
+      feature: "resume",
+      instruction: "Tighten the summary",
+      source: {
+        feature: "resume", parentRunId: "r1", sourceText: "Original resume",
+        sourceDraft: { statement: "Original resume", bullets: [] }, qa: null,
+      },
+    });
     assert.equal(payload.resumeFrom, "snapshot");
     const normalized = normalizeRequestBody(payload);
     assert.equal(normalized.resume, null);
@@ -214,9 +220,9 @@ describe("C11 drafter drafts from the user's resume", () => {
     await drafter.runUntilIdle();
 
     assert.ok(stub.calls.length > 0, "model stages should run");
-    const selectCall = stub.calls.find((c) => c.system.includes("select resume claims"));
-    assert.ok(selectCall, "select call issued");
-    assert.match(selectCall.user, /carrier scorecard/);
+    const writeCall = stub.calls.find((c) => c.system.startsWith("Goal: Write truthful"));
+    assert.ok(writeCall, "write call issued");
+    assert.match(writeCall.user, /carrier scorecard/);
     for (const call of stub.calls) {
       assert.doesNotMatch(call.user, /Emilio|Audacy/);
     }

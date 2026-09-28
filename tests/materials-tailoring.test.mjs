@@ -21,7 +21,7 @@ import { normalizeRequestBody } from "../server/materials-request.mjs";
 import { selectClaims, validateSelection } from "../server/materials-select.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 const fixture = (/** @type {string} */ path) => readFileSync(new URL(`./fixtures/${path}`, import.meta.url), "utf8");
 const NORTHWIND_JD = fixture("jobs/northwind-director-digital-sales.txt");
@@ -171,7 +171,7 @@ describe("claims.select proofs per pain point (K4 / P-6)", () => {
     assert.ok(![proof1, proof2].includes("contoso-enable"), "coaching is not an analytics proof");
   });
 
-  it("should send the model the role, family, seniority and outcomes (P-6)", async () => {
+  it("should select role proof from ranked claims without a select-model call (MREV-6)", async () => {
     const extract = northwindExtract();
     const shortlist = scoreClaims({ extract, ledger: LEDGER, limit: 10 });
     const { fetchImpl, calls } = stubFetch([
@@ -183,13 +183,15 @@ describe("claims.select proofs per pain point (K4 / P-6)", () => {
       }),
     ]);
     const { selection } = await selectClaims({ extract, shortlist, ledger: LEDGER, pin: PIN, fetchImpl });
-    const user = calls[0].user;
-    assert.match(user, /Director, Digital Sales at NorthwindMedia, Inc\. \(family: sales, seniority: director\)/);
-    for (const o of extract.outcomes) assert.ok(user.includes(o.text), `outcome ${o.id} missing from the select prompt`);
-    assert.match(calls[0].system, /proof1.*painId|painId/);
+    assert.equal(calls.length, 0, "claim selection is deterministic");
+    assert.equal(extract.role.family, "sales");
+    assert.equal(extract.role.seniority, "director");
+    assert.deepEqual(selection.coverage.map((row) => row.outcomeId), extract.outcomes.map((outcome) => outcome.id));
     const kept = new Set(selection.kept.map((k) => k.claimId));
-    assert.ok(kept.has(selection.letter.proof1), "an unkept model proof is repaired from the kept set");
-    assert.notEqual(selection.letter.proof2Pain, "o9", "an unknown pain id is not kept");
+    assert.ok(kept.has(selection.letter.proof1), "proof one comes from the kept set");
+    assert.ok(kept.has(selection.letter.proof2), "proof two comes from the kept set");
+    assert.ok(extract.outcomes.some((outcome) => outcome.id === selection.letter.proof1Pain));
+    assert.ok(extract.outcomes.some((outcome) => outcome.id === selection.letter.proof2Pain));
   });
 });
 
@@ -270,7 +272,7 @@ describe("request payload carries the role's enrichment (C-4)", () => {
       });
       await drafter.enqueue(payload);
       await drafter.runUntilIdle();
-      const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+      const draftCall = stub.calls.find((c) => c.system.startsWith("Goal: Write truthful"));
       assert.ok(draftCall, "draft call issued");
       assert.match(draftCall.user, /Fit angle \(the thesis to argue\): Operator: lead with the carrier scorecard/);
       assert.match(draftCall.user, /Talking points: Cut late shipments/);
@@ -288,20 +290,21 @@ describe("request payload carries the role's enrichment (C-4)", () => {
 describe("letter-only golden on the cached Northwind posting (C-1 / P-1 / K4)", () => {
   it("should give the draft prompt the company, title, outcomes, employer-bound claims and the word band", async () => {
     const extract = northwindExtract();
-    const { outline } = await plan(extract, "cover_letter");
+    const { shortlist, outline } = await plan(extract, "cover_letter");
     const { fetchImpl, calls } = stubFetch([JSON.stringify(LETTER_REPLY)]);
-    await draftSlots({ outline, extract, ledger: LEDGER, feature: "cover_letter", letterWords: [120, 200], pin: PIN, fetchImpl });
+    await draftSlots({ outline, extract, ledger: LEDGER, feature: "cover_letter", letterWords: [120, 200], rankedClaimIds: shortlist.map((item) => item.claimId), pin: PIN, fetchImpl });
     const { system, user } = calls[0];
     assert.match(user, /^Company: NorthwindMedia$/m, "legal suffix dropped for the letter");
     assert.match(user, /^Job title: Director, Digital Sales$/m);
     for (const o of extract.outcomes) assert.ok(user.includes(o.text), `outcome ${o.id} missing`);
     assert.ok(user.includes(`- contoso-book: ${claimOf("contoso-book").text}\n  from: Contoso · Digital Sales Manager · 2021–2026 · metrics: $12M+`), "prompt carries the exact fictional claim, employer and metric");
     assert.match(user, /Letter word band: 120-200 words/);
-    assert.match(user, /7 times larger/, "company facts from the posting");
-    assert.match(user, /Proof order for this role family \(the voice guide above still applies\):\n- Lead: Lead with book size/);
+    assert.match(user, /88% of Residents/, "company facts from the posting");
+    assert.match(user, /Role family context \(use where the claims support it\):\n- Lead: Lead with book size/);
     assert.match(system, /Letter band: 120-200 words/);
-    assert.match(system, /Letter shape: THREE short paragraphs/);
-    assert.match(system, /Rule 1: the hook opens with the most relevant fact about the candidate for this role/);
+    assert.match(system, /three short letter paragraphs/);
+    assert.match(system, /Choose the evidence that makes the strongest honest argument/);
+    assert.doesNotMatch(system, /company within the first 40 words|3-4 sentences/i);
     assert.doesNotMatch(user, /Featured claims/, "a letter-only run sends no resume slots");
   });
 
