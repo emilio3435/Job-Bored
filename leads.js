@@ -993,16 +993,29 @@
     if (get("data-facet") !== null) return 'input[data-facet="' + attrValue(get("data-facet")) + '"][value="' + attrValue(el.value != null ? el.value : get("value")) + '"]';
     if (get("data-lens") !== null) return '[data-lens="' + attrValue(get("data-lens")) + '"]';
     if (get("data-view") !== null) return '[data-view="' + attrValue(get("data-view")) + '"]';
-    if (get("data-chip") !== null) return '[data-chip="' + attrValue(get("data-chip")) + '"]';
+    if (get("data-chip") !== null) {
+      /* The chip bar and the no-match loosen buttons can share a chip id;
+         stay in the slot the focused control came from. */
+      var within = typeof el.closest === "function" && el.closest(".jbl-loosen") ? ".jbl-loosen " : ".jbl-chips ";
+      return within + '[data-chip="' + attrValue(get("data-chip")) + '"]';
+    }
     if (get("data-hidden") !== null) return "[data-hidden]";
     if (get("data-company-all") !== null) return "[data-company-all]";
-    if (get("data-view-delete") !== null) return '[data-jbl="save-view"]';
+    if (get("data-view-delete") !== null) return '[data-view-delete="' + attrValue(get("data-view-delete")) + '"]';
     return null;
+  }
+
+  /** Where focus goes when the control is gone after the repaint. */
+  function focusFallbackFor(el) {
+    if (el && typeof el.getAttribute === "function" && (el.getAttribute("data-view-delete") !== null || el.getAttribute("data-view") !== null)) {
+      return '[data-jbl="save-view"]';
+    }
+    return "#leadsSearch";
   }
 
   /**
    * What a keydown does on the Leads view. `ctx`: { key, typing, modified,
-   * menuOpen, gPending, mode, inSearch, onRow }. While the row menu is open
+   * menuOpen, inSelect, gPending, mode, inSearch, onRow }. While the row menu is open
    * only Escape and the menu's own arrow keys act, so a letter never hits
    * the lead behind it.
    */
@@ -1010,6 +1023,8 @@
     var key = ctx.key;
     if (key === "Escape") return "escape";
     if (ctx.menuOpen) {
+      /* Arrows inside Move stage change the stage; the select owns them. */
+      if (ctx.inSelect && (key === "ArrowDown" || key === "ArrowUp" || key === "Home" || key === "End")) return "none";
       if (key === "ArrowDown") return "menu-next";
       if (key === "ArrowUp") return "menu-prev";
       if (key === "Home") return "menu-first";
@@ -1168,6 +1183,7 @@
     /* ...and on the same control (a lens tab, segment, checkbox, chip or
        saved view) when the slot it sits in is rebuilt. */
     var focusSel = !focusedRow && focused && page.region.contains(focused) ? focusSelectorFor(focused) : null;
+    var focusFallback = focusSel ? focusFallbackFor(focused) : null;
     var m = page.ctl.model();
     var extra = m.status === "no-match" ? { loosen: page.ctl.loosenOptions() } : null;
     var parts = render(m, extra);
@@ -1208,7 +1224,7 @@
       }
     }
     if (focusSel && !page.region.contains(d.activeElement)) {
-      var control = page.region.querySelector(focusSel) || page.region.querySelector("#leadsSearch");
+      var control = page.region.querySelector(focusSel) || page.region.querySelector(focusFallback);
       if (control) {
         try { control.focus({ preventScroll: true }); } catch (_) { control.focus(); }
       }
@@ -1521,6 +1537,7 @@
       typing: isTyping(t),
       modified: !!(e.metaKey || e.ctrlKey || e.altKey),
       menuOpen: page.menuFor !== null,
+      inSelect: !!(t && String(t.tagName || "") === "SELECT"),
       gPending: page.gPending,
       mode: page.ctl.getMode(),
       inSearch: !!(t && t.id === "leadsSearch"),
@@ -1673,6 +1690,7 @@
     MODE_EVENT: MODE_EVENT,
     createController: createController,
     focusSelectorFor: focusSelectorFor,
+    focusFallbackFor: focusFallbackFor,
     routeKey: routeKey,
     pausableTimer: pausableTimer,
     UNDO_TOAST_MS: UNDO_TOAST_MS,

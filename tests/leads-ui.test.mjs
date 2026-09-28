@@ -386,8 +386,12 @@ describe("Row actions", () => {
 /* ---------------- Grok LF review (VERDICT-GROK-LF.md) ---------------- */
 
 /** Minimal element: getAttribute over a plain map, plus `value`. */
-function fakeEl(attrs, value) {
-  return { getAttribute: (k) => (k in attrs ? attrs[k] : null), value };
+function fakeEl(attrs, value, inside = []) {
+  return {
+    getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    closest: (sel) => (inside.includes(sel) ? {} : null),
+    value,
+  };
 }
 
 /** The body of `@media (max-width: 900px) { ... }` in leads.css. */
@@ -409,7 +413,7 @@ describe("LF-1: focus survives a slot repaint", () => {
     assert.equal(sel(fakeEl({ "data-min": "fitMin", "data-value": "7" })), '[data-min="fitMin"][data-value="7"]');
     assert.equal(sel(fakeEl({ "data-facet": "workModes", value: "remote" }, "remote")), 'input[data-facet="workModes"][value="remote"]');
     assert.equal(sel(fakeEl({ "data-lens": "Revenue Operations" })), '[data-lens="Revenue Operations"]');
-    assert.equal(sel(fakeEl({ "data-chip": "stages:New" })), '[data-chip="stages:New"]');
+    assert.equal(sel(fakeEl({ "data-chip": "stages:New" }, undefined, [".jbl-chips"])), '.jbl-chips [data-chip="stages:New"]');
     assert.equal(sel(fakeEl({ "data-view": "v1" })), '[data-view="v1"]');
     assert.equal(sel(fakeEl({ "data-facet": "companies" }, 'Say "hi"')), 'input[data-facet="companies"][value="Say \\"hi\\""]');
     assert.equal(sel(fakeEl({})), null, "anything else is not a repainted control");
@@ -534,5 +538,44 @@ describe("LF-5: the Undo toast", () => {
     listeners.focusout({ relatedTarget: null });
     listeners.mouseleave();
     assert.equal(calls.length, 1, "not dismissed synchronously");
+  });
+});
+
+describe("LF-6: focus targets after a repaint (round 2)", () => {
+  it("a focused saved-view delete comes back to that view's delete, then to Save view if it is gone", () => {
+    const { leads } = setup();
+    const del = fakeEl({ "data-view-delete": "v1" });
+    assert.equal(leads.focusSelectorFor(del), '[data-view-delete="v1"]');
+    assert.equal(leads.focusFallbackFor(del), '[data-jbl="save-view"]');
+    assert.equal(leads.focusFallbackFor(fakeEl({ "data-chip": "q" })), "#leadsSearch");
+  });
+
+  it("a chip selector stays in its own slot: chip bar vs. no-match loosen buttons", () => {
+    const { leads, ctl } = setup();
+    const inBar = fakeEl({ "data-chip": "fitMin" }, undefined, [".jbl-chips"]);
+    const inLoosen = fakeEl({ "data-chip": "fitMin" }, undefined, [".jbl-loosen"]);
+    assert.equal(leads.focusSelectorFor(inBar), '.jbl-chips [data-chip="fitMin"]');
+    assert.equal(leads.focusSelectorFor(inLoosen), '.jbl-loosen [data-chip="fitMin"]');
+    // Both slots really do carry the same id when nothing matches.
+    ctl.setMin("fitMin", 8);
+    ctl.toggleFacet("workModes", "hybrid", true);
+    const parts = leads.render(ctl.model(), { loosen: ctl.loosenOptions() });
+    assert.match(parts.chips, /data-chip="fitMin"/);
+    assert.match(parts.rows, /class="jbl-loosen"[\s\S]*data-chip="fitMin"/);
+  });
+});
+
+describe("LF-7: the Move stage select keeps its arrows", () => {
+  const base = { typing: true, modified: false, gPending: false, mode: "filters", inSearch: false, onRow: false, menuOpen: true };
+  it("arrows inside the select belong to the select; Escape still closes the menu", () => {
+    const { leads } = setup();
+    for (const key of ["ArrowDown", "ArrowUp", "Home", "End"]) {
+      assert.equal(leads.routeKey({ ...base, key, inSelect: true }), "none", key);
+    }
+    assert.equal(leads.routeKey({ ...base, key: "Escape", inSelect: true }), "escape");
+    for (const key of ["j", "k", "x", "f", "o", "d"]) {
+      assert.equal(leads.routeKey({ ...base, key, inSelect: true }), "none", key);
+    }
+    assert.equal(leads.routeKey({ ...base, typing: false, key: "ArrowDown", inSelect: false }), "menu-next", "on a menu button the arrows still rove");
   });
 });
