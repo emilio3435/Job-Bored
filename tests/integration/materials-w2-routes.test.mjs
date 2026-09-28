@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createMaterialsDrafter } from "../../server/materials-drafter.mjs";
-import { scriptedPipelineFetch } from "../fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "../materials-mrev-stub.test.mjs";
 import { W3_INTEL, W3_OUTREACH, W3_OUTREACH_TXT } from "../fixtures/materials-w3-package.mjs";
 
 /* ============================================================
@@ -210,6 +210,9 @@ describe("GET /api/applications/:slug/runs-diff", () => {
     for (const line of body.lines) assert.match(line.op, /^(same|add|del)$/);
     assert.equal(body.added, body.lines.filter((l) => l.op === "add").length);
     assert.ok(body.lines.some((l) => l.op === "same" && /Jordan Rivera/.test(l.text)), "the name line is shared");
+    const aliased = await call("GET", `/api/applications/${SLUG}/runs-diff?from=${resumes[1].runId}&to=${resumes[0].runId}&doc=resume`);
+    assert.equal(aliased.status, 200);
+    assert.deepEqual(aliased.body, body, "from/to are aliases for a/b");
   });
 
   it("should refuse a run id that tries to leave the runs folder", async () => {
@@ -223,6 +226,29 @@ describe("GET /api/applications/:slug/runs-diff", () => {
     const { status, body } = await call("GET", `/api/applications/${SLUG}/runs-diff?a=${id}&b=${id}&doc=portfolio`);
     assert.equal(status, 400);
     assert.equal(body.code, "invalid_doc");
+  });
+});
+
+describe("POST /api/applications/:slug/repair", () => {
+  it("C2 and G3: returns 409 before enqueue when the run lacks its per-document draft", async () => {
+    const runsDir = join(appsRoot, SLUG, "runs");
+    const before = readdirSync(runsDir);
+    const { body: listing } = await call("GET", `/api/applications/${SLUG}/runs`);
+    const latestResume = listing.runs.find((run) => run.documents.includes("resume"));
+    const draftPath = join(runsDir, latestResume.runId, "draft.resume.json");
+    const originalDraft = readFileSync(draftPath);
+    try {
+      writeFileSync(draftPath, "{}");
+      const result = await call("POST", `/api/applications/${SLUG}/repair`, {
+        feature: "resume", instruction: "Tighten the summary", jobUrl: "https://example.com/job",
+      });
+      assert.equal(result.status, 409, JSON.stringify(result.body));
+      assert.equal(result.body.code, "repair_source_missing");
+      assert.deepEqual(readdirSync(runsDir), before);
+      assert.equal(existsSync(join(appsRoot, SLUG, "pending.json")), false);
+    } finally {
+      writeFileSync(draftPath, originalDraft);
+    }
   });
 });
 

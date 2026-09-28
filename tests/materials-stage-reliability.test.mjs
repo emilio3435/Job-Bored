@@ -19,6 +19,7 @@ import { loadLlmConfig, resolveActivePin, handlePostLlmConfig } from "../server/
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
+import { scriptedMrevFetch } from "./materials-mrev-stub.test.mjs";
 
 const REPLIES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "materials", "stage-replies");
 const reply = (/** @type {string} */ name) => JSON.parse(readFileSync(join(REPLIES, name), "utf8"));
@@ -334,64 +335,45 @@ describe("cache key and degraded runs (P-8)", () => {
     experiences: [{ slug: "northwind", company: "Northwind", title: "Digital Sales Manager" }],
     hardConstraints: { workMode: "any" },
   };
-  const PIN = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
+  const PIN = { provider: "local", model: "stub", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
 
-  /* Healthy replies per stage, keyed off the system prompt. `length` on the
+  /* Current extract, document-writer and judge replies. `length` on the
    * first extract call proves the truncation retry lands in run.json. */
   function healthyFetch({ truncateFirstExtract = false, inventNumbers = false } = {}) {
     let calls = 0;
     let extractCalls = 0;
-    const fetchImpl = async (_url, init) => {
+    const scripted = scriptedMrevFetch();
+    const fetchImpl = async (url, init) => {
       calls += 1;
       const body = JSON.parse(init.body);
-      const system = body.messages[0].content;
-      const user = body.messages[1].content;
-      let content;
-      let finish = "stop";
-      if (/job posting/.test(system)) {
+      const system = String(body.messages?.[0]?.content || "");
+      if (system.startsWith("You read a job posting")) {
         extractCalls += 1;
         if (truncateFirstExtract && extractCalls === 1) {
-          finish = "length";
-          content = '{"outcomes":[';
-        } else {
-          content = JSON.stringify({
-            outcomes: [{ id: "pipe", text: "Own pipeline math with analysts", weight: 0.9 }],
-            differentiators: [],
-            bars: [],
-            constraints: [],
-            echoBans: [],
-            nounWeights: {},
-          });
+          return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "length", message: { content: '{"outcomes":[' } }] }) };
         }
-      } else if (/^\d+\. /m.test(user)) {
-        const ids = [...user.matchAll(/^(\d+)\. (\S+)/gm)].map((m) => m[2]);
-        const kept = ids.slice(0, 5);
-        content = JSON.stringify({
-          kept: kept.map((claimId, i) => ({ claimId, slot: `resume.featured.pick.b${i + 1}`, reason: "fits" })),
-          dropped: ids.slice(5).map((claimId) => ({ claimId, code: "budget", reason: "outside" })),
-          transfers: [],
-          letter: { analyticsProof: kept[0], aiOpsProof: kept[1] || kept[0] },
-        });
-      } else {
-        const featured = [...user.matchAll(/^- (\S+): /gm)].map((m) => m[1]);
-        const spelled = ["one", "two", "three", "four", "five", "six", "seven"];
-        content = JSON.stringify({
-          statement: "Sales leader with analytics depth.",
-          bullets: featured.map((claimId, i) => ({ claimId, text: inventNumbers
-            ? `Drafted work item ${i + 1} with concrete outcomes.`
-            : `Drafted work item ${spelled[i] || "next"} with concrete outcomes.` })),
-          earlier: [],
-          /* L4's QA gate: the letter names the company early and twice and
-           * grounds each proof in a ledger claim, so a healthy run is not FAIL. */
-          letter: {
-            thesis: "Acme Analytics is hiring someone to keep its pipelines honest for the analysts who depend on them, and that is the work I have done for years with clear weekly readouts.",
-            analyticsProof: "At Northwind I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and led the market to a 60% digital revenue mix, owning the pipeline math with analysts every week.",
-            aiOpsProof: "I shipped an SEM forecast tool that ran 24+ forecasts against $3.1M of pipeline, and built streaming ingestion for analytics events with Kafka and Postgres.",
-            nextStep: "I would start by tracing one Acme Analytics pipeline from source to readout, and would be glad to walk your team through that plan on a short call.",
-          },
-        });
       }
-      return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: finish, message: { content } }] }) };
+      const response = await scripted.fetchImpl(url, init);
+      const payload = await response.json();
+      if (payload.choices?.[0] && !payload.choices[0].finish_reason) payload.choices[0].finish_reason = "stop";
+      const content = payload.choices?.[0]?.message?.content;
+      if (content && inventNumbers && system.startsWith("Goal: Write truthful")) {
+        const draft = JSON.parse(content);
+        draft.statement = `${draft.statement} Delivered 9999% growth.`;
+        payload.choices[0].message.content = JSON.stringify(draft);
+      }
+      if (content && inventNumbers && system.startsWith("Goal: assess whether")) {
+        const judgment = JSON.parse(content);
+        const source = String(body.messages?.[1]?.content || "");
+        if (source.includes("9999%")) for (const doc of judgment.documents || []) {
+          if (doc.document !== "resume" || !doc.sentences?.length) continue;
+          doc.sentences[0].status = "unsupported";
+          doc.sentences[0].reason = "No source contains the invented 9999% result.";
+          doc.sentences[0].citations = [];
+        }
+        payload.choices[0].message.content = JSON.stringify(judgment);
+      }
+      return { ok: true, status: 200, json: async () => payload };
     };
     return { fetchImpl, count: () => calls };
   }
@@ -436,7 +418,7 @@ describe("cache key and degraded runs (P-8)", () => {
     const run1 = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(validateRunRecord(run1).ok, true, JSON.stringify(validateRunRecord(run1).errors));
     assert.equal(run1.cacheKey, undefined, "a degraded run writes no cache key");
-    const extract1 = run1.stages.find((s) => s.stage === "jd.extract");
+    const extract1 = run1.stages.find((s) => s.stage === "prepare");
     assert.equal(extract1.status, "review");
     assert.equal(extract1.call.errorCode, "invalid_json");
     assert.equal(extract1.call.attempts, 2);
@@ -450,14 +432,14 @@ describe("cache key and degraded runs (P-8)", () => {
     assert.deepEqual(two.degraded, []);
     const run2 = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(validateRunRecord(run2).ok, true, JSON.stringify(validateRunRecord(run2).errors));
-    const extract2 = run2.stages.find((s) => s.stage === "jd.extract");
+    const extract2 = run2.stages.find((s) => s.stage === "prepare");
     assert.equal(extract2.status, "ok");
     assert.equal(extract2.call.attempts, 2);
     assert.equal(extract2.call.trace[0].finishReason, "length");
     assert.equal(extract2.call.trace[0].errorCode, "writer_truncated");
     assert.equal(extract2.call.finishReason, "stop");
     assert.notEqual(two.qa.status, "fail");
-    assert.match(run2.cacheKey, /\|local:stub$/);
+    assert.match(run2.cacheKey, /\|local:stub;judge=local:stub$/);
     /* Run 3: the healthy run is cacheable. */
     const three = await runPipeline({ ...base(), runId: "run-3", fetchImpl: async () => { throw new Error("must not call"); } });
     assert.equal(three.outcome, "cached");
@@ -470,7 +452,8 @@ describe("cache key and degraded runs (P-8)", () => {
     assert.equal(one.qa.status, "fail");
     const run1 = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(run1.cacheKey, undefined);
-    assert.match(run1.stages.find((s) => s.stage === "publish").detail, /not cached: QA failed/);
+    assert.equal(run1.stages.at(-1).stage, "save");
+    assert.equal(run1.stages.at(-1).status, "ok");
     const healthy = healthyFetch();
     const two = await runPipeline({ ...base(), runId: "run-after-fail", fetchImpl: healthy.fetchImpl });
     assert.equal(two.outcome, "published");

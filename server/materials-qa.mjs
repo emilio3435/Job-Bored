@@ -1,251 +1,165 @@
-/**
- * Materials v3 — per-document QA records (Wave 1 L4: K6, P-10, P-16b).
- *
- * Each run writes one verdict per document it produced — qa.resume.json
- * and qa.letter.json — so a later letter run never overwrites the
- * resume's verdict. A record carries every rubric row, the disposition
- * (READY / REVIEW / FAIL) with its reason, and the degraded stages, which
- * is what the manifest exposes to the UI.
- *
- * The report lists every rubric row below max: "Issues: None" only ever
- * appears on a full-marks document with no issues (rule 10).
- */
-
+/** Per-document QA v2: hard gates plus a validated independent judgment. */
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { hashRenderedText, splitSentences } from "./materials-judge.mjs";
 
-export const QA_CONTRACT = "materials.qa.v1";
+export const QA_CONTRACT = "materials.qa.v2";
+export const QA_CONTRACT_V1 = "materials.qa.v1";
+export const QUALITY_WEIGHTS = Object.freeze({ role_relevance: 30, evidence_quality: 25, voice: 20, coherence: 15, economy: 10 });
 
-/** @typedef {"resume" | "letter"} QaDocument */
-/** @typedef {{ code: string, message: string, severity: "review" | "fail" }} QaIssue */
-/** @typedef {{ id: string, score: number, max: number, note: string }} QaRow */
+/** @param {"letter" | "resume"} document */
+export function qaFileName(document) { return document === "letter" ? "qa.letter.json" : "qa.resume.json"; }
 
-/**
- * @typedef {object} QaRecord
- * @property {"materials.qa.v1"} contract
- * @property {QaDocument} document
- * @property {string} runId
- * @property {"pass" | "review" | "fail"} status
- * @property {"READY" | "REVIEW" | "FAIL"} disposition
- * @property {string} [dispositionReason]
- * @property {string[]} degraded
- * @property {Record<string, unknown>} measurements
- * @property {{ score: number, max: number, threshold: number, rows: QaRow[] }} rubric
- * @property {Array<{ code: string, severity: "pass" | "note" | "review" | "fail", stage: string, message: string }>} checks
- * @property {{ attempted: boolean, before?: { status: string, score: number, max: number, codes: string[] } }} [repair]
- */
-
-/** @param {QaDocument} document */
-export function qaFileName(document) {
-  return document === "letter" ? "qa.letter.json" : "qa.resume.json";
-}
-
-/**
- * Which document a pipeline issue belongs to: tag-metric issues by their
- * draft field, critic issues by their code.
- * @param {{ code?: unknown, field?: unknown }} issue
- * @returns {QaDocument | "both"}
- */
-export function issueDocument(issue) {
-  const field = typeof issue.field === "string" ? issue.field : "";
+/** Retained while B1 moves its old pipeline issue routing to gates. */
+export function issueDocument(/** @type {{ code?: string, field?: string }} */ issue) {
+  const field = issue.field || "";
   if (field) return field.startsWith("letter") ? "letter" : "resume";
-  const code = typeof issue.code === "string" ? issue.code : "";
+  const code = issue.code || "";
   if (code.startsWith("resume_") || code === "frozen_fact_broken" || code === "invented_employer") return "resume";
   if (code.startsWith("cover_letter_") || code === "jd_echo" || code === "banned_filler") return "letter";
   return "both";
 }
 
 /**
- * Rubric rows that are gates, not just points: a zero here names the
- * failure in the issue list.
- * @param {QaDocument} document
- * @param {{ rows: QaRow[] }} rubric
- * @returns {QaIssue[]}
- */
-export function rubricIssues(document, rubric) {
-  /** @type {Record<string, { code: string, severity: "review" | "fail" }>} */
-  const gates = document === "letter"
-    ? {
-      transfer_honesty: { code: "transfer_overclaim", severity: "fail" },
-      company_specificity: { code: "company_unnamed", severity: "fail" },
-      letter_ungrounded: { code: "letter_ungrounded", severity: "fail" },
-      metric_in_letter: { code: "metric_in_letter", severity: "review" },
-    }
-    : {
-      transfer_honesty: { code: "transfer_overclaim", severity: "fail" },
-      omission_record: { code: "omission_justified", severity: "fail" },
-      metric_dropped: { code: "metric_dropped", severity: "review" },
-      underfill: { code: "underfill", severity: "review" },
-    };
-  /** @type {QaIssue[]} */
-  const out = [];
-  for (const row of rubric.rows) {
-    const gate = gates[row.id];
-    if (gate && row.score === 0) out.push({ code: gate.code, message: row.note, severity: gate.severity });
-    /* READY needs a letter that sounds human: a hard tell fails (and
-     * earns the one automatic repair), a single soft tell is REVIEW. */
-    if (document === "letter" && row.id === "sounds_human" && row.score < row.max) {
-      out.push({ code: "sounds_machine", message: row.note, severity: row.score === 0 ? "fail" : "review" });
-    }
-  }
-  return out;
-}
-
-/**
  * @param {object} input
- * @param {QaDocument} input.document
+ * @param {"letter" | "resume"} input.document
  * @param {string} input.runId
- * @param {QaIssue[]} input.issues
- * @param {{ rows: QaRow[], total: number, max: number, threshold: number }} input.rubric
+ * @param {string} input.finalText
+ * @param {string} input.textHash
+ * @param {Array<{ id: string, kind: "hard" | "advisory" | "constraint", pass: boolean, reason: string, sentenceIds: string[], action?: "rewrite" | "needs_evidence" | "none" }>} [input.gates]
+ * @param {{ status: "ok" | "unavailable" | "invalid", judgment?: { documents?: any[] }, meta?: Record<string, any> }} [input.judge]
+ * @param {Array<{ id: string, pass: boolean, reason: string, sentenceIds: string[], action?: "rewrite" | "needs_evidence" | "none" }>} [input.constraints]
  * @param {string[]} [input.degraded]
- * @param {Record<string, unknown>} [input.measurements]
- * @param {QaRecord["repair"]} [input.repair]
- * @returns {QaRecord}
+ * @param {{ attempted?: boolean, parentRunId?: string, changed?: boolean, adopted?: boolean, before?: string, after?: string }} [input.repair]
  */
-export function buildQaRecord({ document, runId, issues, rubric, degraded = [], measurements = {}, repair }) {
-  const hasFail = issues.some((i) => i.severity === "fail");
-  /** @type {QaRecord["status"]} */
-  const status = hasFail
-    ? "fail"
-    : issues.length || rubric.total < rubric.threshold || degraded.length ? "review" : "pass";
-  /** @type {QaRecord["disposition"]} */
-  const disposition = status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW";
-  const firstFail = issues.find((i) => i.severity === "fail");
-  const reason = firstFail?.message
-    || issues[0]?.message
-    || (rubric.total < rubric.threshold ? `rubric ${rubric.total}/${rubric.max} below ${rubric.threshold}` : "")
-    || (degraded[0] ? `degraded: ${degraded[0]}` : "");
-  const belowMax = rubric.rows.filter((row) => row.score < row.max);
-  /** @type {QaRecord["checks"]} */
-  const checks = [
-    ...issues.map((i) => ({ code: i.code, severity: i.severity, stage: "qa", message: i.message })),
-    /* Every row below max is listed; one an issue already names is not
-     * repeated as a note. */
-    ...belowMax.filter((row) => !issues.some((i) => i.message === row.note)).map((row) => ({
-      code: `rubric.${row.id}`,
-      severity: /** @type {const} */ ("note"),
-      stage: "qa",
-      message: `${row.id} ${row.score}/${row.max}: ${row.note}`,
-    })),
+export function buildQaRecord({ document, runId, finalText, textHash, gates = [], judge = { status: "invalid" }, constraints = [], degraded = [], repair }) {
+  const expectedHash = hashRenderedText(finalText);
+  const judgedDocument = judge.status === "ok" && Array.isArray(judge.judgment?.documents)
+    ? judge.judgment.documents.find((/** @type {any} */ item) => item.document === document && item.textHash === textHash)
+    : null;
+  const judgeStatus = judge.status === "ok" && !judgedDocument ? "invalid" : judge.status;
+  const sourceSentences = splitSentences(finalText, document);
+  const judgedSentences = new Map((judgedDocument?.sentences || []).map((/** @type {any} */ item) => [item.id, item]));
+  const sentences = sourceSentences.map(({ id, text }) => {
+    const judged = judgedSentences.get(id);
+    return { id, text, status: judged?.status || "uncertain", reason: judged?.reason || "The judge did not assess this sentence.", citations: judged?.citations || [] };
+  });
+  const ratings = (judgedDocument?.ratings || []).map((/** @type {any} */ rating) => ({
+    dimension: rating.dimension, score: rating.score, weight: QUALITY_WEIGHTS[/** @type {keyof typeof QUALITY_WEIGHTS} */ (rating.dimension)],
+    reason: rating.reason, sentenceIds: rating.sentenceIds,
+  }));
+  const score = judgeStatus === "ok" && ratings.length === 5
+    ? Math.round(ratings.reduce((/** @type {number} */ sum, /** @type {any} */ rating) => sum + rating.score / 4 * rating.weight, 0)) : null;
+  const normalizedGates = [
+    ...gates.map((gate) => ({ id: gate.id, kind: gate.kind, pass: Boolean(gate.pass), reason: gate.reason, sentenceIds: gate.sentenceIds || [] })),
+    ...constraints.map((gate) => ({ id: gate.id, kind: "constraint", pass: Boolean(gate.pass), reason: gate.reason, sentenceIds: gate.sentenceIds || [] })),
   ];
-  if (!checks.length) {
-    checks.push({ code: "qa_clean", severity: "pass", stage: "qa", message: `rubric ${rubric.total}/${rubric.max}, no issues` });
+  const autoParity = textHash !== expectedHash
+    ? { id: "text_parity", kind: "hard", pass: false, reason: "The judged hash differs from the rendered body.", sentenceIds: [] }
+    : null;
+  if (autoParity) normalizedGates.unshift(autoParity);
+  const unsupported = new Set(sentences.filter((sentence) => sentence.status === "unsupported").map((sentence) => sentence.id));
+  /** @type {Array<{ id: string, code: string, kind: string, severity: string, sentenceIds: string[], reason: string, action: string, origin: string }>} */
+  const issues = [];
+  /** @param {string} kind @param {string} severity @param {string[]} sentenceIds @param {string} reason @param {string} action @param {string} origin */
+  const addIssue = (kind, severity, sentenceIds, reason, action, origin) => {
+    const id = `i${issues.length + 1}`;
+    issues.push({ id, code: id, kind, severity, sentenceIds, reason, action, origin });
+  };
+  for (const item of judgedDocument?.issues || []) {
+    const citedUnsupported = ["fact", "scope"].includes(item.kind) && item.sentenceIds.some((/** @type {string} */ id) => {
+      const sentence = judgedSentences.get(id);
+      return unsupported.has(id) && sentence?.citations?.length;
+    });
+    addIssue(item.kind, citedUnsupported ? "hard" : item.action === "none" ? "note" : "review", item.sentenceIds, item.reason, item.action, "judge");
   }
+  for (const sentence of sentences.filter((item) => item.status === "unsupported")) {
+    if (issues.some((issue) => issue.severity === "hard" && issue.sentenceIds.includes(sentence.id))) continue;
+    addIssue("fact", "hard", [sentence.id], sentence.reason, "rewrite", "judge");
+  }
+  for (const gate of [...(autoParity ? [autoParity] : []), ...gates, ...constraints.map((item) => ({ ...item, kind: "constraint" }))]) {
+    if (gate.pass || gate.kind === "advisory") continue;
+    const kind = /(?:tool|metric|fact|employer|claim|identity)/.test(gate.id) ? "fact" : "format";
+    addIssue(kind, gate.kind === "hard" ? "hard" : "review", gate.sentenceIds || [], gate.reason || "Gate failed.", (/** @type {any} */ (gate)).action || (gate.kind === "hard" ? "rewrite" : "none"), gate.kind === "constraint" ? "constraint" : "gate");
+  }
+  const failedHard = normalizedGates.find((gate) => gate.kind === "hard" && !gate.pass);
+  const uncertain = sentences.find((sentence) => sentence.status === "uncertain");
+  const failedConstraint = normalizedGates.find((gate) => gate.kind === "constraint" && !gate.pass);
+  const lowDimension = ratings.find((/** @type {any} */ rating) => rating.score < 2 || (["role_relevance", "voice"].includes(rating.dimension) && rating.score < 3));
+  let disposition = "READY";
+  let dispositionReason = "Hard gates pass and the judge found supported, strong materials.";
+  if (failedHard) { disposition = "FAIL"; dispositionReason = failedHard.reason || `Hard gate ${failedHard.id} failed.`; }
+  else if (unsupported.size) { disposition = "FAIL"; dispositionReason = sentences.find((sentence) => sentence.status === "unsupported")?.reason || "The judge found an unsupported sentence."; }
+  else if (judgeStatus !== "ok") { disposition = "REVIEW"; dispositionReason = `Judge ${judgeStatus}; review the document manually.`; }
+  else if (uncertain) { disposition = "REVIEW"; dispositionReason = uncertain.reason; }
+  else if (failedConstraint) { disposition = "REVIEW"; dispositionReason = failedConstraint.reason || `Constraint ${failedConstraint.id} is unmet.`; }
+  else if (score === null || score < 80) { disposition = "REVIEW"; dispositionReason = `Quality score ${score ?? "unavailable"} is below 80.`; }
+  else if (lowDimension) { disposition = "REVIEW"; dispositionReason = `${lowDimension.dimension} scored ${lowDimension.score}/4.`; }
+  const meta = judge.meta || {};
   return {
-    contract: QA_CONTRACT,
-    document,
-    runId,
-    status,
-    disposition,
-    ...(status === "pass" ? {} : { dispositionReason: reason }),
+    contract: QA_CONTRACT, document, runId, disposition, dispositionReason, textHash: expectedHash,
+    quality: { score, ratings }, gates: normalizedGates, sentences, issues,
+    qualificationGaps: judgedDocument?.qualificationGaps || [],
+    judge: {
+      status: judgeStatus, provider: String(meta.provider || ""), model: String(meta.model || ""),
+      independent: meta.independent === true, promptVersion: String(meta.promptVersion || ""),
+      latencyMs: Number.isFinite(meta.latencyMs) ? meta.latencyMs : 0,
+      ...(Number.isInteger(meta.tokensIn) ? { tokensIn: meta.tokensIn } : {}),
+      ...(Number.isInteger(meta.tokensOut) ? { tokensOut: meta.tokensOut } : {}),
+      ...(typeof meta.error === "string" ? { error: meta.error } : {}),
+    },
     degraded: [...degraded],
-    measurements,
-    rubric: { score: rubric.total, max: rubric.max, threshold: rubric.threshold, rows: rubric.rows },
-    checks,
-    ...(repair ? { repair } : {}),
+    repair: { attempted: repair?.attempted === true, parentRunId: repair?.parentRunId || null,
+      changed: typeof repair?.changed === "boolean" ? repair.changed : null,
+      adopted: typeof repair?.adopted === "boolean" ? repair.adopted : null,
+      before: typeof repair?.before === "string" ? repair.before : null,
+      after: typeof repair?.after === "string" ? repair.after : null },
   };
 }
 
-/**
- * The run's combined verdict (qa.json): the worst document wins.
- * @param {QaRecord[]} records
- */
-export function combinedStatus(records) {
-  if (records.some((r) => r.status === "fail")) return "fail";
-  if (records.some((r) => r.status === "review")) return "review";
+/** Worst document wins; the combined run retains the existing lower-case status. */
+export function combinedStatus(/** @type {Array<{ disposition?: string, status?: string }>} */ records) {
+  if (records.some((record) => record.disposition === "FAIL" || record.status === "fail")) return "fail";
+  if (records.some((record) => record.disposition === "REVIEW" || record.status === "review")) return "review";
   return "pass";
 }
 
-/**
- * Read the current per-document verdicts in a package dir.
- * @param {string} dir
- * @returns {Promise<Partial<Record<QaDocument, QaRecord>>>}
- */
-export async function readDocumentQa(dir) {
-  /** @type {Partial<Record<QaDocument, QaRecord>>} */
+/** Read both contract generations; existing v1 packages remain intact. */
+export async function readDocumentQa(/** @type {string} */ dir) {
+  /** @type {Partial<Record<"letter" | "resume", any>>} */
   const out = {};
-  for (const document of /** @type {QaDocument[]} */ (["resume", "letter"])) {
-    const path = join(dir, qaFileName(document));
-    if (!existsSync(path)) continue;
+  for (const document of /** @type {const} */ (["resume", "letter"])) {
     try {
-      const parsed = JSON.parse(await readFile(path, "utf8"));
-      if (parsed && typeof parsed === "object" && parsed.contract === QA_CONTRACT) out[document] = parsed;
-    } catch {
-      /* A torn file is the same as none; the next run rewrites it. */
-    }
+      const parsed = JSON.parse(await readFile(join(dir, qaFileName(document)), "utf8"));
+      if (parsed && typeof parsed === "object" && [QA_CONTRACT, QA_CONTRACT_V1].includes(parsed.contract)) out[document] = parsed;
+    } catch { /* missing or torn file: a later run may replace it */ }
   }
   return out;
 }
 
-/** @param {QaDocument} document */
-function label(document) {
-  return document === "letter" ? "Cover letter" : "Resume";
-}
-
-/**
- * qa-report.md over every document's current verdict. Every rubric row
- * below max is listed; "None." appears only at full marks with no issues.
- * @param {{ records: QaRecord[], notes?: string[] }} input
- */
-export function formatDocumentQaReport({ records, notes = [] }) {
-  const worst = records.some((r) => r.disposition === "FAIL")
-    ? "FAIL"
-    : records.some((r) => r.disposition === "REVIEW") ? "REVIEW" : "READY";
-  const lines = ["# QA report", "", `Status: ${records.length ? worst : "REVIEW"}`];
-  if (notes.length) lines.push("", ...notes);
+/** Human-readable run report for either contract generation. */
+export function formatDocumentQaReport(/** @type {{ records: any[], notes?: string[] }} */ { records, notes = [] }) {
+  const worst = records.some((record) => record.disposition === "FAIL") ? "FAIL"
+    : records.some((record) => record.disposition === "REVIEW") ? "REVIEW" : "READY";
+  const lines = ["# QA report", "", `Status: ${records.length ? worst : "REVIEW"}`, ...notes];
   for (const record of records) {
-    const { rubric } = record;
-    lines.push("", `## ${label(record.document)}: ${record.disposition} · ${rubric.score}/${rubric.max}`, "");
-    lines.push(`Run: ${record.runId}`);
+    const name = record.document === "letter" ? "Cover letter" : "Resume";
+    const score = record.contract === QA_CONTRACT ? `${record.quality?.score ?? "unscored"}/100` : `${record.rubric?.score ?? "unscored"}/${record.rubric?.max ?? "?"}`;
+    lines.push("", `## ${name}: ${record.disposition} · ${score}`, "", `Run: ${record.runId}`);
     if (record.dispositionReason) lines.push(`Reason: ${record.dispositionReason}`);
-    if (record.repair?.attempted) {
-      const before = record.repair.before;
-      lines.push(`Automatic repair: ran once${before ? ` (before: ${before.status}, ${before.score}/${before.max})` : ""}`);
-    }
-    for (const d of record.degraded || []) lines.push(`degraded: ${d}`);
-    const below = rubric.rows.filter((row) => row.score < row.max);
-    lines.push("", "### Rubric rows below max", "");
-    if (below.length) {
-      for (const row of below) lines.push(`- \`${row.id}\` ${row.score}/${row.max}: ${row.note}`);
+    if (record.contract === QA_CONTRACT) {
+      for (const item of record.issues || []) lines.push(`- ${item.id} (${item.severity}): ${item.reason}`);
+      if (!record.issues?.length) lines.push("No issues.");
     } else {
-      lines.push("None.");
-    }
-    const issues = record.checks.filter((c) => c.severity === "fail" || c.severity === "review");
-    lines.push("", "### Issues", "");
-    if (issues.length) {
-      for (const issue of issues) lines.push(`- \`${issue.code}\` (${issue.severity}): ${issue.message}`);
-    } else if (below.length) {
-      lines.push(`No blocking issues; ${below.length} rubric row(s) below max are listed above.`);
-    } else {
-      lines.push("None.");
+      for (const item of record.checks || []) if (["fail", "review"].includes(item.severity)) lines.push(`- ${item.code}: ${item.message}`);
     }
   }
-  lines.push("");
-  return lines.join("\n");
+  return `${lines.join("\n")}\n`;
 }
 
-/**
- * P-16b: the QA verdicts become editor instructions for the one
- * automatic repair pass (the F8 path: current draft + instructions).
- * @param {QaRecord[]} records
- */
-export function repairInstructionsFromQa(records) {
-  const failing = records.filter((r) => r.status === "fail");
-  const lines = [
-    "Goal: fix every QA failure below by editing the current draft.",
-    "Success means: each listed issue is gone; every number still traces to its own claim; no new facts, tools, employers or metrics.",
-    "Stop when: the draft addresses every issue, or an issue cannot be fixed from the given claims (leave that slot as close to its claim text as possible).",
-  ];
-  for (const record of failing) {
-    lines.push("", `${label(record.document)} QA (${record.rubric.score}/${record.rubric.max}):`);
-    const issueMessages = record.checks.filter((c) => c.severity === "fail" || c.severity === "review").map((c) => c.message);
-    for (const check of record.checks) {
-      if (check.severity === "pass") continue;
-      /* A below-max row already named by an issue is not repeated. */
-      if (check.severity === "note" && issueMessages.some((m) => check.message.endsWith(m))) continue;
-      lines.push(`- ${check.code}: ${check.message}`);
-    }
-  }
-  return lines.join("\n");
+/** Only hard rewrite issues may drive the automatic repair pass. */
+export function repairInstructionsFromQa(/** @type {Array<{ issues?: Array<{ id: string, kind: string, severity: string, action: string, reason: string, sentenceIds: string[] }> }>} */ records) {
+  return records.flatMap((record) => (record.issues || [])
+    .filter((issue) => issue.severity === "hard" && issue.action === "rewrite")
+    .map((issue) => ({ id: issue.id, kind: issue.kind, reason: issue.reason, sentenceIds: issue.sentenceIds, text: issue.reason })));
 }

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter, stageProgressMessage } from "../server/materials-drafter.mjs";
 import { normalizeRequestBody } from "../server/materials-request.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 const USER_RESUME = {
   source: "upload",
@@ -94,33 +94,32 @@ describe("materials W2 · drafter", () => {
   });
 
   it("should never put a raw stage id in the progress message", () => {
-    for (const stage of ["intake", "jd.extract", "claims.select", "draft", "support", "qa", "publish", "unknown.stage"]) {
+    for (const stage of ["prepare", "write", "validate", "render", "judge", "save", "repair", "unknown.stage"]) {
       const msg = stageProgressMessage(stage, "resume");
       assert.doesNotMatch(msg, /[a-z]+\.[a-z]+|: (ok|review|failed|running)/, `${stage} → ${msg}`);
       assert.match(msg, /…$/);
     }
-    assert.equal(stageProgressMessage("outline", "cover_letter"), "Writing your cover letter…");
+    assert.equal(stageProgressMessage("write", "cover_letter"), "Checking the facts…");
   });
 
   it("should record structured stages in pending.json while drafting", async () => {
     let release;
     const gate = new Promise((r) => { release = r; });
-    /* Hold a later model call so pending.json is read mid-run. */
-    const drafter = createMaterialsDrafter(deps(dir, { stub: { gate, gateAt: 3 } }));
+    /* Hold the judge call so pending.json is read mid-run. */
+    const drafter = createMaterialsDrafter(deps(dir, { stub: { gate, gateAt: 4 } }));
     await drafter.enqueue(request());
     const pendingPath = join(dir, "acme-data-platform-engineer", "pending.json");
     let pending = null;
     for (let i = 0; i < 200; i += 1) {
       pending = JSON.parse(await readFile(pendingPath, "utf8"));
-      if (pending.progress.stages && pending.progress.stages.some((s) => s.stage === "claims.score")) break;
+      if (pending.progress.stages && pending.progress.stages.some((s) => s.stage === "render")) break;
       await new Promise((r) => setTimeout(r, 10));
     }
     release();
     await drafter.runUntilIdle();
     assert.equal(pending.progress.phase, "drafting");
     const ids = pending.progress.stages.map((s) => s.stage);
-    assert.deepEqual(ids.slice(0, 4), ["intake", "jd.resolve", "jd.gate", "claims.load"]);
-    assert.ok(ids.includes("jd.extract") && ids.includes("claims.score"), ids.join(","));
+    assert.deepEqual(ids.slice(0, 4), ["prepare", "write", "validate", "render"]);
     for (const s of pending.progress.stages) assert.match(s.status, /^(ok|review|failed|skipped)$/);
     assert.doesNotMatch(pending.progress.message, /\(|claims\.|jd\.|: running/);
     await assert.rejects(readFile(pendingPath), "pending.json comes down after the run");

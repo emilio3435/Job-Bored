@@ -6,17 +6,12 @@ import { delint } from "../server/materials-delint.mjs";
 import { voiceProfileLines } from "../server/materials-draft.mjs";
 import { buildRenderModelFromDraft } from "../server/materials-render-model-adapter.mjs";
 import { linkify } from "../server/materials-render.mjs";
-import { applySupport, letterSentenceGrounding, scoreRubric } from "../server/materials-rubric.mjs";
-import { checkLetterSupport, parseVerdicts, supportPrompt, SUPPORT_SYSTEM_PROMPT } from "../server/materials-support.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
-import { parseVoiceProfile, voiceClaims, withVoiceClaims } from "../server/materials-voice-profile.mjs";
+import { parseVoiceProfile, voiceClaims } from "../server/materials-voice-profile.mjs";
 import { detectAiWords, detectCannedAsides, detectOffVoice, soundsHumanRow } from "../server/materials-voice-tells.mjs";
-import { rubricIssues } from "../server/materials-qa.mjs";
-import { parseStageJson } from "../server/materials-writer.mjs";
 
 const VOICE_MD = readFileSync(new URL("./fixtures/materials-voice/voice.md", import.meta.url), "utf8");
 const PROFILE = parseVoiceProfile(VOICE_MD, "/fixture/voice.md");
-const RECORDED = JSON.parse(readFileSync(new URL("./fixtures/materials-voice/support-reply.json", import.meta.url), "utf8"));
 const LEDGER = {
   employers: [{ id: "cascade", name: "Cascade Logistics", title: "Fleet Analyst" }],
   claims: [
@@ -68,13 +63,7 @@ describe("voice facts are approved claims", () => {
     assert.deepEqual(stores.metrics, [{ token: "40" }]);
   });
 
-  it("should ground a sentence that restates a voice fact, which the ledger alone cannot", () => {
-    const draft = { letter: { proof1: "I ran forecasts for Lumen Grocers across 40 stores." } };
-    const bare = letterSentenceGrounding({ draft, ledger: LEDGER, company: "Lumen Parcel" });
-    assert.equal(bare[0].grounded, false);
-    const withVoice = letterSentenceGrounding({ draft, ledger: withVoiceClaims(LEDGER, PROFILE), company: "Lumen Parcel" });
-    assert.equal(withVoice[0].grounded, true, withVoice[0].reason);
-  });
+
 });
 
 describe("signature lines are exempt from the tell lint only when quoted exactly", () => {
@@ -123,61 +112,6 @@ describe("off-voice tells from the user's 'not' list", () => {
   });
 });
 
-describe("meaning-level support check (recorded reply)", () => {
-  const draft = { letter: RECORDED.letter };
-  const ledger = withVoiceClaims(LEDGER, PROFILE);
-
-  it("should number every sentence and list claims plus voice facts in the prompt", () => {
-    const { userText, sentences } = supportPrompt({ draft, ledger: { ...ledger, employers: [{ name: "Cascade Logistics", title: "Fleet Analyst", start: "2019", end: "2025" }] }, postingText: "Lumen Parcel runs a regional delivery fleet.", company: "Lumen Parcel", title: "Fleet Director" });
-    assert.match(userText, /^The letter is addressed to Lumen Parcel for the Fleet Director role\. Naming Lumen Parcel, the role, or what the candidate wants to do there is not a claim to check\./m);
-    assert.match(userText, /^- employer: Cascade Logistics · Fleet Analyst · 2019–2025$/m);
-    assert.equal(sentences.length, 5);
-    assert.match(userText, /^- c1: Rebuilt the route forecaster/m);
-    assert.match(userText, /^- voice-1: I'm a fleet analyst and tool builder\./m);
-    assert.match(userText, /^2\. I rebuilt the route forecaster for the Harbor Co-op's 90 drivers\./m);
-    assert.match(SUPPORT_SYSTEM_PROMPT, /Judge strictly/);
-  });
-
-  it("should parse the recorded reply and keep sentence order", () => {
-    const { sentences } = supportPrompt({ draft, ledger });
-    const verdicts = parseVerdicts(RECORDED.reply, sentences);
-    assert.equal(verdicts?.length, 5);
-    assert.equal(verdicts?.[1].supported, false);
-    assert.equal(verdicts?.[1].source, "c1");
-    assert.equal(verdicts?.[4].factual, false);
-    assert.equal(parseVerdicts({ nope: 1 }, sentences), null);
-  });
-
-  it("should catch the connective claim the overlap check passes, and send it to the repair", async () => {
-    const overlap = letterSentenceGrounding({ draft, ledger, company: "Lumen Parcel" });
-    const invented = overlap.find((j) => /Harbor Co-op/.test(j.sentence));
-    /* Every word and number is a claim's or a voice fact's, so the overlap
-     * judgement alone passes the invented pairing. */
-    assert.equal(invented?.grounded, true, invented?.reason);
-    const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify(RECORDED.reply) } }] }) });
-    const pin = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
-    const { verdicts } = await checkLetterSupport({ draft, ledger, pin, fetchImpl });
-    const judged = applySupport(overlap, verdicts);
-    const flagged = judged.find((j) => /Harbor Co-op/.test(j.sentence));
-    assert.equal(flagged?.grounded, false);
-    assert.match(flagged?.reason || "", /unsupported in meaning: no source says the forecaster was built for the Harbor Co-op/);
-    assert.match(flagged?.reason || "", /rewrite from c1/);
-
-    const rubric = scoreRubric({ document: "letter", extract: {}, selection: {}, ledger, draft, company: "Lumen Parcel", support: verdicts });
-    const row = rubric.rows.find((r) => r.id === "letter_ungrounded");
-    assert.equal(row?.score, 0);
-    assert.match(row?.note || "", /rewrite each from one named claim's own words/);
-    assert.ok(rubricIssues("letter", rubric).some((i) => i.code === "letter_ungrounded" && i.severity === "fail"));
-  });
-
-  it("should fall back to the overlap check with no pin", async () => {
-    const { verdicts } = await checkLetterSupport({ draft, ledger, pin: null, fetchImpl: async () => { throw new Error("no call"); } });
-    assert.equal(verdicts, null);
-    const overlap = letterSentenceGrounding({ draft, ledger, company: "Lumen Parcel" });
-    assert.deepEqual(applySupport(overlap, verdicts), overlap);
-  });
-});
-
 describe("project links", () => {
   it("should link the first plain occurrence of a project name, escaped, http(s) only", () => {
     assert.equal(
@@ -215,19 +149,6 @@ describe("company praise is flattery", () => {
     assert.equal(detectCompanyPraise("The best forecasters aren't just modelers.", "Lumen Parcel").length, 0, "praise not about the company");
     const row = soundsHumanRow(["NorthwindMedia turns broadcast reach into digital scale better than anyone, and I want in.", "I ran 620 vans. Short one.", "Send the data."], { company: "NorthwindMedia" });
     assert.ok(row.tells.some((t) => t.code === "flattery"), row.note);
-  });
-});
-
-describe("support check on a recorded live reply", () => {
-  it("should parse the model's raw reply and flag the invented clause it named", () => {
-    const live = JSON.parse(readFileSync(new URL("./fixtures/materials-voice/support-reply-live.json", import.meta.url), "utf8"));
-    const value = parseStageJson(live.replyText);
-    const verdicts = parseVerdicts(value, live.sentences.map((sentence) => ({ beat: "letter", sentence })));
-    assert.equal(verdicts?.length, live.sentences.length);
-    const bad = (verdicts || []).filter((v) => v.factual && v.supported === false);
-    assert.equal(bad.length, 1);
-    assert.match(bad[0].sentence, /protected profit margins/);
-    assert.match(bad[0].reason, /protected profit margins not in sources/);
   });
 });
 

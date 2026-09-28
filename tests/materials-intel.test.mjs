@@ -30,8 +30,8 @@ import {
   searchPrompts,
   sourceFor,
 } from "../server/materials-intel.mjs";
-import { SUPPORT_INTEL_RULE, checkLetterSupport, supportPrompt } from "../server/materials-support.mjs";
-import { scoreRubric } from "../server/materials-rubric.mjs";
+import { hashRenderedText, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
+import { buildQaRecord } from "../server/materials-qa.mjs";
 
 const NOW = new Date("2026-09-27T12:00:00.000Z");
 const POSTING = [
@@ -437,53 +437,35 @@ describe("support check · intel facts count only when cited from the pack", () 
     assert.equal(enforceIntelCitations(null, FACTS), null);
   });
 
-  it("should list the intel facts in the support prompt and enforce citations on the model's verdicts", async () => {
-    const draft = { letter: {
-      hook: "I built weekly readouts for analysts.",
-      companyInsight: "In August 2026 Acme Analytics launched Spend Graph for retail media measurement. Acme Analytics also won a national award last month.",
-      proof1: "", proof2: "", ask: "",
-    } };
-    const ledger = { claims: [{ id: "c1", text: "Built weekly readouts for analysts." }] };
-    const { userText, sentences } = supportPrompt({ draft, ledger, postingText: POSTING, company: "Acme Analytics", intel: FACTS });
-    assert.match(userText, /Company intel \(researched, dated, sourced; cite its id\):\n- intel-1 \(2026-08-14\): Acme Analytics launches Spend Graph/);
-    assert.equal(sentences.length, 3);
-    let system = "";
+  it("should give the judge sourced intel and FAIL an invented company fact", async () => {
+    const text = "I built weekly readouts for analysts. In August 2026 Acme Analytics launched Spend Graph for retail media measurement. Acme Analytics also won a national award last month.";
+    const sentences = splitSentences(text, "letter");
+    const textHash = hashRenderedText(text);
+    const sources = { posting: [{ id: "posting:1", text: POSTING }], claims: [{ id: "claim:c1", text: "Built weekly readouts for analysts." }], voice: "", research: FACTS };
+    const dimensions = ["role_relevance", "evidence_quality", "voice", "coherence", "economy"];
+    const judgment = { contract: "materials.judge.v1", documents: [{ document: "letter", textHash,
+      ratings: dimensions.map((dimension) => ({ dimension, score: 4, reason: "Clear evidence.", sentenceIds: ["L1"] })),
+      sentences: [
+        { id: "L1", status: "supported", reason: "Candidate claim.", citations: [{ sourceId: "claim:c1", quote: "Built weekly readouts for analysts." }] },
+        { id: "L2", status: "supported", reason: "Dated research.", citations: [{ sourceId: "intel-1", quote: "Acme Analytics launched Spend Graph" }] },
+        { id: "L3", status: "unsupported", reason: "No sourced award.", citations: [] },
+      ], issues: [], qualificationGaps: [] }] };
+    let user = "";
     const fetchImpl = async (_url, init) => {
       const body = JSON.parse(init.body);
-      system = body.messages[0].content;
-      return {
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ verdicts: [
-          { i: 1, factual: true, supported: true, source: "c1" },
-          { i: 2, factual: true, supported: true, source: "intel-1" },
-          /* The model claims an invented award rests on intel: rejected. */
-          { i: 3, factual: true, supported: true, source: "intel-1" },
-        ] }) } }] }),
-      };
+      user = body.messages[1].content;
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(judgment) } }] }) };
     };
-    const pin = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
-    const { verdicts } = await checkLetterSupport({ draft, ledger, postingText: POSTING, company: "Acme Analytics", intel: FACTS, pin, fetchImpl });
-    assert.ok(system.includes(SUPPORT_INTEL_RULE));
-    assert.equal(verdicts[0].supported, true);
-    assert.equal(verdicts[1].supported, true);
-    assert.equal(verdicts[1].intel.id, "intel-1");
-    assert.equal(verdicts[2].supported, false, "an uncited, invented company fact is rejected");
-    assert.match(verdicts[2].reason, /does not restate intel-1/);
+    const pin = { provider: "local", model: "stub", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
+    const judge = await judgeMaterials({ writer: pin, documents: [{ document: "letter", text, textHash, sentences }], sources, fetchImpl });
+    assert.equal(judge.status, "ok");
+    assert.match(user, /intel-1/);
+    assert.match(user, /news\.example\.com\/acme-spend-graph/);
+    const qa = buildQaRecord({ document: "letter", runId: "run-intel", finalText: text, textHash, gates: [], judge });
+    assert.equal(qa.disposition, "FAIL");
+    assert.equal(qa.sentences[2].status, "unsupported");
   });
 
-  it("should let the rubric trace a number that only the intel pack states", () => {
-    const draft = { letter: {
-      hook: "I grew Austin to a top-4 national ranking on a $12M+ book.",
-      companyInsight: "Acme Analytics now measures retail media for 9,000 brands.",
-      proof1: "I grew Austin to a top-4 national ranking on a $12M+ book.", proof2: "", ask: "Worth a call with Acme Analytics?",
-    } };
-    const ledger = { claims: [{ id: "c1", text: "Grew Austin to a top-4 national ranking on a $12M+ book.", metrics: [{ token: "$12M+" }, { token: "top-4" }] }] };
-    const common = { document: "letter", extract: { outcomes: [], nouns: [] }, selection: { kept: [] }, ledger, draft, company: "Acme Analytics", postingText: POSTING };
-    const without = scoreRubric(common).rows.find((r) => r.id === "letter_ungrounded");
-    assert.match(without.note, /untraced numeral\(s\) in the letter: 9,000/);
-    const withIntel = scoreRubric({ ...common, intelText: "Acme Analytics measures retail media for 9,000 brands." }).rows.find((r) => r.id === "letter_ungrounded");
-    assert.doesNotMatch(withIntel.note, /untraced numeral/);
-  });
 });
 
 describe("intel pack · the cache file is plain JSON a person can read", () => {

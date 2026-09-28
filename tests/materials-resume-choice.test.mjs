@@ -28,7 +28,7 @@ import {
   readCanonicalResume,
   readResumeSnapshot,
 } from "../server/materials-resume-source.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 /* The garbled shape from the Seabright source, PII scrubbed. */
 const GARBLED = readFileSync(new URL("./fixtures/materials-garbled-resume.txt", import.meta.url), "utf8");

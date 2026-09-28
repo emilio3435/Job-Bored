@@ -251,6 +251,10 @@ async function readJson(path) {
  */
 function verdictOf(qa) {
   if (!qa || typeof qa.disposition !== "string") return undefined;
+  if (qa.contract === "materials.qa.v2") {
+    const quality = qa.quality && typeof qa.quality === "object" ? /** @type {Record<string, unknown>} */ (qa.quality) : {};
+    return { disposition: qa.disposition, ...(typeof quality.score === "number" ? { score: quality.score, max: 100 } : {}) };
+  }
   const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : {};
   return {
     disposition: qa.disposition,

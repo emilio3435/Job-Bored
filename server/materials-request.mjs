@@ -6,6 +6,8 @@
  * poller can show queued/drafting state.
  */
 
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { createMaterialsDrafter } from "./materials-drafter.mjs";
@@ -53,6 +55,7 @@ const MAX_JD_LEN = 60_000;
  *   "outreach" = the LinkedIn note + email to the hiring manager
  *   (outreach.json / outreach.txt). Needs a letter (feature cover_letter
  *   or both); ignored for a resume-only request.
+ * @property {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} [repair]
  */
 
 /**
@@ -261,4 +264,60 @@ export async function spawnMaterialsRequest(payload, options = {}) {
   /* F8: the repair signal travels with the snapshot resume so the drafter
    * re-enters at the draft stage instead of regenerating from scratch. */
   return resumeFrom ? enqueue({ ...rest, resumeFrom, resume }) : enqueue({ ...rest, resume });
+}
+
+/** @type {Map<string, Promise<Record<string, unknown>>>} */
+const repairRequestsInFlight = new Map();
+/** @type {Map<string, Promise<Record<string, unknown>>>} */
+const repairRequestsByApplication = new Map();
+
+/**
+ * Return the first accepted result for a requestId, including after the
+ * queue has finished. The file stores only the id and accepted response.
+ * @param {string} slug
+ * @param {string | undefined} requestId
+ * @param {() => Promise<Record<string, unknown>>} submit
+ * @param {{ root?: string }} [options]
+ */
+export async function withRepairIdempotency(slug, requestId, submit, { root } = {}) {
+  if (!SLUG_PATTERN.test(slug)) throw Object.assign(new Error("Invalid slug"), { statusCode: 400 });
+  if (!requestId) return submit();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(requestId)) {
+    throw Object.assign(new Error("Invalid requestId"), { statusCode: 400, code: "invalid_request_id" });
+  }
+  const dir = join(root || getApplicationsRoot(), slug);
+  const key = `${dir}:\0${requestId}`;
+  const pending = repairRequestsInFlight.get(key);
+  if (pending) return pending;
+  /* Serialize different IDs for one application so neither can overwrite
+   * the other's just-persisted result. */
+  const previous = repairRequestsByApplication.get(dir);
+  const task = (previous ? previous.catch(() => {}) : Promise.resolve()).then(async () => {
+    const path = join(dir, "repair-requests.json");
+    /** @type {Record<string, Record<string, unknown>>} */
+    let saved = Object.create(null);
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf8"));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = Object.assign(Object.create(null), parsed);
+    } catch {
+      // First request for this application.
+    }
+    if (Object.hasOwn(saved, requestId)) return saved[requestId];
+    const response = await submit();
+    await mkdir(dir, { recursive: true });
+    saved[requestId] = response;
+    const entries = Object.entries(saved).slice(-100);
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    await writeFile(tmp, `${JSON.stringify(Object.fromEntries(entries), null, 2)}\n`, "utf8");
+    await rename(tmp, path);
+    return response;
+  });
+  repairRequestsByApplication.set(dir, task);
+  repairRequestsInFlight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    repairRequestsInFlight.delete(key);
+    if (repairRequestsByApplication.get(dir) === task) repairRequestsByApplication.delete(dir);
+  }
 }

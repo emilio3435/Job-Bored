@@ -7,7 +7,7 @@ import {
   validateJdExtract,
 } from "../server/materials-jd-extract.mjs";
 import { scoreClaims } from "../server/materials-claim-score.mjs";
-import { selectClaims, validateSelection } from "../server/materials-select.mjs";
+import { selectClaims, selectRankedClaims, validateSelection } from "../server/materials-select.mjs";
 import { buildOutline } from "../server/materials-outline.mjs";
 
 const RESUME_TEXT = [
@@ -140,7 +140,17 @@ describe("claims.score", () => {
 });
 
 describe("claims.select", () => {
-  it("keeps model-chosen ids, enforces hard rules, validates", async () => {
+  it("uses only the deterministic ranked selector even when a writer pin exists", async () => {
+    const extract = deterministicExtract({ jdText: JD_TEXT, company: "Acme", title: "Data Platform Engineer", gate: GATE });
+    const led = ledger();
+    const shortlist = scoreClaims({ extract, ledger: led, limit: 8 });
+    let calls = 0;
+    const result = await selectClaims({ extract, shortlist, ledger: led, pin: PIN, fetchImpl: async () => { calls += 1; throw new Error("selection must not call the model"); } });
+    assert.equal(calls, 0);
+    assert.deepEqual(result.selection, selectRankedClaims({ extract, shortlist, ledger: led }));
+    assert.equal(result.degraded, false);
+  });
+  it("keeps ranked ids, enforces hard rules, validates", async () => {
     const extract = deterministicExtract({ jdText: JD_TEXT, company: "Acme", title: "Data Platform Engineer", gate: GATE });
     const led = ledger();
     const shortlist = scoreClaims({ extract, ledger: led, limit: 8 });
@@ -160,7 +170,7 @@ describe("claims.select", () => {
     assert.equal(selection.ledgerHash, led.ledgerHash);
   });
 
-  it("drops unknown ids and falls back deterministically when the model fails", async () => {
+  it("ignores model replies and preserves deterministic selection", async () => {
     const extract = deterministicExtract({ jdText: JD_TEXT, company: "Acme", title: "Data Platform Engineer", gate: GATE });
     const led = ledger();
     const shortlist = scoreClaims({ extract, ledger: led, limit: 8 });
@@ -181,9 +191,9 @@ describe("claims.select", () => {
 
     const bad = stubFetch([new Error("down"), new Error("down")]);
     const fallback = await selectClaims({ extract, shortlist, ledger: led, pin: PIN, fetchImpl: bad.fetchImpl });
-    assert.equal(fallback.degraded, true);
+    assert.equal(fallback.degraded, false);
     assert.equal(validateSelection(fallback.selection).ok, true);
-    assert.ok(fallback.selection.kept.length >= 4);
+    assert.deepEqual(fallback.selection, selection);
   });
 });
 

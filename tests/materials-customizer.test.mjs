@@ -134,7 +134,10 @@ describe("3 and 4. letter shape without splicing", () => {
     assert.equal(row.tells.some((t) => t.code === "signature_mid_evidence"), false);
   });
 
-  it("should ask the model to name the company within the first 40 words", () => {
-    assert.match(draftSystemPrompt([120, 200]), /Name the company within the first 40 words of the letter/);
+  it("should keep the three-paragraph word band without a company-position quota", () => {
+    const prompt = draftSystemPrompt([120, 200]);
+    assert.match(prompt, /three short letter paragraphs/);
+    assert.match(prompt, /Letter band: 120-200 words/);
+    assert.doesNotMatch(prompt, /company within the first 40 words/i);
   });
 });
