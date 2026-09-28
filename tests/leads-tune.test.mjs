@@ -238,12 +238,28 @@ describe("leads-tune: LT-SAVE", () => {
     assert.deepEqual(host.calls.saveDiscovery, [{ keywordsExclude: "intern, staffing, SDR" }], "avoids are not added to keywordsExclude; keywordsInclude is untouched");
   });
 
-  it("writes seniority as the identity enum", async () => {
+  it("writes seniority as the identity enum, in the profile and the discovery mirror (LT-SEN)", async () => {
     const { tune, host } = await ready();
-    tune.setDraft("targetSeniority", "vp");
+    tune.setDraft("targetSeniority", "ic_mid");
     await tune.applyDraft();
-    assert.equal(host.calls.sync[0].identity.targetSeniority, "vp");
-    assert.deepEqual(host.calls.saveDiscovery, [{ seniority: "VP" }], "the discovery mirror uses the words oneflow writes");
+    assert.equal(host.calls.sync[0].identity.targetSeniority, "ic_mid");
+    assert.deepEqual(host.calls.saveDiscovery, [{ seniority: "ic_mid" }], "the enum, never the label \"Mid\"");
+  });
+
+  it("keeps discovery fields drafted and out of history when saveDiscoveryProfile rejects (LT-DISC)", async () => {
+    const { tune, host, store } = await ready();
+    host.saveDiscoveryProfile = () => Promise.reject(new Error("IndexedDB is full"));
+    tune.setDraft("salaryFloor", "150000");
+    tune.addItem("companyBlocklist", "Globex");
+    const out = await tune.applyDraft();
+    assert.equal(out.ok, true, "the synced profile field still applies");
+    const st = tune.getState();
+    assert.equal(st.settings.salaryFloor, 150000);
+    assert.deepEqual(plain(st.settings.companyBlocklist), ["Brightpath Agency"], "the refused discovery field did not advance");
+    assert.deepEqual(plain(tune.reviewRows().map((r) => r.key)), ["companyBlocklist"], "it stays in the draft");
+    const history = await store.listHistory();
+    assert.deepEqual(plain(history[0].rows.map((r) => r.key)), ["salaryFloor"], "history holds only what was saved");
+    assert.match(st.saveError, /couldn't save the discovery settings: IndexedDB is full\. They're still in your unapplied changes\./);
   });
 
   it("saves boards as sourcePreset and groundedWebEnabled, never enabledSources", async () => {
@@ -382,6 +398,43 @@ describe("leads-tune: the agent transport", () => {
     assert.equal(host.calls.sync.length, 0);
   });
 
+  it("refuses to apply a proposal over a field edited since it was proposed (LT-STALE)", async () => {
+    const t = { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [{ field: "hardConstraints.salaryFloor", op: "set", value: 150000 }] }) };
+    const { tune, host, store } = await ready(null, { transport: t });
+    const bot = await tune.ask("x");
+    tune.setDraft("salaryFloor", "170000");
+    await tune.applyDraft();
+    const out = await tune.applyProposal(bot.id);
+    assert.equal(out.ok, false);
+    assert.equal(tune.getState().settings.salaryFloor, 170000, "the newer edit is not overwritten");
+    assert.match(bot.proposal.error, /changed since this proposal \(salary floor\)\. Nothing was applied/);
+    assert.equal(bot.proposal.status, "open");
+    assert.equal(host.calls.sync.length, 1, "only the hand apply POSTed");
+    assert.equal((await store.listHistory()).length, 1);
+  });
+
+  it("unions only the committed skip titles into keywordsExclude (LT-UNION)", async () => {
+    const changes = [
+      { field: "hardConstraints.skipTitles", op: "add", value: ["SDR"], default: false },
+      { field: "discoveryProfile.keywordsExclude", op: "add", value: ["agency"] },
+    ];
+    const t = { propose: () => Promise.resolve({ ok: true, reply: "ok", changes }) };
+    const first = await ready(null, { transport: t });
+    const bot = await first.tune.ask("x");
+    assert.deepEqual(plain(bot.proposal.rows.map((r) => r.key)), ["skipTitles", "keywordsExclude"], "no synthetic union row on the card");
+    assert.deepEqual(plain(bot.proposal.rows[1].after), ["intern", "staffing", "agency"], "the exclude row carries only its own op");
+    await first.tune.applyProposal(bot.id);
+    assert.deepEqual(first.host.calls.saveDiscovery, [{ keywordsExclude: "intern, staffing, agency" }], "the unticked SDR never lands");
+    assert.deepEqual(plain(first.host.calls.sync[0].hardConstraints.skipTitles), ["Intern"]);
+
+    const second = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [{ field: "hardConstraints.skipTitles", op: "add", value: ["SDR"] }] }) } });
+    const bot2 = await second.tune.ask("x");
+    assert.deepEqual(plain(bot2.proposal.rows.map((r) => r.key)), ["skipTitles"]);
+    const out = await second.tune.applyProposal(bot2.id);
+    assert.deepEqual(second.host.calls.saveDiscovery, [{ keywordsExclude: "intern, staffing, SDR" }], "a ticked skip title is unioned at save time");
+    assert.deepEqual(plain(out.entry.rows.map((r) => r.key)), ["skipTitles", "keywordsExclude"], "history records the union");
+  });
+
   it("rejects a reply that is not the contract shape", async () => {
     const { tune } = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, changes: "salary 150k" }) } });
     const bot = await tune.ask("x");
@@ -504,11 +557,30 @@ describe("leads-tune: wiring", () => {
     const block = css.slice(start, end).replace(/\/\*[\s\S]*?\*\//g, "");
     const selectors = [];
     block.replace(/([^{}]+)\{/g, (_, sel) => { selectors.push(sel.trim()); return ""; });
+    const TOAST_LIFT = 'body.jb-v2[data-jb-view="leads"]:has(.jb-leads .jbt-grid[data-mtab="ask"]) .toast-container';
     const bad = selectors
       .filter((s) => !/^@media|^@keyframes|^(from|to|\d+%)$/.test(s))
       .flatMap((s) => s.split(",").map((x) => x.trim()))
-      .filter((s) => !s.startsWith(".jb-leads .jbt"));
-    assert.deepEqual(bad, []);
+      .filter((s) => !s.startsWith(".jb-leads .jbt") && s !== TOAST_LIFT);
+    assert.deepEqual(bad, [], "only the named toast lift sits outside .jb-leads");
+  });
+
+  function phoneBlock() {
+    const css = readRepoFile("leads.css");
+    const chat = css.slice(css.indexOf("Chat mode (lane LT"));
+    const at = chat.indexOf("@media (max-width: 900px)");
+    return chat.slice(at, chat.indexOf("/* ---- end of Chat mode", at));
+  }
+
+  it("gives the chip add field a 44px target on a phone (LT-HIT)", () => {
+    assert.match(phoneBlock(), /\.jb-leads \.jbt-chipset__input \{\s*min-height: 44px;/);
+  });
+
+  it("reserves room for the fixed review bar and lifts toasts above the composer (LT-BAR)", () => {
+    const css = readRepoFile("leads.css");
+    assert.match(css, /\.jb-leads \.jbt \{[^}]*padding-bottom: var\(--jbt-review-space, 0px\);/);
+    assert.match(readRepoFile("leads-tune.js"), /setProperty\("--jbt-review-space"/);
+    assert.match(phoneBlock(), /\.jbt-grid\[data-mtab="ask"\]\) \.toast-container \{\s*bottom: 84px;/);
   });
 
   it("index.html loads leads-tune.js right after leads.js", () => {

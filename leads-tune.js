@@ -45,7 +45,6 @@
      ------------------------------------------------------------ */
 
   var SENIORITY = ["intern", "entry", "ic_mid", "ic_senior", "ic_staff", "ic_principal", "manager", "director", "head", "vp", "c_level", "any"];
-  /* Same words oneflow-beat-fit.js writes into discoveryProfile.seniority. */
   var SENIORITY_LABELS = {
     intern: "Intern", entry: "Entry", ic_mid: "Mid", ic_senior: "Senior", ic_staff: "Staff",
     ic_principal: "Principal", manager: "Manager", director: "Director", head: "Head",
@@ -292,7 +291,7 @@
     keys.forEach(function (key) {
       switch (key) {
         case "targetRoles": want.targetRoles = next.targetRoles.join(", "); break;
-        case "targetSeniority": want.seniority = SENIORITY_LABELS[next.targetSeniority] || "Any"; break;
+        case "targetSeniority": want.seniority = next.targetSeniority; break;
         case "workMode":
           want.remotePolicy = remotePolicyFor(next.workMode);
           want.locations = usesLocations(next.workMode) ? next.acceptableLocations.join(", ") : "";
@@ -347,11 +346,33 @@
     var out = [];
     FIELDS.forEach(function (f) {
       if (same(settings[f.key], d[f.key])) return;
-      var note = f.key === "keywordsExclude" && same(settings.keywordsExclude, draft.keywordsExclude)
-        ? "Skip titles are also excluded from discovery searches."
-        : "";
-      out.push(settingRow(f.key, settings[f.key], d[f.key], note));
+      var derived = f.key === "keywordsExclude" && same(settings.keywordsExclude, draft.keywordsExclude);
+      var row = settingRow(f.key, settings[f.key], d[f.key], derived ? SKIP_UNION_NOTE : "");
+      if (derived) row.derived = true;
+      out.push(row);
     });
+    return out;
+  }
+
+  var SKIP_UNION_NOTE = "Skip titles are also excluded from discovery searches.";
+
+  /**
+   * The rows a commit actually saves: when a skip-title row is committed,
+   * its titles are unioned into keywordsExclude (LT-SAVE), built from the
+   * committed rows only. A keywordsExclude row left over from a union whose
+   * skip-title row is not committed is dropped. Undo rows pass through.
+   */
+  function withSkipUnion(rows, settings) {
+    var skip = rows.filter(function (r) { return r.kind === "setting" && r.key === "skipTitles"; })[0];
+    var own = rows.filter(function (r) { return r.kind === "setting" && r.key === "keywordsExclude" && !r.derived; })[0];
+    var out = rows.filter(function (r) { return !(r.kind === "setting" && r.key === "keywordsExclude"); });
+    var base = own ? own.after : settings.keywordsExclude;
+    var next = skip ? unionCI(base, skip.after) : base;
+    if (!same(next, settings.keywordsExclude)) {
+      var row = settingRow("keywordsExclude", settings.keywordsExclude, next, own ? own.note : SKIP_UNION_NOTE);
+      if (!own) row.derived = true;
+      out.push(row);
+    }
     return out;
   }
 
@@ -522,7 +543,6 @@
     });
     var rows = [];
     var mask = [];
-    var effective = effectiveDraft(settings, nextS);
     order.forEach(function (id) {
       var parts = id.split(":");
       var key = parts[1];
@@ -530,16 +550,12 @@
         if (same(view[key], nextV[key])) return;
         rows.push(viewRow(key, view[key], nextV[key], notes[id]));
       } else {
-        if (same(settings[key], effective[key])) return;
-        rows.push(settingRow(key, settings[key], effective[key], notes[id]));
+        if (same(settings[key], nextS[key])) return;
+        var note = notes[id] || (key === "skipTitles" ? SKIP_UNION_NOTE : "");
+        rows.push(settingRow(key, settings[key], nextS[key], note));
       }
       mask.push(!off[id]);
     });
-    /* A skip-title change also unions into keywordsExclude: show that row. */
-    if (order.indexOf("setting:skipTitles") >= 0 && order.indexOf("setting:keywordsExclude") < 0 && !same(settings.keywordsExclude, effective.keywordsExclude)) {
-      rows.push(settingRow("keywordsExclude", settings.keywordsExclude, effective.keywordsExclude, "Skip titles are also excluded from discovery searches."));
-      mask.push(!off["setting:skipTitles"]);
-    }
     return { rows: rows, mask: mask, dropped: dropped };
   }
 
@@ -774,7 +790,8 @@
               state.discovery = saved || state.discovery;
               return { ok: true };
             }, function (err) {
-              return { ok: true, discoveryError: "Saved your profile, but couldn't save the discovery settings: " + ((err && err.message) || "storage error") + "." };
+              var failedKeys = keys.filter(function (k) { return FIELD[k].where === "discovery"; });
+              return { ok: true, failedKeys: failedKeys, discoveryError: "Saved your profile, but couldn't save the discovery settings: " + String((err && err.message) || "storage error").replace(/\.\s*$/, "") + ". They're still in your unapplied changes." };
             });
         });
     }
@@ -785,6 +802,7 @@
      */
     function commit(rows, mask, meta) {
       var picked = rows.filter(function (r, i) { return !mask || mask[i]; });
+      if (!meta.undoOf) picked = withSkipUnion(picked, state.settings);
       if (!picked.length) return Promise.resolve({ ok: false, message: "Nothing to apply." });
       if (state.status !== "ready" && picked.some(function (r) { return r.kind === "setting"; })) {
         return Promise.resolve({ ok: false, message: SAVE_LOCAL_ONLY });
@@ -793,7 +811,6 @@
       var beforeView = view();
       var res = applyRows(state.settings, beforeView, picked);
       var beforeCount = visible(state.settings, beforeView);
-      var afterCount = visible(res.settings, res.view);
       var settingRows = picked.filter(function (r) { return r.kind === "setting"; });
       var viewRows = picked.filter(function (r) { return r.kind === "view"; });
       state.saving = true;
@@ -807,16 +824,28 @@
           emit("save-error");
           return { ok: false, message: out.message };
         }
+        /* LT-DISC: discovery fields the store refused stay drafted and
+           out of history; the profile fields it did save go ahead. */
+        var failed = out.failedKeys || [];
+        var saved = picked.filter(function (r) { return !(r.kind === "setting" && failed.indexOf(r.key) >= 0); });
+        var savedSettings = saved.filter(function (r) { return r.kind === "setting"; });
+        var nextSettings = clone(res.settings);
+        failed.forEach(function (k) { nextSettings[k] = clone(state.settings[k]); });
+        var afterCount = visible(nextSettings, res.view);
         if (viewRows.length && host.setView) host.setView(res.view);
-        state.settings = res.settings;
-        var keep = clone(res.settings);
-        /* Draft edits the apply didn't include stay drafted. */
+        state.settings = nextSettings;
+        var keep = clone(nextSettings);
+        /* Draft edits the apply didn't save stay drafted. */
         Object.keys(state.draft).forEach(function (k) {
-          if (!settingRows.some(function (r) { return r.key === k; }) && !same(state.draft[k], res.settings[k])) keep[k] = state.draft[k];
+          if (!savedSettings.some(function (r) { return r.key === k; }) && !same(state.draft[k], nextSettings[k])) keep[k] = state.draft[k];
+        });
+        failed.forEach(function (k) {
+          var r = picked.filter(function (x) { return x.kind === "setting" && x.key === k; })[0];
+          if (r) keep[k] = clone(r.after);
         });
         state.draft = keep;
         state.saveError = out.discoveryError || "";
-        if (settingRows.length && host.publishProfile) {
+        if (savedSettings.length && host.publishProfile) {
           var p = Object.assign({}, state.doc || {});
           p.discoveryProfile = state.discovery;
           host.publishProfile(p);
@@ -824,7 +853,7 @@
         var entry = {
           by: meta.by,
           summary: meta.summary,
-          rows: picked.map(clone),
+          rows: saved.map(clone),
           beforeCount: beforeCount,
           afterCount: afterCount,
         };
@@ -1020,8 +1049,15 @@
         var m = state.messages.filter(function (x) { return x.id === messageId; })[0];
         if (!m || !m.proposal || m.proposal.status !== "open") return Promise.resolve({ ok: false });
         var p = m.proposal;
-        /* Rebase each row on the settings as they are now. */
-        var rows = p.rows.map(function (r) { return Object.assign({}, r, { before: clone(currentValue(r)) }); });
+        /* LT-STALE: a field that moved since the proposal is not overwritten
+           with the proposal's snapshot. */
+        var stale = p.rows.filter(function (r, i) { return p.mask[i] && !same(currentValue(r), r.before); });
+        if (stale.length) {
+          p.error = "Your settings changed since this proposal (" + stale.map(function (r) { return r.label.toLowerCase(); }).join(", ") + "). Nothing was applied. Ask again for a fresh one.";
+          emit("chat");
+          return Promise.resolve({ ok: false, message: p.error });
+        }
+        var rows = p.rows;
         var summary = m.ask.length > 48 ? m.ask.slice(0, 46) + "…" : m.ask;
         return commit(rows, p.mask, { by: "Agent", summary: summary }).then(function (out) {
           if (out.ok) {
@@ -1617,6 +1653,7 @@
       set("review", out.review.html);
       rv.hidden = !show;
       rv.classList.toggle("is-on", show);
+      reserveReviewSpace(rv, show);
     }
     var dlg = slot("review-dialog");
     if (dlg && dlg.open) {
@@ -1795,6 +1832,15 @@
     var show = inChat() && renderReview(page.tune).on;
     rv.hidden = !show;
     rv.classList.toggle("is-on", show);
+    reserveReviewSpace(rv, show);
+  }
+
+  /* The bar is fixed; pad the Chat root by its height so it never sits on
+     the last controls (it wraps to two rows on a phone). */
+  function reserveReviewSpace(rv, show) {
+    if (!page.region || !page.region.style) return;
+    var h = show ? Math.ceil(rv.getBoundingClientRect().height) + 24 : 0;
+    page.region.style.setProperty("--jbt-review-space", h + "px");
   }
 
   function onMode(e) {

@@ -1371,6 +1371,8 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
   --jbt-runs-bg: var(--jb-violet-soft);
   --jbt-runs-ink: var(--jb-violet-ink);
   padding-top: 6px;
+  /* Set by leads-tune.js to the open review bar's height. */
+  padding-bottom: var(--jbt-review-space, 0px);
 }
 
 .jb-leads .jbt h2,
@@ -2466,6 +2468,16 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
 
   .jb-leads .jbt-chip__btn {
     min-width: 44px;
+  }
+
+  .jb-leads .jbt-chipset__input {
+    min-height: 44px;
+  }
+
+  /* The one rule outside .jb-leads: on the Ask tab, lift the app's toast
+     stack above the sticky composer so a toast never covers it. */
+  body.jb-v2[data-jb-view="leads"]:has(.jb-leads .jbt-grid[data-mtab="ask"]) .toast-container {
+    bottom: 84px;
   }
 
   .jb-leads .jbt-review {
