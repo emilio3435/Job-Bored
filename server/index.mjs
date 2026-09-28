@@ -91,6 +91,7 @@ import {
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
+import { leadsChatHandler } from "./leads-chat.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -443,6 +444,8 @@ app.post("/api/ats-scorecard", async (req, res) => {
     );
   }
 });
+
+app.post("/api/leads/chat", leadsChatHandler);
 
 /* ----- User profile (Task #4) -----
  * GET  /profile                     → returns saved profile or { ok: false, reason: "no_profile" }
