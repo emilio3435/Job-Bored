@@ -9,6 +9,8 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { buildQaRecord, combinedStatus, readDocumentQa, repairInstructionsFromQa } from "../server/materials-qa.mjs";
 import { auditApplicationMaterials } from "../server/materials-quality.mjs";
 import { buildManifest, isAllowedFilename } from "../server/application-materials.mjs";
+import { runHardGates } from "../server/materials-rubric.mjs";
+import { hashRenderedText, splitSentences } from "../server/materials-judge.mjs";
 
 const finalText = "I built a dispatch forecast.";
 const textHash = `sha256:${createHash("sha256").update(finalText).digest("hex")}`;
@@ -49,6 +51,65 @@ it("K3/G4: verdict precedence is table-driven, including every review rule", () 
     ["advisory and gap cannot fail", { gates: [{ id: "posting_overlap", kind: "advisory", pass: false, reason: "Weak match.", sentenceIds: [] }], judge: makeJudgment({ qualificationGaps: ["No management evidence."] }) }, "READY"],
   ];
   for (const [name, input, expected] of cases) assert.equal(qa(input).disposition, expected, name);
+});
+
+it("S1: a supported scope note stays advisory in the QA record", () => {
+  const record = qa({ judge: makeJudgment({
+    issues: [{ kind: "scope", sentenceIds: ["L1"], reason: "The wording may sound broader than its source.", action: "rewrite" }],
+  }) });
+  assert.equal(record.disposition, "READY");
+  assert.equal(record.issues[0].severity, "note");
+});
+
+it("S5: grounded confident spin is READY-eligible; invented employers and inflated numbers fail", () => {
+  const claimText = "Helped the team coordinate the enterprise-grade delivery forecast across 21 routes, from weekly intake through final handoff at Fictional Labs.";
+  const ledger = {
+    claims: [{ id: "claim:routes", text: claimText, metrics: [{ token: "21" }] }],
+    employers: [{ id: "employer:fictional", name: "Fictional Labs" }],
+  };
+  const body = [
+    "I drove the enterprise-grade delivery forecast across 20+ routes at Fictional Labs.",
+    "I led the work end-to-end, from weekly intake through final handoff.",
+    "I would bring that practical read to Fictional Labs' next planning cycle.",
+  ].join("\n\n");
+  const draft = {
+    contract: "materials.draft.v2", jdHash: "sha256:0", ledgerHash: "sha256:0",
+    statement: "", bullets: [],
+    letter: {
+      hook: "I drove the enterprise-grade delivery forecast across 20+ routes at Fictional Labs.",
+      companyInsight: "", proof1: "I led the work end-to-end, from weekly intake through final handoff.",
+      proof2: "", ask: "I would bring that practical read to Fictional Labs' next planning cycle.",
+    },
+  };
+  const makeRecord = (text, candidateDraft, judgeIssues = []) => {
+    const sentences = splitSentences(text, "letter");
+    const hash = hashRenderedText(text);
+    const judgement = {
+      document: "letter", textHash: hash,
+      ratings: dimensions.map((dimension) => ({ dimension, score: 4, reason: "Strong, grounded writing.", sentenceIds: sentences.map((item) => item.id) })),
+      sentences: sentences.map((sentence) => ({ id: sentence.id, status: "supported", reason: "The fictional claim supports this wording.", citations: [{ sourceId: "claim:routes", quote: claimText }] })),
+      issues: judgeIssues, qualificationGaps: [],
+    };
+    const gates = runHardGates({ document: "letter", finalText: text, ledger, draft: candidateDraft, posting: "Fictional Labs needs delivery forecasting.",
+      sourceRefs: [{ sentence: candidateDraft.letter.hook, claimIds: ["claim:routes"] }] });
+    return buildQaRecord({
+      document: "letter", runId: "fictional-spin", finalText: text, textHash: hash, gates,
+      judge: { status: "ok", judgment: { contract: "materials.judge.v1", documents: [judgement] }, meta: { provider: "openai_compatible", model: "grok-example", independent: true, promptVersion: "materials-judge-v2" } },
+    });
+  };
+
+  const ready = makeRecord(body, draft, [{ kind: "scope", sentenceIds: ["L1"], reason: "The scope wording is a review hint.", action: "rewrite" }]);
+  assert.equal(ready.disposition, "READY", JSON.stringify(ready.gates.filter((gate) => gate.kind === "hard" && !gate.pass)));
+  assert.equal(ready.issues.find((issue) => issue.kind === "scope")?.severity, "note");
+  assert.ok(!ready.gates.some((gate) => gate.id === "scope_upgrade" && gate.kind === "hard"));
+
+  const inflatedText = body.replace("20+ routes", "50+ routes");
+  const inflatedDraft = { ...draft, letter: { ...draft.letter, hook: draft.letter.hook.replace("20+ routes", "50+ routes") } };
+  assert.equal(makeRecord(inflatedText, inflatedDraft).disposition, "FAIL");
+
+  const inventedText = body.replace("at Fictional Labs.", "at Mythic Systems.");
+  const inventedDraft = { ...draft, letter: { ...draft.letter, hook: draft.letter.hook.replace("at Fictional Labs.", "at Mythic Systems.") } };
+  assert.equal(makeRecord(inventedText, inventedDraft).disposition, "FAIL");
 });
 
 it("K3/G6: QA v2 has schema-valid score, issue ids, repair filtering and combined status", () => {

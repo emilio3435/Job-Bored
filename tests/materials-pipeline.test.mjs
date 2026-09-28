@@ -69,7 +69,10 @@ function testServices(options = {}) {
       const bullets = ids.filter((claimId) => !omittedClaimIds.has(claimId)).map((claimId) => ({ claimId, text: options.longBullets ? `${ledger.claims.find((claim) => claim.id === claimId)?.text} ${"field report ".repeat(90)}` : `${ledger.claims.find((claim) => claim.id === claimId)?.text || "Verified work."}${options.addTell ? " I leverage best-in-class synergies to drive robust outcomes." : ""}${options.addMetric ? " This saved 9999 hours." : ""}` }));
       const voiceCopy = options.copyVoiceText || (options.copyVoice ? " I make complex systems easier for teams to trust." : "");
       const letter = feature === "cover_letter" ? { ...LETTER, hook: `${options.addScope ? `${LETTER.hook} I led enterprise transformation across the regional fleet.` : LETTER.hook}${voiceCopy}`, ask: repairPrompt && (options.rewriteClose || (options.rewriteCloseOnIssue && repairPrompt.includes("Revise the close"))) ? "I would map one Harbor Fleet route with your dispatch team. Could we compare the forecast to the shift log?" : LETTER.ask } : EMPTY_LETTER;
-      return { draft: { contract: "materials.draft.v2", jdHash: "sha256:0", ledgerHash: ledger.ledgerHash, statement: feature === "resume" ? `Field analyst who built route forecasts for 620 vans.${voiceCopy}` : "", bullets: feature === "resume" ? bullets : [], earlier: [], letter }, sourceRefs: [], degraded: false, missingEmployerIds: omittedEmployerIds };
+      return {
+        draft: { contract: "materials.draft.v2", jdHash: "sha256:0", ledgerHash: ledger.ledgerHash, statement: feature === "resume" ? `Field analyst who built route forecasts for 620 vans.${voiceCopy}` : "", bullets: feature === "resume" ? bullets : [], earlier: [], letter },
+        sourceRefs: options.sourceRefsByFeature?.[feature] || [], degraded: false, missingEmployerIds: omittedEmployerIds,
+      };
     },
     splitSentences: (text, document) => text.split(/\n+|(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => ({ id: `${document === "letter" ? "L" : "R"}${i + 1}`, text: sentence })),
     runHardGates: async (args) => { calls.hard.push(args); return options.hardGate?.(args) || []; },
@@ -447,6 +450,17 @@ describe("MREV B1 pipeline", () => {
     assert.ok(calls.judge.every((packet) => Array.isArray(packet.sources.advisory)));
     assert.ok(calls.judge.some((packet) => packet.sources.advisory.some((item) => /leverage|synergies|robust/i.test(item.detail))), "delint finding reached the judge");
     assert.ok((await readFile(join(dir, "draft.resume.json"), "utf8")).includes("leverage best-in-class"), "delint did not mutate prose");
+  });
+
+  it("passes each writer's sentence-to-claim sourceRefs to its document hard gate", async () => {
+    const sourceRefsByFeature = {
+      cover_letter: [{ sentence: "Letter evidence sentence.", claimIds: ["claim:letter"] }],
+      resume: [{ sentence: "Resume evidence sentence.", claimIds: ["claim:resume"] }],
+    };
+    const { services, calls } = testServices({ sourceRefsByFeature });
+    await runPipeline(base(dir, services, "both"));
+    assert.deepEqual(calls.hard.find((call) => call.document === "letter")?.sourceRefs, sourceRefsByFeature.cover_letter);
+    assert.deepEqual(calls.hard.find((call) => call.document === "resume")?.sourceRefs, sourceRefsByFeature.resume);
   });
 
   it("G4: gives each document its own sentence-linked voice, metric and scope advisory", async () => {

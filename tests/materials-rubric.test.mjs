@@ -11,6 +11,28 @@ function disposition(finalText, ledger, draft = validDraft) {
   return buildQaRecord({ document: "letter", runId: "fictional", finalText, textHash: hashRenderedText(finalText), gates, judge: { status: "unavailable", meta: {} } }).disposition;
 }
 
+function metricGateResults(document, finalText, ledger, draft, posting = "", sourceRefs = []) {
+  return Object.fromEntries(runHardGates({ document, finalText, ledger, draft, posting, sourceRefs })
+    .map((gate) => [gate.id, gate.pass]));
+}
+
+function letterMetricResults(metric, claims, posting = "") {
+  const finalText = `I ran ${metric} delivery routes.`;
+  return metricGateResults("letter", finalText, { claims },
+    { ...validDraft, letter: { hook: finalText, companyInsight: "", proof1: "", proof2: "", ask: "" } }, posting,
+    [{ sentence: finalText, claimIds: claims[0]?.id ? [claims[0].id] : [] }]);
+}
+
+function assertMetricAccepted(gates, label) {
+  assert.equal(gates.metric_mismatch, true, `${label}: metric_mismatch`);
+  assert.equal(gates.invented_fact, true, `${label}: invented_fact`);
+}
+
+function assertMetricRejected(gates, label) {
+  assert.equal(gates.metric_mismatch, false, `${label}: metric_mismatch`);
+  assert.equal(gates.invented_fact, false, `${label}: invented_fact`);
+}
+
 it("G4: tool support searches every claim with no inventory cap or token length floor", () => {
   const claims = Array.from({ length: 40 }, (_, index) => ({ id: `claim-${index + 1}`, text: `Built workflow ${index + 1}.` }));
   claims.push({ id: "claim-41", text: "Used SQL, AWS, GCP, dbt and GA4 for dispatch reports." });
@@ -68,6 +90,97 @@ it("G4: scope-word matches are advisory evidence and never a hard verdict", () =
   const gates = runHardGates({ document: "letter", finalText, ledger, draft: {}, posting: "Fictional Labs needs planning." });
   assert.ok(!gates.some((gate) => gate.id === "scope_upgrade" && gate.kind === "hard"));
   assert.ok(advisoryEvidence({ document: "letter", finalText, ledger, posting: "Fictional Labs needs planning." }).some((item) => item.kind === "scope"));
+});
+
+it("S3: a resume bullet claimId binds conservative rounding when a writer omits sourceRefs", () => {
+  const check = (sourceMetric, draftMetric) => {
+    const finalText = `I managed ${draftMetric} delivery routes.`;
+    const gates = runHardGates({ document: "resume", finalText,
+      draft: { statement: "", bullets: [{ claimId: "c1", text: finalText }], earlier: [] },
+      ledger: { claims: [{ id: "c1", text: `I managed ${sourceMetric} delivery routes.`, metrics: [{ token: sourceMetric }] }] },
+    });
+    return Object.fromEntries(gates.map((gate) => [gate.id, gate.pass]));
+  };
+  for (const [source, rounded] of [["21", "20+"], ["$2.4M", "$2M+"]]) {
+    const gates = check(source, rounded);
+    assert.equal(gates.metric_mismatch, true, `${source} → ${rounded}`);
+    assert.equal(gates.invented_fact, true, `${source} → ${rounded}`);
+  }
+  for (const [source, inflated] of [["21", "50+"], ["$2.4M", "$10M+"]]) {
+    const gates = check(source, inflated);
+    assert.equal(gates.metric_mismatch, false, `${source} → ${inflated}`);
+    assert.equal(gates.invented_fact, false, `${source} → ${inflated}`);
+  }
+  const noSource = check("", "20+");
+  assert.equal(noSource.metric_mismatch, false);
+  assert.equal(noSource.invented_fact, false);
+});
+
+it("S3: letter metrics allow one-significant-digit downward rounding and preserve worse ranks", () => {
+  assertMetricAccepted(letterMetricResults("20+", [{ id: "c1", text: "Ran 21 routes.", metrics: [{ token: "21" }] }]), "21 rounds down to 20+");
+  assertMetricAccepted(letterMetricResults("$2M+", [{ id: "c1", text: "Managed $2.4M.", metrics: [{ token: "$2.4M" }] }]), "$2.4M rounds down to $2M+");
+  assertMetricAccepted(letterMetricResults("top-4", [{ id: "c1", text: "Reached a top-3 rank.", metrics: [{ token: "top-3" }] }]), "top-4 is worse than top-3");
+  assertMetricAccepted(letterMetricResults("#20", [{ id: "c1", text: "Ranked #19.", metrics: [{ token: "#19" }] }]), "#20 is worse than #19");
+});
+
+it("review P1: a posting's 500 cannot ground 50+ over a claim of 21", () => {
+  assertMetricRejected(letterMetricResults("50+", [{ id: "c1", text: "Ran 21 routes.", metrics: [{ token: "21" }] }], "Posting: 500 routes."), "posting 500 cannot ground 50+");
+});
+
+it("review P1: another claim's $10M+ cannot ground $9M+", () => {
+  assertMetricRejected(letterMetricResults("$9M+", [
+    { id: "c1", text: "Managed a $2.4M book.", metrics: [{ token: "$2.4M" }] },
+    { id: "c2", text: "Managed a $10M+ book.", metrics: [{ token: "$10M+" }] },
+  ]), "another claim's $10M+ cannot ground $9M+");
+});
+
+it("review P1: a sentence sourceRef prevents another claim's valid rounding from grounding its number", () => {
+  const finalText = "At Northwind, I managed $2M+ of annual revenue.";
+  const claims = [
+    { id: "c1", employerId: "northwind", text: "Managed a $10M annual book at Northwind.", metrics: [{ token: "$10M" }] },
+    { id: "c2", employerId: "audacy", text: "Managed $2.4M at Audacy.", metrics: [{ token: "$2.4M" }] },
+  ];
+  const gates = metricGateResults("letter", finalText, { claims, employers: [{ id: "northwind", name: "Northwind" }, { id: "audacy", name: "Audacy" }] },
+    { ...validDraft, letter: { hook: finalText, companyInsight: "", proof1: "", proof2: "", ask: "" } }, "",
+    [{ sentence: finalText, claimIds: ["c1"] }]);
+  assertMetricRejected(gates, "the cited $10M claim cannot borrow $2M+ from the $2.4M claim");
+});
+
+it("S3: when a sentence has no sourceRef, same-employer claim metrics are the fallback", () => {
+  const finalText = "At Northwind, I managed $2M+ in annual revenue.";
+  const claims = [
+    { id: "c1", employerId: "northwind", text: "Managed a $2.4M book at Northwind.", metrics: [{ token: "$2.4M" }] },
+    { id: "c2", employerId: "audacy", text: "Managed a $10M+ book at Audacy.", metrics: [{ token: "$10M+" }] },
+  ];
+  const ledger = { claims, employers: [{ id: "northwind", name: "Northwind" }, { id: "audacy", name: "Audacy" }] };
+  const draft = { ...validDraft, letter: { hook: finalText, companyInsight: "", proof1: "", proof2: "", ask: "" } };
+  const sameEmployer = metricGateResults("letter", finalText, ledger, draft);
+  assertMetricAccepted(sameEmployer, "Northwind's $2.4M supports its $2M+ rounding");
+
+  const wrongEmployerText = "At Northwind, I managed $2M+ in annual revenue.";
+  const wrongEmployerLedger = { claims: [
+    { id: "c1", employerId: "northwind", text: "Managed a $10M book at Northwind.", metrics: [{ token: "$10M" }] },
+    { id: "c2", employerId: "audacy", text: "Managed a $2.4M book at Audacy.", metrics: [{ token: "$2.4M" }] },
+  ], employers: ledger.employers };
+  const wrongEmployerDraft = { ...validDraft, letter: { hook: wrongEmployerText, companyInsight: "", proof1: "", proof2: "", ask: "" } };
+  assertMetricRejected(metricGateResults("letter", wrongEmployerText, wrongEmployerLedger, wrongEmployerDraft), "Audacy's $2.4M cannot ground a Northwind sentence");
+});
+
+it("review P1: top-1 cannot be grounded by a top-3 source", () => {
+  assertMetricRejected(letterMetricResults("top-1", [{ id: "c1", text: "Reached a top-3 rank.", metrics: [{ token: "top-3" }] }]), "top-1 is better than top-3");
+});
+
+it("review P1: #1 cannot be grounded by a #19 source", () => {
+  assertMetricRejected(letterMetricResults("#1", [{ id: "c1", text: "Ranked #19.", metrics: [{ token: "#19" }] }]), "#1 is better than #19");
+});
+
+it("review P1: 50 is not a one-significant-digit rounding of either 21 or 200", () => {
+  const finalText = "I managed 50 delivery routes.";
+  const gates = metricGateResults("resume", finalText,
+    { claims: [{ id: "c1", text: "Managed 21 routes, including 200 seasonal routes.", metrics: [{ token: "21" }, { token: "200" }] }] },
+    { statement: "", bullets: [{ claimId: "c1", text: finalText }], earlier: [] }, "",
+    [{ sentence: finalText, claimIds: ["c1"] }]);
+  assertMetricRejected(gates, "50 is not a one-significant-digit downward rounding of 21 or 200");
 });
 
 it("K3: noun coverage and selected evidence omissions stay advisory", () => {

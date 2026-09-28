@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { it } from "node:test";
-import { JUDGE_SCHEMA, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
-import { chat, toGeminiSchema } from "../server/ai/provider.mjs";
+import { JUDGE_PROMPT_VERSION, JUDGE_SCHEMA, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
+import { DEFAULT_ROUTE_DEADLINE_MS, MAX_PROVIDER_TIMEOUT_MS, chat, clampTimeoutMs, toGeminiSchema } from "../server/ai/provider.mjs";
 import { buildQaRecord } from "../server/materials-qa.mjs";
 
 const text = "Dear Hiring Team,\n\nI built the dispatch forecast at Fictional Labs.\n\nBest,\nAvery";
@@ -186,6 +186,37 @@ it("MREV-4: without a judge pin, the writer judges independently in prompt only"
   const result = await judgeMaterials({ writer: judge, documents, sources, fetchImpl: fakeFetch(validJudgment(), []) });
   assert.equal(result.status, "ok");
   assert.equal(result.meta.independent, false);
+});
+
+it("S2: judge prompt treats grounded spin as supported and rewards a warm, confident voice", async () => {
+  const calls = [];
+  const result = await judgeMaterials({ writer, judge, documents, sources, fetchImpl: fakeFetch(validJudgment(), calls) });
+  const prompt = calls[0].body.messages.find((message) => message.role === "system").content;
+  assert.match(prompt, /spun-but-grounded sentence is supported/i);
+  assert.match(prompt, /unsupported is reserved for fabrication/i);
+  assert.match(prompt, /warm, lightly whimsical, confident professional/i);
+  assert.match(prompt, /stiff or hedged prose scores lower/i);
+  assert.equal(result.meta.promptVersion, "materials-judge-v2");
+  assert.equal(JUDGE_PROMPT_VERSION, "materials-judge-v2");
+});
+
+it("S4: judge gets 110 seconds within the route deadline and provider ceiling", async () => {
+  const timeouts = [];
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => {
+    timeouts.push(ms);
+    return originalTimeout.call(AbortSignal, ms);
+  };
+  try {
+    const result = await judgeMaterials({ writer, judge, documents, sources, fetchImpl: fakeFetch(validJudgment(), []) });
+    assert.equal(result.status, "ok");
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+  assert.ok(timeouts.includes(110_000), `timeouts: ${timeouts.join(", ")}`);
+  assert.equal(clampTimeoutMs(110_000), 110_000);
+  assert.equal(clampTimeoutMs(MAX_PROVIDER_TIMEOUT_MS + 1), MAX_PROVIDER_TIMEOUT_MS);
+  assert.ok(DEFAULT_ROUTE_DEADLINE_MS > 2 * 110_000, `route deadline: ${DEFAULT_ROUTE_DEADLINE_MS}`);
 });
 
 it("K2: invalid schema, missing and duplicate sentences, wrong hashes, unknown sources and fabricated quotes fail closed", async () => {

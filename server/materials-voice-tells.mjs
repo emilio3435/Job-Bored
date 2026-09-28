@@ -605,7 +605,8 @@ export function voiceTells(paragraphs, options = {}) {
 
 /**
  * The rubric row: 2 with no tells, 1 with soft tells only, 0 with any
- * hard tell.
+ * hard tell. Confident work verbs such as "drove" and "led" are not tells
+ * by themselves; the detectors score specific boilerplate and cadence.
  * @param {string[]} paragraphs
  * @param {VoiceTellOptions} [options]
  * @returns {{ id: "sounds_human", score: number, max: 2, note: string, tells: Tell[] }}

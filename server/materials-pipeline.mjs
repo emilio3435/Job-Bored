@@ -579,7 +579,8 @@ async function runPipelineBody(input, assertBase) {
       texts[document] = finalText;
       hashes[document] = hash;
       const sentences = deps.splitSentences(finalText, document);
-      const gates = [...await deps.runHardGates({ document, finalText, draft, ledger: groundingLedger, posting: jdText })];
+      const feature = document === "letter" ? "cover_letter" : "resume";
+      const gates = [...await deps.runHardGates({ document, finalText, draft, ledger: groundingLedger, posting: jdText, sourceRefs: sourceRefs[feature] || [] })];
       for (const issue of rendered.issues) {
         const isLetter = /^cover letter/i.test(issue.message || "") || String(issue.code).startsWith("cover_letter");
         if ((document === "letter") === isLetter) gates.push({ id: issue.code, kind: issue.severity === "fail" ? "hard" : "advisory", pass: false, reason: issue.message, sentenceIds: [] });

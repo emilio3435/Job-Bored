@@ -277,7 +277,28 @@ function stageFetch() {
       });
     } else if (system.startsWith("Goal: Write truthful")) {
       calls.push("write");
-      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: [], earlier: [], letter: LETTER });
+      const writerClaims = [...user.matchAll(/^- ([a-zA-Z0-9_-]+): (.+)$/gm)].map((match) => {
+        let text = match[2];
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed === "string") text = parsed;
+        } catch {
+          /* Keep older raw-text prompt rows readable in this stub. */
+        }
+        return { claimId: match[1], text };
+      });
+      const claimIdMatching = (predicate) => writerClaims.find((claim) => predicate(claim.text))?.claimId;
+      const northwindRank = claimIdMatching((text) => text.includes("top-3") && text.includes("$10M+"));
+      const northwindGrowth = claimIdMatching((text) => text.includes("130%"));
+      const northwindMix = claimIdMatching((text) => text.includes("60%"));
+      const forecast = claimIdMatching((text) => text.includes("21+") && text.includes("$2.4M"));
+      const streaming = claimIdMatching((text) => text.includes("Kafka") && text.includes("Postgres"));
+      const refs = [
+        { sentence: LETTER.hook, claimIds: northwindRank ? [northwindRank] : [] },
+        { sentence: LETTER.proof1, claimIds: [northwindGrowth, northwindMix].filter(Boolean) },
+        { sentence: LETTER.proof2, claimIds: [forecast, streaming].filter(Boolean) },
+      ];
+      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: [], earlier: [], letter: LETTER, sourceRefs: refs });
     } else {
       calls.push("extract");
       content = JSON.stringify({
@@ -366,12 +387,13 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
 
     const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(validateRunRecord(run).ok, true, JSON.stringify(validateRunRecord(run).errors));
+    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
     const stageNames = run.stages.map((s) => s.stage);
-    assert.deepEqual(stageNames.filter((stage) => stage !== "outreach"), ["prepare", "write", "validate", "render", "judge", "save"]);
+    assert.deepEqual(stageNames.filter((stage) => stage !== "outreach"), ["prepare", "write", "validate", "render", "judge", "save"],
+      JSON.stringify({ disposition: qa.disposition, failedGates: qa.gates.filter((gate) => gate.kind === "hard" && !gate.pass) }));
     assert.ok(stageNames.includes("outreach"));
     assert.match(run.stages.find((s) => s.stage === "prepare").detail, /intel cache hit/);
 
-    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
     assert.equal(qa.judge.status, "ok", JSON.stringify(qa.judge));
     assert.ok(qa.sentences.some((sentence) => sentence.citations.some((citation) => citation.sourceId === "intel-1")), "the judge cites cached research");
 

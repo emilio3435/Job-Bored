@@ -168,6 +168,17 @@ describe("sounds_human rubric row", () => {
     assert.equal(row.note, "no machine tells");
   });
 
+  it("S1: confident verbs like drove and led are not voice penalties", () => {
+    const paragraphs = [
+      "I drove the forecast rollout for Lumen Parcel's regional fleet.",
+      "I led the work end-to-end and cut missed windows by 20%.",
+      "I would bring that practical eye to next week's route review.",
+    ];
+    const row = soundsHumanRow(paragraphs, { company: "Lumen Parcel" });
+    assert.ok(!row.tells.some((tell) => /\b(?:drove|led)\b/i.test(tell.text)), row.note);
+    assert.deepEqual(detectAiWords(paragraphs.join(" ")).filter((hit) => /\b(?:drove|led)\b/i.test(hit.text)), []);
+  });
+
   it("should score soft tells as 1 (review) and never 0: only a hard tell fails", () => {
     const oneSoft = [...GOOD_LETTER.slice(0, 3), "Here's my offer — a one-page readout — on Lumen Parcel's routes. Send the data."];
     assert.equal(soundsHumanRow(oneSoft, { company: "Lumen Parcel" }).score, 1);

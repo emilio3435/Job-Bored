@@ -5,10 +5,190 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { loadVoicePack } from "./materials-delint.mjs";
-import { numerals, tagDraftMetrics } from "./materials-metric-tag.mjs";
+import { numerals } from "./materials-metric-tag.mjs";
 
 const JD_ECHO_WINDOW = 8;
 const HTML_IN_SLOT_RE = /<[a-z]/i;
+
+/**
+ * A metric is supported only by an exact source value or its one-significant-
+ * digit downward rounding. Rank numbers run in the opposite direction: a
+ * larger rank number is equal or worse, never an upgrade.
+ * @param {string} token
+ * @param {string[]} sources
+ */
+function metricHasSource(token, sources) {
+  const parse = (/** @type {string} */ value) => {
+    const match = String(value).trim().match(/^([$#]|top-)?(\d[\d,]*(?:\.\d+)?)([kKmMbB])?(\+|%|x)?$/i);
+    if (!match) return null;
+    const suffix = String(match[3] || "").toLowerCase();
+    const multiplier = suffix === "k" ? 1e3 : suffix === "m" ? 1e6 : suffix === "b" ? 1e9 : 1;
+    const trailing = String(match[4] || "").toLowerCase();
+    return {
+      prefix: String(match[1] || "").toLowerCase(),
+      unit: trailing === "%" ? "%" : trailing === "x" ? "x" : "quantity",
+      value: Number(String(match[2]).replace(/,/g, "")) * multiplier,
+    };
+  };
+  const candidate = parse(token);
+  if (!candidate || !Number.isFinite(candidate.value)) return false;
+  const sameValue = (/** @type {number} */ left, /** @type {number} */ right) =>
+    Math.abs(left - right) <= Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right)) * 4;
+  return sources.some((source) => {
+    const approved = parse(source);
+    if (!approved) return false;
+    if (approved.prefix !== candidate.prefix || approved.unit !== candidate.unit) return false;
+    if (sameValue(candidate.value, approved.value)) return true;
+
+    if (candidate.prefix === "#" || candidate.prefix === "top-") {
+      return candidate.value > approved.value;
+    }
+    if (approved.value <= 0) return false;
+    const place = 10 ** Math.floor(Math.log10(approved.value));
+    const roundedDown = Math.floor(approved.value / place) * place;
+    return roundedDown < approved.value && sameValue(candidate.value, roundedDown);
+  });
+}
+
+/** @param {string} text */
+function splitMetricSentences(text) {
+  return String(text || "").split(/\r?\n+|(?<=[!?])\s+|\.(?!\d)\s+(?=[A-Z0-9“"$])/)
+    .map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * Sentence matching ignores numbers so a rounded rendering still maps to the
+ * writer's sourceRef for that sentence.
+ * @param {string} text
+ */
+function evidenceSentenceKey(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/(?:top-|[$#])?\d[\d,]*(?:\.\d+)?(?:%|x\b|[kKmMbB]\+?|\+)?/gi, " ")
+    .replace(/[^\p{L}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** @param {string} left @param {string} right */
+function sentenceMatches(left, right) {
+  const a = evidenceSentenceKey(left);
+  const b = evidenceSentenceKey(right);
+  if (!a || !b) return false;
+  return a === b;
+}
+
+/** @param {string} text */
+function exactSentenceKey(text) {
+  return String(text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+/** @param {Array<{ sentence?: string, claimIds?: string[] }>} refs */
+function unambiguousRefClaimIds(refs) {
+  if (!refs.length) return null;
+  const sets = new Set(refs.map((ref) => JSON.stringify([...new Set(Array.isArray(ref.claimIds) ? ref.claimIds : [])].sort())));
+  if (sets.size !== 1) return [];
+  const ids = refs[0].claimIds;
+  return [...new Set(Array.isArray(ids) ? ids : [])].filter((id) => typeof id === "string");
+}
+
+/** @param {string} text @param {string} phrase */
+function sentenceContainsPhrase(text, phrase) {
+  const a = evidenceSentenceKey(text);
+  const b = evidenceSentenceKey(phrase);
+  return Boolean(a && b && (` ${a} `).includes(` ${b} `));
+}
+
+/** @param {string[]} claimIds @param {{ claims?: Array<{ id?: string, metrics?: Array<{ token?: string }> }> }} ledger */
+function metricTokensForClaims(claimIds, ledger) {
+  const wanted = new Set(claimIds.filter((id) => typeof id === "string"));
+  return (ledger.claims || [])
+    .filter((claim) => typeof claim.id === "string" && wanted.has(claim.id))
+    .flatMap((claim) => (claim.metrics || []).map((metric) => String(metric.token || "")))
+    .filter(Boolean);
+}
+
+/**
+ * @param {string} sentence
+ * @param {{ employers?: Array<{ id?: string, name?: string }>, claims?: Array<{ id?: string, employerId?: string, text?: string, metrics?: Array<{ token?: string }> }> }} ledger
+ */
+function sameEmployerClaimIds(sentence, ledger) {
+  const mentioned = (ledger.employers || []).filter((employer) => {
+    if (typeof employer.id !== "string" || typeof employer.name !== "string") return false;
+    const aliases = [employer.name, companyDisplayName(employer.name)].filter(Boolean);
+    return aliases.some((alias) => sentenceContainsPhrase(sentence, alias));
+  });
+  const employerIds = [...new Set(mentioned.map((employer) => employer.id))];
+  if (employerIds.length !== 1) return [];
+  const employer = mentioned.find((item) => item.id === employerIds[0]);
+  const employerName = employer?.name;
+  const aliases = typeof employerName === "string" ? [employerName, companyDisplayName(employerName)] : [];
+  return (ledger.claims || [])
+    .filter((claim) => claim.employerId === employerIds[0]
+      || (!claim.employerId && aliases.some((alias) => sentenceContainsPhrase(String(claim.text || ""), alias))))
+    .map((claim) => claim.id)
+    .filter((id) => typeof id === "string");
+}
+
+/**
+ * Resume bullets carry an explicit claimId even in older/degraded drafts
+ * without sentence sourceRefs. Use that single claim only when the rendered
+ * sentence maps unambiguously to one bullet.
+ * @param {string} sentence
+ * @param {{ bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }> }} draft
+ * @returns {string[] | null}
+ */
+function resumeSlotClaimIds(sentence, draft) {
+  const matches = [...(draft.bullets || []), ...(draft.earlier || [])]
+    .filter((slot) => typeof slot.text === "string" && splitMetricSentences(slot.text).some((part) => sentenceMatches(sentence, part)))
+    .map((slot) => slot.claimId)
+    .filter((id) => typeof id === "string");
+  const ids = [...new Set(matches)];
+  return ids.length === 1 ? ids : matches.length ? [] : null;
+}
+
+/**
+ * SourceRefs take priority. Resume bullet claimIds are the direct fallback;
+ * otherwise only claims from the sentence's uniquely named employer may
+ * ground a metric.
+ * @param {string} sentence
+ * @param {Array<{ sentence?: string, claimIds?: string[] }>} sourceRefs
+ * @param {{ statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} draft
+ * @param {{ employers?: Array<{ id?: string, name?: string }>, claims?: Array<{ id?: string, employerId?: string, text?: string, metrics?: Array<{ token?: string }> }> }} ledger
+ * @param {"letter" | "resume"} document
+ * @param {string} [directClaimId]
+ * @returns {string[]}
+ */
+function sourceClaimIdsForSentence(sentence, sourceRefs, draft, ledger, document, directClaimId) {
+  const exactKey = exactSentenceKey(sentence);
+  const exactRefs = sourceRefs.filter((ref) => typeof ref.sentence === "string" && exactSentenceKey(String(ref.sentence || "")) === exactKey);
+  if (exactRefs.length) return unambiguousRefClaimIds(exactRefs) || [];
+
+  const fuzzyRefs = sourceRefs.filter((ref) => typeof ref.sentence === "string" && sentenceMatches(sentence, String(ref.sentence || "")));
+  if (fuzzyRefs.length) {
+    const sourceSentences = new Set(fuzzyRefs.map((ref) => exactSentenceKey(String(ref.sentence || ""))));
+    return sourceSentences.size === 1 ? unambiguousRefClaimIds(fuzzyRefs) || [] : [];
+  }
+  if (typeof directClaimId === "string") return [directClaimId];
+
+  if (document === "resume") {
+    const slotIds = resumeSlotClaimIds(sentence, draft);
+    if (slotIds !== null) return slotIds;
+  }
+  return sameEmployerClaimIds(sentence, ledger);
+}
+
+/** @param {"letter" | "resume"} document @param {{ statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} draft @returns {Array<{ field: string, text: string, claimId?: string }>} */
+function draftMetricEntries(document, draft) {
+  if (document === "letter") {
+    return Object.entries(draft.letter || {}).map(([beat, text]) => ({ field: `letter.${beat}`, text: String(text || "") }));
+  }
+  return [
+    { field: "statement", text: String(draft.statement || "") },
+    ...(draft.bullets || []).map((slot) => ({ field: `bullets.${slot.claimId || "?"}`, text: String(slot.text || ""), claimId: slot.claimId })),
+    ...(draft.earlier || []).map((slot) => ({ field: `earlier.${slot.claimId || "?"}`, text: String(slot.text || ""), claimId: slot.claimId })),
+  ];
+}
 
 /* Fallback when the voice pack cannot load; the pack (30+ patterns) is
  * the real list. */
@@ -311,7 +491,7 @@ export async function critiqueMaterials({
       for (const match of maskNonMetrics(String(text)).matchAll(/((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)/g)) {
         const token = match[1];
         if (/^(?:19|20)\d\d(?:[–-](?:19|20)\d\d)?$/.test(token)) continue;
-        if (!ledgerTokens.includes(token)) {
+        if (!metricHasSource(token, ledgerTokens)) {
           issues.push(issue(
             "invented_fact",
             `Draft numeral ${token} does not trace to a ledger metric.`,
@@ -365,32 +545,50 @@ export async function critiqueMaterials({
  * @param {object} input
  * @param {"letter" | "resume"} input.document
  * @param {{ statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} [input.draft]
- * @param {{ claims?: Array<{ id?: string, text?: string, metrics?: Array<{ token?: string }> }>, employers?: Array<{ name?: string }> }} [input.ledger]
+ * @param {{ claims?: Array<{ id?: string, employerId?: string, text?: string, metrics?: Array<{ token?: string }> }>, employers?: Array<{ id?: string, name?: string }> }} [input.ledger]
+ * @param {Array<{ sentence?: string, claimIds?: string[] }>} [input.sourceRefs]
  * @param {{ expectedEmployers?: string[], renderedEmployers?: string[], identity?: { expected?: Record<string, unknown>, actual?: Record<string, unknown> }, history?: { expected?: Array<Record<string, unknown>>, actual?: Array<Record<string, unknown>> } }} [input.protected]
  * @param {string | { text?: string }} [input.posting]
  * @param {string} [input.finalText]
  * @param {string} [input.html]
  */
-export function criticHardChecks({ document, draft = {}, ledger = {}, protected: protectedFacts = {}, posting = "", finalText = "", html = "" }) {
+export function criticHardChecks({ document, draft = {}, ledger = {}, sourceRefs = [], protected: protectedFacts = {}, posting = "", finalText = "", html = "" }) {
   const claims = new Set((ledger.claims || []).map((claim) => claim.id));
   const slots = document === "resume" ? [...(draft.bullets || []), ...(draft.earlier || [])] : [];
   const unknown = slots.map((slot) => slot?.claimId).filter((id) => typeof id === "string" && !claims.has(id));
-  const metrics = tagDraftMetrics({ draft: document === "letter" ? { letter: draft.letter || {} } : { statement: draft.statement, bullets: draft.bullets || [], earlier: draft.earlier || [] }, ledger, postingText: typeof posting === "string" ? posting : String(posting?.text || "") });
-  const expectedEmployers = Array.isArray(protectedFacts.expectedEmployers) ? protectedFacts.expectedEmployers : [];
-  const renderedEmployers = Array.isArray(protectedFacts.renderedEmployers) ? protectedFacts.renderedEmployers : [];
-  const missing = expectedEmployers.filter((name) => !renderedEmployers.includes(name));
-  const allowed = new Set((ledger.employers || []).map((employer) => employer.name));
-  const invented = renderedEmployers.filter((name) => allowed.size && !allowed.has(name));
   const postingText = typeof posting === "string" ? posting : String(posting?.text || "");
-  const metricTokens = new Set((ledger.claims || []).flatMap((claim) => (claim.metrics || []).map((metric) => String(metric.token || ""))));
-  if (document === "letter") for (const token of numerals(postingText)) metricTokens.add(token);
-  const renderedTexts = [finalText, visibleText(html)].filter(Boolean);
   const metricText = (/** @type {string} */ text) => text
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
     .replace(/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/g, " ")
     .replace(/(?<!\w)(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\w)/g, " ")
     .replace(/\b[\p{L}][\p{L}\p{N}]*\d[\p{L}\p{N}]*\b/gu, " ");
-  const inventedMetrics = [...new Set(renderedTexts.flatMap((text) => numerals(metricText(text))))].filter((token) => !metricTokens.has(token));
+  const metricIssues = [];
+  for (const entry of draftMetricEntries(document, draft)) {
+    for (const sentence of splitMetricSentences(entry.text)) {
+      for (const token of numerals(metricText(sentence))) {
+        const claimIds = sourceClaimIdsForSentence(sentence, sourceRefs, draft, ledger, document, entry.claimId);
+        if (!metricHasSource(token, metricTokensForClaims(claimIds, ledger))) {
+          metricIssues.push({ field: entry.field, token, message: `${entry.field}: ${token} is not grounded by this sentence's source claim.` });
+        }
+      }
+    }
+  }
+  const expectedEmployers = Array.isArray(protectedFacts.expectedEmployers) ? protectedFacts.expectedEmployers : [];
+  const renderedEmployers = Array.isArray(protectedFacts.renderedEmployers) ? protectedFacts.renderedEmployers : [];
+  const missing = expectedEmployers.filter((name) => !renderedEmployers.includes(name));
+  const allowed = new Set((ledger.employers || []).map((employer) => employer.name));
+  const invented = renderedEmployers.filter((name) => allowed.size && !allowed.has(name));
+  const renderedTexts = [finalText, visibleText(html)].filter(Boolean);
+  const inventedMetrics = [];
+  for (const text of renderedTexts) {
+    for (const sentence of splitMetricSentences(text)) {
+      for (const token of numerals(metricText(sentence))) {
+        const claimIds = sourceClaimIdsForSentence(sentence, sourceRefs, draft, ledger, document);
+        if (!metricHasSource(token, metricTokensForClaims(claimIds, ledger))) inventedMetrics.push(token);
+      }
+    }
+  }
+  const uniqueInventedMetrics = [...new Set(inventedMetrics)];
   const employerPattern = /\b(?:at|for|with)\s+([A-Z][\p{L}\p{N}'&.-]*(?:\s+[A-Z][\p{L}\p{N}'&.-]*){0,3}\s+(?:Corp(?:oration)?|Labs|Inc\.?|LLC|Ltd\.?|Company|Technologies|Systems|Group))\b/gu;
   const namedInText = renderedTexts.flatMap((text) => [...text.matchAll(employerPattern)].map((match) => match[1]));
   const namedInHtml = composedEmployerStrings(html);
@@ -416,8 +614,8 @@ export function criticHardChecks({ document, draft = {}, ledger = {}, protected:
   collectStrings(draft, slotStrings);
   return [
     { id: "known_source_ids", pass: unknown.length === 0, reason: unknown.length ? `Unknown claim ids: ${unknown.join(", ")}.` : "All claim ids exist." },
-    { id: "metric_mismatch", pass: metrics.issues.length === 0, reason: metrics.issues.length ? metrics.issues.map((issue) => issue.message).join(" ") : "Metrics trace to their own claims or the posting." },
-    { id: "invented_fact", pass: inventedMetrics.length === 0, reason: inventedMetrics.length ? `Rendered metric(s) absent from approved evidence: ${inventedMetrics.join(", ")}.` : "Rendered metrics trace to approved evidence." },
+    { id: "metric_mismatch", pass: metricIssues.length === 0, reason: metricIssues.length ? metricIssues.map((issue) => issue.message).join(" ") : "Metrics trace to their sentence-linked claim or same-employer fallback." },
+    { id: "invented_fact", pass: uniqueInventedMetrics.length === 0, reason: uniqueInventedMetrics.length ? `Rendered metric(s) absent from sentence-linked evidence: ${uniqueInventedMetrics.join(", ")}.` : "Rendered metrics trace to sentence-linked evidence." },
     { id: "invented_employer", pass: inventedRenderedEmployers.length === 0, reason: inventedRenderedEmployers.length ? `Rendered employer(s) absent from approved evidence: ${inventedRenderedEmployers.join(", ")}.` : "Rendered employers trace to approved evidence." },
     { id: "protected_fact", pass: !missing.length && !invented.length && !changedProtected.length, reason: [...missing.map((name) => `Missing protected employer: ${name}.`), ...invented.map((name) => `Invented employer: ${name}.`), ...changedProtected.map((field) => `Changed protected field: ${field}.`)].join(" ") || "Protected facts are preserved." },
     { id: "html_in_slot", pass: !slotStrings.some((value) => HTML_IN_SLOT_RE.test(value)), reason: "Writer slots must contain plain text." },
