@@ -472,18 +472,30 @@ for (const width of [1440, 390]) {
       const { fence, seen, section } = await openCase(page, state, { width, height: width === 390 ? 1500 : 1100 });
       const row = section.locator('[data-doc="manual_apply_checklist"]');
       const list = row.locator("jb-apply-checklist");
-      await expect(list.locator(".jb-cl__item")).toHaveCount(CHECKLIST_ITEMS.length);
-      await expect(list.locator(".jb-cl__count")).toHaveText(`0 of ${CHECKLIST_ITEMS.length} done`);
-      await expect(row.locator(".case__docst")).toHaveText(new RegExp(`0 / ${CHECKLIST_ITEMS.length} done`, "i"));
+      /* MREV CHECKLIST: a horizontal strip, one step in focus plus a peek. */
+      const total = CHECKLIST_ITEMS.length;
+      await expect(list.locator(".jb-cl__now")).toHaveAttribute("data-item", "resume");
+      await expect(list.locator(".jb-cl__count")).toHaveText(`${total} steps remaining · 0 completed`);
+      await expect(row.locator(".case__docst")).toHaveText(new RegExp(`0 / ${total} done`, "i"));
 
+      await list.getByRole("button", { name: "Next step" }).click();
+      await list.getByRole("button", { name: "Next step" }).click();
       await list.getByLabel("Check your portfolio and profile links").check();
-      await expect(list.locator(".jb-cl__count")).toHaveText(`1 of ${CHECKLIST_ITEMS.length} done`);
+      await expect(list.locator(".jb-cl__count")).toHaveText(`${total - 1} steps remaining · 1 completed`);
+      /* Ticking hands the strip to the next step (salary); two more reach confirmation. */
+      for (let i = 0; i < 2; i += 1) await list.getByRole("button", { name: "Next step" }).click();
       await list.getByLabel("Save the confirmation").check();
-      await expect(list.locator(".jb-cl__count")).toHaveText(`2 of ${CHECKLIST_ITEMS.length} done`);
-      await expect(list.locator('[data-item="links"]')).toHaveClass(/jb-cl__item--done/);
-      await expect(list.locator('[data-item="links"]')).toBeVisible();
-      await expect(list.locator(".jb-cl__bar")).toHaveAttribute("aria-valuenow", "2");
+      await expect(list.locator(".jb-cl__count")).toHaveText(`${total - 2} steps remaining · 2 completed`);
+      await expect(list.locator('.jb-cl__done [data-item="links"]')).toHaveClass(/jb-cl__item--done/);
+      await expect(list.locator(".jb-cl__done summary")).toHaveText("Review 2 completed steps");
+      await expect(list.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
       expect(seen.checklistPuts).toEqual([{ id: "links", done: true, contact: "" }, { id: "confirmation", done: true, contact: "" }]);
+
+      /* Back to the first step. */
+      while (await list.getByRole("button", { name: "Previous step" }).isEnabled()) {
+        await list.getByRole("button", { name: "Previous step" }).click();
+      }
+      await expect(list.locator(".jb-cl__now")).toHaveAttribute("data-item", "resume");
 
       /* The checklist's resume download goes through the same FAIL gate. */
       await list.locator('[data-item="resume"]').getByRole("link", { name: "Download" }).click();
