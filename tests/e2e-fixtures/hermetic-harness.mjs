@@ -12,6 +12,7 @@
  * Real OAuth, Sheets mutations, and paid providers stay closed.
  */
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { startDevServer } from "../../dev-server.mjs";
 import {
@@ -674,3 +675,197 @@ export async function stageSignedInDisposableAuth(page, auth = DISPOSABLE_AUTH) 
 
 export const HERMETIC_RUN_ID = RUN_ID;
 export const HERMETIC_APPLICATION_SLUG = APPLICATION_SLUG;
+
+const SCRIBE_CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, content-type, accept",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+};
+
+/**
+ * Scribe v2 (EDITOR Q1): a stateful stand-in for the B2 edit and version
+ * routes under `/api/applications/:slug/`, plus that package's manifest and
+ * rendered files. Install it after the fence so it wins for this slug; every
+ * other request falls through to the fence unchanged.
+ *
+ * Runs are append-only, like B2: accept and restore add a run, nothing is
+ * deleted. The caller supplies the pure renderer, `applyOps` and `nodesOf`
+ * (server/materials-render.mjs, server/materials-nodes.mjs), so previews are
+ * real template renders and the harness imports no server code.
+ *
+ * The edit stream is real SSE. `GET …/edits/:id/stream` is continued to a
+ * relay on an ephemeral loopback port, and the spec writes each event with
+ * `emit()`, so a proposal can be held open mid-stream. No model is called and
+ * no live port (:8080, :8644, :3847) is ever opened. Call `close()` when done.
+ */
+export async function installScribeEditApi(page, options) {
+  const { slug, render, applyOps, nodesOf } = options;
+  const origin = options.origin || DISPOSABLE_AUTH.materialsOrigin;
+  const prefix = `/api/applications/${slug}`;
+  const runs = options.runs.map((run) => ({ starred: false, ...run }));
+  const calls = [];
+  const proposals = [];
+  const streams = new Map();
+  let seq = 0;
+
+  const streamFor = (id) => {
+    if (!streams.has(id)) streams.set(id, { res: null, backlog: [], opened: deferred() });
+    return streams.get(id);
+  };
+  const relay = createServer((req, res) => {
+    const s = streamFor(decodeURIComponent(req.url.slice(1)));
+    res.writeHead(200, { ...SCRIBE_CORS, "content-type": "text/event-stream", "cache-control": "no-store" });
+    res.flushHeaders();
+    s.res = res;
+    for (const chunk of s.backlog.splice(0)) res.write(chunk);
+    s.opened.resolve();
+  });
+  await new Promise((done) => relay.listen(0, "127.0.0.1", done));
+  const relayUrl = `http://127.0.0.1:${relay.address().port}`;
+
+  const wordsOf = (model, doc) =>
+    nodesOf(model)
+      .filter((n) => (doc === "resume") !== ["paragraph", "salutation"].includes(n.kind))
+      .map((n) => n.text)
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+  const current = () => runs[runs.length - 1];
+  const find = (runId) => runs.find((r) => r.runId === runId);
+  const docName = (doc) => (doc === "cover_letter" ? "coverLetter" : doc || "resume");
+  const listing = (doc) => {
+    const byId = new Map(runs.map((r, n) => [r.runId, n]));
+    const rows = runs.map((r, n) => ({
+      runId: r.runId,
+      n,
+      createdAt: r.createdAt,
+      source: r.source,
+      label: r.source === "restore" ? `Restored from v${byId.get(r.restoredFrom)}` : r.label || r.prompt || "Drafted",
+      ...(r.prompt ? { prompt: r.prompt } : {}),
+      ...(n ? { parentRunId: r.restoredFrom || runs[n - 1].runId } : {}),
+      pinned: n === 0,
+      starred: r.starred,
+      pages: r.pages ?? 1,
+      words: wordsOf(r.model, doc),
+      family: r.model.template?.family,
+    }));
+    return { versions: rows.reverse(), currentRunId: current().runId };
+  };
+  const append = (fields) => {
+    const run = { runId: `run-${String(runs.length).padStart(2, "0")}`, createdAt: new Date().toISOString(), starred: false, pages: 1, ...fields };
+    runs.push(run);
+    return run;
+  };
+  const reply = (route, status, body) =>
+    route.fulfill({ status, headers: { ...SCRIBE_CORS, "content-type": "application/json" }, body: body === undefined ? "" : JSON.stringify(body) });
+
+  await page.route(`${origin}${prefix}/**`, async (route) => {
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const tail = url.pathname.slice(prefix.length);
+    if (method === "OPTIONS") return route.fulfill({ status: 204, headers: SCRIBE_CORS });
+    let body = null;
+    try {
+      body = request.postData() ? JSON.parse(request.postData()) : null;
+    } catch {
+      body = request.postData();
+    }
+    calls.push({ method, path: tail + url.search, body });
+    let m;
+    if (method === "GET" && tail === "/manifest" && options.manifest) return reply(route, 200, options.manifest());
+    if (method === "GET" && (m = /^\/files\/(resume|cover-letter)\.html$/.exec(tail))) {
+      return route.fulfill({ status: 200, headers: { ...SCRIBE_CORS, "content-type": "text/html; charset=utf-8" }, body: render(current().model, m[1] === "resume" ? "resume" : "coverLetter") });
+    }
+    if (method === "GET" && tail === "/versions") return reply(route, 200, listing(docName(url.searchParams.get("doc"))));
+    if (method === "GET" && (m = /^\/versions\/([^/]+)\/model$/.exec(tail))) {
+      const run = find(decodeURIComponent(m[1]));
+      return run ? reply(route, 200, { model: run.model, nodes: nodesOf(run.model) }) : reply(route, 404, { error: "Version not found", code: "version_not_found" });
+    }
+    if (method === "POST" && tail === "/preview") {
+      const run = find(body?.baseRunId);
+      if (!run) return reply(route, 404, { error: "Version not found", code: "version_not_found" });
+      const doc = docName(body.doc);
+      const model = applyOps(run.model, body.ops || []);
+      return reply(route, 200, { html: render(model, doc), words: wordsOf(model, doc), pageBudget: model.template?.pageBudget ?? 1 });
+    }
+    if (method === "POST" && tail === "/edits") {
+      if (body?.baseRunId !== current().runId) return reply(route, 409, { error: "The base version is not current.", code: "stale_base" });
+      const id = `prop-${++seq}`;
+      proposals.push({ id, body, baseRunId: body.baseRunId, ops: [], status: "open" });
+      return reply(route, 202, { proposalId: id, streamUrl: `${prefix}/edits/${id}/stream` });
+    }
+    if (method === "GET" && (m = /^\/edits\/([^/]+)\/stream$/.exec(tail))) {
+      return route.continue({ url: `${relayUrl}/${m[1]}` });
+    }
+    const p = (m = /^\/edits\/([^/]+)(\/stop|\/accept)?$/.exec(tail)) ? proposals.find((x) => x.id === decodeURIComponent(m[1])) : null;
+    if (m && !p) return reply(route, 404, { error: "Proposal not found", code: "proposal_not_found" });
+    if (method === "POST" && m?.[2] === "/stop") {
+      p.status = "partial";
+      const ops = [...p.ops, ...(p.stopOps || [])];
+      write(p.id, "done", { status: "partial" });
+      streams.get(p.id)?.res?.end();
+      return reply(route, 200, { status: "partial", ops });
+    }
+    if (method === "POST" && m?.[2] === "/accept") {
+      const all = [...p.ops, ...(p.stopOps || [])];
+      const chosen = all.filter((op) => (body?.accept || []).includes(op.opId));
+      const unconfirmed = chosen.find((op) => (op.flags || []).includes("unverified") && !(body?.confirmUnverified || []).includes(op.opId));
+      if (unconfirmed) return reply(route, 400, { error: `Confirm ${unconfirmed.opId} first.`, code: "unverified_unconfirmed" });
+      const run = append({ source: "edit", prompt: p.body.instruction, model: applyOps(find(p.baseRunId).model, chosen), parentRunId: p.baseRunId });
+      p.status = "accepted";
+      const n = runs.length - 1;
+      return reply(route, 200, { run: { runId: run.runId, n, pages: run.pages, pdf: "ready" }, versions: listing(docName(p.body.doc)).versions });
+    }
+    if (method === "DELETE" && m && !m[2]) {
+      p.status = "rejected";
+      return reply(route, 204);
+    }
+    if (method === "POST" && (m = /^\/versions\/([^/]+)\/restore$/.exec(tail))) {
+      const from = find(decodeURIComponent(m[1]));
+      if (!from) return reply(route, 404, { error: "Version not found", code: "version_not_found" });
+      const run = append({ source: "restore", restoredFrom: from.runId, model: from.model });
+      return reply(route, 200, { run: { runId: run.runId, restoredFrom: from.runId, pdf: "ready" } });
+    }
+    if (method === "PUT" && (m = /^\/versions\/([^/]+)\/star$/.exec(tail))) {
+      const run = find(decodeURIComponent(m[1]));
+      if (run && run.runId !== runs[0].runId) run.starred = body?.starred === true;
+      return reply(route, 200, { ok: true });
+    }
+    return route.fallback();
+  });
+
+  function write(id, event, data) {
+    const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const s = streamFor(id);
+    if (s.res) s.res.write(chunk);
+    else s.backlog.push(chunk);
+  }
+
+  return {
+    /** Every request this stub answered: `{method, path, body}`. */
+    calls,
+    proposals,
+    runs,
+    /** Resolves once the browser has opened the proposal's event stream. */
+    streamOpened: (id) => streamFor(id).opened.promise,
+    /** Write one SSE event; an `op` event also becomes a validated op. */
+    emit(id, event, data) {
+      const p = proposals.find((x) => x.id === id);
+      if (event === "op" && p) p.ops.push(data.op);
+      write(id, event, data);
+    },
+    /** Ops the stop reply adds that the stream never delivered. */
+    holdForStop(id, ops) {
+      proposals.find((x) => x.id === id).stopOps = ops;
+    },
+    end(id) {
+      streamFor(id).res?.end();
+    },
+    async close() {
+      for (const s of streams.values()) s.res?.end();
+      relay.closeAllConnections?.();
+      await new Promise((done) => relay.close(done));
+    },
+  };
+}
