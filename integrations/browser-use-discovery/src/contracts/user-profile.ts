@@ -62,6 +62,39 @@ export type ProfileIdentity = {
   yearsRelevantExperience?: number;
   /** 1–4 sentence first-person "who I am professionally" — embedded verbatim in LLM scoring prompt. */
   primaryNarrative: string;
+  /*
+   * Contact identity (all optional). Printed on every resume and cover
+   * letter; read by the materials renderer only, never sent to discovery
+   * scoring.
+   */
+  /** Confirmed display name — never a nickname. */
+  fullName?: string;
+  /** The line under the name on resumes and letters. */
+  headline?: string;
+  email?: string;
+  phone?: string;
+  location?: ProfileLocation;
+  links?: ProfileLinks;
+};
+
+export type ProfileLocation = {
+  city?: string;
+  state?: string;
+};
+
+export type ProfileOtherLink = {
+  label: string;
+  /** http(s) URL. */
+  url: string;
+};
+
+export type ProfileLinks = {
+  linkedin?: string;
+  /** Personal site or portfolio. */
+  website?: string;
+  github?: string;
+  /** Up to three more. */
+  other?: ProfileOtherLink[];
 };
 
 export type ProfileStrength = {

@@ -1,0 +1,534 @@
+/* ============================================
+   "Your details" — the name and contact form (profile-identity.js).
+
+   Two homes: the one-flow beat (.oneflow-details, inside the shell) and
+   Settings → Fit Profile (.jb-details-settings). Every rule is scoped
+   under its region root: body.jb-v2 h3/p carry (0,1,1) and a lone class
+   loses to them (the cascade trap, DESIGN.md).
+   ============================================ */
+
+.jb-details {
+  container-type: inline-size;
+  display: grid;
+  gap: var(--jb-space-6, 24px);
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-details .jb-details__group {
+  display: grid;
+  gap: var(--jb-space-3, 12px);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.jb-details .jb-details__group + .jb-details__group {
+  padding-top: var(--jb-space-5, 20px);
+  border-top: 1px solid var(--jb-line-soft, var(--border));
+}
+
+.jb-details .jb-details__group-title {
+  margin: 0;
+  font-family: var(--jb-font-body, inherit);
+  font-size: var(--jb-type-heading, 1.125rem);
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-details .jb-details__group-lede {
+  margin: calc(-1 * var(--jb-space-2, 8px)) 0 0;
+  max-width: 60ch;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details .jb-details__grid {
+  display: grid;
+  gap: var(--jb-space-4, 16px);
+  min-width: 0;
+}
+
+@container (min-width: 560px) {
+  .jb-details .jb-details__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jb-details .jb-details__other {
+    grid-column: 1 / -1;
+  }
+}
+
+.jb-details .jb-details__field {
+  display: grid;
+  gap: var(--jb-space-1, 4px);
+  align-content: start;
+  min-width: 0;
+}
+
+.jb-details .jb-details__label {
+  margin: 0;
+  padding: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-details .jb-details__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+  font: inherit;
+  font-size: var(--jb-type-body, 0.9375rem);
+  transition: border-color var(--jb-transition-fast, 120ms);
+}
+
+.jb-details .jb-details__input::placeholder {
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details .jb-details__input:hover {
+  border-color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details .jb-details__input:focus-visible,
+.jb-details .jb-details__add:focus-visible,
+.jb-details .jb-details__remove:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+.jb-details .jb-details__input[data-provenance="check"] {
+  border-color: var(--jb-warn, var(--border));
+}
+
+.jb-details [aria-invalid="true"] {
+  border-color: var(--jb-err, #b42318);
+}
+
+.jb-details .jb-details__hint {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.4;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details .jb-details__hint--check {
+  color: var(--jb-warn, var(--text));
+  font-weight: 600;
+}
+
+.jb-details .jb-details__error {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--jb-err, #b42318);
+}
+
+.jb-details .jb-details__other {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+  min-width: 0;
+}
+
+.jb-details .jb-details__other-list {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+}
+
+.jb-details .jb-details__other-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr) 40px;
+  gap: var(--jb-space-2, 8px);
+  align-items: center;
+}
+
+.jb-details .jb-details__other-row .jb-details__error {
+  grid-column: 1 / -1;
+}
+
+.jb-details .jb-details__remove {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: transparent;
+  color: var(--jb-ink-2, var(--text));
+  font: inherit;
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.jb-details .jb-details__remove:hover {
+  border-color: var(--jb-ink-3, var(--text-faint));
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-details .jb-details__add {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0 var(--jb-space-1, 4px);
+  border: 0;
+  background: transparent;
+  color: var(--jb-action, var(--accent));
+  font: inherit;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.jb-details .jb-details__add:hover {
+  text-decoration: underline;
+}
+
+.jb-details [hidden] {
+  display: none;
+}
+
+/* ---------- The beat ---------- */
+
+.oneflow-details {
+  display: grid;
+  gap: var(--jb-space-5, 20px);
+  min-width: 0;
+}
+
+.oneflow-details .oneflow-details__privacy,
+.oneflow-details .oneflow-details__note {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+/* ---------- Settings → Fit Profile ---------- */
+
+.jb-details-settings {
+  display: grid;
+  gap: var(--jb-space-3, 12px);
+  margin: var(--jb-space-3, 12px) 0 var(--jb-space-5, 20px);
+  padding: var(--jb-space-4, 16px);
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-lg, 14px);
+  background: var(--jb-paper-2, var(--surface));
+}
+
+.jb-details-settings .jb-details-settings__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jb-space-3, 12px);
+}
+
+.jb-details-settings .jb-details-settings__title {
+  margin: 0;
+  font-size: var(--jb-type-heading, 1.125rem);
+  font-weight: 650;
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-details-settings .jb-details-settings__lede {
+  margin: 0;
+  max-width: 64ch;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details-settings .jb-details .jb-details__group-title {
+  font-size: var(--jb-type-body, 0.9375rem);
+}
+
+.jb-details-settings .jb-details-settings__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--jb-space-3, 12px);
+  padding-top: var(--jb-space-3, 12px);
+  border-top: 1px solid var(--jb-line-soft, var(--border));
+}
+
+.jb-details-settings .jb-details-settings__status {
+  margin: 0 auto 0 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-details-settings .jb-details-settings__status[data-kind="ok"] {
+  color: var(--jb-ok, var(--text));
+}
+
+.jb-details-settings .jb-details-settings__status[data-kind="error"] {
+  color: var(--jb-err, #b42318);
+}
+
+.jb-details-settings .jb-details-settings__refill,
+.jb-details-settings .jb-details-settings__save {
+  min-height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb-details .jb-details__input {
+    transition: none;
+  }
+}
+
+/* ============================================
+   RESJ2-EXTRACT — the resume read status line and the "What JobBored read
+   from your resume" panel (window.JobBoredResumeRead in profile-identity.js).
+   Homes: Portfolio → Resume (under the dropzone) and Settings → Your
+   details. Every rule carries two classes or a class plus an attribute, so
+   body.jb-v2 p/h6 (0,1,1) never wins.
+   ============================================ */
+
+.jb-resume-read-status[data-state] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--jb-space-2, 8px) var(--jb-space-3, 12px);
+  margin: var(--jb-space-3, 12px) 0 0;
+  padding: var(--jb-space-2, 8px) var(--jb-space-3, 12px);
+  border-left: 3px solid var(--jb-info, var(--text));
+  border-radius: 0 var(--jb-radius-sm, 6px) var(--jb-radius-sm, 6px) 0;
+  background: var(--jb-info-bg, transparent);
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-resume-read-status[data-state][hidden] {
+  display: none;
+}
+
+.jb-resume-read-status[data-state="running"] .jb-resume-read-status__text::before {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: var(--jb-space-2, 8px);
+  border: 2px solid var(--jb-line, var(--border));
+  border-top-color: var(--jb-action, var(--text));
+  border-radius: 50%;
+  vertical-align: -0.05em;
+  animation: jb-resume-read-spin 0.9s linear infinite;
+}
+
+.jb-resume-read-status[data-state="done"] {
+  border-left-color: var(--jb-ok, var(--text));
+  background: var(--jb-ok-tint, transparent);
+}
+
+.jb-resume-read-status[data-state="failed"] {
+  border-left-color: var(--jb-err, #b42318);
+  background: var(--jb-err-tint, transparent);
+  color: var(--jb-err, #b42318);
+}
+
+.jb-resume-read-status[data-state] .jb-resume-read-status__retry {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid currentColor;
+  border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-paper, var(--surface));
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jb-resume-read-status[data-state] .jb-resume-read-status__retry:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+@keyframes jb-resume-read-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jb-resume-read-host[hidden] {
+  display: none;
+}
+
+.jb-resume-read-host .jb-resume-read {
+  margin-top: var(--jb-space-4, 16px);
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__summary {
+  display: list-item;
+  padding: var(--jb-space-3, 12px) var(--jb-space-4, 16px);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.jb-resume-read-host .jb-resume-read__summary::marker {
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__summary:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+  border-radius: var(--jb-radius-md, 10px);
+}
+
+.jb-resume-read-host .jb-resume-read__title {
+  display: inline;
+  font-size: var(--jb-type-body, 0.9375rem);
+  font-weight: 650;
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__counts {
+  display: block;
+  margin-top: var(--jb-space-1, 4px);
+  padding-left: 1.1em;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-2, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__body {
+  display: grid;
+  gap: var(--jb-space-4, 16px);
+  padding: var(--jb-space-2, 8px) var(--jb-space-4, 16px) var(--jb-space-4, 16px);
+  border-top: 1px solid var(--jb-line-soft, var(--border));
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.5;
+}
+
+.jb-resume-read-host .jb-resume-read__block {
+  display: grid;
+  gap: var(--jb-space-1, 4px);
+  min-width: 0;
+}
+
+.jb-resume-read-host .jb-resume-read__label {
+  margin: var(--jb-space-2, 8px) 0 0;
+  font-family: var(--jb-font-body, inherit);
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__list,
+.jb-resume-read-host .jb-resume-read__roles,
+.jb-resume-read-host .jb-resume-read__achievements {
+  margin: 0;
+  padding-left: 1.1em;
+  overflow-wrap: anywhere;
+}
+
+.jb-resume-read-host .jb-resume-read__prose {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-2, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__employer {
+  display: grid;
+  gap: var(--jb-space-1, 4px);
+  padding: var(--jb-space-2, 8px) 0;
+}
+
+.jb-resume-read-host .jb-resume-read__employer + .jb-resume-read__employer {
+  border-top: 1px dashed var(--jb-line-soft, var(--border));
+}
+
+.jb-resume-read-host .jb-resume-read__employer-name {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__roles {
+  padding-left: 0;
+  list-style: none;
+  color: var(--jb-ink-2, var(--text));
+  font-variant-numeric: tabular-nums;
+}
+
+.jb-resume-read-host .jb-resume-read__roles + .jb-resume-read__achievements {
+  margin-top: var(--jb-space-1, 4px);
+}
+
+.jb-resume-read-host .jb-resume-read__block--inline .jb-resume-read__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-1, 4px) var(--jb-space-4, 16px);
+  padding-left: 0;
+  list-style: none;
+}
+
+.jb-resume-read-host .jb-resume-read__achievements {
+  display: grid;
+  gap: var(--jb-space-1, 4px);
+  color: var(--jb-ink, var(--text));
+}
+
+/* The one loud thing: the numbers an achievement claims, so the user can
+ * check each figure against their resume at a glance. */
+.jb-resume-read-host .jb-resume-read__metric {
+  padding: 0 0.2em;
+  border-radius: 3px;
+  background: var(--jb-mint-soft, transparent);
+  color: var(--jb-accent-ink, var(--text));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.jb-resume-read-host .jb-resume-read__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-1, 4px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jb-resume-read-host .jb-resume-read__chip {
+  padding: 2px 8px;
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: 999px;
+  background: var(--jb-paper-2, transparent);
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-2, var(--text));
+}
+
+.jb-resume-read-host .jb-resume-read__foot {
+  margin: 0;
+  padding-top: var(--jb-space-3, 12px);
+  border-top: 1px solid var(--jb-line-soft, var(--border));
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb-resume-read-status[data-state="running"] .jb-resume-read-status__text::before {
+    animation: none;
+    border-color: var(--jb-action, var(--text));
+  }
+}

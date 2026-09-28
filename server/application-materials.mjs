@@ -43,6 +43,12 @@ const ALLOWED_FILES = new Set([
   "outline.json",
   "draft.json",
   "qa.json",
+  "qa.resume.json",
+  "qa.letter.json",
+  /* Wave 3: the outreach note and the company intel pack. */
+  "outreach.json",
+  "outreach.txt",
+  "intel.json",
 ]);
 
 /** @type {Record<string, string>} */
@@ -55,8 +61,14 @@ const CONTENT_TYPES = {
 };
 
 /** @typedef {{ filename: string, format: string, size: number, modifiedAt: string }} FileStat */
-/** @typedef {{ type: string, label: string, status: string, primary: string, files: FileStat[], lastModifiedAt: string }} DocumentCard */
-/** @typedef {{ phase: string, message: string, startedAt: string, updatedAt: string, attempt: number, elapsedSeconds: number }} PendingProgress */
+/**
+ * @typedef {{ type: string, label: string, status: string, primary: string, files: FileStat[], lastModifiedAt: string,
+ *   text?: FileStat, exports?: { docx: boolean, linkedin: boolean } }} DocumentCard
+ * `text` is the ATS plain-text twin and `exports` what the export route can
+ * build from the render model (Wave 2 U-3); neither counts as a card file.
+ */
+/** @typedef {{ stage: string, status: string, reason?: string }} PendingStage */
+/** @typedef {{ phase: string, message: string, startedAt: string, updatedAt: string, attempt: number, elapsedSeconds: number, stages?: PendingStage[] }} PendingProgress */
 /**
  * @typedef {object} PendingRecord
  * @property {string} feature
@@ -69,6 +81,8 @@ const CONTENT_TYPES = {
  * @property {string} notes
  * @property {string} source
  * @property {PendingProgress | null} [progress]
+ * @property {string} [next] the document the drafter queues after this one
+ *   ("Draft both": resume first, then the cover letter)
  */
 /** @typedef {{ writtenAt: string, writtenAtMs: number, summary: string, feature: string, company: string, title: string }} PendingFailure */
 /**
@@ -90,21 +104,28 @@ const CONTENT_TYPES = {
  */
 
 /**
+ * @typedef {{ type: string, label: string, files: string[], primary: string, text?: string }} DocTypeDef
+ */
+
+/**
  * Document type definitions used to fold the allowlisted filenames
  * into user-facing cards. Order matters: it's the default render order.
  */
+/** @type {DocTypeDef[]} */
 const DOC_TYPES = [
   {
     type: "resume",
     label: "Tailored Resume",
     files: ["resume.pdf", "resume.html"],
     primary: "resume.pdf",
+    text: "resume.txt",
   },
   {
     type: "cover_letter",
     label: "Cover Letter",
     files: ["cover-letter.pdf", "cover-letter.html"],
     primary: "cover-letter.pdf",
+    text: "cover-letter.txt",
   },
   {
     type: "job_analysis",
@@ -273,7 +294,8 @@ function documentsFromFileStats(fileStats) {
       (acc, s) => (s.modifiedAt > acc ? s.modifiedAt : acc),
       "",
     );
-    documents.push({
+    /** @type {DocumentCard} */
+    const card = {
       type: def.type,
       label: def.label,
       status: "ready",
@@ -285,7 +307,13 @@ function documentsFromFileStats(fileStats) {
         modifiedAt: s.modifiedAt,
       })),
       lastModifiedAt,
-    });
+    };
+    const text = def.text ? fileStats.get(def.text) : undefined;
+    if (text) card.text = { ...text };
+    if (def.text && fileStats.has("render-model.json")) {
+      card.exports = { docx: true, linkedin: def.type === "resume" };
+    }
+    documents.push(card);
   }
   return documents;
 }
@@ -683,6 +711,7 @@ export async function buildManifest(slug, { root } = {}) {
         notes: typeof pendingRaw.notes === "string" ? pendingRaw.notes : "",
         source: typeof pendingRaw.source === "string" ? pendingRaw.source : "",
       };
+      if (pendingRaw.next === "cover_letter" || pendingRaw.next === "resume") pending.next = pendingRaw.next;
       /* Dobby's materials_watcher writes a `progress` object into
        * pending.json as it works (phase, message, started_at,
        * updated_at, attempt, elapsed_seconds). We pass it through as
@@ -818,6 +847,34 @@ function normalizeProgressMessage(value, feature, phase) {
   return message || defaultProgressMessageForFeature(phase, f);
 }
 
+/* Wave 2 U-4: the drafter records each finished pipeline stage in
+ * pending.json (stage id, ok | review | failed, and a plain reason when it
+ * fell back). The dashboard maps them onto its named timeline steps. */
+const STAGE_ID_PATTERN = /^[a-z][a-z.-]{0,31}$/;
+const STAGE_STATUSES = new Set(["ok", "skipped", "review", "failed"]);
+
+/**
+ * @param {unknown} raw
+ * @returns {PendingStage[]}
+ */
+function normalizePendingStages(raw) {
+  if (!Array.isArray(raw)) return [];
+  /** @type {PendingStage[]} */
+  const out = [];
+  for (const item of raw.slice(0, 40)) {
+    if (!item || typeof item !== "object") continue;
+    const entry = /** @type {Record<string, unknown>} */ (item);
+    const stage = typeof entry.stage === "string" ? entry.stage : "";
+    const status = typeof entry.status === "string" ? entry.status : "";
+    if (!STAGE_ID_PATTERN.test(stage) || !STAGE_STATUSES.has(status)) continue;
+    /** @type {PendingStage} */
+    const next = { stage, status };
+    if (typeof entry.reason === "string" && entry.reason.trim()) next.reason = displayProgressMessage(entry.reason.trim().slice(0, 200));
+    out.push(next);
+  }
+  return out;
+}
+
 /**
  * @param {unknown} rawProgress
  * @param {unknown} feature
@@ -829,10 +886,12 @@ function normalizePendingProgress(rawProgress, feature, requestedAt) {
   const progress = /** @type {Record<string, unknown>} */ (rawProgress);
   const phase = typeof progress.phase === "string" ? progress.phase : "";
   const code = typeof progress.code === "string" ? progress.code : "";
+  const stages = normalizePendingStages(progress.stages);
   return {
     phase,
     message: normalizeProgressMessage(progress.message, feature, phase),
     ...(code ? { code } : {}),
+    ...(stages.length ? { stages } : {}),
     startedAt: effectiveStartedAt(
       typeof progress.started_at === "string" ? progress.started_at : "",
       /** @type {string} */ (requestedAt),

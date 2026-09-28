@@ -1,0 +1,21 @@
+About Example Analytics Co.
+
+Example Analytics Co. is the leading measurement partner for 400+ consumer brands. Click here to apply.
+
+What You'll Do:
+
+- Own the marketing attribution model and the weekly performance readout for paid search, paid social and CTV.
+- Build forecasting models that tie media spend to pipeline and revenue, and present the forecast to leadership.
+- Design dashboards in Looker Studio and GA4 that channel owners use every day.
+- Partner with media buyers to test budget shifts and measure the lift.
+
+Requirements:
+
+- 5+ years in marketing analytics or measurement.
+- SQL, GA4, Looker Studio; attribution modeling experience.
+
+Benefits:
+
+- Medical, dental and vision coverage.
+
+Example Analytics Co. is an equal opportunity employer.

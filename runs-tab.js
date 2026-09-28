@@ -37,6 +37,7 @@
     empty: true,
     partial: true,
     failed: true,
+    write_failed: true,
   };
   var ACTIVE_JOB_DISCOVERY_STATUSES = {
     pending: true,
@@ -49,6 +50,7 @@
     empty: true,
     partial: true,
     failed: true,
+    write_failed: true,
   };
 
   function escapeHtml(value) {
@@ -641,6 +643,7 @@
     if (status === "empty") return "Empty";
     if (status === "partial") return "Partial";
     if (status === "failed") return "Failed";
+    if (status === "write_failed") return "Write failed";
     // UX01 C9 (FD-16): polling stopped for good — no retry is coming, so
     // "Retrying" was a promise. The row says what is known.
     if (status === "polling_error") return "Status unknown";
@@ -666,13 +669,21 @@
     return "";
   }
 
-  function whyCellHtml(status, error) {
+  function whyCellHtml(status, error, actionHtml) {
     var text = whyText(status, error);
     return (
       '<td class="runs-why-cell">' +
         (text ? escapeHtml(text) : '<span class="runs-dash">—</span>') +
+        (actionHtml || "") +
       "</td>"
     );
+  }
+
+  function retryWriteButtonHtml(run) {
+    return run && run.runId && (run.workerStatus === "write_failed" || run.status === "write_failed")
+      ? ' <button type="button" class="jb-btn jb-btn--secondary jb-btn--sm" data-runs-retry-write="' +
+          escapeHtml(run.runId) + '">Retry write</button>'
+      : "";
   }
 
   function newRolesCellHtml(count, availability) {
@@ -748,7 +759,7 @@
             runAtToggleHtml(r.runAt, detailId, { open: open, key: key }) +
             "<td>" + statusBadge(r.status) + "</td>" +
             newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
-            whyCellHtml(r.status, r.error) +
+            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r)) +
           "</tr>" +
           filterHintRowHtml(filterHintText(r.filterStats)) +
           detailRowHtml(detailId, details[key] || renderCoarseDetailHtml(r), open)
@@ -799,7 +810,7 @@
         (leadsWritten > 0
           ? newRolesCellHtml(leadsWritten, "")
           : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
-        whyCellHtml(terminal ? status : "", errorText) +
+        whyCellHtml(terminal ? status : "", errorText, retryWriteButtonHtml(run)) +
       "</tr>" +
       (terminal ? filterHintRowHtml(filterHintText(run && run.filterStats)) : "") +
       (progressCell
@@ -872,7 +883,7 @@
     var s = String(status || "").toLowerCase();
     if (s === "completed" || s === "empty") return "success";
     if (s === "partial") return "partial";
-    if (s === "failed") return "failure";
+    if (s === "failed" || s === "write_failed") return "failure";
     return "in_progress";
   }
 
@@ -2008,6 +2019,34 @@
         var retry = target.closest("[data-runs-detail-retry]");
         if (retry) {
           loadDetail(retry.getAttribute("data-runs-detail-retry") || "", true);
+          return;
+        }
+        var retryWrite = target.closest("[data-runs-retry-write]");
+        if (retryWrite) {
+          var runId = retryWrite.getAttribute("data-runs-retry-write") || "";
+          var api = statusApi();
+          if (!api || typeof api.retryRunWrite !== "function") return;
+          retryWrite.disabled = true;
+          api.retryRunWrite(runId, readAccessToken()).then(function (res) {
+            if (!res.ok) {
+              if (res.reason === "status_unknown") {
+                setStatus(statusEl, "warn", "The write may still be finishing. Refresh Runs before trying again.");
+                return;
+              }
+              setStatus(statusEl, "warn", "Write retry failed — reopen the dashboard and try again.");
+              retryWrite.disabled = false;
+              return;
+            }
+            var tracker = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker &&
+              window.JobBoredDiscovery.runTracker.discoveryRunTracker;
+            if (tracker && tracker.getState().runId === runId) tracker.updateFromStatusResponse(res.run);
+            state.liveJobRun = readStoredJobDiscoveryRun();
+            state.history = null;
+            loadRuns();
+          }).catch(function () {
+            setStatus(statusEl, "warn", "Write retry failed — reopen the dashboard and try again.");
+            retryWrite.disabled = false;
+          });
           return;
         }
         var more = target.closest("[data-runs-more]");

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import vm from "node:vm";
 
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
+
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jbTextSource = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsSource = readFileSync(
@@ -24,6 +26,7 @@ function loadInsights() {
     console: { log() {}, warn() {}, error() {} },
   });
   vm.runInContext(jbTextSource, context, { filename: "jb-text.js" });
+  vm.runInContext(outputBudgetJs, context, { filename: "llm-output-budget.js" });
   vm.runInContext(insightsSource, context, {
     filename: "job-posting-insights.js",
   });

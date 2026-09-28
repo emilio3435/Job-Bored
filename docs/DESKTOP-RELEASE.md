@@ -1,6 +1,6 @@
 # Desktop release runbook (macOS)
 
-`.github/workflows/desktop-mac.yml` builds a universal `JobBored.app` (DMG + zip). On a pull request that touches `desktop/**`, the workflow file, or `scripts/lib/runtime-env.mjs`, it builds **unsigned** and smoke-tests. On a manual run with the secrets below, it signs, notarizes, staples, and uploads a **draft** release to `emilio3435/jobbored-desktop`. Nothing is ever published automatically: you publish the draft yourself.
+`.github/workflows/desktop-mac.yml` builds a universal `JobBored.app` (DMG + zip). On a pull request that touches `desktop/**`, the workflow file, or `scripts/lib/runtime-env.mjs`, it builds **unsigned** and smoke-tests. On a manual run with the secrets below, it signs, notarizes, staples, and uploads a **draft** release to `emilio3435/jobbored-desktop`. The update payload gate checks the packaged app version, zip checksum and size, and zip blockmap before upload. Nothing is ever published automatically: you publish the draft yourself.
 
 It is **not a required check**. It is not in `ci.yml`'s list or the `main` ruleset; keep it that way, because it only runs on desktop paths and signing is manual.
 
@@ -31,7 +31,7 @@ Public matters: electron-updater reads its releases without a token.
 
 1. **Actions → Desktop (macOS) → Run workflow**, branch `main`, `version` such as `1.0.0` (semver, no leading `v`).
 2. `build-mac` (about 20–40 min): stage → stage exclusion check → sign → notarize the app → sign, notarize and staple the DMG → `codesign`/`spctl` verification → packaged-app smoke test on ports 18580–18582 → artifacts.
-3. `draft-release` creates or updates the draft `desktop-v<version>` in the feed repo, with the DMG, the zip and `latest-mac.yml`. It refuses to touch a tag that is already published: bump the version instead.
+3. `draft-release` creates or updates the draft `desktop-v<version>` in the feed repo, with the DMG, the zip, its `.zip.blockmap`, and `latest-mac.yml`. It refuses to touch a tag that is already published: bump the version instead.
 
 Without the secrets, the same run builds unsigned, uploads workflow artifacts, and skips `draft-release`.
 

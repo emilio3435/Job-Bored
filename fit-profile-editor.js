@@ -644,6 +644,13 @@
       "Your fit profile determines how JobBored scores every job. Edit any bucket below and click Save — new discoveries will use the updated profile immediately. To rescore old listings, click Rescore.",
     );
     var rescoreSlot = el("div", { id: "fit-profile-rescore-slot" });
+    // "Your details" (profile-identity.js): the name and contact block on
+    // every resume and letter. It saves on its own (POST /profile/contact);
+    // "Save profile" below keeps it (the server carries it forward).
+    var detailsSlot = el("div", { id: "profileDetailsSlot" });
+    // "Your voice" (profile-voice.js): the voice guide drafts follow,
+    // saved on its own through PUT /profile/voice.
+    var voiceSlot = el("div", { id: "profileVoiceSlot" });
 
     var container = el("div", { class: "fp-settings", id: "fitProfileEditorContainer" });
     var status = el("span", { class: "fp-settings__status" });
@@ -664,10 +671,19 @@
     ]);
 
     panel.appendChild(head);
+    panel.appendChild(detailsSlot);
+    panel.appendChild(voiceSlot);
     panel.appendChild(explainer);
     panel.appendChild(rescoreSlot);
     panel.appendChild(container);
     panel.appendChild(saveRow);
+
+    if (window.JobBoredProfileIdentity && typeof window.JobBoredProfileIdentity.mountSettings === "function") {
+      window.JobBoredProfileIdentity.mountSettings(detailsSlot);
+    }
+    if (window.JobBoredProfileVoice && typeof window.JobBoredProfileVoice.mountSettings === "function") {
+      window.JobBoredProfileVoice.mountSettings(voiceSlot);
+    }
 
     elsCache = {
       panel: panel,

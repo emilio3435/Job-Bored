@@ -32,6 +32,8 @@ import type { BudgetTracker } from "../run/budget-tracker.ts";
 import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { resolveGeminiFlashWireModel } from "../../../../server/model-family.mjs";
+// @ts-expect-error JS budget helper has no sibling declarations
+import { outputBudget, shortOutputBudget, geminiThinkingConfig } from "../../../../server/llm-output-budget.mjs";
 
 function httpGeminiModel(model: string | undefined | null): string {
   return resolveGeminiFlashWireModel(model);
@@ -3428,10 +3430,8 @@ async function structureGroundedCandidatesViaSchema(input: {
     `Return strict JSON matching the schema. Keep only URLs that are currently-live first-party or major-ATS job postings. Drop aggregators, malformed URLs, placeholder IDs, vertexaisearch redirects, link shorteners. Return at most ${Math.max(1, input.maxResults)} results. If nothing qualifies, return {"results":[]}.`,
   ].join("\n");
 
-  const maxOutputTokens = Math.min(
-    4096,
-    input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048,
-  );
+  const model = decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "");
+  const maxOutputTokens = outputBudget("gemini", model);
 
   try {
     const response = await geminiFetchWithRetry({
@@ -3458,6 +3458,7 @@ async function structureGroundedCandidatesViaSchema(input: {
           generationConfig: {
             temperature: 0.1,
             maxOutputTokens,
+            thinkingConfig: geminiThinkingConfig(model),
             responseMimeType: "application/json",
             responseSchema: CANDIDATE_RESULTS_SCHEMA,
           },
@@ -3578,10 +3579,8 @@ async function extractUrlsFromProseViaSchema(input: {
     `Return strict JSON matching the schema. At most ${Math.max(1, input.maxResults)} results. If no URL or implied canonical careers URL is derivable, return {"results":[]}.`,
   ].join("\n");
 
-  const maxOutputTokens = Math.min(
-    4096,
-    input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048,
-  );
+  const model = decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "");
+  const maxOutputTokens = outputBudget("gemini", model);
 
   try {
     const response = await geminiFetchWithRetry({
@@ -3608,6 +3607,7 @@ async function extractUrlsFromProseViaSchema(input: {
           generationConfig: {
             temperature: 0.1,
             maxOutputTokens,
+            thinkingConfig: geminiThinkingConfig(model),
             responseMimeType: "application/json",
             responseSchema: CANDIDATE_RESULTS_SCHEMA,
           },
@@ -3684,7 +3684,8 @@ async function executeGroundedSearchRequest(input: {
     retryable: boolean;
   };
 }> {
-  const maxOutputTokens = input.run.config.groundedSearchTuning?.maxTokensPerQuery ?? 2048;
+  const model = decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "");
+  const maxOutputTokens = shortOutputBudget("gemini", model, 8192);
   const timeoutMs = resolveGeminiRequestTimeoutMs(input.run);
   const body = JSON.stringify({
     systemInstruction: {
@@ -3699,6 +3700,7 @@ async function executeGroundedSearchRequest(input: {
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens,
+      thinkingConfig: geminiThinkingConfig(model),
       // Deliberately NO `responseMimeType` here — Gemini's v1beta API returns
       // HTTP 400 ("Tool use with a response mime type: 'application/json' is
       // unsupported") when google_search is attached. Structured output is
@@ -3719,6 +3721,7 @@ async function executeGroundedSearchRequest(input: {
     message: string;
     retryable: boolean;
   } | null = null;
+  let retriedTruncation = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     throwIfAborted(input.signal);
@@ -3734,6 +3737,19 @@ async function executeGroundedSearchRequest(input: {
         body,
       });
       const payload = await response.json().catch(() => ({}));
+      if (response.ok && isPlainRecord(payload) && Array.isArray(payload.candidates) &&
+          isPlainRecord(payload.candidates[0]) && payload.candidates[0].finishReason === "MAX_TOKENS") {
+        if (!retriedTruncation) {
+          retriedTruncation = true;
+          attempt -= 1;
+          continue;
+        }
+        return {
+          candidates: [], searchQueries: [], regexFallbackUsed: false,
+          regexFallbackAttempted: false, rawText: "",
+          failure: { message: `Gemini model ${model} reached its output limit after a retry.`, retryable: false },
+        };
+      }
       if (!response.ok) {
         lastFailure = {
           status: response.status,
@@ -4329,6 +4345,7 @@ async function geminiFetchWithRetry(input: {
 }): Promise<Response> {
   const maxAttempts = GEMINI_RETRY_BACKOFF_MS.length + 1;
   let lastError: unknown = null;
+  let retriedTruncation = false;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     throwIfAborted(input.signal);
     const compose = composeRequestSignal(input.signal, input.timeoutMs);
@@ -4349,6 +4366,20 @@ async function geminiFetchWithRetry(input: {
           input.signal,
         );
         continue;
+      }
+      if (response.ok && typeof response.clone === "function") {
+        const payload = await response.clone().json().catch(() => null);
+        const candidate = payload && typeof payload === "object" && Array.isArray(payload.candidates)
+          ? payload.candidates[0] : null;
+        if (candidate && typeof candidate === "object" && candidate.finishReason === "MAX_TOKENS") {
+          if (retriedTruncation) {
+            const model = decodeURIComponent(input.url.split("/models/")[1]?.split(":")[0] || "unknown");
+            throw new Error(`Gemini model ${model} hit its maximum output limit after a retry.`);
+          }
+          retriedTruncation = true;
+          attempt -= 1;
+          continue;
+        }
       }
       return response;
     } catch (error) {

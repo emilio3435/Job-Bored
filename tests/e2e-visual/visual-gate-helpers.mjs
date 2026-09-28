@@ -9,11 +9,13 @@
  * pair at (GROUND-RULES-ADDENDUM): the founder's desktop and a 390px phone.
  */
 
-/** Spec §3.1 — the six beats, in order. */
+/** Spec §3.1 — the beats, in order ("Your details" then "Your voice" follow the resume). */
 export const BEAT_IDS = Object.freeze([
   "google",
   "ai",
   "resume",
+  "details",
+  "voice",
   "fit",
   "discovery",
   "payoff",

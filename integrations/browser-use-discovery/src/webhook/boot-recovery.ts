@@ -93,7 +93,7 @@ export function pruneRunStatusSnapshots(
   const maxAgeMs = options.maxAgeMs ?? DEFAULT_RUN_STATUS_MAX_AGE_MS;
   const keep = Math.max(0, options.keep ?? DEFAULT_RUN_STATUS_KEEP);
   const terminal = listRunStatusSnapshots(directory)
-    .filter((snapshot) => snapshot.status.terminal)
+    .filter((snapshot) => snapshot.status.terminal && !snapshot.status.selectedLeads?.length)
     .map((snapshot) => ({
       runId: snapshot.runId,
       at: Date.parse(snapshot.status.updatedAt || snapshot.writtenAt) || 0,

@@ -748,3 +748,166 @@ describe("rail fact inputs hug their value where field-sizing is supported", () 
     assert.match(caseCssSource, /body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input \{ font: inherit/);
   });
 });
+
+/* ------------------------------------------------------------
+   CASEWHY: the fit number with its reason. Order is fixed —
+   band + rationale sentence, "Why it fits", "Watch for", then
+   Match Score as the secondary figure. Empty K / U render
+   nothing for that part (D5).
+   ------------------------------------------------------------ */
+describe("CASEWHY — The Case says why the role scored what it did", () => {
+  const K = "Strong fit (score: 8/10). Deep design-systems ownership. " +
+    "Matches: Design systems · Accessibility. Concerns: No Go experience. Application: Clean ATS — Greenhouse/Lever/Ashby.";
+  function whyModel(patch) {
+    const base = baseDeps().vm.job;
+    return model({ vmPatch: { ...patch, enrichment: { ...base.enrichment, ...(patch.enrichment || {}) } } });
+  }
+  function whyBlock(html) {
+    const at = html.indexOf('<div class="case__fitwhy"');
+    if (at === -1) return "";
+    const end = html.indexOf("<!--/case__fitwhy-->", at);
+    assert.ok(end !== -1, "the block closes with its end marker");
+    return html.slice(at, end);
+  }
+
+  it("renders band and rationale first, then the lists, then Match Score", () => {
+    const html = renderHtml(whyModel({ matchScore: 7.4, enrichment: { fitAssessment: K } }));
+    const why = whyBlock(html);
+    assert.ok(why, "the reason block renders");
+    assert.ok(html.indexOf("case__fitwhy") > html.indexOf('class="case__verdict"'), "it lives in the fit area of the verdict");
+    assert.match(why, /Why it scored 8\/10/);
+    const iBand = why.indexOf("Strong fit.");
+    const iRationale = why.indexOf("Deep design-systems ownership.");
+    const iFits = why.indexOf("Why it fits");
+    const iWatch = why.indexOf("Watch for");
+    const iMatch = why.indexOf("Match 7.4 / 10");
+    assert.ok(iBand !== -1 && iRationale > iBand, "band, then rationale");
+    assert.ok(iFits > iRationale && iWatch > iFits && iMatch > iWatch, "fits, watch-for, then match");
+    assert.match(why, /<ul class="case__fitwhy-list case__fitwhy-list--fits"[^>]*><li>Design systems<\/li><li>Accessibility<\/li><\/ul>/);
+    assert.match(why, /<ul class="case__fitwhy-list case__fitwhy-list--watch"[^>]*><li>No Go experience<\/li><\/ul>/);
+    assert.match(why, /Clean ATS — Greenhouse\/Lever\/Ashby/);
+    assert.match(why, /from your sheet/);
+  });
+
+  it("renders nothing at all when K and U are both empty", () => {
+    const html = renderHtml(whyModel({ matchScore: null, enrichment: { fitAssessment: "" } }));
+    assert.equal(whyBlock(html), "");
+    assert.doesNotMatch(html, /case__fitwhy/);
+    assert.doesNotMatch(html, /Match \d/);
+  });
+
+  it("K without U: the reason, no Match figure and no placeholder", () => {
+    const why = whyBlock(renderHtml(whyModel({ matchScore: null, enrichment: { fitAssessment: K } })));
+    assert.match(why, /Strong fit\./);
+    assert.doesNotMatch(why, /Match /);
+    assert.doesNotMatch(why, /—\s*\/\s*10|\?\s*\/\s*10/);
+  });
+
+  it("U without K: the Match figure alone, no empty lists", () => {
+    const why = whyBlock(renderHtml(whyModel({ matchScore: 6, enrichment: { fitAssessment: "" } })));
+    assert.match(why, /Match 6 \/ 10/);
+    assert.doesNotMatch(why, /Why it fits|Watch for|case__fitwhy-text/);
+  });
+
+  it("a malformed K renders as its raw text, escaped", () => {
+    const raw = "Liked the team <b>a lot</b> & the loop.";
+    const why = whyBlock(renderHtml(whyModel({ matchScore: null, enrichment: { fitAssessment: raw } })));
+    assert.match(why, /Liked the team &lt;b&gt;a lot&lt;\/b&gt; &amp; the loop\./);
+    assert.doesNotMatch(why, /<b>a lot<\/b>/);
+    assert.doesNotMatch(why, /Why it fits|Watch for/);
+  });
+
+  it("the heading names a score only when the reason was written for it", () => {
+    const heading = (patch) => /<h4 class="case__fitwhy-h"[^>]*>([^<]*)<\/h4>/.exec(whyBlock(renderHtml(whyModel(patch))))[1];
+    assert.equal(heading({ fitScore: 8, enrichment: { fitAssessment: K } }), "Why it scored 8/10");
+    /* Discovery overwrites H and fills K only while empty: a moved score
+       keeps its older reason, and the heading says which score it explains. */
+    assert.equal(heading({ fitScore: 6, enrichment: { fitAssessment: K } }), "Why it first scored 8/10");
+    assert.equal(heading({ fitScore: null, enrichment: { fitAssessment: K } }), "Why it scored 8/10");
+    assert.equal(heading({ fitScore: 8, enrichment: { fitAssessment: "A note I wrote." } }), "Why this fit");
+    assert.equal(heading({ fitScore: 8, matchScore: 5, enrichment: { fitAssessment: "" } }), "Why this fit");
+  });
+
+  /* Grok CW-1: H is the worker's clamped integer, K keeps the tenth. */
+  it("compares K's score to H the way H was written (rounded, 1–10)", () => {
+    const heading = (fitScore, k) => /<h4 class="case__fitwhy-h"[^>]*>([^<]*)<\/h4>/.exec(whyBlock(renderHtml(whyModel({ fitScore, enrichment: { fitAssessment: k } }))))[1];
+    const at = (n) => "Strong fit (score: " + n + "/10). Solid overlap.";
+    assert.equal(heading(7, at("7.4")), "Why it scored 7/10", "7.4 was written to H as 7");
+    assert.equal(heading(8, at("7.5")), "Why it scored 8/10", "7.5 was written to H as 8");
+    assert.equal(heading(1, at("0.4")), "Why it scored 1/10", "H is clamped to 1");
+    assert.equal(heading(6, at("7.4")), "Why it first scored 7.4/10", "a real move still says so");
+  });
+
+  /* Grok CW-3: the clamp is measured, not guessed from a character count. */
+  function fakeBox(scrollHeight, clientHeight, attrs = {}) {
+    const a = { ...attrs };
+    return {
+      scrollHeight, clientHeight,
+      getAttribute(k) { return Object.prototype.hasOwnProperty.call(a, k) ? a[k] : null; },
+      setAttribute(k, v) { a[k] = String(v); },
+      removeAttribute(k) { delete a[k]; },
+      hasAttribute(k) { return Object.prototype.hasOwnProperty.call(a, k); },
+    };
+  }
+  function measuredMount(scrollHeight, clientHeight) {
+    const mount = fakeMount();
+    const text = fakeBox(scrollHeight, clientHeight);
+    const button = fakeBox(0, 0, { hidden: "", "aria-expanded": "false" });
+    mount.__register("case-fitwhy-job-1", text);
+    mount.__register("case-fitwhy-job-1-toggle", button);
+    Case.render(mount, whyModel({ enrichment: { fitAssessment: K } }));
+    return { text, button };
+  }
+  it("ships unclamped with a hidden Show all button, so an unmeasured page shows every word", () => {
+    const why = whyBlock(renderHtml(whyModel({ enrichment: { fitAssessment: K } })));
+    assert.match(why, /<p class="case__fitwhy-text" id="case-fitwhy-job-1">/);
+    assert.doesNotMatch(why, /data-clamped/);
+    assert.match(why, /<button type="button" class="case__more-btn case__fitwhy-toggle" id="case-fitwhy-job-1-toggle" data-action="toggle-fit-reason" aria-expanded="false" aria-controls="case-fitwhy-job-1" hidden>Show all<\/button>/);
+  });
+  it("clamps and shows the button only when the text overflows four lines at its width", () => {
+    const over = measuredMount(160, 100);
+    assert.equal(over.text.getAttribute("data-clamped"), "true");
+    assert.equal(over.button.hasAttribute("hidden"), false, "overflow shows the button");
+    const fits = measuredMount(100, 100);
+    assert.equal(fits.text.hasAttribute("data-clamped"), false, "text that fits is never clamped");
+    assert.equal(fits.button.hasAttribute("hidden"), true, "and has no button");
+  });
+  it("the stylesheet actually hides the hidden toggle", () => {
+    assert.match(caseCssSource, /\.case__more-btn\.case__fitwhy-toggle\[hidden\]\s*\{\s*display:\s*none;?\s*\}/,
+      ".case__more-btn's display: inline-flex outranks the UA [hidden] rule");
+  });
+
+  it("the Show all toggle unclamps and flips aria-expanded and its label", () => {
+    const long = "Strong fit (score: 8/10). " + "Owns the token pipeline end to end and has led accessibility work. ".repeat(6);
+    const mount = fakeMount();
+    Case.render(mount, whyModel({ enrichment: { fitAssessment: long } }));
+    assert.match(mount.innerHTML, /data-action="toggle-fit-reason"/, "precondition: the button rendered");
+    const text = fakePanel();
+    text.removeAttribute("hidden");
+    text.setAttribute("data-clamped", "true");
+    mount.__register("case-fitwhy-job-1", text);
+    const button = fakeToggleButton("Show all", "case-fitwhy-job-1", "toggle-fit-reason");
+    mount.__fire("click", { target: button });
+    assert.equal(text.getAttribute("data-clamped"), "false");
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+    assert.equal(button.textContent, "Show less");
+    assert.equal(text.hasAttribute("hidden"), false, "the text is never hidden, only clamped");
+    mount.__fire("click", { target: button });
+    assert.equal(text.getAttribute("data-clamped"), "true");
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(button.textContent, "Show all");
+  });
+
+  it("the stylesheet scopes every rule under the Case, clamps at four lines, and holds the 12px floor", () => {
+    const rules = caseCssSource.match(/^[^\n{}]*\.case__fitwhy[^{]*\{[^}]*\}/gm) || [];
+    assert.ok(rules.length >= 6, "the reason block is styled");
+    for (const rule of rules) {
+      const selectors = rule.slice(0, rule.indexOf("{")).split(",").map((s) => s.trim()).filter(Boolean);
+      for (const sel of selectors) assert.match(sel, /^body\.jb-v2 \[data-region="role"\] \.case /, "scoped: " + sel);
+      for (const m of rule.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)) assert.ok(Number(m[1]) >= 12, "no text under 12px: " + rule);
+      assert.doesNotMatch(rule, /font-size:\s*var\(--dsr-label/, "the 10–11px label tokens are under the floor");
+    }
+    assert.match(caseCssSource, /\.case__fitwhy-text\[data-clamped="true"\]\s*\{[^}]*-webkit-line-clamp:\s*4/);
+    assert.match(caseCssSource, /\.case__fitwhy-toggle:focus-visible\s*\{[^}]*outline:/);
+  });
+});

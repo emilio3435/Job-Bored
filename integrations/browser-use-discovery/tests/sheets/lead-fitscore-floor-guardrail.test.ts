@@ -257,7 +257,7 @@ test("worker match client uses OpenRouter chat completions without Gemini", asyn
   assert.equal(requestHeaders["x-goog-api-key"], undefined);
   assert.equal(requestBody.model, "openai/gpt-4.1-mini");
   assert.equal(requestBody.temperature, 0.1);
-  assert.equal(requestBody.max_tokens, 1024);
+  assert.equal(requestBody.max_tokens, 32768);
   assert.ok(Array.isArray(requestBody.messages));
   assert.equal(result.decision, "accept");
   assert.equal(result.modelVersion, "openai/gpt-4.1-mini");

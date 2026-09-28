@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { CHECK_INTERVAL_MS, UPDATE_FEED, createUpdater } from "../updater.mjs";
+import { CHECK_INTERVAL_MS, UPDATE_FEED, createUpdater, updateMenuLabel } from "../updater.mjs";
 
 function fakeUpdater() {
   const u = Object.assign(new EventEmitter(), {
@@ -92,6 +92,27 @@ test("D11: an updater error is a state, never a throw", async () => {
   up.start();
   await new Promise((r) => setImmediate(r));
   assert.equal(states.at(-1).state, "error");
+  assert.equal(updateMenuLabel(states.at(-1)), "Update failed — Check for updates");
   u.emit("error", new Error("bad signature"));
   assert.equal(states.at(-1).state, "error");
+  assert.equal(updateMenuLabel(states.at(-1)), "Update failed — Check for updates");
+});
+
+test("MACUPD: the tray follows checking, downloading, ready, and allows retry after an error", () => {
+  const u = fakeUpdater();
+  /** @type {any[]} */
+  const states = [];
+  const up = createUpdater({ autoUpdater: u, isPackaged: true, smoke: false, onState: (s) => states.push(s), ...timers() });
+  up.start();
+  u.emit("checking-for-update");
+  u.emit("update-available", { version: "0.1.1" });
+  u.emit("update-downloaded", { version: "0.1.1" });
+  assert.deepEqual(states.map((s) => s.state), ["checking", "downloading", "ready"]);
+  assert.deepEqual(states.slice(0, 2).map(updateMenuLabel), ["Checking for updates…", "Downloading update (0.1.1)…"]);
+  assert.equal(up.state.version, "0.1.1");
+
+  u.emit("error", new Error("network failure"));
+  assert.equal(updateMenuLabel(up.state), "Update failed — Check for updates");
+  up.check();
+  assert.equal(u.checks, 2, "the error menu action can retry the check");
 });

@@ -43,6 +43,10 @@ import {
 } from "./llm-config.mjs";
 import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
 import { normalizeGeminiFlashPreference } from "./model-family.mjs";
+import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
+import { experiencesFromStructure, parseResumeStructure } from "./materials-resume-structure.mjs";
+import { detectGarbledResume, resumeGarbledError } from "./materials-resume-source.mjs";
+import { buildResumeRead } from "./resume-read.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
 // (./profile-draft-shared.js), consumed here AND by the browser for B3's
@@ -61,11 +65,13 @@ import "./profile-draft-shared.js";
  * @property {(resumeText: string) => string} buildUserPrompt
  * @property {(text: unknown) => any} parseJsonSafe
  * @property {(raw: unknown) => NormalizedUserProfile} clampToUserProfile
+ * @property {(raw: unknown) => Record<string, unknown> | null} resumeFactsOf
  */
 /** @type {ProfileDraftShared} */
 const profileDraftShared = /** @type {any} */ (globalThis).JobBoredProfileDraft;
 const {
   SYSTEM_PROMPT,
+  resumeFactsOf,
   MAX_RESUME_INPUT_CHARS,
   buildUserPrompt,
   parseJsonSafe,
@@ -102,7 +108,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
  * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
  */
-/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal }} ProfileCallOptions */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal, retriedTruncation?: boolean }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
 /**
@@ -114,6 +120,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * @property {{ workMode: string, salaryRequired?: boolean, workAuth?: string, acceptableLocations?: string[], skipTitles?: string[] }} hardConstraints
  * @property {string[]} [wants]
  * @property {string[]} [avoids]
+ * @property {Array<Record<string, unknown>>} [experiences] employers, titles and dates parsed from the resume
  */
 
 /**
@@ -269,8 +276,13 @@ export async function getStoredResumeText() {
  * `resumeText` field is ever read: secret-looking body fields (apiKey,
  * tokens) are ignored and never written.
  *
+ * RESJ K5: garbled staged text (a split-word PDF extraction) is never
+ * analyzed. The clean saved resume is used instead, with
+ * `requestGarbled: true` so the wizard can say so; with no clean saved
+ * resume the call throws 422 resume_garbled.
+ *
  * @param {unknown} body
- * @returns {Promise<{ text: string, source: string, path: string|null } | null>}
+ * @returns {Promise<{ text: string, source: string, path: string|null, requestGarbled?: boolean } | null>}
  */
 export async function resolveResumeTextForAnalysis(body) {
   const record = body && typeof body === "object" && !Array.isArray(body)
@@ -280,10 +292,16 @@ export async function resolveResumeTextForAnalysis(body) {
     record && typeof record.resumeText === "string" ? record.resumeText.trim() : "";
   if (staged) {
     const text = staged.slice(0, MAX_RESUME_INPUT_CHARS);
+    if (detectGarbledResume(text).garbled) {
+      const stored = await getStoredResumeText();
+      if (!stored || detectGarbledResume(stored.text).garbled) throw resumeGarbledError();
+      return { ...stored, requestGarbled: true };
+    }
     return {
       text,
       source: "staged_request",
       path: await cacheStagedResumeText(text),
+      requestGarbled: false,
     };
   }
   return getStoredResumeText();
@@ -654,6 +672,19 @@ const GEMINI_RESPONSE_SCHEMA = {
     },
     wants: { type: "array", items: { type: "string" } },
     avoids: { type: "array", items: { type: "string" } },
+    resumeFacts: {
+      type: "object",
+      properties: {
+        skills: {
+          type: "object",
+          properties: {
+            hard: { type: "array", items: { type: "string" } },
+            tools: { type: "array", items: { type: "string" } },
+            soft: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+    },
     hardConstraints: {
       type: "object",
       properties: {
@@ -691,18 +722,11 @@ function buildChatCompletionsUrl(baseUrl) {
 // tryParseEmbeddedJson + parseJsonSafe now live in profile-draft-shared.js
 // (imported at the top) — the browser's serverless fallback uses them too.
 
-/** A full v1 profile draft (roles, narrative, up to 8 strengths with
- *  evidence, wants, avoids, constraints) as JSON runs well past 3,500 tokens
- *  for a long resume; the provider stopped mid-string and the user saw
- *  "non-JSON content: Unterminated string" (2026-09-02). Browser-side
- *  drafting already asks for 8192. */
-const PROFILE_DRAFT_MAX_OUTPUT_TOKENS = 8192;
-
-/** @param {string} providerLabel @param {string} code @param {ProfileProvider} provider */
-function truncatedDraftError(providerLabel, code, provider) {
+/** @param {string} providerLabel @param {string} code @param {ProfileProvider} provider @param {string} model */
+function truncatedDraftError(providerLabel, code, provider, model) {
   const err = /** @type {ProfileProviderError} */ (
     new Error(
-      `${providerLabel} cut the draft off at its output limit. Try a shorter resume, or pick a larger model in Settings.`,
+      `${providerLabel} model ${model} hit its maximum output limit after a retry.`,
     )
   );
   err.code = code;
@@ -725,7 +749,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       { role: "user", content: buildUserPrompt(resumeText) },
     ],
     temperature: 0.2,
-    max_tokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
+    ...outputLimitField(config.provider, model),
   };
   /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
@@ -767,7 +791,8 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
   }
   const finishReason = String(data.choices?.[0]?.finish_reason || "");
   if (finishReason === "length") {
-    throw truncatedDraftError(providerDisplayName(config.provider), "profile_provider_truncated", config.provider);
+    if (!opts.retriedTruncation) return callChatJsonForProfile(resumeText, config, { ...opts, retriedTruncation: true });
+    throw truncatedDraftError(providerDisplayName(config.provider), "profile_provider_truncated", config.provider, model);
   }
   const raw = data.choices?.[0]?.message?.content || "";
   if (!String(raw || "").trim()) {
@@ -815,7 +840,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
+        ...(outputBudget("anthropic", model) === undefined ? {} : { max_tokens: outputBudget("anthropic", model) }),
         temperature: 0.2,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
@@ -845,7 +870,8 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
     throw err;
   }
   if (String(/** @type {{ stop_reason?: string }} */ (data).stop_reason || "") === "max_tokens") {
-    throw truncatedDraftError("Anthropic", "profile_provider_truncated", config.provider);
+    if (!opts.retriedTruncation) return callAnthropicForProfile(resumeText, config, { ...opts, retriedTruncation: true });
+    throw truncatedDraftError("Anthropic", "profile_provider_truncated", config.provider, model);
   }
   const raw = Array.isArray(data.content)
     ? data.content
@@ -890,7 +916,8 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(resumeText) }] }],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
+      ...(outputBudget("gemini", model) === undefined ? {} : { maxOutputTokens: outputBudget("gemini", model) }),
+      ...(Object.keys(geminiThinkingConfig(model)).length ? { thinkingConfig: geminiThinkingConfig(model) } : {}),
       responseMimeType: "application/json",
       responseSchema: GEMINI_RESPONSE_SCHEMA,
     },
@@ -934,7 +961,8 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     data.candidates?.[0]
   );
   if (String(candidate?.finishReason || "") === "MAX_TOKENS") {
-    throw truncatedDraftError("Gemini", "gemini_truncated", "gemini");
+    if (!opts.retriedTruncation) return callGeminiForProfile(resumeText, { ...opts, retriedTruncation: true });
+    throw truncatedDraftError("Gemini", "gemini_truncated", "gemini", model);
   }
   const raw =
     candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
@@ -983,6 +1011,19 @@ async function callGeminiForProfile(resumeText, opts = {}) {
  * @returns {Promise<NormalizedUserProfile>} UserProfile
  */
 export async function analyzeResumeToProfile(resumeText, opts = {}) {
+  return (await analyzeResume(resumeText, opts)).profile;
+}
+
+/**
+ * The profile draft plus "what JobBored read from the resume": the rules
+ * read with the model's `resumeFacts` folded in (only strings found in the
+ * resume survive), and the provider and model that did the reading.
+ *
+ * @param {string} resumeText
+ * @param {ProfileCallOptions} [opts]
+ * @returns {Promise<{ profile: NormalizedUserProfile, read: import("./resume-read.mjs").ResumeRead }>}
+ */
+export async function analyzeResume(resumeText, opts = {}) {
   const text = String(resumeText || "").trim();
   if (!text) {
     const err = /** @type {ProfileProviderError} */ (
@@ -1015,7 +1056,17 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
   } else {
     raw = await callChatJsonForProfile(text, config, opts);
   }
-  return clampToUserProfile(raw);
+  const profile = clampToUserProfile(raw);
+  /* The resume's own employers, titles and dates travel with the draft, so
+   * the saved profile carries them and the claim ledger reads them instead
+   * of re-deriving them on every build. Deterministic: parsed from the
+   * resume text, never from the model's reply. */
+  const experiences = experiencesFromStructure(parseResumeStructure(text));
+  const read = buildResumeRead(text, {
+    facts: resumeFactsOf(raw),
+    by: { provider: config.provider, model: String(opts.model || config.model || "") || config.provider },
+  });
+  return { profile: experiences.length ? { ...profile, experiences } : profile, read };
 }
 
 // Expose for tests/scratch only — not part of the documented surface.

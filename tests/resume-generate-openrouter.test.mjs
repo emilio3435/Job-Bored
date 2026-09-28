@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,6 +36,7 @@ function loadResumeGenerate({ config = {}, fetchImpl } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx.window.CommandCenterResumeGenerate;
 }
@@ -109,7 +111,7 @@ describe("resume-generate openrouter provider", () => {
     );
     const body = JSON.parse(options.body);
     assert.equal(body.model, "vendor/some-model:free");
-    assert.equal(body.max_tokens, 8000);
+    assert.ok(!("max_tokens" in body));
     assert.ok(
       !("max_completion_tokens" in body),
       "openrouter body must use max_tokens, not max_completion_tokens",
@@ -310,6 +312,7 @@ describe("resume-generate openrouter provider", () => {
   it("CommandCenterResumeModelOptions.openrouter default is openai/gpt-oss-120b:free", () => {
     const ctx = { window: {} };
     vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
     vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
     const opts = ctx.window.CommandCenterResumeModelOptions;
     assert.ok(Array.isArray(opts.openrouter), "openrouter model list exists");
@@ -331,7 +334,7 @@ describe("resume-generate preserves OpenAI base-url behavior", () => {
     await RG.generateFromBundle(BUNDLE);
     assert.equal(calls[0].url, "https://api.openai.com/v1/chat/completions");
     const body = JSON.parse(calls[0].options.body);
-    assert.equal(body.max_tokens, 8192);
+    assert.equal(body.max_tokens, 16384);
     assert.ok(!("max_completion_tokens" in body));
   });
 
@@ -343,7 +346,7 @@ describe("resume-generate preserves OpenAI base-url behavior", () => {
     });
     await RG.generateFromBundle(BUNDLE);
     const body = JSON.parse(calls[0].options.body);
-    assert.equal(body.max_completion_tokens, 8192);
+    assert.equal(body.max_completion_tokens, 128000);
     assert.ok(!("max_tokens" in body));
   });
 });

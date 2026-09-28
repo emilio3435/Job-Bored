@@ -15,7 +15,7 @@ test("R21: bare open maps to the dashboard root", () => {
 });
 
 test("R21: every allowed beat maps to a rebuilt target", () => {
-  assert.deepEqual([...BEAT_IDS], ["google", "ai", "resume", "fit", "discovery", "payoff"]);
+  assert.deepEqual([...BEAT_IDS], ["google", "ai", "resume", "details", "voice", "fit", "discovery", "payoff"]);
   for (const beat of BEAT_IDS) {
     assert.deepEqual(parseJobBoredUrl(`jobbored://open?beat=${beat}`), {
       ok: true,

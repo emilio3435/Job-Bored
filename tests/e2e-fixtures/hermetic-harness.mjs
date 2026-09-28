@@ -336,6 +336,16 @@ export async function installHermeticNetworkFence(page, options = {}) {
           );
           return;
         }
+        // RESJ K1: every primary-resume save copies the text to the
+        // server; answer as a saved copy so suites see the normal path.
+        if (url.pathname === "/profile/resume" && method === "PUT") {
+          await fulfillJson(route, {
+            ok: true,
+            chars: (request.postData() || "").length,
+            savedAt: "2026-01-01T00:00:00.000Z",
+          });
+          return;
+        }
         await fulfillJson(
           route,
           {

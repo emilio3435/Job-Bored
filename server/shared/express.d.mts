@@ -34,6 +34,7 @@ declare module "express" {
     get(path: string, ...handlers: RequestHandler[]): this;
     post(path: string, ...handlers: RequestHandler[]): this;
     put(path: string, ...handlers: RequestHandler[]): this;
+    delete(path: string, ...handlers: RequestHandler[]): this;
     use(...handlers: RequestHandler[]): this;
     use(...handlers: ErrorRequestHandler[]): this;
     listen(port: number, host: string, callback?: () => void): Server;

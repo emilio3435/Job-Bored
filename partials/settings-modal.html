@@ -692,6 +692,17 @@
                   aria-live="polite"
                   hidden
                 ></p>
+                <p
+                  class="settings-field-hint settings-field-hint--compact"
+                  id="settingsGeminiFallbackHint"
+                >
+                  When Gemini is busy it answers "rate limited" (429) or
+                  "overloaded" (503), and a draft falls back to plain resume
+                  text. A second model from another provider (for example
+                  Anthropic or OpenAI) can take over after two failed tries:
+                  add it under <code>fallback</code> in
+                  <code>~/.jobbored/llm.json</code>. Nothing is set for you.
+                </p>
               </div>
 
               <div

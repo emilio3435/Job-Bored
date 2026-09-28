@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /**
  * Pins the resume-generate.js baseUrl guard introduced to stop BYOK Bearer
  * keys from leaking to attacker-controlled hosts.
@@ -32,6 +33,7 @@ function loadResumeGenerate({ config = {}, fetchImpl } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx;
 }

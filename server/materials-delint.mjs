@@ -21,6 +21,18 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { callJsonStage } from "./materials-writer.mjs";
+import {
+  abstractionDensity,
+  detectAiWords,
+  detectContrastFrames,
+  detectCannedAsides,
+  detectGush,
+  detectOffVoice,
+  detectPurposeOpeners,
+  letterParagraphs,
+  maskSignatures,
+  voiceTells,
+} from "./materials-voice-tells.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VOICE_PACK_PATH = join(__dirname, "materials-voice.json");
@@ -30,6 +42,8 @@ const VOICE_PACK_PATH = join(__dirname, "materials-voice.json");
  * @property {string} pattern
  * @property {"fail" | "review"} [severity]
  * @property {string} [note]
+ * @property {boolean} [regex] the pattern is a regular expression
+ *   (inflections, variants), not a literal phrase
  */
 
 /**
@@ -49,6 +63,11 @@ const VOICE_PACK_PATH = join(__dirname, "materials-voice.json");
  * @property {VoiceRule[]} [resumeSpeak]
  * @property {VoiceCadence} [cadence]
  * @property {{ windowWords?: number }} [jdEcho]
+ * @property {Array<{ pattern: string, note?: string }>} [aiTells] additive AI-word rules (regex)
+ * @property {{ paragraphEmDashMax?: number, abstractionMax?: number, rhythmCvMin?: number, shortSentenceMax?: number }} [humanVoice]
+ * @property {Record<string, unknown>} [guide]
+ * @property {string[]} [signatureLines] the user's own lines (voice.md), exempt when quoted exactly
+ * @property {string[]} [signatureTellLines] signature/philosophy lines the mid-evidence tell watches
  */
 
 /**
@@ -112,7 +131,14 @@ function scanRules(field, text, rules, code) {
   /** @type {DelintSpan[]} */
   const spans = [];
   for (const rule of rules) {
-    const re = new RegExp(escapeRegExp(rule.pattern), "gi");
+    /* A rule marked `regex` carries a pattern (inflections, variants);
+     * every other rule is a literal phrase. */
+    let re;
+    try {
+      re = rule.regex ? new RegExp(rule.pattern, "gi") : new RegExp(escapeRegExp(rule.pattern), "gi");
+    } catch {
+      continue;
+    }
     for (const match of text.matchAll(re)) {
       const start = match.index ?? 0;
       spans.push({
@@ -239,10 +265,12 @@ function scanJdEcho(field, text, jdText, windowWords) {
  * @param {string} [input.letterText] Concatenated letter body, for em-dash density.
  * @param {string} [input.jdText] Posting text, for verbatim echo. Withheld from the LLM half on purpose.
  * @param {string[]} [input.echoBans] Extra per-posting phrases from jd-extract.
+ * @param {Record<string, unknown> | null} [input.letter] The draft's letter beats, for the whole-letter "sounds human" tells.
+ * @param {string} [input.company] The hiring company (its name never anchors an abstraction).
  * @param {VoicePack} input.pack
  * @returns {DelintResult}
  */
-export function delint({ fields = {}, bullets = [], letterText = "", jdText = "", echoBans = [], pack }) {
+export function delint({ fields = {}, bullets = [], letterText = "", jdText = "", echoBans = [], letter = null, company = "", pack }) {
   const cadence = pack.cadence || {};
   /** @type {DelintSpan[]} */
   const spans = [];
@@ -256,11 +284,23 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
   for (const [field, text] of Object.entries(fields)) {
     if (typeof text !== "string" || !text) continue;
     const isResume = field === "statement" || field.startsWith("bullet");
-    spans.push(...scanRules(field, text, bannedRules, "banned_filler"));
+    /* A literal phrase and its regex variant can hit the same span. */
+    const seenSpans = new Set();
+    spans.push(
+      ...scanRules(field, text, bannedRules, "banned_filler").filter((span) => {
+        const key = `${span.start}:${span.end}`;
+        if (seenSpans.has(key)) return false;
+        seenSpans.add(key);
+        return true;
+      }),
+    );
     if (isResume) {
       spans.push(...scanRules(field, text, pack.resumeSpeak || [], "resume_speak"));
     }
     spans.push(...scanAdjectiveStacks(field, text, cadence.adjectiveStackMin || 3));
+    if (field.startsWith("letter.") || field === "statement") {
+      spans.push(...scanMachineWords(field, maskSignatures(text, pack.signatureLines || []), pack.aiTells || []));
+    }
     if (jdText) {
       spans.push(...scanJdEcho(field, text, jdText, pack.jdEcho?.windowWords || 8));
     }
@@ -302,6 +342,13 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
     }
   }
 
+  if (typeof fields.statement === "string" && fields.statement) {
+    spans.push(...scanStatementChain(fields.statement, company));
+  }
+  if (letter && typeof letter === "object") {
+    spans.push(...scanLetterVoice(letter, { company, jdText, pack }));
+  }
+
   /** @type {Record<string, number>} */
   const counts = {};
   for (const span of spans) {
@@ -316,13 +363,131 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
   };
 }
 
+/**
+ * Word-level machine tells in one letter or summary field: AI words,
+ * gush, and "not X, but Y" framing. Each fails.
+ * @param {string} field
+ * @param {string} text
+ * @param {Array<{ pattern: string, note?: string }>} extra
+ * @returns {DelintSpan[]}
+ */
+function scanMachineWords(field, text, extra) {
+  /** @type {DelintSpan[]} */
+  const spans = [];
+  const push = (/** @type {string} */ code, /** @type {{ start: number, end: number, text: string, note: string }} */ hit) =>
+    spans.push({ code, severity: "fail", field, start: hit.start, end: hit.end, text: hit.text, note: hit.note });
+  for (const hit of detectAiWords(text, extra)) push("ai_word", hit);
+  for (const hit of detectGush(text)) push("gush", hit);
+  for (const hit of detectContrastFrames(text)) push("contrast_frame", hit);
+  for (const hit of detectOffVoice(text)) push(hit.code, hit);
+  for (const hit of detectPurposeOpeners(text)) {
+    const start = text.indexOf(hit.text);
+    push("purpose_opener", { start, end: start + hit.text.length, text: hit.text, note: hit.note });
+  }
+  for (const hit of detectCannedAsides(text)) {
+    const start = text.indexOf(hit.text);
+    push("canned_aside", { start, end: start + hit.text.length, text: hit.text, note: hit.note });
+  }
+  return spans;
+}
+
+/**
+ * The summary line is one sentence, not a buzzword chain: three or more
+ * abstract nouns with nothing concrete nearby is a chain.
+ * @param {string} statement
+ * @param {string} company
+ * @returns {DelintSpan[]}
+ */
+function scanStatementChain(statement, company) {
+  const { unanchored } = abstractionDensity(statement, { company });
+  if (unanchored.length < 3) return [];
+  return [{
+    code: "buzzword_chain",
+    severity: "review",
+    field: "statement",
+    start: 0,
+    end: 0,
+    text: unanchored.join(", "),
+    note: `${unanchored.length} abstract nouns with no number or concrete thing nearby; name the thing instead`,
+  }];
+}
+
+/**
+ * Whole-letter "sounds human" tells mapped back onto the beat fields the
+ * rewrite can edit: the opener onto the hook, the closer onto the ask,
+ * paragraph-local tells onto that paragraph's beats.
+ * @param {Record<string, unknown>} letter
+ * @param {{ company: string, jdText: string, pack: VoicePack }} context
+ * @returns {DelintSpan[]}
+ */
+function scanLetterVoice(letter, { company, jdText, pack }) {
+  const paragraphs = letterParagraphs(letter);
+  if (!paragraphs.length) return [];
+  const beatsByParagraph = paragraphBeats(letter);
+  const human = pack.humanVoice || {};
+  const { tells } = voiceTells(paragraphs, { company, postingText: jdText, ...human, signatureLines: pack.signatureLines || [], signatureTellLines: pack.signatureTellLines || [] });
+  /** @type {DelintSpan[]} */
+  const spans = [];
+  for (const tell of tells) {
+    /* Word-level tells are already spans from the per-field scan. */
+    /* Word-level tells are already spans from the per-field scan; company
+     * praise needs the company name, so it is mapped here. */
+    if (["ai_word", "gush", "contrast_frame", "canned_aside", "purpose_opener", "false_humility", "compensation", "departure_framing"].includes(tell.code)) continue;
+    if (tell.code === "flattery" && !/praises the company/.test(tell.note)) continue;
+    let fieldsFor = typeof tell.paragraph === "number" ? beatsByParagraph[tell.paragraph] || [] : [];
+    if (tell.code === "tricolon_stack" || tell.code === "abstraction_density" || tell.code === "uniform_rhythm") {
+      /* Whole-letter measures: the paragraphs that carry the evidence. */
+      const needles = tell.text.split(/\s*\|\s*|,\s*/).map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 4);
+      fieldsFor = beatsByParagraph.flatMap((beats, i) =>
+        needles.some((n) => paragraphs[i].toLowerCase().includes(n)) ? beats : [],
+      );
+      if (!fieldsFor.length) fieldsFor = beatsByParagraph.flat().filter((f) => /proof|analytics|aiOps/i.test(f));
+    }
+    for (const beat of fieldsFor.length ? fieldsFor : ["hook"]) {
+      spans.push({
+        code: tell.code,
+        severity: tell.weight === "hard" ? "fail" : "review",
+        field: `letter.${beat}`,
+        start: 0,
+        end: 0,
+        text: tell.text,
+        note: tell.note,
+      });
+    }
+  }
+  return spans;
+}
+
+/**
+ * Which beats make up each rendered paragraph (mirrors letterParagraphs).
+ * @param {Record<string, unknown>} letter
+ * @returns {string[][]}
+ */
+function paragraphBeats(letter) {
+  const has = (/** @type {string} */ k) => typeof letter[k] === "string" && String(letter[k]).trim().length > 0;
+  if ("hook" in letter || "companyInsight" in letter || "proof1" in letter) {
+    return [
+      ["hook", "companyInsight"].filter(has),
+      ["proof1", "proof2"].filter(has),
+      ["ask"].filter(has),
+    ].filter((beats) => beats.length);
+  }
+  return Object.keys(letter).filter(has).map((k) => [k]);
+}
+
 export const DELINT_REWRITE_MAX_OUTPUT_TOKENS = 1500;
 
 const DELINT_REWRITE_SYSTEM_PROMPT = [
   "You rewrite resume and cover-letter fields to remove AI tells. Return JSON only:",
   "an object mapping each listed field name to its rewritten text.",
-  "Keep every fact, number, name, and date exactly. Match the voice samples when given.",
-  "Short sentences, concrete nouns, no new claims. Rewrite only the listed fields.",
+  "Keep every fact, number, name, date, tool, channel and product noun exactly. Match the voice samples when given.",
+  "Change only what the fix note names; keep every other sentence as written. Keep each field about as long as it was (never more than a fifth shorter).",
+  "Concrete nouns, no new claims: never add a scene, count, opinion or detail about the company or its users. Rewrite only the listed fields.",
+  "Voice: one curious builder writing by hand. First person, active verbs, contractions welcome, one short sentence among longer ones.",
+  "Never use: delve, tapestry, testament, leverage, robust, seamless, synergy, holistic, cutting-edge, passionate, thrilled, excited to, 'not X, but Y', 'rather than', three-item lists back to back, more than one em-dash per paragraph.",
+  "Sentences that state what the writer did stay close to their original wording; whimsy belongs only in the opener, one aside and the closing offer.",
+  "A hook opens on something specific about the company tied to something the writer did, never on what the company requires or needs.",
+  "An ask ends on a concrete, slightly playful next step, never 'I would welcome the chance' or 'I look forward to'.",
 ].join(" ");
 
 /**

@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /**
  * The `gemini-flash` family alias is the default model, but Google has no
  * literal model by that id — it 404s. The provider layer pre-resolves the
@@ -48,6 +49,7 @@ function load({ model, fetchImpl }) {
     },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return { rg: ctx.window.CommandCenterResumeGenerate, win: ctx.window, calls, patches };
 }

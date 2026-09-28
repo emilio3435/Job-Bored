@@ -49,6 +49,55 @@ async function loadRunsTab() {
   return window.JobBoredRunsLog;
 }
 
+it("shows Retry write for a retained failed write", async () => {
+  const mod = await loadRunsTab();
+  const tbody = { innerHTML: "" };
+  mod.__test.renderRunsTable(tbody, [{
+    runId: "run_write", runAt: "2026-09-28T00:00:00Z", trigger: "manual",
+    status: "failure", workerStatus: "write_failed", error: "Sign-in expired",
+    leadsWritten: 0,
+  }]);
+  assert.match(tbody.innerHTML, /data-runs-retry-write="run_write"[^>]*>Retry write<\/button>/);
+});
+
+it("Retry write button sends the current Google token through the worker client", async () => {
+  const { dom, window, context } = await bootInitRunsTab({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ values: [] }) }),
+    accessToken: "fresh-dashboard-token",
+  });
+  const calls = [];
+  window.JobBoredDiscovery = { status: {
+    fetchRunHistoryPage: async () => ({ ok: true, runs: [] }),
+    retryRunWrite: async (...args) => {
+      calls.push(args);
+      return { ok: false, reason: "unreachable" };
+    },
+  } };
+  const button = new context.Element();
+  button.getAttribute = () => "run_write";
+  button.closest = (selector) => selector === "[data-runs-retry-write]" ? button : null;
+  dom.tableWrap.dispatch("click", { target: button });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, [["run_write", "fresh-dashboard-token"]]);
+});
+
+it("keeps Retry write disabled when the timed-out write may still be finishing", async () => {
+  const { dom, window, context } = await bootInitRunsTab({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ values: [] }) }),
+  });
+  window.JobBoredDiscovery = { status: {
+    fetchRunHistoryPage: async () => ({ ok: true, runs: [] }),
+    retryRunWrite: async () => ({ ok: false, reason: "status_unknown" }),
+  } };
+  const button = new context.Element();
+  button.getAttribute = () => "run_write";
+  button.closest = (selector) => selector === "[data-runs-retry-write]" ? button : null;
+  dom.tableWrap.dispatch("click", { target: button });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(button.disabled, true);
+  assert.match(dom.statusEl.textContent, /may still be finishing/);
+});
+
 /**
  * Build a fake-DOM harness rich enough to exercise initRunsTab() end to end.
  * Just a bag of query-able element stubs — the tests drive it by invoking

@@ -499,6 +499,9 @@
           id,
           label: asString(o.label, id),
           done: asBoolean(o.done),
+          // A beat the user skipped stays unfinished even once they are
+          // past it, so setup keeps showing what is left to do.
+          skipped: asBoolean(o.skipped) && !asBoolean(o.done),
         };
       })
       .filter((beat) => !!beat.id);
@@ -1118,22 +1121,25 @@
       "aria-label": "Setup progress",
     });
     context.spine.beats.forEach((beat, index) => {
+      const current = beat.id === context.spine.current;
+      const skipped = !!beat.skipped && !current;
       const done =
         beat.done ||
-        (context.spine.currentIndex >= 0 && index < context.spine.currentIndex);
-      const current = beat.id === context.spine.current;
+        (!skipped && context.spine.currentIndex >= 0 && index < context.spine.currentIndex);
       const item = createEl(
         "li",
         [
           "discovery-setup-wizard__spine-step",
           done ? "discovery-setup-wizard__spine-step--done" : "",
           current ? "discovery-setup-wizard__spine-step--current" : "",
+          skipped ? "discovery-setup-wizard__spine-step--skipped" : "",
         ]
           .filter(Boolean)
           .join(" "),
         {
           dataset: { beatId: beat.id },
           ...(current ? { "aria-current": "step" } : {}),
+          ...(skipped ? { title: `${beat.label}: skipped — not finished yet` } : {}),
         },
       );
       item.append(
@@ -1145,6 +1151,9 @@
         ),
         createEl("span", "discovery-setup-wizard__spine-label", {}, beat.label),
       );
+      if (skipped) {
+        item.append(createEl("span", "discovery-setup-wizard__spine-sr", {}, " (skipped, not finished)"));
+      }
       list.appendChild(item);
     });
     wrap.appendChild(list);

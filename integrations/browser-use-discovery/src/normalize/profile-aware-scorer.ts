@@ -322,7 +322,6 @@ export async function scoreListingWithLlm(
     fetchImpl,
     signal,
     temperature: 0.2,
-    maxTokens: 2048,
     responseSchema,
     messages: [
       { role: "system", content: systemPrompt },

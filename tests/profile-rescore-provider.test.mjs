@@ -215,7 +215,8 @@ describe("rescoreAllPipelineRows provider behavior", () => {
       assert.equal(chatCall.headers.Authorization, "Bearer or-key");
       const chatBody = JSON.parse(chatCall.body);
       assert.equal(chatBody.model, "openai/gpt-oss-120b:free");
-      assert.equal(chatBody.max_tokens, 2048);
+      assert.ok(!("max_tokens" in chatBody));
+      assert.ok(!("max_completion_tokens" in chatBody));
       assert.equal(chatBody.messages[0].role, "system");
       assert.equal(chatBody.messages[1].role, "user");
       assert.equal(Object.hasOwn(chatBody, "response_format"), false);

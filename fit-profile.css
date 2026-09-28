@@ -113,6 +113,14 @@
   font-size: var(--text-sm, 13px);
 }
 
+/* RESJ K5: "Filled from your saved resume…". Scoped under .fp-wizard so
+   body.jb-v2 p (0,1,1) cannot override it. */
+.fp-wizard .fp-wizard__note {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 /* ── Generic form bits used in both wizard and settings editor ── */
 .fp-field {
   display: block;

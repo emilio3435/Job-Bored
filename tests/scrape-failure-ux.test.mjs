@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,6 +36,7 @@ function loadDrawerHarness() {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(context);
+  vm.runInContext(outputBudgetJs, context, { filename: "llm-output-budget.js" });
   vm.runInContext(drawerJs, context, { filename: "discovery-drawer.js" });
   return { context, drawer: context.window.JobBoredDiscovery.drawer };
 }

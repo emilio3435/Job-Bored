@@ -1,0 +1,33 @@
+{
+  "_note": "Recorded 2026-09-27 from the Northwind jd.extract repro (scratchpad/diag/stage-repro.mjs): 1000-token cap, ~960 spent thinking, JSON cut off. HTTP 200.",
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "{\n  \"outcomes\": [\n    {\n      \"id\": \"east-region-digital-revenue\",\n      \"text\": \"Drive digital"
+            }
+          ]
+        },
+        "finishReason": "MAX_TOKENS",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 1898,
+      "candidatesTokenCount": 33,
+      "totalTokenCount": 2891,
+      "promptTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 1898
+        }
+      ],
+      "thoughtsTokenCount": 960,
+      "serviceTier": "standard"
+    }
+  }
+}

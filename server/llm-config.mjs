@@ -24,6 +24,24 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} baseUrl
  * @property {string} updatedAt
  * @property {string} [alias] the spelling the user picked ("local", "ollama") when it differs from provider
+ * @property {LlmFallbackConfig} [fallback] Decision 5: per-stage backup model, off unless enabled
+ */
+
+/**
+ * @typedef {object} LlmFallbackTarget
+ * @property {string} provider
+ * @property {string} model
+ * @property {string} [apiKey] omitted: reuse the primary key when the provider matches
+ * @property {string} [baseUrl]
+ */
+
+/**
+ * Decision 5: a backup model per materials stage. A stage switches to its
+ * target after the primary fails twice; "*" covers every stage without its
+ * own entry. Ships absent; `enabled: false` keeps the shape but turns it off.
+ * @typedef {object} LlmFallbackConfig
+ * @property {boolean} enabled
+ * @property {Record<string, LlmFallbackTarget>} stages keyed "jd.extract" | "claims.select" | "draft" | "*"
  */
 
 /**
@@ -43,6 +61,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} apiKey
  * @property {string} baseUrl
  * @property {string} resolvedModel
+ * @property {{ stages: Record<string, Omit<ActivePin, "fallback">> }} [fallback] present only when enabled
  */
 
 /**
@@ -71,6 +90,37 @@ function asString(value) {
   return String(value || "").trim();
 }
 
+/** Stages that may name a fallback target ("*" = every stage). */
+export const LLM_FALLBACK_STAGES = Object.freeze(["jd.extract", "claims.select", "draft", "*"]);
+
+/**
+ * @param {unknown} value
+ * @returns {LlmFallbackConfig | undefined}
+ */
+function asFallbackConfig(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = /** @type {Record<string, unknown>} */ (value);
+  const rawStages = record.stages && typeof record.stages === "object" && !Array.isArray(record.stages)
+    ? /** @type {Record<string, unknown>} */ (record.stages)
+    : {};
+  /** @type {Record<string, LlmFallbackTarget>} */
+  const stages = {};
+  for (const stage of LLM_FALLBACK_STAGES) {
+    const entry = rawStages[stage];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const target = /** @type {Record<string, unknown>} */ (entry);
+    const provider = normalizeProvider(asString(target.provider));
+    const model = asString(target.model);
+    if (!provider || !model) continue;
+    /** @type {LlmFallbackTarget} */
+    const out = { provider, model };
+    if (asString(target.apiKey)) out.apiKey = asString(target.apiKey);
+    if (asString(target.baseUrl)) out.baseUrl = asString(target.baseUrl);
+    stages[stage] = out;
+  }
+  return { enabled: record.enabled === true, stages };
+}
+
 /**
  * @param {unknown} value
  * @returns {LlmConfig | null}
@@ -88,6 +138,8 @@ function asLlmConfig(value) {
   };
   const alias = asString(record.alias);
   if (alias) config.alias = alias;
+  const fallback = asFallbackConfig(record.fallback);
+  if (fallback) config.fallback = fallback;
   return config;
 }
 
@@ -116,6 +168,7 @@ function normalizeLlmConfig(config) {
     updatedAt: new Date().toISOString(),
   };
   if (alias) out.alias = alias;
+  if (parsed.fallback) out.fallback = parsed.fallback;
   return out;
 }
 
@@ -270,27 +323,57 @@ export function redactLlmConfig(config) {
 export async function resolveActivePin(config) {
   const provider = normalizeProvider(config && config.provider) || asString(config && config.provider);
   const model = asString(config && config.model);
-  return {
+  /** @type {ActivePin} */
+  const pin = {
     provider,
     model,
     apiKey: asString(config && config.apiKey),
     baseUrl: asString(config && config.baseUrl),
     resolvedModel: provider === "gemini" ? resolveGeminiFlashWireModel(model) : model,
   };
+  const fallback = asFallbackConfig(config && config.fallback);
+  if (fallback && fallback.enabled && Object.keys(fallback.stages).length) {
+    /** @type {Record<string, Omit<ActivePin, "fallback">>} */
+    const stages = {};
+    for (const [stage, target] of Object.entries(fallback.stages)) {
+      stages[stage] = {
+        provider: target.provider,
+        model: target.model,
+        apiKey: target.apiKey || (target.provider === provider ? pin.apiKey : ""),
+        baseUrl: target.baseUrl || "",
+        resolvedModel: target.provider === "gemini" ? resolveGeminiFlashWireModel(target.model) : target.model,
+      };
+    }
+    pin.fallback = { stages };
+  }
+  return pin;
 }
 
 /**
+ * `readLastDraft` (optional, CDESK MODELUI) adds `lastDraft`: the model the
+ * newest drafted package actually used, so Settings can show it. A failing
+ * reader never fails the GET.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ readLastDraft?: () => Promise<unknown> }} [options]
  */
-export async function handleGetLlmConfig(req, res, env = process.env) {
+export async function handleGetLlmConfig(req, res, env = process.env, options = {}) {
+  let lastDraft = null;
+  if (options && typeof options.readLastDraft === "function") {
+    try {
+      lastDraft = await options.readLastDraft();
+    } catch {
+      lastDraft = null;
+    }
+  }
+  const extra = lastDraft ? { lastDraft } : {};
   const loaded = loadLlmConfig(env);
   if (!loaded) {
-    res.status(404).json({ error: "No LLM pin configured.", code: "llm_unconfigured" });
+    res.status(404).json({ error: "No LLM pin configured.", code: "llm_unconfigured", ...extra });
     return;
   }
-  res.json(redactLlmConfig(loaded));
+  res.json({ ...redactLlmConfig(loaded), ...extra });
 }
 
 /**
@@ -349,6 +432,12 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
       asString(existing.baseUrl).replace(/\/+$/, "") === baseUrl.replace(/\/+$/, "");
     apiKey = sameTarget && existing ? existing.apiKey : "";
   }
-  const saved = await writeLlmConfig({ provider: rawProvider, model, apiKey, baseUrl }, env);
+  // Settings does not edit the fallback block (Decision 5: Jordan sets it by
+  // hand), so a Settings save keeps whatever llm.json already holds.
+  const stored = loadLlmConfig(env);
+  const saved = await writeLlmConfig(
+    { provider: rawProvider, model, apiKey, baseUrl, ...(stored && stored.fallback ? { fallback: stored.fallback } : {}) },
+    env,
+  );
   res.json(redactLlmConfig(saved));
 }

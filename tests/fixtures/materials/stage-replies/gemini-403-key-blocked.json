@@ -1,0 +1,18 @@
+{
+  "_note": "Reconstructed 2026-09-27 from the live smoke: generateContent returned HTTP 403 and a GetModel probe on the same key returned PERMISSION_DENIED / API_KEY_SERVICE_BLOCKED (status and reason are verbatim; the method name is set to GenerateContent).",
+  "status": 403,
+  "body": {
+    "error": {
+      "code": 403,
+      "message": "Requests to this API generativelanguage.googleapis.com method google.ai.generativelanguage.v1beta.GenerativeService.GenerateContent are blocked.",
+      "status": "PERMISSION_DENIED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "API_KEY_SERVICE_BLOCKED",
+          "domain": "googleapis.com"
+        }
+      ]
+    }
+  }
+}

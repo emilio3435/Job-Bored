@@ -318,6 +318,30 @@
   box-shadow: none;
 }
 
+/* A skipped beat ("Your details") stays visibly unfinished after the user
+   moves past it: an amber segment, never the mint of a done one. */
+.discovery-setup-wizard__spine-step--skipped {
+  color: var(--jb-warn, var(--text-faint));
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__spine-step--skipped
+  .discovery-setup-wizard__spine-dot {
+  background: var(--jb-amber-soft, var(--border));
+}
+
+.discovery-setup-wizard__spine-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .discovery-setup-wizard--spine .discovery-setup-wizard__spine-label {
   font-family: var(--jb-font-mono, inherit);
   font-size: 0.6rem;

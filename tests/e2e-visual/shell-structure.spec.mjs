@@ -141,8 +141,8 @@ for (const viewport of [DESKTOP, PHONE]) {
         expect(counts.found[".discovery-setup-wizard__spine"]).toBe(1);
         expect(
           counts.segments,
-          `beat "${beat}" spine must carry the six segments spec §3.5.1 locks`,
-        ).toBe(6);
+          `beat "${beat}" spine must carry one segment per beat (spec §3.5.1 plus "Your details" and "Your voice")`,
+        ).toBe(BEAT_IDS.length);
         expect(
           counts.current,
           `beat "${beat}" must mark exactly one segment current`,

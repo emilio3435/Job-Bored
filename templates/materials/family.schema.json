@@ -6,6 +6,31 @@
   "required": ["id", "label", "description", "version", "documents", "stylesheet", "fonts", "accents", "densities", "logos", "fit", "budgets", "reads", "signatureMoves"],
   "additionalProperties": false,
   "$defs": {
+    "nameFitSpec": {
+      "type": "object",
+      "required": ["metrics", "maxPt", "minPt", "boxPt", "fullRowPt", "letterSpacingEm"],
+      "additionalProperties": false,
+      "properties": {
+        "metrics": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "maxPt": { "type": "number", "exclusiveMinimum": 0 },
+        "minPt": { "type": "number", "exclusiveMinimum": 0 },
+        "boxPt": { "type": "number", "exclusiveMinimum": 0 },
+        "fullRowPt": { "type": "number", "exclusiveMinimum": 0 },
+        "letterSpacingEm": { "type": "number" },
+        "lines": { "enum": ["one", "firstLast"] },
+        "reserve": {
+          "type": "object",
+          "required": ["from", "fontPt", "advanceEm", "extraPt"],
+          "additionalProperties": false,
+          "properties": {
+            "from": { "enum": ["contact", "target"] },
+            "fontPt": { "type": "number", "exclusiveMinimum": 0 },
+            "advanceEm": { "type": "number", "exclusiveMinimum": 0 },
+            "extraPt": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
     "range": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
     "ladderStep": {
       "description": "One fit step. drop_section:<kind> removes a resume section of that kind; drop_toolkit_group:<label> removes one toolkit row; drop_readouts removes the resume readout strip; drop_intro removes the resume intro; drop_letter_readouts and drop_pull_quote remove letter chrome; css:<token> adds a token to the sheet's data-fit attribute, which the family stylesheet maps to a tighter letter setting.",
@@ -36,6 +61,33 @@
     },
     "accents": { "type": "array", "minItems": 1, "items": { "enum": ["volt", "ink"] }, "contains": { "const": "ink" } },
     "densities": { "type": "array", "minItems": 1, "items": { "enum": ["air", "standard", "tight"] } },
+    "headers": {
+      "description": "Optional header variants the family stylesheet defines under .sheet[data-header=\"<id>\"]. Every text/background pair in each variant must pass WCAG AA (4.5:1).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+    },
+    "defaultHeader": { "description": "The header variant a render gets unless it asks for another; must be listed in headers.", "type": "string" },
+    "nameDots": {
+      "description": "Colored tittle dots drawn over the name (not in the text layer), placed in em from the display face's metrics file (vendor/fonts/materials/<metrics>.metrics.json). The stylesheet must set the name with this letter-spacing and line-height, kerning and ligatures off, on one line (nameFit).",
+      "type": "object",
+      "required": ["metrics", "letterSpacingEm", "lineHeight"],
+      "additionalProperties": false,
+      "properties": {
+        "metrics": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "letterSpacingEm": { "type": "number" },
+        "lineHeight": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "nameFit": {
+      "description": "Keeps the name on one line, per document: the renderer measures it with the display face's metrics and sets the largest size up to maxPt that fits boxPt less what shares its row (reserve), down to minPt; below that the name takes a full row (fullRowPt). The stylesheet must set the name nowrap with this letter-spacing, kerning and ligatures off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resume": { "$ref": "#/$defs/nameFitSpec" },
+        "coverLetter": { "$ref": "#/$defs/nameFitSpec" }
+      }
+    },
     "logos": {
       "type": "object",
       "required": ["opticalSizesIn", "hideNameBesideWordmark"],
@@ -54,6 +106,10 @@
         },
         "hideNameBesideWordmark": {
           "description": "When an employer's logo is a wordmark that already spells the name, hide the duplicate h2.company-name visually while keeping it in the text layer for ATS.",
+          "type": "boolean"
+        },
+        "monogramFallback": {
+          "description": "Featured employers the resolver found no mark for print a generated monogram, so a column of marks has no holes. Families that set marks inline leave it off.",
           "type": "boolean"
         }
       }

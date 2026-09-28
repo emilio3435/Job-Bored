@@ -250,7 +250,7 @@ test("D12: a transient 503 on either phase is retried", async () => {
   assert.equal(dataRows(sheet)[0][7], "9");
 });
 
-test("D12: an append whose response is lost is a SheetWriteError marked uncertain (p12-3)", async () => {
+test("D12: an append whose response is lost rechecks links before retrying (p12-3)", async () => {
   const sheet = createFakeSheets({ Pipeline: [HEADER] });
   const lossy = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await sheet.fetchImpl(input, init);
@@ -258,17 +258,9 @@ test("D12: an append whose response is lost is a SheetWriteError marked uncertai
     return response;
   }) as typeof fetch;
   const w = createPipelineWriter(runtimeConfig, { fetchImpl: lossy, ...FAST });
-  await assert.rejects(
-    w.write("fake-sheet", [lead({ title: "New role", company: "Beta", url: "https://beta.example/jobs/2" })]),
-    (error: unknown) => {
-      assert.ok(error instanceof SheetWriteError, "must be a SheetWriteError");
-      assert.equal(error.phase, "append");
-      assert.equal(error.uncertain, true);
-      assert.ok(error.partialResult);
-      return true;
-    },
-  );
-  // The append was committed and never retried blindly.
+  const first = await w.write("fake-sheet", [lead({ title: "New role", company: "Beta", url: "https://beta.example/jobs/2" })]);
+  assert.equal(first.appended, 0, "the first append landed before its response was lost");
+  // The append was committed and rechecked before any retry.
   assert.equal(dataRows(sheet).length, 1);
   const retry = await createPipelineWriter(runtimeConfig, { fetchImpl: sheet.fetchImpl, ...FAST }).write(
     "fake-sheet",

@@ -1,0 +1,23 @@
+JORDAN RIVERA
+Revenue Leader · Marketing Systems Builder
+Austin, TX · 555-555-0100 · user@example.com
+PROFESSIONAL SUMMARY
+Revenue leader with ten years in digital media sales and a builder's habit of automating the work around the pitch.
+EXPERIENCE
+Northwind Media (formerly Contoso Radio) — Austin Market Sep 2016 – Present
+Director, Digital Sales, Northwind Media Jan 2022 – Present
+- Led digital strategy for a $12M annual book and kept Austin a top-5 national market in digital revenue for three straight years.
+- Coached 8 account-executive desks through 25+ tracked pitches a month with weekly office hours and a quarterly contest calendar.
+- Moved the market from a broadcast-first mix to 55% digital revenue while holding total revenue flat through a soft ad market.
+- Launched a streaming-audio and CTV bundle that closed $1.4M in first-year bookings across 40 local advertisers.
+Account Manager → Senior Account Manager, Contoso Radio Mar 2019 – Dec 2021
+- Grew a strategic portfolio of 30 accounts by 22% year over year across SEM, paid social and OTT placements.
+- Earned promotion to Senior Account Manager on account retention of 94% during the 2020 downturn.
+Digital Campaign Manager, Contoso Radio Sep 2016 – Feb 2019
+- Owned setup, trafficking and weekly reporting for 60+ concurrent search, social and programmatic campaigns.
+- Cut average campaign launch time from 9 days to 4 by templating the trafficking checklist in Google Sheets.
+Founder | Example Labs — Austin, TX 2023 – Present
+- Built a lead-scoring pipeline in Python on Cloud Run that ranks 2,000+ inbound leads a week for three agency clients.
+- Shipped a forecasting assistant that ran 30+ pitch forecasts against $3.1M of open pipeline.
+EDUCATION
+Bachelor of Science, Economics | Example State University — Austin, TX 2016

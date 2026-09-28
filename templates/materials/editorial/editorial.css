@@ -70,7 +70,9 @@ a { color: inherit; text-decoration: none; }
    white-space: pre, so extraction reads "First Last", never "FirstLast"
    (rule 7). A plain wrapped space or a <br> is dropped from the PDF. */
 .name .l1 { display: block; white-space: pre; }
-.name .l2 { display: block; }
+/* Each line stays one line: nameFit sizes the name so the longer of the two fits. */
+.name .l2 { display: block; white-space: nowrap; }
+.name { font-kerning: none; font-variant-ligatures: none; }
 .deck {
   margin-top: 0.1in;
   font-weight: 600;
@@ -231,6 +233,10 @@ a { color: inherit; text-decoration: none; }
   font-size: 9.6pt;
   color: var(--ink-2);
 }
+/* P-4: a role at the same company, with its own dates */
+.subrole { margin: 0.05in 0 0; font-size: 9.6pt; color: var(--ink-2); }
+.subrole .role { font-style: italic; }
+.subrole-when { font-size: 8.8pt; color: var(--ink-2); white-space: nowrap; }
 ul { list-style: none; margin-top: 0.035in; }
 li {
   padding-left: 0.15in;
@@ -286,7 +292,13 @@ li::before {
   font-size: 22pt;
   line-height: 1;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  font-kerning: none;
+  font-variant-ligatures: none;
 }
+/* Too long to share the row with the contact lines: the name takes it. */
+.masthead--full { flex-wrap: wrap; row-gap: 6pt; }
+.masthead--full > div { flex-basis: 100%; }
 .masthead .deck { margin-top: 0.05in; font-size: 9.5pt; }
 .masthead .contact-r {
   text-align: right;
@@ -404,3 +416,6 @@ li::before {
 /* Rule 6: every block box positioned, so paint order (and PDF text order)
    follows DOM order and the name extracts first. */
 .sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, blockquote), .org > * { position: relative; }
+
+/* Project links in a letter (the user's hyperlink convention). */
+a.proj { color: inherit; text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.15em; }

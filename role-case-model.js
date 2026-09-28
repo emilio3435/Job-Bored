@@ -549,6 +549,68 @@
     };
   }
 
+  /* CASEWHY (DOSSIER-RECS Phase A): column K, Fit Assessment, is one
+     flattened string the discovery worker writes in one of two shapes —
+       LLM:     "Strong fit (score: 8/10). <rationale> Matches: a · b.
+                 Concerns: c · d. Application: <label>."
+       profile: "Low fit for <role> at <co> (score: 3/10). Fit rationale: <r>.
+                 ⚠️ <concern>. ✅ <match>. 💰 <match>. Application: <label>."
+     (lead-normalizer.ts buildLlmFitAssessment, profile-aware-scorer.ts
+     buildProfileFitAssessment). The card clips it at 800 characters, and a
+     person may have typed their own note into the cell, so anything without
+     the "<Band> fit … (score: n/10)" head is carried as raw text and never
+     guessed at. K's own score is kept because discovery overwrites H but
+     fills K only while it is empty (AGENT_CONTRACT.md, re-discovery merge):
+     a later run can move the number and leave the older reason behind. */
+  /* The head runs to the FIRST "(score: n/10)", across any parentheses a
+     role title carries ("Engineer (Contract)"); no such marker, raw text. */
+  var FIT_HEAD_RE = /^([A-Za-z][A-Za-z-]{0,23}) fit\b[\s\S]*?\(score:\s*(\d+(?:\.\d+)?)\s*\/\s*10\)\.?\s*/i;
+  var FIT_MARK_RE = /(?:^|\s)(Matches|Concerns|Application):\s*/g;
+  var FIT_FLAG_RE = /\s*(?=\u26A0|\u2705|\uD83D\uDCB0)/;
+  function trimItem(s) {
+    return String(s || "").replace(/^(?:\s|\u26A0|\u2705|\uFE0F|\uD83D\uDCB0)+/, "").replace(/\s+$/, "").replace(/([^.])\.$/, "$1").trim();
+  }
+  function fitList(s) { return String(s || "").split(/\s+\u00B7\s+/).map(trimItem).filter(Boolean); }
+  function parseFitAssessment(value) {
+    if (typeof value !== "string") return null;
+    var raw = inline(value);
+    if (!raw) return null;
+    var out = { raw: raw, parsed: false, band: "", score: null, rationale: "", matches: [], concerns: [], application: "" };
+    var head = FIT_HEAD_RE.exec(raw);
+    if (!head) return out;
+    out.parsed = true;
+    out.band = head[1].charAt(0).toUpperCase() + head[1].slice(1);
+    out.score = Number(head[2]);
+    var rest = raw.slice(head[0].length);
+    var marks = [], m;
+    FIT_MARK_RE.lastIndex = 0;
+    while ((m = FIT_MARK_RE.exec(rest))) marks.push({ key: m[1], at: m.index, body: m.index + m[0].length });
+    /* Each segment's own text comes first; any ⚠️/✅/💰 flags that follow it
+       (the profile shape) peel off into concerns or matches. */
+    function peel(segment) {
+      var pieces = segment.split(FIT_FLAG_RE);
+      var own = pieces.shift();
+      pieces.forEach(function (piece) {
+        var item = trimItem(piece);
+        if (item) (piece.charAt(0) === "\u26A0" ? out.concerns : out.matches).push(item);
+      });
+      return own;
+    }
+    out.rationale = peel(marks.length ? rest.slice(0, marks[0].at) : rest).replace(/^Fit rationale:\s*/i, "").trim();
+    marks.forEach(function (mk, i) {
+      var body = peel(rest.slice(mk.body, i + 1 < marks.length ? marks[i + 1].at : rest.length));
+      if (mk.key === "Matches") out.matches = out.matches.concat(fitList(body));
+      else if (mk.key === "Concerns") out.concerns = out.concerns.concat(fitList(body));
+      else out.application = trimItem(body);
+    });
+    return out;
+  }
+  function matchScoreOf(v) {
+    if (v == null || v === "" || typeof v === "boolean") return null;
+    var n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 10 ? { value: n, max: 10 } : null;
+  }
+
   function buildCaseModel(jobKey, deps) {
     var job = (deps.vm && deps.vm.job) || {};
     var enr = job.enrichment || {};
@@ -594,6 +656,8 @@
       health: deps.health || { state: "unknown", label: "", detail: "", checkedAt: "" },
       numbers: {
         fit: fit,
+        /* Column U, 0–10, only when the worker measured it (D5). */
+        matchScore: matchScoreOf(job.matchScore),
         ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? atsNumber(deps.scorecard) : null,
         keywords: keywordNumbers,
         reply: { value: job.replied || "Unknown" },
@@ -616,6 +680,7 @@
         daysInStage: stage.daysInStage,
         stageLabel: stages && stages.toLabel ? stages.toLabel(stage.current) : stage.current,
       }),
+      fitAssessment: parseFitAssessment(enr.fitAssessment),
       oneLine: inline(enr.roleInOneLine),
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
       youHave: buildYouHave(deps.scorecard),
@@ -678,5 +743,5 @@
   }
 
   root.JobBoredCase = root.JobBoredCase || {};
-  root.JobBoredCase.model = { buildCaseModel: buildCaseModel, collectDeps: collectDeps, CASE_DOC_TYPES: CASE_DOC_TYPES };
+  root.JobBoredCase.model = { buildCaseModel: buildCaseModel, collectDeps: collectDeps, parseFitAssessment: parseFitAssessment, CASE_DOC_TYPES: CASE_DOC_TYPES };
 })(typeof window !== "undefined" ? window : globalThis);

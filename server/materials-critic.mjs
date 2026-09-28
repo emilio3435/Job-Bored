@@ -1,4 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { maskNonMetrics } from "./materials-numerals.mjs";
+import { companyDisplayName } from "./materials-monogram.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
@@ -11,8 +13,24 @@ const HTML_IN_SLOT_RE = /<[a-z]/i;
  * the real list. */
 const FALLBACK_FILLER = ["leverage", "synergize", "passionate about", "results-driven", "proven track record"];
 
+/**
+ * The rendered HTML escapes "&" and quotes; an employer named
+ * "Cedar Lantern & JobBored" is still present.
+ * @param {string} html
+ */
+function decodeEntities(html) {
+  return String(html || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 /** @type {RegExp | null} */
 let cachedFillerRe = null;
+/** @type {string[]} regex-typed banned rules (variants and inflections) */
+let regexRules = [];
 
 /**
  * Slice 5: filler detection is pack-driven. The banned patterns from
@@ -26,16 +44,26 @@ async function fillerPattern() {
     const pack = await loadVoicePack();
     const banned = Array.isArray(pack.banned) ? pack.banned : [];
     const listed = banned
+      .filter((rule) => rule && !rule.regex)
       .map((rule) => (rule && typeof rule.pattern === "string" ? rule.pattern.trim() : ""))
       .filter((pattern) => pattern.length >= 3);
     if (listed.length) patterns = listed;
+    regexRules = banned
+      .filter((rule) => rule && rule.regex && typeof rule.pattern === "string")
+      .map((rule) => rule.pattern);
   } catch {
     // fall back to the five phrases
   }
-  cachedFillerRe = new RegExp(
-    `\\b(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
-    "i",
-  );
+  const literal = patterns.map((p) => `\\b${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+  const variants = regexRules.filter((p) => {
+    try {
+      new RegExp(p);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  cachedFillerRe = new RegExp(`(?:${[...literal, ...variants].join("|")})`, "i");
   return cachedFillerRe;
 }
 
@@ -260,7 +288,7 @@ export async function critiqueMaterials({
     ? keptList
     : extractEmployerStrings(masterResumeHtml);
   const missingEmployers = frozenNames.filter(
-    (name) => !resumeSource.includes(name),
+    (name) => !resumeSource.includes(name) && !decodeEntities(resumeSource).includes(name),
   );
   if (missingEmployers.length) {
     issues.push(issue(
@@ -279,7 +307,7 @@ export async function critiqueMaterials({
     const slotStrings = [];
     collectStrings(writerJson, slotStrings);
     for (const text of slotStrings) {
-      for (const match of String(text).matchAll(/((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)/g)) {
+      for (const match of maskNonMetrics(String(text)).matchAll(/((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)/g)) {
         const token = match[1];
         if (/^(?:19|20)\d\d(?:[–-](?:19|20)\d\d)?$/.test(token)) continue;
         if (!ledgerTokens.includes(token)) {
@@ -297,8 +325,11 @@ export async function critiqueMaterials({
 
   const sourceText = typeof sourceResumeText === "string" ? sourceResumeText.toLowerCase() : "";
   if (sourceText) {
+    /* "Meridian Insights Group — meridian.example.org" is the resume's own
+     * "Meridian Insights Group (meridian.example.org)": compare the company's name
+     * without its domain or "formerly" asides too. */
     const invented = composedEmployerStrings(resumeSource).filter(
-      (name) => !sourceText.includes(name.toLowerCase()),
+      (name) => !sourceText.includes(name.toLowerCase()) && !sourceText.includes(companyDisplayName(name).toLowerCase()),
     );
     if (invented.length) {
       issues.push(issue(

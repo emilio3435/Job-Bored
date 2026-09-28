@@ -24,6 +24,7 @@ import { basename, dirname, join, isAbsolute, resolve as resolvePath } from "nod
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { contactFormatErrors, contactOf, migrateProfile } from "./profile-identity.mjs";
 
 /** @typedef {import("ajv").ValidateFunction<unknown>} ProfileValidator */
 
@@ -125,7 +126,10 @@ export async function readProfile() {
     };
   }
   try {
-    const profile = JSON.parse(raw);
+    /* Contact identity backcompat: a hand-edited "Austin, TX" location or
+     * a bare "linkedin.com/in/x" link is brought to the schema's shape in
+     * memory before validation (profile-identity.mjs migrateProfile). */
+    const profile = migrateProfile(JSON.parse(raw));
     const validation = validateProfile(profile);
     if (!validation.ok) {
       return { ok: false, reason: "invalid_profile", errors: validation.errors };
@@ -149,6 +153,23 @@ export async function readProfile() {
 export function validateProfile(candidate) {
   const validate = loadValidator();
   const ok = validate(candidate);
+  /* What JSON schema cannot say: a phone needs 7 digits, not 7 characters. */
+  const identity = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? /** @type {Record<string, unknown>} */ (candidate).identity
+    : null;
+  const extra = ok ? contactFormatErrors(contactOf(identity)) : [];
+  if (ok && extra.length) {
+    return {
+      ok: false,
+      errors: extra.map((e) => ({
+        instancePath: `/${e.field.replace(/\./g, "/")}`,
+        schemaPath: "#/profile-identity",
+        keyword: "format",
+        message: e.message,
+        params: {},
+      })),
+    };
+  }
   if (ok) return { ok: true, profile: candidate };
   return {
     ok: false,
@@ -174,8 +195,9 @@ export function validateProfile(candidate) {
  * Always stamps `updatedAt` to "now" before writing; preserves `createdAt`
  * if the caller didn't provide one and a previous file existed.
  */
-/** @param {Record<string, unknown>} candidate */
-export async function writeProfileAtomic(candidate) {
+/** @param {Record<string, unknown>} input */
+export async function writeProfileAtomic(input) {
+  const candidate = /** @type {Record<string, unknown>} */ (migrateProfile(input));
   const validation = validateProfile(candidate);
   if (!validation.ok) {
     const err = /** @type {Error & { code: string, errors: unknown }} */ (

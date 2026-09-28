@@ -13,6 +13,8 @@
  * provider lives here. The worker's chat-provider re-exports this module.
  */
 
+import { outputBudget, geminiThinkingConfig, openAIUsesMaxCompletionTokens as usesCompletionTokens } from "../llm-output-budget.mjs";
+
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} ProviderName */
 /** @typedef {{ role: "system" | "user" | "assistant", content: string }} ChatMessage */
 /**
@@ -414,8 +416,7 @@ export function toGeminiSchema(schema) {
 
 /** @param {unknown} model */
 export function openAIUsesMaxCompletionTokens(model) {
-  const m = str(model).toLowerCase();
-  return m.startsWith("gpt-5") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
+  return usesCompletionTokens(model);
 }
 
 /** @param {unknown} model */
@@ -506,6 +507,7 @@ function splitSystem(messages) {
  * @property {number} [temperature]
  * @property {typeof globalThis.fetch} [fetchImpl]
  * @property {string} [endpoint] overrides the resolved endpoint (worker configs carry their own)
+ * @property {boolean} [retriedTruncation] internal one-time retry marker
  */
 
 /**
@@ -537,7 +539,8 @@ export async function chat(input) {
   const model = resolved.model;
   const endpoint = str(input.endpoint) || resolved.endpoint;
   const messages = Array.isArray(input.messages) ? input.messages : [];
-  const maxTokens = Number.isFinite(Number(input.maxTokens)) && Number(input.maxTokens) > 0 ? Math.trunc(Number(input.maxTokens)) : 1024;
+  const maxTokens = outputBudget(provider, model);
+  const thinkingConfig = provider === "gemini" ? geminiThinkingConfig(model) : {};
   const temperature = Number.isFinite(Number(input.temperature)) ? Number(input.temperature) : 0.1;
   const schema = input.schema;
   const { system, rest } = splitSystem(messages);
@@ -556,7 +559,8 @@ export async function chat(input) {
       })),
       generationConfig: {
         temperature,
-        maxOutputTokens: maxTokens,
+        ...(maxTokens === undefined ? {} : { maxOutputTokens: maxTokens }),
+        ...(Object.keys(thinkingConfig).length ? { thinkingConfig } : {}),
         ...(schema ? { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) } : {}),
       },
     };
@@ -568,7 +572,7 @@ export async function chat(input) {
     };
     body = {
       model,
-      max_tokens: maxTokens,
+      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
       // Sampling options travel on every provider's wire, Anthropic included.
       temperature,
       ...(system ? { system } : {}),
@@ -593,7 +597,7 @@ export async function chat(input) {
       messages: [...(system ? [{ role: "system", content: system }] : []), ...rest],
       ...(responseFormat ? { response_format: responseFormat } : {}),
       temperature,
-      [limitKey]: maxTokens,
+      ...(maxTokens === undefined ? {} : { [limitKey]: maxTokens }),
     };
   }
 
@@ -623,6 +627,20 @@ export async function chat(input) {
     payload = null;
   }
   if (!resp.ok) throw providerHttpError(provider, resp.status, payload);
+  const record = payload && typeof payload === "object" ? /** @type {Record<string, unknown>} */ (payload) : {};
+  const candidates = Array.isArray(record.candidates) ? record.candidates : [];
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const first = provider === "gemini" ? candidates[0] : choices[0];
+  const firstRecord = first && typeof first === "object" ? /** @type {Record<string, unknown>} */ (first) : {};
+  const stoppedAtLimit = provider === "gemini"
+    ? firstRecord.finishReason === "MAX_TOKENS"
+    : provider === "anthropic" ? record.stop_reason === "max_tokens" : firstRecord.finish_reason === "length";
+  if (stoppedAtLimit) {
+    if (!input.retriedTruncation) return chat({ ...input, retriedTruncation: true });
+    throw new ProviderApiError(`${providerDisplayName(provider)} model ${model} hit its maximum output limit after a retry.`, {
+      provider, providerCode: "max_tokens", classification: "output_limit", retryable: false,
+    });
+  }
   const text =
     provider === "gemini"
       ? extractGeminiText(payload)

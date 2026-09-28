@@ -660,11 +660,13 @@
 
   const ONBOARDING_FLOW_STATE_VERSION = 3;
 
-  /** The six beats of the flow, in order (spec §3.1). */
+  /** The beats of the flow, in order (spec §3.1, plus "Your details" and "Your voice"). */
   const ONBOARDING_FLOW_BEATS = Object.freeze([
     "google",
     "ai",
     "resume",
+    "details",
+    "voice",
     "fit",
     "discovery",
     "payoff",
@@ -677,7 +679,7 @@
    * them may ever touch disk — an unverified provider key is a secret,
    * a half-typed resume is not.
    */
-  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft"]);
+  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
 
   /** A resume pasted in full, with room to spare — not a whole document. */
   const ONBOARDING_FLOW_DRAFT_TEXT_MAX = 100000;
@@ -1081,6 +1083,179 @@
     });
   }
 
+  // ---------------------------------------------------------------
+  // RESJ K1: every primary-resume save also reaches the server's
+  // canonical resume.txt (PUT /profile/resume, no AI call), so drafts,
+  // the claim ledger and "Re-fill from my resume" read the resume the
+  // user just gave us. The browser copy is saved first and stays saved
+  // whatever the server says; the result tells the caller what to show.
+  // ---------------------------------------------------------------
+
+  const RESUME_SYNC_TIMEOUT_MS = 8000;
+
+  function resumeSyncUrl() {
+    const api = typeof window !== "undefined" ? window.JobBoredProfileApi : null;
+    if (api && typeof api.profileUrl === "function") return api.profileUrl("/profile/resume");
+    const cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    const raw = String(cfg.jobBoredApiUrl || cfg.jobPostingScrapeUrl || "").trim();
+    if (raw) return raw.replace(/\/+$/, "") + "/profile/resume";
+    const loc = typeof window !== "undefined" ? window.location : null;
+    if (loc && loc.protocol === "file:") return "http://127.0.0.1:3847/profile/resume";
+    return "/profile/resume";
+  }
+
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const auth = typeof window !== "undefined" ? window.JobBoredHostedApiAuth : null;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    if (typeof fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
+    return fetch(url, init);
+  }
+
+  /**
+   * @param {string} text
+   * @returns {Promise<{ ok: true, savedAt: string } | { ok: false, reason: "offline" | "unavailable" | "garbled" | "refused", message: string }>}
+   */
+  async function syncPrimaryResumeToServer(text) {
+    try {
+      return await putResumeToServer(text);
+    } catch (_) {
+      return { ok: false, reason: "offline", message: "" };
+    }
+  }
+
+  async function putResumeToServer(text) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), RESUME_SYNC_TIMEOUT_MS) : null;
+    let res;
+    let data = null;
+    /* A hard stop as well as the abort: a transport that ignores the
+     * signal must not leave a caller waiting on the server copy. */
+    let giveUp = null;
+    const deadline = new Promise((_, reject) => {
+      giveUp = setTimeout(() => reject(new Error("resume copy timed out")), RESUME_SYNC_TIMEOUT_MS);
+    });
+    deadline.catch(() => {});
+    try {
+      res = await Promise.race([
+        apiFetch(resumeSyncUrl(), {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resumeText: String(text || "") }),
+          signal: controller ? controller.signal : undefined,
+        }),
+        deadline,
+      ]);
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+    } catch (_) {
+      return { ok: false, reason: "offline", message: "" };
+    } finally {
+      if (timer) clearTimeout(timer);
+      clearTimeout(giveUp);
+    }
+    if (res.ok && data && data.ok === true) {
+      return { ok: true, savedAt: String(data.savedAt || "") };
+    }
+    if (data && data.reason === "resume_garbled") {
+      return { ok: false, reason: "garbled", message: String(data.message || "") };
+    }
+    /* No JobBored API behind this page (hosted site, static server). */
+    if (!data || res.status === 404 || res.status === 405 || res.status === 503) {
+      return { ok: false, reason: "unavailable", message: "" };
+    }
+    return { ok: false, reason: "refused", message: String(data.message || "") };
+  }
+
+  /**
+   * The one line a caller shows when the server copy was not saved;
+   * "" when it was.
+   * @param {{ ok: boolean, reason?: string, message?: string } | null | undefined} sync
+   */
+  function describeResumeServerSync(sync) {
+    if (!sync || sync.ok) return "";
+    if (sync.reason === "garbled") {
+      return "Saved in this browser only. JobBored's server kept your previous resume because this text came out broken.";
+    }
+    if (sync.reason === "refused" && sync.message) {
+      return "Saved in this browser only. JobBored's server didn't save a copy: " + sync.message;
+    }
+    return "Saved in this browser only. JobBored's local server didn't get a copy, so drafts may use an older resume.";
+  }
+
+  // ---------------------------------------------------------------
+  // RESJ K3: text whose PDF text layer split its words ("S ummary",
+  // "10 M +") is never saved as the resume unless the user says so.
+  // The detector lives in resume-ingest.js; without it, nothing is
+  // flagged.
+  // ---------------------------------------------------------------
+
+  function isGarbledResumeText(text) {
+    const ingest = typeof window !== "undefined" ? window.CommandCenterResumeIngest : null;
+    if (!ingest || typeof ingest.detectGarbledText !== "function") return false;
+    try {
+      return !!ingest.detectGarbledText(text).garbled;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function garbledResumeCopy(payload) {
+    const fromPdf = /pdf/i.test(String((payload && payload.rawMime) || ""));
+    return {
+      title: fromPdf ? "This PDF's text came out broken" : "This resume text came out broken",
+      message:
+        (fromPdf ? "This PDF's text came out broken" : "This resume text came out broken") +
+        ": words are split apart, like “S ummary”. Paste the text or upload the .docx instead.",
+    };
+  }
+
+  /**
+   * Save the primary resume, asking first when its text came out broken.
+   * Resolves the saved record, or null when the user kept what they had.
+   * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null }} payload
+   */
+  async function savePrimaryResumeChecked(payload) {
+    const text = String((payload && payload.extractedText) || "").trim();
+    if (!text || !isGarbledResumeText(text)) return setPrimaryResume(payload);
+    const copy = garbledResumeCopy(payload);
+    let hasCurrent = false;
+    try {
+      const current = await getActiveResume();
+      hasCurrent = !!(current && String(current.extractedText || "").trim());
+    } catch (_) {
+      hasCurrent = false;
+    }
+    const body =
+      "Words are split apart, like “S ummary”, so drafts built from it will read wrong. " +
+      "Paste the text or upload the .docx instead." +
+      (hasCurrent ? " Saving it replaces the resume you have now." : "");
+    const confirmed = await askToSaveGarbled({
+      title: copy.title,
+      body: body,
+      confirmLabel: "Save it anyway",
+      cancelLabel: hasCurrent ? "Keep my current resume" : "Cancel",
+    });
+    if (!confirmed) return null;
+    return setPrimaryResume(Object.assign({}, payload, { confirmGarbled: true }));
+  }
+
+  async function askToSaveGarbled(spec) {
+    const a11y = typeof window !== "undefined" ? window.JobBoredA11y : null;
+    if (a11y && a11y.dialog && typeof a11y.dialog.confirm === "function") {
+      const answer = await a11y.dialog.confirm(spec);
+      return !!(answer && answer.confirmed);
+    }
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return !!window.confirm(spec.title + "\n\n" + spec.body + "\n\nSave it anyway?");
+    }
+    return false;
+  }
+
   /**
    * Replace all resume rows with one canonical resume.
    *
@@ -1089,12 +1264,25 @@
    * clear and leaves the previous resume intact. The previous two-tx pattern
    * could leave the user with NO resume if the second tx failed.
    *
-   * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null }} payload
+   * Then copies the text to the server (RESJ K1); the returned record
+   * carries `serverSync`, a promise of the result (never rejects), which
+   * describeResumeServerSync() turns into the line to show when the server
+   * copy was not saved.
+   *
+   * Throws code "resume_garbled" for broken PDF text unless
+   * payload.confirmGarbled (RESJ K3); savePrimaryResumeChecked() asks.
+   *
+   * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null, confirmGarbled?: boolean }} payload
    */
   async function setPrimaryResume(payload) {
     const text = String(payload.extractedText || "").trim();
     if (!text) {
       throw new Error("Resume text is required");
+    }
+    if (!payload.confirmGarbled && isGarbledResumeText(text)) {
+      const err = new Error(garbledResumeCopy(payload).message);
+      err.code = "resume_garbled";
+      throw err;
     }
     const now = new Date().toISOString();
     const record = {
@@ -1130,7 +1318,10 @@
       }
     });
     await setSetting("activeResumeId", PRIMARY_RESUME_ID);
-    return record;
+    /* Not awaited: a slow or hung server never holds up the save. Callers
+     * that show a status await record.serverSync (it never rejects). */
+    const serverSync = syncPrimaryResumeToServer(text);
+    return Object.assign({}, record, { serverSync });
   }
 
   async function isOnboardingComplete() {
@@ -1605,6 +1796,9 @@
     deleteResume,
     clearAllResumes,
     setPrimaryResume,
+    savePrimaryResumeChecked,
+    syncPrimaryResumeToServer,
+    describeResumeServerSync,
     isOnboardingComplete,
     completeOnboarding,
     resetOnboardingCompletion,

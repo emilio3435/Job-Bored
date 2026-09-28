@@ -1,0 +1,26 @@
+{
+  "_note": "A completed jd.extract fill in the shape the stage asks for (Gemini generateContent reply). HTTP 200.",
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "{\"outcomes\": [{\"id\": \"east-region-digital-revenue\", \"text\": \"Drive digital revenue across the East Region's streaming, podcast and CTV products\", \"weight\": 0.9}, {\"id\": \"ae-training\", \"text\": \"Train account executives to sell integrated digital campaigns\", \"weight\": 0.8}], \"differentiators\": [{\"id\": \"integrated-campaigns\", \"text\": \"Built integrated audio and digital campaigns at scale\"}], \"bars\": [], \"constraints\": [{\"type\": \"location\", \"text\": \"East Region\"}], \"echoBans\": [\"number one audio company\"], \"nounWeights\": {\"streaming\": 0.9, \"podcast\": 0.8}}"
+            }
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 1898,
+      "candidatesTokenCount": 212,
+      "thoughtsTokenCount": 118,
+      "totalTokenCount": 2228
+    }
+  }
+}

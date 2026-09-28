@@ -1,3 +1,5 @@
+import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
+
 const GEMINI_GENERATE_URL =
   "https://generativelanguage.googleapis.com/v1beta/models";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -6,13 +8,13 @@ const LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const TEMPERATURE = 0.4;
-// The writer emits a full cover letter plus a full tailored resume in one
-// JSON blob. 4096 truncated that routinely once the resolved model spent
-// part of the budget on thinking (the API counts thinking tokens toward
-// max_output_tokens), so the base matches the profile drafter's 8192 and a
-// single truncation retry may escalate once to the hard cap below.
-const MAX_OUTPUT_TOKENS = 8192;
-const MAX_OUTPUT_TOKENS_TRUNCATED_RETRY = 16384;
+/* Legacy stage settings remain accepted at the API edge. The wire budget now
+ * comes from the selected model, including the one truncation retry. */
+export const JSON_STAGE_THINKING_BUDGET = 512;
+/* P-7: 429/5xx/timeouts back off and retry this many times per call. */
+const TRANSIENT_RETRIES = 2;
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_MAX_MS = 8000;
 
 const WRITER_SYSTEM_PROMPT = [
   "Rewrite the candidate's materials for this JD.",
@@ -122,7 +124,9 @@ const WRITER_SYSTEM_PROMPT = [
  * @property {number[]} [letterWords] the template family's letter body band
  * @property {string} [systemPrompt] v3 narrow calls: replaces the wide writer prompt
  * @property {string} [userText] v3 narrow calls: replaces the assembled user prompt
- * @property {number} [maxOutputTokens] v3 narrow calls: per-stage output cap
+ * @property {number} [maxOutputTokens] legacy stage hint; the model limit wins
+ * @property {number} [thinkingBudget] Gemini only: generationConfig.thinkingConfig.thinkingBudget
+ * @property {(ms: number) => Promise<void>} [sleep] backoff sleeper (tests)
  */
 
 /**
@@ -137,7 +141,7 @@ export class WriterJsonError extends Error {
   constructor(message, options) {
     super(message, options);
     this.name = "WriterJsonError";
-    /** @type {string | undefined} machine-readable failure class (`writer_truncated` | `writer_blocked`) */
+    /** @type {string | undefined} machine-readable failure class (`writer_truncated` | `writer_blocked` | a stage-call code) */
     this.code = undefined;
     /** @type {string | undefined} normalized provider that produced the failure */
     this.provider = undefined;
@@ -248,14 +252,10 @@ function systemText(input) {
 
 /**
  * @param {WriterInput} input
- * @returns {number}
+ * @returns {number | undefined}
  */
 function maxTokens(input) {
-  return typeof input.maxOutputTokens === "number" &&
-    Number.isFinite(input.maxOutputTokens) &&
-    input.maxOutputTokens > 0
-    ? Math.floor(input.maxOutputTokens)
-    : MAX_OUTPUT_TOKENS;
+  return outputBudget(normalizeWriterProvider(input.pin.provider), String(input.pin.resolvedModel || input.pin.model || ""));
 }
 
 /**
@@ -328,13 +328,14 @@ function finishSignalName(provider) {
  * error class stable for existing catchers.
  *
  * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} model
  * @param {string} signalName
  * @param {string} signalValue
  * @returns {WriterJsonError}
  */
-function truncatedWriterError(provider, signalName, signalValue) {
+function truncatedWriterError(provider, model, signalName, signalValue) {
   const err = new WriterJsonError(
-    `WriterJsonError: ${writerProviderLabel(provider)} cut the draft off at its output limit (${signalName} ${signalValue}). Try a shorter resume, or pick a larger model in Settings.`,
+    `WriterJsonError: ${writerProviderLabel(provider)} model ${model} hit its maximum output limit after a retry (${signalName} ${signalValue}).`,
   );
   err.code = "writer_truncated";
   err.provider = provider;
@@ -382,14 +383,6 @@ function blockedWriterError(provider, signalName, signalValue) {
 }
 
 /**
- * @param {unknown} err
- * @returns {boolean}
- */
-function isUnterminatedJsonError(err) {
-  return err instanceof WriterJsonError && /unterminated JSON object/.test(err.message);
-}
-
-/**
  * @param {unknown} value
  * @returns {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"}
  */
@@ -432,54 +425,108 @@ function chatBaseUrlFor(provider, baseUrl) {
 }
 
 /**
+ * @typedef {object} CallUsage
+ * @property {number} [promptTokens]
+ * @property {number} [outputTokens]
+ * @property {number} [thoughtsTokens]
+ * @property {number} [totalTokens]
+ */
+
+/**
+ * @typedef {{ text: string, finish: string, usage?: CallUsage }} GenerateResult
+ */
+
+/**
+ * @param {Record<string, unknown>} source
+ * @param {Record<string, string>} map output key → source key
+ * @returns {CallUsage | undefined}
+ */
+function pickUsage(source, map) {
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const [key, from] of Object.entries(map)) {
+    const value = source[from];
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
  * @param {unknown} data
- * @returns {{ text: string, finish: string }}
+ * @returns {GenerateResult}
  */
 function textFromGeminiResponse(data) {
   if (!isPlainObject(data)) return { text: "", finish: "" };
+  const usage = isPlainObject(data.usageMetadata)
+    ? pickUsage(data.usageMetadata, {
+      promptTokens: "promptTokenCount",
+      outputTokens: "candidatesTokenCount",
+      thoughtsTokens: "thoughtsTokenCount",
+      totalTokens: "totalTokenCount",
+    })
+    : undefined;
   const candidates = data.candidates;
-  if (!Array.isArray(candidates) || !candidates.length) return { text: "", finish: "" };
+  if (!Array.isArray(candidates) || !candidates.length) return { text: "", finish: "", usage };
   const first = candidates[0];
-  if (!isPlainObject(first)) return { text: "", finish: "" };
+  if (!isPlainObject(first)) return { text: "", finish: "", usage };
   const finish = typeof first.finishReason === "string" ? first.finishReason : "";
   const content = first.content;
-  if (!isPlainObject(content)) return { text: "", finish };
+  if (!isPlainObject(content)) return { text: "", finish, usage };
   const parts = content.parts;
-  if (!Array.isArray(parts)) return { text: "", finish };
+  if (!Array.isArray(parts)) return { text: "", finish, usage };
   // Ignore thought-marked parts so only answer text reaches the draft parser.
   const text = parts
     .map((part) =>
       isPlainObject(part) && part.thought !== true && typeof part.text === "string" ? part.text : "",
     )
     .join("");
-  return { text, finish };
+  return { text, finish, usage };
 }
 
 /**
  * @param {unknown} data
- * @returns {{ text: string, finish: string }}
+ * @returns {GenerateResult}
  */
 function textFromChatCompletions(data) {
   if (!isPlainObject(data)) return { text: "", finish: "" };
+  const usage = isPlainObject(data.usage)
+    ? pickUsage(
+      {
+        ...data.usage,
+        reasoning_tokens: isPlainObject(data.usage.completion_tokens_details)
+          ? data.usage.completion_tokens_details.reasoning_tokens
+          : undefined,
+      },
+      {
+        promptTokens: "prompt_tokens",
+        outputTokens: "completion_tokens",
+        thoughtsTokens: "reasoning_tokens",
+        totalTokens: "total_tokens",
+      },
+    )
+    : undefined;
   const choices = data.choices;
-  if (!Array.isArray(choices) || !choices.length) return { text: "", finish: "" };
+  if (!Array.isArray(choices) || !choices.length) return { text: "", finish: "", usage };
   const first = choices[0];
-  if (!isPlainObject(first)) return { text: "", finish: "" };
+  if (!isPlainObject(first)) return { text: "", finish: "", usage };
   const finish = typeof first.finish_reason === "string" ? first.finish_reason : "";
   const message = first.message;
-  if (!isPlainObject(message)) return { text: "", finish };
+  if (!isPlainObject(message)) return { text: "", finish, usage };
   const text = typeof message.content === "string" ? message.content : "";
-  return { text, finish };
+  return { text, finish, usage };
 }
 
 /**
  * @param {unknown} data
- * @returns {{ text: string, finish: string }}
+ * @returns {GenerateResult}
  */
 function textFromAnthropic(data) {
   if (!isPlainObject(data)) return { text: "", finish: "" };
+  const usage = isPlainObject(data.usage)
+    ? pickUsage(data.usage, { promptTokens: "input_tokens", outputTokens: "output_tokens" })
+    : undefined;
   const finish = typeof data.stop_reason === "string" ? data.stop_reason : "";
-  if (!Array.isArray(data.content)) return { text: "", finish };
+  if (!Array.isArray(data.content)) return { text: "", finish, usage };
   const text = data.content
     .map((block) =>
       isPlainObject(block) && block.type === "text" && typeof block.text === "string"
@@ -487,14 +534,14 @@ function textFromAnthropic(data) {
         : "",
     )
     .join("");
-  return { text, finish };
+  return { text, finish, usage };
 }
 
 /**
  * Webhooks carry no standard stop signal, so finish is always "".
  *
  * @param {unknown} data
- * @returns {{ text: string, finish: string }}
+ * @returns {GenerateResult}
  */
 function textFromWebhook(data) {
   if (typeof data === "string") return { text: data, finish: "" };
@@ -527,21 +574,88 @@ async function readJsonBody(resp) {
 }
 
 /**
+ * A provider answered with a non-2xx status. 429 and 5xx are transient and
+ * retried with backoff; any other status fails the call at once.
+ */
+export class ModelHttpError extends Error {
+  /**
+   * @param {string} label
+   * @param {number} status
+   * @param {number} retryAfterMs 0 when the provider sent no usable Retry-After
+   * @param {string} [detail] the provider's own error status/reason, when it sent one
+   */
+  constructor(label, status, retryAfterMs, detail = "") {
+    super(`${label} HTTP ${status}${detail ? ` (${detail})` : ""}`);
+    this.name = "ModelHttpError";
+    this.status = status;
+    this.code = `http_${status}`;
+    this.retryAfterMs = retryAfterMs;
+    this.transient = status === 429 || status >= 500 || status === 0;
+    this.detail = detail;
+  }
+}
+
+/**
+ * Short provider error label from an error body — Gemini's
+ * `error.status` + `details[].reason` (e.g. "PERMISSION_DENIED:
+ * API_KEY_SERVICE_BLOCKED"), or OpenAI/Anthropic `error.type`/`code`.
+ * Never the free-text message, which can echo request content.
+ *
+ * @param {unknown} data
+ * @returns {string}
+ */
+function providerErrorDetail(data) {
+  if (!isPlainObject(data) || !isPlainObject(data.error)) return "";
+  const error = data.error;
+  const parts = [];
+  for (const key of ["status", "type", "code"]) {
+    const value = error[key];
+    if (typeof value === "string" && /^[A-Za-z0-9_.-]{1,60}$/.test(value)) {
+      parts.push(value);
+      break;
+    }
+  }
+  if (Array.isArray(error.details)) {
+    for (const d of error.details) {
+      if (isPlainObject(d) && typeof d.reason === "string" && /^[A-Z0-9_]{1,60}$/.test(d.reason)) {
+        parts.push(d.reason);
+        break;
+      }
+    }
+  }
+  return parts.join(": ");
+}
+
+/**
+ * @param {HttpResponseLike | null | undefined} resp
+ * @returns {number}
+ */
+function retryAfterMs(resp) {
+  const headers = resp && /** @type {{ headers?: unknown }} */ (resp).headers;
+  const get = headers && typeof (/** @type {Headers} */ (headers)).get === "function"
+    ? (/** @type {Headers} */ (headers)).get("retry-after")
+    : null;
+  const seconds = Number(get);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+}
+
+/**
  * @param {HttpResponseLike | null | undefined} resp
  * @param {string} label
+ * @param {unknown} [data] the parsed error body
  */
-function throwIfHttpError(resp, label) {
+function throwIfHttpError(resp, label, data) {
   if (!resp || resp.ok === false) {
     const status = resp && typeof resp.status === "number" ? resp.status : 0;
-    throw new Error(`${label} HTTP ${status}`);
+    throw new ModelHttpError(label, status, retryAfterMs(resp), providerErrorDetail(data));
   }
 }
 
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @param {number} maxTokens
- * @returns {Promise<{ text: string, finish: string }>}
+ * @param {number | undefined} maxTokens
+ * @returns {Promise<GenerateResult>}
  */
 async function generateGemini(input, extraUserText, maxTokens) {
   const pin = input.pin;
@@ -553,6 +667,14 @@ async function generateGemini(input, extraUserText, maxTokens) {
   // B17: the key travels in x-goog-api-key, never in the URL, where proxies
   // and access logs would record it.
   const url = `${GEMINI_GENERATE_URL}/${encodeURIComponent(resolvedModel)}:generateContent`;
+  // Thinking tokens count toward the output limit. Gemini 3 uses low thinking;
+  // older thinking models keep a bounded numeric budget.
+  const modelThinking = geminiThinkingConfig(resolvedModel);
+  const thinking = Object.keys(modelThinking).length
+    ? { thinkingConfig: "thinkingLevel" in modelThinking ? modelThinking : {
+      thinkingBudget: typeof input.thinkingBudget === "number" ? Math.max(0, Math.floor(input.thinkingBudget)) : modelThinking.thinkingBudget,
+    } }
+    : {};
   const body = {
     systemInstruction: { parts: [{ text: systemText(input) }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
@@ -562,8 +684,9 @@ async function generateGemini(input, extraUserText, maxTokens) {
     // type, shape from the prompt plus the parser.
     generationConfig: {
       temperature: TEMPERATURE,
-      maxOutputTokens: maxTokens,
+      ...(maxTokens === undefined ? {} : { maxOutputTokens: maxTokens }),
       responseMimeType: "application/json",
+      ...thinking,
     },
   };
   const resp = await input.fetchImpl(url, {
@@ -573,7 +696,7 @@ async function generateGemini(input, extraUserText, maxTokens) {
     signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
   });
   const data = await readJsonBody(resp);
-  throwIfHttpError(resp, "Gemini");
+  throwIfHttpError(resp, "Gemini", data);
   return textFromGeminiResponse(data);
 }
 
@@ -581,10 +704,10 @@ async function generateGemini(input, extraUserText, maxTokens) {
  * @param {WriterInput} input
  * @param {string} extraUserText
  * @param {"openai" | "openrouter" | "local"} provider
- * @param {number} maxTokens
- * @returns {Promise<{ text: string, finish: string }>}
+ * @param {number | undefined} _maxTokens
+ * @returns {Promise<GenerateResult>}
  */
-async function generateOpenAICompatible(input, extraUserText, provider, maxTokens) {
+async function generateOpenAICompatible(input, extraUserText, provider, _maxTokens) {
   const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
@@ -612,7 +735,7 @@ async function generateOpenAICompatible(input, extraUserText, provider, maxToken
       ? { response_format: { type: "json_object" } }
       : {}),
     temperature: TEMPERATURE,
-    max_tokens: maxTokens,
+    ...outputLimitField(provider, resolvedModel),
   };
   const resp = await input.fetchImpl(url, {
     method: "POST",
@@ -622,15 +745,15 @@ async function generateOpenAICompatible(input, extraUserText, provider, maxToken
   });
   const data = await readJsonBody(resp);
   const label = provider === "openai" ? "OpenAI" : provider === "openrouter" ? "OpenRouter" : "Local";
-  throwIfHttpError(resp, label);
+  throwIfHttpError(resp, label, data);
   return textFromChatCompletions(data);
 }
 
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @param {number} maxTokens
- * @returns {Promise<{ text: string, finish: string }>}
+ * @param {number | undefined} maxTokens
+ * @returns {Promise<GenerateResult>}
  */
 async function generateAnthropic(input, extraUserText, maxTokens) {
   const pin = input.pin;
@@ -645,7 +768,7 @@ async function generateAnthropic(input, extraUserText, maxTokens) {
   // Truncation is still surfaced through stop_reason.
   const body = {
     model: resolvedModel,
-    max_tokens: maxTokens,
+    ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
     system: systemText(input),
     messages: [{ role: "user", content: buildUserPrompt(input, extraUserText) }],
   };
@@ -660,14 +783,14 @@ async function generateAnthropic(input, extraUserText, maxTokens) {
     signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
   });
   const data = await readJsonBody(resp);
-  throwIfHttpError(resp, "Anthropic");
+  throwIfHttpError(resp, "Anthropic", data);
   return textFromAnthropic(data);
 }
 
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @returns {Promise<{ text: string, finish: string }>}
+ * @returns {Promise<GenerateResult>}
  */
 async function generateWebhook(input, extraUserText) {
   const pin = input.pin;
@@ -687,15 +810,15 @@ async function generateWebhook(input, extraUserText) {
     signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
   });
   const data = await readJsonBody(resp);
-  throwIfHttpError(resp, "Webhook");
+  throwIfHttpError(resp, "Webhook", data);
   return textFromWebhook(data);
 }
 
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @param {number} maxTokens output budget for this attempt (webhooks ignore it)
- * @returns {Promise<{ text: string, finish: string }>}
+ * @param {number | undefined} maxTokens output budget for this attempt (webhooks ignore it)
+ * @returns {Promise<GenerateResult>}
  */
 async function generateContent(input, extraUserText, maxTokens) {
   const fetchImpl = input.fetchImpl;
@@ -711,45 +834,150 @@ async function generateContent(input, extraUserText, maxTokens) {
 }
 
 /**
- * Two attempts, bounded: a truncation signal — or unterminated JSON with no
- * signal, the probable-truncation case — escalates the second attempt to the
- * hard cap, since an identical retry would re-truncate deterministically.
- * A blocking stop throws on the first attempt without retry. Anything else
- * retries identically, as before.
+ * @typedef {object} CallAttempt
+ * @property {number | null} budget output cap sent on this attempt; null means unknown
+ * @property {number} [thinkingBudget] Gemini thinking budget sent, when any
+ * @property {string} [finishReason] the provider's raw finish/stop signal
+ * @property {CallUsage} [usage]
+ * @property {string} [errorCode] why this attempt did not produce a result
+ * @property {string} [errorDetail] provider error status/reason on an HTTP failure
+ */
+
+/**
+ * @param {unknown} err
+ * @returns {{ code: string, transient: boolean, retryAfterMs: number }}
+ */
+function classifyCallError(err) {
+  if (err instanceof ModelHttpError) {
+    return { code: err.code, transient: err.transient, retryAfterMs: err.retryAfterMs };
+  }
+  const name = err && typeof err === "object" ? String(/** @type {{ name?: unknown }} */ (err).name || "") : "";
+  if (name === "TimeoutError" || name === "AbortError") return { code: "timeout", transient: true, retryAfterMs: 0 };
+  /* fetch rejects with a TypeError on a network failure (DNS, reset). */
+  if (name === "TypeError" && /fetch|network|socket|ECONN/i.test(String(/** @type {Error} */ (err).message || ""))) {
+    return { code: "network", transient: true, retryAfterMs: 0 };
+  }
+  if (err instanceof WriterJsonError) {
+    return { code: err.code || "invalid_json", transient: false, retryAfterMs: 0 };
+  }
+  return { code: "call_failed", transient: false, retryAfterMs: 0 };
+}
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * @param {number} retry 0-based transient retry index
+ * @param {number} retryAfter provider's Retry-After in ms, or 0
+ */
+function backoffMs(retry, retryAfter) {
+  const exponential = BACKOFF_BASE_MS * 2 ** retry;
+  return Math.min(BACKOFF_MAX_MS, Math.max(exponential, retryAfter));
+}
+
+/**
+ * @param {unknown} err
+ * @param {CallAttempt[]} attempts
+ * @returns {unknown}
+ */
+function withAttempts(err, attempts) {
+  if (err && typeof err === "object") {
+    /** @type {{ attempts?: CallAttempt[] }} */ (err).attempts = attempts;
+  }
+  return err;
+}
+
+/**
+ * The one truncation-and-retry path for every model call (writer, editor,
+ * and the v3 JSON stages):
+ * - a blocking stop throws on the first attempt without retry;
+ * - a truncation signal or invalid JSON retries once at the model maximum;
+ * - 429, 5xx, timeouts and network errors back off and retry up to
+ *   TRANSIENT_RETRIES times without spending a content attempt;
+ * - any other HTTP status fails at once.
+ * Every attempt is logged; a thrown error carries the log as `.attempts`.
+ *
+ * @template T
+ * @param {WriterInput} input
+ * @param {string} extraUserText
+ * @param {object} options
+ * @param {number | undefined} options.budget first attempt's output cap
+ * @param {(text: string) => T} options.parse
+ * @param {(ms: number) => Promise<void>} [options.sleep]
+ * @returns {Promise<{ value: T, attempts: CallAttempt[] }>}
+ */
+async function runModelCall(input, extraUserText, { budget, parse, sleep = defaultSleep }) {
+  const provider = normalizeWriterProvider(input.pin.provider);
+  /** @type {CallAttempt[]} */
+  const attempts = [];
+  /** @type {unknown} */
+  let lastError;
+  const thinkingBudget = input.thinkingBudget;
+  let transientRetries = 0;
+  for (let contentAttempt = 0; contentAttempt < 2;) {
+    /** @type {CallAttempt} */
+    const attempt = { budget: budget ?? null };
+    if (provider === "gemini" && typeof thinkingBudget === "number") attempt.thinkingBudget = thinkingBudget;
+    attempts.push(attempt);
+    /** @type {GenerateResult} */
+    let result;
+    try {
+      result = await generateContent({ ...input, thinkingBudget }, extraUserText, budget);
+    } catch (err) {
+      const info = classifyCallError(err);
+      attempt.errorCode = info.code;
+      if (err instanceof ModelHttpError && err.detail) attempt.errorDetail = err.detail;
+      if (info.transient && transientRetries < TRANSIENT_RETRIES) {
+        await sleep(backoffMs(transientRetries, info.retryAfterMs));
+        transientRetries += 1;
+        continue;
+      }
+      throw withAttempts(err, attempts);
+    }
+    const { text, finish, usage } = result;
+    if (finish) attempt.finishReason = finish;
+    if (usage) attempt.usage = usage;
+    const blocked = blockedSignal(provider, finish);
+    if (blocked) {
+      attempt.errorCode = "writer_blocked";
+      throw withAttempts(blockedWriterError(provider, finishSignalName(provider), blocked), attempts);
+    }
+    const signal = truncationSignal(provider, finish);
+    if (signal) {
+      lastError = truncatedWriterError(provider, String(input.pin.resolvedModel || input.pin.model || ""), finishSignalName(provider), signal);
+      attempt.errorCode = "writer_truncated";
+    } else {
+      try {
+        return { value: parse(text), attempts };
+      } catch (err) {
+        lastError = err;
+        attempt.errorCode = "invalid_json";
+      }
+    }
+    contentAttempt += 1;
+  }
+  throw withAttempts(lastError, attempts);
+}
+
+/**
+ * Writer/editor call at the selected model's output maximum.
  *
  * @param {WriterInput} input
  * @param {string} extraUserText
  * @returns {Promise<WriterJson>}
  */
 async function callWithRetry(input, extraUserText) {
-  /** @type {unknown} */
-  let lastError;
-  let budget = MAX_OUTPUT_TOKENS;
-  const provider = normalizeWriterProvider(input.pin.provider);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { text, finish } = await generateContent(input, extraUserText, budget);
-    const blocked = blockedSignal(provider, finish);
-    if (blocked) {
-      throw blockedWriterError(provider, finishSignalName(provider), blocked);
-    }
-    const signal = truncationSignal(provider, finish);
-    if (signal) {
-      lastError = truncatedWriterError(provider, finishSignalName(provider), signal);
-    } else {
-      try {
-        return parseWriterJson(text);
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    if (
-      budget < MAX_OUTPUT_TOKENS_TRUNCATED_RETRY &&
-      (signal !== "" || (isUnterminatedJsonError(lastError) && finish === ""))
-    ) {
-      budget = MAX_OUTPUT_TOKENS_TRUNCATED_RETRY;
-    }
-  }
-  throw lastError;
+  const { value } = await runModelCall(input, extraUserText, {
+    budget: maxTokens(input),
+    parse: parseWriterJson,
+    sleep: input.sleep,
+  });
+  return value;
 }
 
 /**
@@ -761,58 +989,184 @@ export async function callWriter(input) {
 }
 
 /**
- * One v3 narrow stage call: a small system prompt, a composed user text,
- * a stage output cap, and structured JSON out. Retries once on invalid
- * JSON, then throws (the stage degrades deterministically).
+ * @typedef {object} StageCallRecord
+ * @property {string} provider
+ * @property {string} model resolved model the final attempt went to
+ * @property {number} attempts every HTTP attempt, fallback included
+ * @property {string} [finishReason] the last attempt's finish/stop signal
+ * @property {CallUsage} [usage] the last attempt's token usage
+ * @property {string} [errorCode] machine-readable failure class
+ * @property {string} [degradedReason] plain-language reason the stage fell back
+ * @property {{ provider: string, model: string, reason: string }} [fallback]
+ *   present when the stage switched to its configured fallback model
+ * @property {CallAttempt[]} trace per-attempt budgets, signals and errors
+ */
+
+/**
+ * @typedef {object} JsonStageInput
+ * @property {WriterPin & { fallback?: { stages?: Record<string, WriterPin> } }} pin
+ * @property {string} [stage] pipeline stage name; keys the llm.json fallback
+ * @property {string} systemPrompt
+ * @property {string} userText
+ * @property {number} [maxOutputTokens] legacy stage hint; the model limit wins
+ * @property {number} [thinkingBudget] Gemini thinking budget (default JSON_STAGE_THINKING_BUDGET)
+ * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
+ * @property {number} [timeoutMs]
+ * @property {(ms: number) => Promise<void>} [sleep] backoff sleeper (tests)
+ * @property {(line: string) => void} [log] fallback switch logger (default console.warn)
+ */
+
+/**
+ * Plain-language cause for a failed stage call, for run.json and the UI.
  *
- * @param {object} input
- * @param {WriterPin} input.pin
- * @param {string} input.systemPrompt
- * @param {string} input.userText
- * @param {number} [input.maxOutputTokens]
- * @param {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} input.fetchImpl
- * @param {number} [input.timeoutMs]
+ * @param {string} code
+ * @param {CallAttempt[]} trace
+ */
+export function describeStageFailure(code, trace, model = "") {
+  const last = trace[trace.length - 1];
+  const tries = `${trace.length} attempt${trace.length === 1 ? "" : "s"}`;
+  if (code === "writer_truncated") {
+    return `model ${model} hit its maximum output limit (${last?.finishReason || "length"}) after ${tries}`;
+  }
+  if (code === "writer_blocked") return `provider stopped the reply (${last?.finishReason || "blocked"})`;
+  if (code === "invalid_json") return `reply was not valid JSON after ${tries}`;
+  if (code === "schema_invalid") return "reply did not match the stage schema";
+  const detail = last && last.errorDetail ? ` ${last.errorDetail}` : "";
+  if (code === "http_429") return `rate limited (HTTP 429${detail}) after ${tries}`;
+  if (code.startsWith("http_")) return `provider error (HTTP ${code.slice(5)}${detail}) after ${tries}`;
+  if (code === "timeout") return `provider timed out after ${tries}`;
+  if (code === "network") return `network error after ${tries}`;
+  if (code === "no_pin") return "no model configured";
+  return `model call failed (${code})`;
+}
+
+/**
+ * @param {unknown} err
+ */
+function errorCodeOf(err) {
+  return classifyCallError(err).code;
+}
+
+/**
+ * Decision 5: the stage's fallback pin from llm.json, when one is enabled
+ * for this stage (or for every stage via "*").
+ *
+ * @param {JsonStageInput["pin"]} pin
+ * @param {string | undefined} stage
+ * @returns {WriterPin | null}
+ */
+function fallbackPinFor(pin, stage) {
+  const stages = pin && pin.fallback && isPlainObject(pin.fallback.stages) ? pin.fallback.stages : null;
+  if (!stages || !stage) return null;
+  const entry = stages[stage] || stages["*"];
+  return entry && isPlainObject(entry) && entry.resolvedModel ? entry : null;
+}
+
+/**
+ * One v3 narrow stage call that never throws: the value (null on failure)
+ * plus a stage-call record for run.json. Gemini gets a small thinking
+ * budget; the retry ladder is runModelCall's. When the primary fails
+ * twice and llm.json enables a fallback for this stage, the stage retries
+ * on the fallback model and logs the switch.
+ *
+ * @param {JsonStageInput} input
+ * @returns {Promise<{ value: Record<string, unknown> | null, call: StageCallRecord }>}
+ */
+export async function runJsonStage(input) {
+  const log = typeof input.log === "function" ? input.log : (/** @type {string} */ line) => console.warn(line);
+  /**
+   * @param {WriterPin} pin
+   */
+  const attempt = async (pin) => {
+    const stageInput = /** @type {WriterInput} */ ({
+      pin,
+      jdText: "",
+      masterResumeHtml: "",
+      systemPrompt: input.systemPrompt,
+      userText: input.userText,
+      maxOutputTokens: input.maxOutputTokens,
+      fetchImpl: input.fetchImpl,
+      timeoutMs: input.timeoutMs,
+      thinkingBudget: typeof input.thinkingBudget === "number" ? input.thinkingBudget : JSON_STAGE_THINKING_BUDGET,
+    });
+    const provider = normalizeWriterProvider(pin.provider);
+    const model = String(pin.resolvedModel || pin.model || "");
+    try {
+      const { value, attempts } = await runModelCall(stageInput, "", {
+        budget: maxTokens(stageInput),
+        parse: parseStageJson,
+        sleep: input.sleep,
+      });
+      return { value, provider, model, attempts, error: null };
+    } catch (err) {
+      const attempts = err && typeof err === "object" && Array.isArray(/** @type {{ attempts?: unknown }} */ (err).attempts)
+        ? /** @type {CallAttempt[]} */ (/** @type {{ attempts: CallAttempt[] }} */ (err).attempts)
+        : [];
+      return { value: null, provider, model, attempts, error: err };
+    }
+  };
+
+  const primary = await attempt(input.pin);
+  let final = primary;
+  /** @type {StageCallRecord["fallback"]} */
+  let fallback;
+  const failedAttempts = primary.attempts.filter((a) => a.errorCode).length;
+  const fallbackPin = primary.value === null && failedAttempts >= 2 ? fallbackPinFor(input.pin, input.stage) : null;
+  if (fallbackPin) {
+    const reason = errorCodeOf(primary.error);
+    const provider = normalizeWriterProvider(fallbackPin.provider);
+    log(
+      `[materials] stage=${input.stage} primary ${primary.provider}/${primary.model} failed ${failedAttempts}x (${reason}); switching to fallback ${provider}/${fallbackPin.resolvedModel}`,
+    );
+    fallback = { provider, model: String(fallbackPin.resolvedModel), reason };
+    final = await attempt(fallbackPin);
+  }
+  const trace = [...primary.attempts, ...(final === primary ? [] : final.attempts)];
+  const last = final.attempts[final.attempts.length - 1];
+  /** @type {StageCallRecord} */
+  const call = {
+    provider: final.provider,
+    model: final.model,
+    attempts: trace.length,
+    trace,
+  };
+  if (last?.finishReason) call.finishReason = last.finishReason;
+  if (last?.usage) call.usage = last.usage;
+  if (fallback) call.fallback = fallback;
+  if (final.value === null) {
+    call.errorCode = errorCodeOf(final.error);
+    call.degradedReason = describeStageFailure(call.errorCode, final.attempts, final.model);
+  }
+  return { value: final.value, call };
+}
+
+/**
+ * Mark a stage call degraded after the reply parsed but failed the stage's
+ * own schema check.
+ *
+ * @param {StageCallRecord} call
+ * @returns {StageCallRecord}
+ */
+export function schemaInvalidCall(call) {
+  return { ...call, errorCode: "schema_invalid", degradedReason: describeStageFailure("schema_invalid", call.trace) };
+}
+
+/**
+ * Throwing form of runJsonStage for callers that handle their own
+ * fallback (delint). Throws the last error, annotated with `.call`.
+ *
+ * @param {JsonStageInput} input
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function callJsonStage(input) {
-  const stageInput = /** @type {WriterInput} */ ({
-    pin: input.pin,
-    jdText: "",
-    masterResumeHtml: "",
-    systemPrompt: input.systemPrompt,
-    userText: input.userText,
-    maxOutputTokens: input.maxOutputTokens,
-    fetchImpl: input.fetchImpl,
-    timeoutMs: input.timeoutMs,
-  });
-  /** @type {unknown} */
-  let lastError;
-  let budget = maxTokens(stageInput);
-  const provider = normalizeWriterProvider(stageInput.pin.provider);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { text, finish } = await generateContent(stageInput, "", budget);
-    const blocked = blockedSignal(provider, finish);
-    if (blocked) {
-      throw blockedWriterError(provider, finishSignalName(provider), blocked);
-    }
-    const signal = truncationSignal(provider, finish);
-    if (signal) {
-      lastError = truncatedWriterError(provider, finishSignalName(provider), signal);
-    } else {
-      try {
-        return parseStageJson(text);
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    if (
-      budget < MAX_OUTPUT_TOKENS_TRUNCATED_RETRY &&
-      (signal !== "" || (isUnterminatedJsonError(lastError) && finish === ""))
-    ) {
-      budget = Math.min(MAX_OUTPUT_TOKENS_TRUNCATED_RETRY, budget * 2);
-    }
-  }
-  throw lastError;
+  const { value, call } = await runJsonStage(input);
+  if (value !== null) return value;
+  const err = new WriterJsonError(`WriterJsonError: ${call.degradedReason || "stage call failed"}`);
+  err.code = call.errorCode;
+  err.finishReason = call.finishReason;
+  err.provider = call.provider;
+  /** @type {{ call?: StageCallRecord }} */ (err).call = call;
+  throw err;
 }
 
 /**

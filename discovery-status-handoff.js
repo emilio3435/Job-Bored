@@ -646,6 +646,7 @@ function buildDiscoveryStatusPollHeaders(statusUrl) {
    poll uses, and both settle to { ok:false, reason } instead of throwing so
    the Runs view can fall back to the Sheet quietly. */
 const RUN_HISTORY_TIMEOUT_MS = 4000;
+const RUN_WRITE_TIMEOUT_MS = 120000;
 
 function runHistoryFetchImpl() {
   return window.JobBoredRelayAuth &&
@@ -686,13 +687,16 @@ async function fetchWorkerJson(path, options) {
   let response;
   try {
     response = await runHistoryFetchImpl()(url, {
-      method: "GET",
+      method: opts.method || "GET",
       mode: "cors",
       headers,
+      ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
       signal: controller.signal,
     });
-  } catch (_) {
-    return { ok: false, reason: timedOut ? "timeout" : "unreachable" };
+  } catch (error) {
+    const reason = timedOut ? "timeout" :
+      error && error.name === "AbortError" ? "aborted" : "unreachable";
+    return { ok: false, reason };
   } finally {
     clearTimeout(timer);
   }
@@ -738,6 +742,30 @@ async function fetchRunDetail(statusPath, options) {
   }
   if (!res.body || typeof res.body !== "object") return { ok: false, reason: "invalid" };
   return { ok: true, detail: res.body };
+}
+
+async function retryRunWrite(runId, googleAccessToken) {
+  const id = String(runId || "").trim();
+  if (!id) return { ok: false, reason: "no_worker_record" };
+  const body = googleAccessToken ? { googleAccessToken } : {};
+  const res = await fetchWorkerJson(`/runs/${encodeURIComponent(id)}/retry-write`, {
+    method: "POST", withSecret: true, body, timeoutMs: RUN_WRITE_TIMEOUT_MS,
+  });
+  if (!res.ok) {
+    if (res.reason === "timeout" || res.reason === "aborted") {
+      const latest = await fetchRunDetail(`/runs/${encodeURIComponent(id)}`, {
+        withSecret: true,
+      });
+      if (latest.ok && ["completed", "partial"].includes(latest.detail.status)) {
+        return { ok: true, run: latest.detail };
+      }
+      return { ok: false, reason: "status_unknown" };
+    }
+    return res;
+  }
+  return res.body && res.body.ok && res.body.run
+    ? { ok: true, run: res.body.run }
+    : { ok: false, reason: "invalid" };
 }
 
 /**
@@ -1019,11 +1047,11 @@ function stopDiscoveryStatusPolling() {
   }
 }
 
-const TERMINAL_RUN_STATUSES = ["completed", "empty", "partial", "failed"];
+const TERMINAL_RUN_STATUSES = ["completed", "empty", "partial", "failed", "write_failed"];
 
 /**
  * Surface a persisted terminal run outcome exactly once after a reload —
- * sticky for failed/partial (with the stored error), transient for
+ * sticky for failed/partial/write_failed (with the stored error), transient for
  * completed/empty — refresh the pipeline for lead-bearing outcomes, then
  * stamp the acknowledged flag so later loads stay quiet. Without this, a
  * user who reloads (or whose tab was closed when the run finished) gets
@@ -1050,6 +1078,12 @@ function surfaceStoredTerminalRunOutcomeOnce(state) {
         "Last discovery run finished with partial results." +
         (state.errorMessage ? " " + state.errorMessage : "");
       tone = "warning";
+      sticky = true;
+      break;
+    case "write_failed":
+      message = state.errorMessage ||
+        "Discovery found roles but couldn't write them. Open Runs and press Retry write.";
+      tone = "error";
       sticky = true;
       break;
     case "failed":
@@ -1154,6 +1188,7 @@ const RUN_STATUS_BUTTON_CLASSES = [
   "run-empty",
   "run-partial",
   "run-failed",
+  "run-write_failed",
   "run-terminal",
 ];
 
@@ -1237,6 +1272,11 @@ function renderDiscoveryRunStatus() {
         "Open Runs to see why.";
       statusTone = "error";
       break;
+    case "write_failed":
+      statusMessage = why ||
+        "Discovery found roles but couldn't write them. Open Runs and press Retry write.";
+      statusTone = "error";
+      break;
     default:
       statusMessage = "";
   }
@@ -1274,7 +1314,8 @@ function renderDiscoveryRunStatus() {
           : (state.status === "pending" && state.statusUnavailable) ||
               (state.status === "polling_error" && state.statusEndpointTerminal) ||
               state.status === "partial" ||
-              state.status === "failed"
+              state.status === "failed" ||
+              state.status === "write_failed"
             ? {
                 label: "Open runs",
                 onClick: () => {
@@ -1288,7 +1329,8 @@ function renderDiscoveryRunStatus() {
         expiredSearchKey ||
         (state.status === "polling_error" &&
           state.pollErrorCount >= MAX_POLL_ERRORS) ||
-        (state.status === "pending" && state.statusUnavailable);
+        (state.status === "pending" && state.statusUnavailable) ||
+        state.status === "write_failed";
       host().showToast(statusMessage, statusTone, sticky, retryAction);
     }
   }
@@ -1659,6 +1701,7 @@ function resetPostAccessBootstrap() {
     pollRunStatus: pollRunStatus,
     fetchRunHistoryPage: fetchRunHistoryPage,
     fetchRunDetail: fetchRunDetail,
+    retryRunWrite: retryRunWrite,
     collectRunRejectionCounts: collectRunRejectionCounts,
     surfacePreFilterRejectionsFromStatus: surfacePreFilterRejectionsFromStatus,
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,

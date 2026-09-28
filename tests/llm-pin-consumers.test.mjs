@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -321,7 +322,7 @@ describe("gemini-flash is treated as a thinking model for output budget", () => 
     return { calls, fetchImpl };
   }
 
-  it("discovery-drawer JSON and non-JSON gemini-flash calls budget 8192", async () => {
+  it("discovery-drawer keeps short calls bounded and JSON calls at the model maximum", async () => {
     const src = readFileSync(new URL("../discovery-drawer.js", import.meta.url), "utf8");
     const { calls, fetchImpl } = geminiFetchCapture();
     const ctx = {
@@ -330,6 +331,7 @@ describe("gemini-flash is treated as a thinking model for output budget", () => 
       fetch: fetchImpl,
     };
     vm.createContext(ctx);
+    vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
     vm.runInContext(src, ctx, { filename: "discovery-drawer.js" });
     const drawer = ctx.window.JobBoredDiscovery.drawer;
     await drawer.callDiscoveryAiGemini("sys", "user", "k", "gemini-flash");
@@ -337,10 +339,8 @@ describe("gemini-flash is treated as a thinking model for output budget", () => 
       json: true,
     });
     assert.equal(calls.length, 2);
-    for (const call of calls) {
-      const body = JSON.parse(call.init.body);
-      assert.equal(body.generationConfig.maxOutputTokens, 8192);
-    }
+    assert.equal(JSON.parse(calls[0].init.body).generationConfig.maxOutputTokens, 8192);
+    assert.equal(JSON.parse(calls[1].init.body).generationConfig.maxOutputTokens, 65536);
   });
 
   it("resume-generate non-JSON gemini-flash drafts budget 8192", async () => {
@@ -358,6 +358,7 @@ describe("gemini-flash is treated as a thinking model for output budget", () => 
       fetch: fetchImpl,
     };
     vm.createContext(ctx);
+    vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
     vm.runInContext(src, ctx, { filename: "resume-generate.js" });
     await ctx.window.CommandCenterResumeGenerate.callConfiguredAi("sys", "user");
     assert.equal(calls.length, 1);

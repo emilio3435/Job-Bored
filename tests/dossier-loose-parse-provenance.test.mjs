@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -30,6 +31,7 @@ function loadInsights(rawText) {
     console: { log() {}, warn() {}, error() {} },
   });
   vm.runInContext(jbTextSource, context, { filename: "jb-text.js" });
+  vm.runInContext(outputBudgetJs, context, { filename: "llm-output-budget.js" });
   vm.runInContext(insightsSource, context, { filename: "job-posting-insights.js" });
   return window.CommandCenterJobPostingInsights;
 }

@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /**
  * BEAUDIT lane Q, browser half of E9 and B17 (job-posting-insights.js).
  *
@@ -44,6 +45,7 @@ function loadInsights(fetchImpl) {
   };
   vm.createContext(ctx);
   vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return /** @type {any} */ (ctx.window).CommandCenterJobPostingInsights;
 }

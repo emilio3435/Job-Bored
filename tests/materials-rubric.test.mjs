@@ -49,19 +49,33 @@ const DRAFT = {
 };
 
 describe("materials rubric (slice 5)", () => {
-  it("scores six rows 0..2 with a total", () => {
-    const { rows, total } = scoreRubric({ extract: EXTRACT, selection: SELECTION, ledger: LEDGER, draft: DRAFT, delintSpans: [] });
-    assert.equal(rows.length, 6);
+  it("scores the resume's eight rows 0..2 with a total, max and threshold", () => {
+    const { rows, total, max, threshold } = scoreRubric({
+      document: "resume",
+      extract: EXTRACT,
+      selection: SELECTION,
+      ledger: LEDGER,
+      draft: DRAFT,
+      delintSpans: [],
+      fill: { ratio: 0.95, basis: "measured" },
+    });
+    assert.deepEqual(rows.map((r) => r.id), [
+      "outcome_coverage", "noun_fidelity", "proof_density", "transfer_honesty",
+      "omission_record", "delint_clean", "metric_dropped", "underfill",
+    ]);
     for (const row of rows) {
       assert.ok(row.score >= 0 && row.score <= 2, `${row.id} in range`);
       assert.equal(row.max, 2);
     }
     assert.equal(total, rows.reduce((n, r) => n + r.score, 0));
-    assert.ok(total >= 10, `strong package scores READY-level: ${total}`);
+    assert.equal(max, 16);
+    assert.equal(threshold, 14, "10 of every 12 points");
+    assert.ok(total >= threshold, `strong package scores READY-level: ${total}`);
   });
 
   it("penalizes invented tools, uncovered outcomes, and dirty delint", () => {
     const bad = scoreRubric({
+      document: "resume",
       extract: EXTRACT,
       selection: { kept: [{ claimId: "resume-b1", mapsTo: ["o1"] }], omittedEmployers: [] },
       ledger: LEDGER,
@@ -75,6 +89,29 @@ describe("materials rubric (slice 5)", () => {
     assert.equal(byId.transfer_honesty.score, 0);
     assert.ok(byId.outcome_coverage.score <= 1);
     assert.equal(byId.delint_clean.score, 0);
-    assert.ok(bad.total < 10);
+    assert.ok(bad.total < bad.threshold);
+  });
+});
+
+describe("voice v6: letter rows recalibrated for short letters", () => {
+  const nouns = ["streaming audio", "podcasts", "ctv", "attribution", "audience targeting", "rich media"].map((term) => ({ term }));
+  const score = (text, document = "letter") =>
+    scoreRubric({ document, extract: { outcomes: [], nouns }, selection: { kept: [] }, ledger: { claims: [], toolInventory: [] }, draft: document === "letter" ? { letter: { hook: text } } : { statement: text, bullets: [] }, company: "Acme" }).rows;
+  const row = (rows, id) => rows.find((r) => r.id === id);
+
+  it("should give a letter full noun marks at 4 posting nouns and one mark at 2", () => {
+    assert.equal(row(score("Acme sells streaming audio, podcasts, CTV and attribution."), "noun_fidelity").score, 2);
+    assert.equal(row(score("Acme sells streaming audio and podcasts."), "noun_fidelity").score, 1);
+    assert.equal(row(score("Acme sells radio."), "noun_fidelity").score, 0);
+  });
+
+  it("should keep the resume's noun ratio unchanged", () => {
+    assert.equal(row(score("streaming audio, podcasts, CTV and attribution.", "resume"), "noun_fidelity").score, 1, "4 of 6 is under the resume's 0.7 ratio");
+  });
+
+  it("should not dock a letter that names no tool, and still zero an invented one", () => {
+    assert.equal(row(score("Acme sells radio."), "transfer_honesty").score, 2);
+    assert.equal(row(score("Acme sells radio.", "resume"), "transfer_honesty").score, 1);
+    assert.equal(row(score("I built it on Kafka for Acme."), "transfer_honesty").score, 0);
   });
 });

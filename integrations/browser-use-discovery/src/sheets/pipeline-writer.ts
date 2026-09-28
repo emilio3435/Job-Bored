@@ -20,6 +20,7 @@ import {
   DEFAULT_TOKEN_SCOPE,
   PIPELINE_COL,
   PIPELINE_LAST_COLUMN_LETTER,
+  GoogleTransportError,
   SheetsHttpError,
   appendSheetValues,
   batchGetSheetValues,
@@ -66,8 +67,9 @@ export class SheetWriteError extends Error {
     detail?: string;
     partialResult?: PipelineWriteResult;
     uncertain?: boolean;
+    cause?: unknown;
   }) {
-    super(params.message);
+    super(params.message, { cause: params.cause });
     this.name = "SheetWriteError";
     this.phase = params.phase;
     this.sheetId = params.sheetId;
@@ -87,6 +89,8 @@ type PipelineWriterOptions = {
   retries?: number;
   /** First retry delay in ms; doubles per attempt (default 400). */
   retryBaseMs?: number;
+  /** The token came from this dashboard request, not worker configuration. */
+  requestScopedGoogleAccessToken?: boolean;
 };
 
 export type PipelineWriter = {
@@ -383,7 +387,7 @@ export function createPipelineWriter(
   const sheetName = options.sheetName || DEFAULT_SHEET_NAME;
   const tokenScope = options.tokenScope || DEFAULT_TOKEN_SCOPE;
   const retry: RetryOptions = {
-    retries: options.retries ?? 3,
+    retries: options.retries ?? 2,
     retryBaseMs: options.retryBaseMs ?? 400,
   };
 
@@ -635,6 +639,7 @@ export function createPipelineWriter(
                 sheetId,
                 httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
                 uncertain: !(error instanceof SheetsHttpError),
+                cause: error,
               });
       }
     }
@@ -642,7 +647,7 @@ export function createPipelineWriter(
     // Append phase runs even when the update phase failed: the two are
     // independent, and new leads must not wait on a transient update error.
     if (appends.length) {
-      const attempts = (retry.retries ?? 3) + 1;
+      const attempts = (retry.retries ?? 2) + 1;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const partial = (): PipelineWriteResult => ({
           sheetId,
@@ -672,6 +677,7 @@ export function createPipelineWriter(
             sheetId,
             httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
             partialResult: partial(),
+            cause: error,
           });
         }
         const fresh = appends.filter((row) => !present.has(row[PIPELINE_COL.link]));
@@ -702,11 +708,17 @@ export function createPipelineWriter(
           );
         } catch (error) {
           // The request may have reached Google: the rows may be in the Sheet.
+          // Re-read links before retrying, so an applied append is not repeated.
+          if (error instanceof GoogleTransportError && attempt < attempts - 1) {
+            await sleep((retry.retryBaseMs ?? 400) * 2 ** attempt);
+            continue;
+          }
           throw new SheetWriteError({
             phase: "append",
             message: `Sheet write failed during append phase: ${formatError(error)}`,
             sheetId,
             uncertain: true,
+            cause: error,
             partialResult: partial(),
           });
         }
@@ -750,6 +762,7 @@ export function createPipelineWriter(
         detail: updateError.detail,
         uncertain: updateError.uncertain,
         partialResult: { ...result, updated: 0 },
+        cause: updateError,
       });
     }
     return result;
@@ -765,7 +778,17 @@ export function createPipelineWriter(
       now,
       tokenScope,
     );
-    return withSheetLock(sheetId, () => writeLocked(sheetId, leads, accessToken));
+    try {
+      return await withSheetLock(sheetId, () => writeLocked(sheetId, leads, accessToken));
+    } catch (error) {
+      const status = error instanceof SheetsHttpError ? error.status
+        : error instanceof SheetWriteError ? error.httpStatus : undefined;
+      if (options.requestScopedGoogleAccessToken && runtimeConfig.googleAccessToken &&
+          (status === 401 || status === 403)) {
+        throw new Error("The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.");
+      }
+      throw error;
+    }
   }
 
   return { write };

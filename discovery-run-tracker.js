@@ -967,9 +967,9 @@
       return ["pending", "running", "polling_error"].includes(this._state.status);
     }
 
-    /** True when the run has reached a terminal state (completed/empty/partial/failed). */
+    /** True when the run has reached a terminal state. */
     isTerminal() {
-      return ["completed", "empty", "partial", "failed"].includes(this._state.status);
+      return ["completed", "empty", "partial", "failed", "write_failed"].includes(this._state.status);
     }
 
     /** True when status polling is in an error state that might recover. */
@@ -987,7 +987,7 @@
       let logStatus = "failure";
       if (status === "completed" || status === "empty") logStatus = "success";
       else if (status === "partial") logStatus = "partial";
-      else if (status === "failed") logStatus = "failure";
+      else if (status === "failed" || status === "write_failed") logStatus = "failure";
       else logStatus = "partial";
       return {
         runAt:

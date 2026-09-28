@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -21,6 +22,7 @@ function loadResumeGenerate({ config = {} } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx.window.CommandCenterResumeGenerate;
 }

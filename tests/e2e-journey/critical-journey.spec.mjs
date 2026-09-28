@@ -64,8 +64,8 @@ const BEAT_ONE = {
     "Sign in and we'll create it for you. JobBored has no server that sees your data.",
 };
 
-/** Spec §3.5.1 — the six spine segments, in order. */
-const SPINE_LABELS = ["Google", "AI", "Resume", "Your fit", "Discovery", "Done"];
+/** Spec §3.5.1 — the spine segments, in order ("Your details" and "Your voice" follow Resume). */
+const SPINE_LABELS = ["Google", "AI", "Resume", "Your details", "Your voice", "Your fit", "Discovery", "Done"];
 
 /** SIXBEATS C5 — spec §3.4 "closing is pausing", said out loud. Verbatim. */
 const PAUSE_TOAST = "Setup paused — pick up right here anytime.";

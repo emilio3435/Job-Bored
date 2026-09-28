@@ -421,7 +421,6 @@ export function createWorkerChatMatchClient(
           fetchImpl,
           signal,
           temperature: 0.1,
-          maxTokens: 1024,
           messages: [
             {
               role: "system",

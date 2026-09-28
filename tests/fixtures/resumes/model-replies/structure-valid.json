@@ -1,0 +1,164 @@
+{
+  "employers": [
+    {
+      "name": "Brightwave Media (formerly Tidewater Radio)",
+      "location": "",
+      "start": "Sep 2017",
+      "end": "2026",
+      "roles": [
+        {
+          "title": "Digital Sales Manager",
+          "start": "May 2021",
+          "end": "2026"
+        },
+        {
+          "title": "Account Executive → Senior Account Executive",
+          "start": "May 2019",
+          "end": "May 2021"
+        },
+        {
+          "title": "Digital Campaign Coordinator",
+          "start": "Sep 2017",
+          "end": "Apr 2019"
+        }
+      ],
+      "claims": [
+        {
+          "text": "Ran digital planning for an $8M+ yearly digital book, advising a wide mix of local clients in legal, landscaping, veterinary, furniture, fitness, and auto repair on combined on-air and online campaigns.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Kept Portland in the top five of Brightwave's twenty-two markets for digital revenue per seller even though Portland ranks #24 among U.S. markets by population; hit the annual digital target in four of five years.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Moved the market's revenue mix from mostly on-air spots to roughly half digital, starting from a client base that had only tested online ads in small pilots.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Coached 9 account-executive desks through a digital-first sales rhythm: 15+ logged pitches a week, one-on-one ride-alongs, weekly drop-in hours, and a monthly Lunch & Learn series on search, connected TV, and measurement.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Supervised up to 4 campaign coordinators and worked with in-house producers, outside agencies, and ad-tech vendors to launch and tune campaigns against client goals such as calls, bookings, and cost per lead.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Became the market’s trusted client-facing strategist and speaker - leading renewal meetings, quarterly reviews, and annual plans that kept anchor accounts, including 110% YoY search conversion growth and 17% YoY new-customer lift for a regional credit union.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Advised clients on measurement design, local search changes, and landing-page structure — helping the sales team talk about new ad products before competing stations did.",
+          "role": "Digital Sales Manager"
+        },
+        {
+          "text": "Handled a book of mid-size Portland accounts as the team's digital specialist, pairing with on-air sellers to keep and grow spend across search, social, connected TV, and streaming audio.",
+          "role": "Account Executive → Senior Account Executive"
+        },
+        {
+          "text": "Promoted to Senior Account Executive after two years of high renewal rates and digital growth; moved into the Digital Sales Manager role when the station group rebranded as Brightwave Media in May 2021.",
+          "role": "Account Executive → Senior Account Executive"
+        },
+        {
+          "text": "Set up, trafficked, monitored, and reported on search, social, connected TV, and display campaigns for local and regional advertisers — the platform groundwork behind every later sales role.",
+          "role": "Digital Campaign Coordinator"
+        }
+      ]
+    },
+    {
+      "name": "Lumen Signal Studio",
+      "location": "Portland, OR",
+      "start": "2024",
+      "end": "Present",
+      "roles": [
+        {
+          "title": "Founder & ML Engineer",
+          "start": "2024",
+          "end": "Present"
+        }
+      ],
+      "claims": [
+        {
+          "text": "Built and runs a small retrieval assistant on a managed cloud platform that answers questions over past proposals, call notes, and rate cards, choosing between two hosted language models by cost and response time.",
+          "role": "Founder & ML Engineer"
+        },
+        {
+          "text": "Shipped a budget-pacing checker that flags under-delivering campaigns each morning, run against 14 client accounts and about $1.1M in active spend.",
+          "role": "Founder & ML Engineer"
+        },
+        {
+          "text": "Set up scheduled jobs for weekly client summaries and daily market-news digests with chat delivery, managing a handful of API keys and two cloud service accounts.",
+          "role": "Founder & ML Engineer"
+        }
+      ]
+    },
+    {
+      "name": "Quiet Fox Works & ShelfScout",
+      "location": "Portland, OR",
+      "start": "2024",
+      "end": "Present",
+      "roles": [
+        {
+          "title": "Founder",
+          "start": "2024",
+          "end": "Present"
+        }
+      ],
+      "claims": [
+        {
+          "text": "Quiet Fox Works: a two-person studio building reporting and follow-up automations for local service businesses, with a written playbook of 12 reusable workflows.",
+          "role": "Founder"
+        },
+        {
+          "text": "ShelfScout: designing a small web app that tracks price changes on used books across three marketplaces and sends a weekly email of the best finds.",
+          "role": "Founder"
+        }
+      ]
+    },
+    {
+      "name": "Panelry",
+      "location": "",
+      "start": "2016",
+      "end": "2017",
+      "roles": [
+        {
+          "title": "Cofounder",
+          "start": "2016",
+          "end": "2017"
+        }
+      ],
+      "claims": [
+        {
+          "text": "Recruited survey panelists for small research agencies through paid social and search campaigns.",
+          "role": "Cofounder"
+        }
+      ]
+    },
+    {
+      "name": "Summit Ridge Lending Inc.",
+      "location": "",
+      "start": "2015",
+      "end": "2016",
+      "roles": [
+        {
+          "title": "Digital Marketing Strategist",
+          "start": "2015",
+          "end": "2016"
+        }
+      ],
+      "claims": [
+        {
+          "text": "Ran search campaigns and blog content for loan officers and real-estate partners across 6 states.",
+          "role": "Digital Marketing Strategist"
+        }
+      ]
+    }
+  ],
+  "education": [
+    "Bachelor of Arts, Economics and Statistics | Example State University — Eugene, OR 2017"
+  ],
+  "credentials": [
+    "Certifications: Search advertising fundamentals; web analytics certificate.",
+    "Languages: English and Portuguese; basic German."
+  ]
+}

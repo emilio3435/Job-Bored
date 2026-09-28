@@ -226,6 +226,17 @@ export async function handleDiscoveryWebhook(
     ...dependencies.runDependencies,
     runId,
     log: logRunEvent,
+    checkpointSelectedLeads: (sheetId, leads) => {
+      dependencies.runDependencies.checkpointSelectedLeads?.(sheetId, leads);
+      if (!dependencies.runStatusStore) return;
+      const current = dependencies.runStatusStore?.get(runId);
+      if (!current || current.terminal) throw new Error("Cannot save selected leads for a run that is no longer running.");
+      dependencies.runStatusStore?.put({
+        ...current,
+        selectedLeads: leads,
+        updatedAt: now().toISOString(),
+      });
+    },
     checkpointRunProgress: (progress: DiscoveryRunProgress) => {
       try {
         const current = dependencies.runStatusStore?.get(runId);
@@ -312,6 +323,7 @@ export async function handleDiscoveryWebhook(
   if (derivedRunId && runId === derivedRunId) {
     const existing = dependencies.runStatusStore?.get(runId);
     if (existing) {
+      const { selectedLeads: _selectedLeads, ...publicStatus } = existing;
       dependencies.log?.("discovery.request.duplicate_delivery_ignored", {
         runId,
         mode: runMode,
@@ -326,7 +338,7 @@ export async function handleDiscoveryWebhook(
             runId,
             message: existing.message,
             statusPath,
-            outcome: existing,
+            outcome: publicStatus,
           } satisfies DiscoveryWebhookAck)
         : jsonResponse(202, {
             ok: true,
