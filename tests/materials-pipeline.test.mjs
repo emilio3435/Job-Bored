@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { deterministicExtract } from "../server/materials-jd-extract.mjs";
+import { buildOutline } from "../server/materials-outline.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
@@ -74,6 +75,38 @@ function base(dir, services, feature = "both", runId = "run-mrev-1") {
 }
 const json = async (dir, name) => JSON.parse(await readFile(join(dir, name), "utf8"));
 
+describe("RESD R4 selected resume evidence accounting", () => {
+  const ledger = {
+    employers: [
+      { id: "north", start: "2021", end: "2026" },
+      { id: "route", start: "2024", end: null },
+    ],
+    claims: [
+      ...Array.from({ length: 9 }, (_, i) => ({ id: `n${i + 1}`, employerId: "north", kind: "achievement", metrics: [] })),
+      ...Array.from({ length: 2 }, (_, i) => ({ id: `r${i + 1}`, employerId: "route", kind: "achievement", metrics: [] })),
+    ],
+  };
+  const select = (ids) => ({ kept: ids.map((claimId) => ({ claimId })) });
+
+  it("counts nine selected IDs across five featured bullets and four page-budget exclusions", () => {
+    const outline = buildOutline({ selection: select(Array.from({ length: 9 }, (_, i) => `n${i + 1}`)), ledger, feature: "resume" });
+    assert.deepEqual(outline.selectionSummary, { selected: 9, featured: 5, earlier: 0, pageBudgetExcluded: 4 });
+    assert.deepEqual(outline.dropped.map((item) => item.reason), Array(4).fill("page_budget"));
+  });
+
+  it("features two employers when their selected claims fit the one-page budget", () => {
+    const outline = buildOutline({ selection: select(["n1", "n2", "r1", "r2"]), ledger, feature: "resume" });
+    assert.deepEqual(outline.featured.map((item) => item.employerId).sort(), ["north", "route"]);
+    assert.deepEqual(outline.selectionSummary, { selected: 4, featured: 4, earlier: 0, pageBudgetExcluded: 0 });
+  });
+
+  it("rejects missing, unknown, and duplicate selected claim IDs", () => {
+    for (const kept of [[{}], [{ claimId: "missing" }], [{ claimId: "n1" }, { claimId: "n1" }]]) {
+      assert.throws(() => buildOutline({ selection: { kept }, ledger, feature: "resume" }), /selected claim|accounting/i);
+    }
+  });
+});
+
 // The old pipeline failed these stage and call assertions before the cut.
 describe("MREV B1 pipeline", () => {
   let dir;
@@ -131,6 +164,11 @@ describe("MREV B1 pipeline", () => {
     assert.deepEqual(calls.judge[0].sources.posting.map((part) => part.id), ["posting:1", "posting:2", "posting:3"]);
     const run = await json(dir, "run.json");
     assert.equal(validateRunRecord(run).ok, true, JSON.stringify(validateRunRecord(run).errors));
+    const outline = await json(dir, "outline.json");
+    assert.deepEqual(run.selectionSummary, outline.selectionSummary);
+    assert.equal(run.selectionSummary.selected, run.selectionSummary.featured + run.selectionSummary.earlier + run.selectionSummary.pageBudgetExcluded);
+    assert.deepEqual((await json(dir, "manifest.json")).selectionSummary, run.selectionSummary);
+    assert.equal(validateRunRecord({ ...run, selectionSummary: { ...run.selectionSummary, claimIds: ["n1"] } }).ok, false, "published summary must remain count-only");
     assert.equal(run.feature, "both");
     assert.deepEqual(Object.keys(run.textHash).sort(), ["letter", "resume"]);
     for (const name of ["draft.resume.json", "draft.cover_letter.json", "qa.resume.json", "qa.letter.json", "qa.json", "resume.html", "cover-letter.html"]) assert.ok(await readFile(join(dir, name), "utf8"), name);
@@ -269,6 +307,8 @@ describe("MREV B1 pipeline", () => {
     const resumeQa = await readFile(join(dir, "qa.resume.json"), "utf8");
     const second = testServices();
     await runPipeline(base(dir, second.services, "cover_letter", "run-mrev-letter"));
+    assert.equal((await json(dir, "run.json")).selectionSummary, undefined);
+    assert.equal((await json(dir, "manifest.json")).selectionSummary, undefined, "letter-only publication clears old resume counts");
     assert.equal(await readFile(join(dir, "draft.resume.json"), "utf8"), resumeDraft);
     assert.equal(await readFile(join(dir, "qa.resume.json"), "utf8"), resumeQa);
     assert.equal((await json(dir, "runs/run-mrev-letter/draft.cover_letter.json")).contract, "materials.draft.v2");
@@ -277,6 +317,7 @@ describe("MREV B1 pipeline", () => {
     const letterQa = await readFile(join(dir, "qa.letter.json"), "utf8");
     const third = testServices();
     await runPipeline(base(dir, third.services, "resume", "run-mrev-resume-again"));
+    assert.ok((await json(dir, "run.json")).selectionSummary);
     assert.equal(await readFile(join(dir, "draft.cover_letter.json"), "utf8"), letterDraft);
     assert.equal(await readFile(join(dir, "qa.letter.json"), "utf8"), letterQa);
   });

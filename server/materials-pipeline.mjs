@@ -646,7 +646,7 @@ async function runPipelineBody(input, assertBase) {
     try { await copyFile(source, join(runDir, name)); } catch { /* no PDF in a headless-free run */ }
   }
   /** @type {Record<string, unknown>} */
-  const manifestExtra = {};
+  const manifestExtra = { selectionSummary: outline.selectionSummary };
   /** @type {string[]} */
   const extraFiles = ["writer-sources.json"];
   if (intelPack) {
@@ -680,6 +680,7 @@ async function runPipelineBody(input, assertBase) {
       repair: repairRecord, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource,
       pin: pin ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel } : undefined,
       resume: resumeRecord || undefined,
+      selectionSummary: outline.selectionSummary,
       inputs: runInputs({ resumeText: payload.resume?.text || resumeText || "", ledger, jdHash, jdText, jdSource }),
       stages, cacheKey: cacheable ? cacheKey : undefined,
     },

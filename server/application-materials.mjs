@@ -103,6 +103,7 @@ const CONTENT_TYPES = {
  * @property {{ family: string, version: string, templateIds?: object, source?: string, regeneratedFrom?: string }} [template]
  *   the template family the published package was rendered in (run.json)
  * @property {string} [runId]
+ * @property {{ selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} [selectionSummary]
  */
 
 /**
@@ -665,10 +666,18 @@ export async function buildManifest(slug, { root } = {}) {
       out.dossier = onDiskManifest.dossier;
     }
   }
+  const publishedRun = await readRunTemplate(dir);
+  if ((!onDiskManifest?.runId || onDiskManifest.runId === publishedRun?.runId) &&
+      (publishedRun?.feature === "resume" || publishedRun?.feature === "both") &&
+      documents.some((document) => document.type === "resume") &&
+      isSelectionSummary(publishedRun.selectionSummary)) {
+    const { selected, featured, earlier, pageBudgetExcluded } = publishedRun.selectionSummary;
+    out.selectionSummary = { selected, featured, earlier, pageBudgetExcluded };
+  }
   /* The template block: manifest.json wins, run.json backs it up. */
   const templateSource = onDiskManifest && isTemplateBlock(onDiskManifest.template)
     ? onDiskManifest
-    : await readRunTemplate(dir);
+    : publishedRun;
   if (templateSource && isTemplateBlock(templateSource.template)) {
     out.template = templateSource.template;
     if (typeof templateSource.runId === "string") out.runId = templateSource.runId;
@@ -760,9 +769,18 @@ function isTemplateBlock(value) {
     typeof (/** @type {Record<string, unknown>} */ (value)).version === "string";
 }
 
+/** @param {unknown} value @returns {value is { selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} */
+function isSelectionSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const counts = /** @type {Record<string, unknown>} */ (value);
+  const keys = ["selected", "featured", "earlier", "pageBudgetExcluded"];
+  return keys.every((key) => Number.isSafeInteger(counts[key]) && Number(counts[key]) >= 0) &&
+    Number(counts.selected) === Number(counts.featured) + Number(counts.earlier) + Number(counts.pageBudgetExcluded);
+}
+
 /**
  * @param {string} dir
- * @returns {Promise<{ template?: unknown, runId?: unknown } | null>}
+ * @returns {Promise<{ template?: unknown, runId?: unknown, feature?: unknown, selectionSummary?: unknown } | null>}
  */
 async function readRunTemplate(dir) {
   const path = join(dir, "run.json");
