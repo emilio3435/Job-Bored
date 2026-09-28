@@ -18,12 +18,15 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
+import { loadEmployerMarks, readTargetMark } from "./brand-logos.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
+import { targetCompanyOf } from "./materials-monogram.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
-import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
+import { employersWithoutMarks, newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
 import { retargetModel, validateRenderModel } from "./materials-render.mjs";
-import { readResumeSnapshot } from "./materials-resume-source.mjs";
+import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-model-adapter.mjs";
+import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
 import { resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -73,10 +76,25 @@ function qaReport({ status, issues, notes }) {
  * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [pdfSession]
  * @property {() => Date} [now]
  * @property {(input: Record<string, unknown>) => Promise<{ status?: string, issues?: { code?: string, message?: string, severity?: string }[] }>} [critic]
+ * @property {(companies: string[]) => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [employerLogoLoader]
+ *   Marks for employers the stored model has none for (defaults to
+ *   loadEmployerMarks: cache, then a bounded lookup per company)
+ * @property {(company: string) => Promise<import("./materials-render.mjs").Logo | null>} [targetLogoLoader]
+ *   The addressed company's mark; defaults to the offline cache
+ *   (readTargetMark), so a regenerate never waits on the network
+ * @property {() => Promise<unknown>} [profileIdentityLoader]
+ *   The saved profile's `identity`. Its confirmed name, headline and
+ *   contact ("Your details") replace the stored model's, so a package
+ *   drafted before the user confirmed them picks them up on regenerate.
+ *   The route passes it; without one the stored identity stands.
+ * @property {() => Promise<import("./materials-resume-source.mjs").ResumeSource | null>} [readSavedResume]
+ *   The user's saved resume (defaults to resume.txt beside profile.json)
  */
 
 /**
- * @param {{ slug: string, template: unknown, from?: string }} input
+ * @param {{ slug: string, template: unknown, from?: string, header?: string }} input
+ *   `header` picks a header variant the family lists (family.json
+ *   `headers`); default: the family's `defaultHeader`
  *   `from` names a runId under runs/ to regenerate from; default: the
  *   published package
  * @param {RegenerateDeps} [deps]
@@ -103,8 +121,44 @@ export async function regeneratePackage(input, deps = {}) {
     );
   }
   const regeneratedFrom = storedRun.runId;
-  const feature = typeof storedRun.feature === "string" ? storedRun.feature : "both";
-  const model = retargetModel(/** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (storedModel)), family);
+  let feature = typeof storedRun.feature === "string" ? storedRun.feature : "both";
+  /* The resume this package speaks for: the user's current one (never a
+     garbled or older snapshot). Identity, split figures and readouts in the
+     stored model are refreshed from it; no model is called. */
+  const snapshot = await readResumeSnapshot(dir);
+  const savedResume = await (deps.readSavedResume || (() => readCanonicalResume()))().catch(() => null);
+  /** @type {{ resume: import("./materials-resume-source.mjs").ResumeSource, choice: import("./materials-resume-source.mjs").ResumeChoice } | null} */
+  let chosen = null;
+  if (snapshot || savedResume) {
+    try {
+      chosen = chooseResumeSource({ requested: snapshot, saved: savedResume });
+    } catch {
+      chosen = null;
+    }
+  }
+  const model = retargetModel(
+    refreshStoredModel(/** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (storedModel)), chosen ? chosen.resume.text : ""),
+    family,
+  );
+  if (typeof deps.profileIdentityLoader === "function") {
+    /* Confirmed "Your details" win over whatever the resume text says. */
+    let profileIdentity = null;
+    try {
+      profileIdentity = await deps.profileIdentityLoader();
+    } catch {
+      profileIdentity = null;
+    }
+    model.identity = overlayProfileIdentity(model.identity, profileIdentity);
+  }
+  /* A resume-only package can store an empty letter shell (no paragraphs).
+     Regenerate never renders it, so it must not fail validation on it. */
+  const letterStored = model.documents.coverLetter;
+  if (letterStored && !(letterStored.paragraphs || []).length) {
+    /* A degraded draft can publish an empty letter (QA failed it). There is
+       nothing to re-render: regenerate the resume alone. */
+    delete model.documents.coverLetter;
+    if (feature !== "resume") feature = "resume";
+  }
   const validation = validateRenderModel(model);
   if (!validation.ok) {
     throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
@@ -130,7 +184,14 @@ export async function regeneratePackage(input, deps = {}) {
   /** @type {Awaited<ReturnType<typeof renderPackage>>} */
   let rendered;
   try {
-    rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath } });
+    const company = targetCompanyOf(model);
+    const loadTarget = deps.targetLogoLoader || ((/** @type {string} */ name) => readTargetMark(name));
+    const targetMark = company ? await loadTarget(company).catch(() => null) : null;
+    /* A stored model carries the marks its draft found; an employer that had
+       none gets another chance here (cache first, then a bounded lookup). */
+    const loadEmployers = deps.employerLogoLoader || ((/** @type {string[]} */ names) => loadEmployerMarks(names));
+    const employerMarks = await loadEmployers(employersWithoutMarks(model)).catch(() => []);
+    rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath }, targetMark, header: input.header, employerMarks });
   } finally {
     await session.close();
   }
@@ -145,14 +206,13 @@ export async function regeneratePackage(input, deps = {}) {
   } catch {
     jdText = "";
   }
-  const snapshot = await readResumeSnapshot(dir);
   const critic = deps.critic || ((/** @type {Record<string, unknown>} */ args) => critiqueMaterials(args));
   const card = await critic({
     letterHtml: rendered.letterHtml || "",
     resumeHtml: rendered.resumeHtml || "",
     jdText,
     masterResumeHtml: "",
-    sourceResumeText: snapshot ? snapshot.text : "",
+    sourceResumeText: chosen ? chosen.resume.text : "",
     writerJson: {},
   });
   /** @type {{ code?: string, message?: string, severity?: string }[]} */
@@ -176,6 +236,7 @@ export async function regeneratePackage(input, deps = {}) {
   const status = issues.some((i) => i.severity === "fail") ? "fail" : issues.length ? "review" : "pass";
   const notes = [
     `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`,
+    ...(chosen?.choice.degraded ? [`degraded: ${chosen.choice.degraded.code}: ${chosen.choice.degraded.message}`] : chosen?.choice.message ? [chosen.choice.message] : []),
     ...rendered.notes,
   ];
   await writeFile(join(dir, "qa-report.md"), qaReport({ status: status === "pass" ? "READY" : "REVIEW", issues, notes }), "utf8");
@@ -203,6 +264,7 @@ export async function regeneratePackage(input, deps = {}) {
       finishedAt: (deps.now ? deps.now() : new Date()).toISOString(),
       source: "regenerate",
       regeneratedFrom,
+      ...(chosen ? { resume: runResumeBlock(chosen.resume, chosen.choice) } : {}),
       stages: [
         { stage: "intake", status: "ok", llm: false, detail: `regenerate ${regeneratedFrom} in ${family.id}@${family.version}; no LLM stages` },
         { stage: "claims.load", status: "skipped", llm: false, detail: "render model reused from the stored package" },

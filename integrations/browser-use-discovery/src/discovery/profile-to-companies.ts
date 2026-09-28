@@ -30,6 +30,8 @@ import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs
 import { slugifyCompanyKey } from "./company-keys.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { resolveGeminiFlashWireModel } from "../../../../server/model-family.mjs";
+// @ts-expect-error JS budget helper has no sibling declarations
+import { outputBudget, shortOutputBudget, geminiThinkingConfig } from "../../../../server/llm-output-budget.mjs";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -340,7 +342,7 @@ function extractGenerationText(payload: unknown): string {
 }
 
 async function callGemini(request: GeminiGenerationRequest): Promise<unknown> {
-  const response = await request.fetchImpl(request.endpoint, {
+  const send = () => request.fetchImpl(request.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -349,13 +351,25 @@ async function callGemini(request: GeminiGenerationRequest): Promise<unknown> {
     signal: request.signal,
     body: JSON.stringify(request.body),
   });
+  let response = await send();
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
     throw new Error(
       `Gemini HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
     );
   }
-  return response.json().catch(() => null);
+  let payload = await response.json().catch(() => null);
+  if (isPlainRecord(payload) && Array.isArray(payload.candidates) &&
+      isPlainRecord(payload.candidates[0]) && payload.candidates[0].finishReason === "MAX_TOKENS") {
+    response = await send();
+    if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
+    payload = await response.json().catch(() => null);
+    if (isPlainRecord(payload) && Array.isArray(payload.candidates) &&
+        isPlainRecord(payload.candidates[0]) && payload.candidates[0].finishReason === "MAX_TOKENS") {
+      throw new Error(`Gemini model ${decodeURIComponent(request.endpoint.split("/models/")[1]?.split(":")[0] || "unknown")} hit its maximum output limit after a retry.`);
+    }
+  }
+  return payload;
 }
 
 function composeProfileUserPrompt(input: {
@@ -490,7 +504,6 @@ export async function extractCandidateProfile(
     fetchImpl,
     signal: dependencies.signal,
     temperature: 0.1,
-    maxTokens: 1024,
     responseSchema: CANDIDATE_PROFILE_SCHEMA,
     messages: [
       {
@@ -1085,7 +1098,6 @@ async function scoreCompaniesWithLlm(input: {
     fetchImpl: input.fetchImpl,
     signal: input.signal,
     temperature: 0.1,
-    maxTokens: 2048,
     responseSchema: COMPANY_CANDIDATE_JUDGE_SCHEMA,
     messages: [
       {
@@ -1265,7 +1277,8 @@ async function runCompanyDiscoveryAttempt(input: {
     ],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 4096,
+      maxOutputTokens: shortOutputBudget("gemini", decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || ""), 8192),
+      thinkingConfig: geminiThinkingConfig(decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "")),
     },
     tools: [{ google_search: {} }],
   };
@@ -1306,7 +1319,8 @@ async function runCompanyDiscoveryAttempt(input: {
     ],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 4096,
+      maxOutputTokens: outputBudget("gemini", decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "")),
+      thinkingConfig: geminiThinkingConfig(decodeURIComponent(input.endpoint.split("/models/")[1]?.split(":")[0] || "")),
       responseMimeType: "application/json",
       responseSchema: COMPANY_LIST_SCHEMA,
     },

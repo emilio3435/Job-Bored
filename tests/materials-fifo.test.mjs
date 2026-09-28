@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,11 @@ import {
   reconcileOrphanedPending,
 } from "../server/materials-drafter.mjs";
 import { EXAMPLE_RESUME_SOURCE, scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+
+/* The drafter reads the profile and builds the claim ledger beside it; keep
+ * both out of the real HOME (a run without this overwrote the user's
+ * ~/.jobbored/claim-ledger.json on 2026-09-27). */
+process.env.JOBBORED_PROFILE_PATH = join(mkdtempSync(join(tmpdir(), "jb-fifo-home-")), ".jobbored", "profile.json");
 
 const pin = { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "" };
 
@@ -95,6 +101,8 @@ describe("F14: orphaned pending", () => {
       fetchImpl: stub.fetchImpl,
       openSession: null,
       logoLoader: async () => [],
+      targetLogoLoader: async () => null,
+      employerLogoLoader: async () => [],
       heartbeatMs: 25,
     });
     const payload = (slug) => ({

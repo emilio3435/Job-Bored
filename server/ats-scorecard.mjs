@@ -445,7 +445,6 @@ async function callProviderJson(target, userPrompt, signal) {
       schemaName: "ats_scorecard",
       signal,
       timeoutMs: providerFetchTimeoutMs(),
-      maxTokens: 3500,
       temperature: 0.15,
     });
     if (!text.trim()) throw new Error(`${label} returned empty content`);

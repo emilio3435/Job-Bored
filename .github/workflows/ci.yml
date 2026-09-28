@@ -12,13 +12,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Branch-protection (ruleset) currently ENFORCES these checks — a failure
-# blocks the merge:
-#   - contract-tests
-#   - test
-#   - scan   (gitleaks secret scan, .github/workflows/gitleaks.yml)
-# Defined here and INTENDED to become required once stable (add each to the
-# ruleset to enforce): lint, coverage, audit-prod, pr-lint (pr-lint.yml).
+# Branch-protection (ruleset "main") ENFORCES these checks by name — a
+# failure blocks the merge: contract-tests, test (aggregate of test-shard),
+# scan (gitleaks.yml), coverage, lint, audit-prod, pr-lint (pr-lint.yml).
+# Renaming any of these jobs breaks the merge gate.
 # Advisory only (never blocks a merge): e2e-smoke, e2e-journey, e2e-visual, audit-dev.
 # F4-D hermetic harness is in place (tests/e2e-fixtures/hermetic-harness.mjs).
 # Do NOT drop continue-on-error on the browser jobs until repair Gates A–D
@@ -39,9 +36,17 @@ jobs:
       - run: npm ci
       - run: npm run test:contract:all
 
-  test:
+  # The unit gate runs as two parallel shards; the aggregate `test` job below
+  # keeps the ruleset's required check name. Each shard is a whole suite, so
+  # together they run exactly what the single job used to run.
+  test-shard:
+    name: test-shard (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, discovery]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,9 +55,27 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Typecheck repository, server, and discovery worker
+        if: matrix.suite == 'unit'
         run: npm run typecheck:repo
-      - run: npm test
-      - run: npm run test:browser-use-discovery
+      - if: matrix.suite == 'unit'
+        run: npm test
+      - if: matrix.suite == 'discovery'
+        run: npm run test:browser-use-discovery
+
+  # Required by the branch ruleset under this exact name. Fails unless every
+  # shard succeeded (a skipped or cancelled shard also fails the check).
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [test-shard]
+    if: ${{ always() }}
+    steps:
+      - name: Require every test shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.test-shard.result }}
+        run: |
+          echo "test-shard result: $SHARD_RESULT"
+          test "$SHARD_RESULT" = "success"
 
   lint:
     runs-on: ubuntu-latest
@@ -80,11 +103,27 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e-smoke
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - name: Read installed Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
         with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - run: npm run test:e2e-smoke
+      # !cancelled() so traces of a test that failed then passed on retry
+      # (reported "flaky") are kept too; retain-on-failure leaves the dir
+      # empty when every attempt passed.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          if-no-files-found: ignore
           name: e2e-smoke-traces
           path: tests/e2e-smoke/test-results/
           retention-days: 7
@@ -93,9 +132,14 @@ jobs:
   # Gates A–D: hermetic fixtures are ready, but the required-CI switch waits
   # on the repair gate ledger. See docs/HERMETIC-BROWSER-GATE.md.
   e2e-visual:
+    name: e2e-visual (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -103,12 +147,28 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e-visual
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - name: Read installed Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
         with:
-          name: e2e-visual-traces
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - run: npm run test:e2e-visual -- --shard=${{ matrix.shard }}/3
+      # !cancelled() so traces of a test that failed then passed on retry
+      # (reported "flaky") are kept too; retain-on-failure leaves the dir
+      # empty when every attempt passed.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          if-no-files-found: ignore
+          name: e2e-visual-traces-${{ matrix.shard }}
           path: tests/e2e-visual/test-results/
           retention-days: 7
 
@@ -116,9 +176,14 @@ jobs:
   # Gates A–D. Hermetic disposable auth + network fence live in
   # tests/e2e-fixtures/hermetic-harness.mjs. See docs/HERMETIC-BROWSER-GATE.md.
   e2e-journey:
+    name: e2e-journey (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -126,12 +191,28 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e-journey
-      - uses: actions/upload-artifact@v4
-        if: failure()
+      - name: Read installed Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
         with:
-          name: e2e-journey-traces
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - run: npm run test:e2e-journey -- --shard=${{ matrix.shard }}/3
+      # !cancelled() so traces of a test that failed then passed on retry
+      # (reported "flaky") are kept too; retain-on-failure leaves the dir
+      # empty when every attempt passed.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          if-no-files-found: ignore
+          name: e2e-journey-traces-${{ matrix.shard }}
           path: tests/e2e-journey/test-results/
           retention-days: 7
 

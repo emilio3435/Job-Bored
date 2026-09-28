@@ -225,6 +225,16 @@ jobs:
           fs.writeFileSync(yml, out.join("\n"));
           JS
 
+      - name: Verify update payload matches the release version
+        working-directory: desktop
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          app=$(find dist -maxdepth 2 -name 'JobBored.app' -type d | head -1)
+          [ -n "$app" ] || { echo "::error::JobBored.app missing"; exit 1; }
+          app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+          node scripts/verify-update-artifacts.mjs dist "$VERSION" "$app_version"
+
       # Launches the packaged app headless: it boots dashboard, API and worker
       # on the ports below, checks health and exits 0/1. Never the live ports.
       - name: Smoke-test the packaged app
@@ -248,6 +258,7 @@ jobs:
           path: |
             desktop/dist/*.dmg
             desktop/dist/*.zip
+            desktop/dist/*.zip.blockmap
             desktop/dist/latest-mac.yml
 
       - name: Remove key material
@@ -279,7 +290,7 @@ jobs:
         run: |
           [ -n "$GH_TOKEN" ] || { echo "::error::DESKTOP_RELEASES_TOKEN is not set"; exit 1; }
           tag="desktop-v$VERSION"
-          files=$(ls release/*.dmg release/*.zip release/latest-mac.yml)
+          files=$(ls release/*.dmg release/*.zip release/*.zip.blockmap release/latest-mac.yml)
           if gh release view "$tag" -R "$FEED_REPO" >/dev/null 2>&1; then
             draft=$(gh release view "$tag" -R "$FEED_REPO" --json isDraft -q .isDraft)
             if [ "$draft" != "true" ]; then

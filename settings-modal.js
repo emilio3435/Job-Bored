@@ -333,22 +333,25 @@ function apiFetch(url, init) {
   return fetch(url, init);
 }
 
-async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
+/**
+ * Pin the server's drafting model. An `apiKey` property that is present
+ * (even "") replaces the server's stored key; leave it out to keep that key.
+ */
+async function postLlmConfigPin(pin) {
+  const { provider, model, baseUrl } = pin;
   const p = String(provider || "").trim();
   const m = String(model || "").trim();
   if (!p || !m) return;
   if (typeof fetch !== "function") return;
   const jobBoredApiUrl = resolveJobBoredApiUrl();
+  const body = { provider: p, model: m };
+  if ("apiKey" in pin) body.apiKey = String(pin.apiKey || "").trim();
+  body.baseUrl = String(baseUrl || "").trim();
   try {
     const resp = await apiFetch(jobBoredApiUrl + "/api/llm-config", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        provider: p,
-        model: m,
-        apiKey: String(apiKey || "").trim(),
-        baseUrl: String(baseUrl || "").trim(),
-      }),
+      body: JSON.stringify(body),
     });
     if (!resp || resp.ok === false) {
       const status = resp && typeof resp.status === "number" ? resp.status : 0;
@@ -678,6 +681,333 @@ function renderSettingsReceipts() {
   }
 }
 
+/* ============================================================
+   Drafting model status (CDESK MODELUI).
+
+   Settings keeps its own copy of the model in this browser; the résumé and
+   letter drafter uses the server pin (~/.jobbored/llm.json, GET
+   /api/llm-config). This block under the AI receipt says which model drafts,
+   which model the last draft actually used (lastDraft, from its run.json),
+   and warns when this browser's saved model disagrees with the server's.
+   ============================================================ */
+
+const LLM_STATUS_HOST_ID = "settingsLlmStatus";
+const LLM_STATUS_TIMEOUT_MS = 4000;
+let llmStatusSeq = 0;
+
+/** The company that picks the version when a pin is a family alias. */
+const LLM_ALIAS_PICKERS = Object.freeze({
+  gemini: "Google",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  openrouter: "OpenRouter",
+  local: "your local server",
+});
+
+/** Server provider (canonical enum + alias) → this browser's provider id. */
+function llmStatusBrowserProviderId(provider, alias) {
+  const p = String(provider || "").trim().toLowerCase();
+  const a = String(alias || "").trim().toLowerCase();
+  if (p === "openai_compatible" || p === "local" || a === "local" || a === "ollama") {
+    return "local";
+  }
+  return p;
+}
+
+function llmStatusNormalizeModel(providerId, model) {
+  const m = String(model || "").trim();
+  return providerId === "gemini" ? normalizeSettingsGeminiModel(m) : m;
+}
+
+/** A family name the provider resolves to a version of its choosing. */
+function llmStatusAliasTarget(providerId, model) {
+  const m = String(model || "").trim();
+  if (!m) return "";
+  if (providerId === "gemini" && m === "gemini-flash") return "gemini-flash-latest";
+  if (m === "openrouter/auto") return m;
+  return "";
+}
+
+function formatLlmRelativeTime(iso, nowMs) {
+  const at = Date.parse(String(iso || ""));
+  if (!Number.isFinite(at)) return "";
+  const now = typeof nowMs === "number" ? nowMs : Date.now();
+  const minutes = Math.floor(Math.max(0, now - at) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function llmStatusRoleLabel(lastDraft) {
+  const title = String(lastDraft.title || "").trim();
+  const company = String(lastDraft.company || "").trim();
+  if (title && company) return `${title} at ${company}`;
+  return title || company || String(lastDraft.slug || "").trim();
+}
+
+/** This browser's saved provider + model (not the unsaved form). */
+function readBrowserLlmChoice(cfg) {
+  const provider = String(cfg.resumeProvider || "").trim().toLowerCase();
+  const field = SETTINGS_PROVIDER_MODEL_FIELDS[provider];
+  const saved = field && typeof cfg[field] === "string" ? cfg[field].trim() : "";
+  return {
+    provider,
+    model: llmStatusNormalizeModel(provider, saved || defaultModelFor(provider)),
+    hasCredential: (id) => {
+      const f = SETTINGS_PROVIDER_CREDENTIAL_FIELDS[id];
+      return Boolean(f && typeof cfg[f] === "string" && cfg[f].trim());
+    },
+  };
+}
+
+/**
+ * Pure view model for the status block.
+ * @param {{ reachable: boolean, server?: object|null, browser?: object|null, nowMs?: number }} input
+ */
+function buildLlmStatusView(input) {
+  if (!input || !input.reachable) {
+    return {
+      kind: "unreachable",
+      text: "Can’t reach the JobBored server on this computer, so the model that drafts your materials isn’t shown here.",
+    };
+  }
+  const server = input.server && typeof input.server === "object" ? input.server : {};
+  const providerId = llmStatusBrowserProviderId(server.provider, server.alias);
+  const model = String(server.model || "").trim();
+  const label = SETTINGS_PROVIDER_LABELS[providerId] || String(server.provider || "").trim();
+  const view = {
+    kind: "ok",
+    drafting: null,
+    unconfigured: false,
+    alias: null,
+    mismatch: null,
+    lastDraft: null,
+  };
+  if (providerId && model) {
+    view.drafting = `Drafting with: ${label} · ${model}`;
+    const target = llmStatusAliasTarget(providerId, model);
+    if (target) {
+      const picker = LLM_ALIAS_PICKERS[providerId] || "The provider";
+      const now = target !== model ? ` (right now that means ${target})` : "";
+      view.alias =
+        `${model} is a family name, so ${picker} picks the exact version${now}. ` +
+        "To keep drafts on one model, choose an exact version below and save.";
+    }
+    const browser = input.browser;
+    if (browser && browser.provider && browser.provider !== "webhook") {
+      const serverModel = llmStatusNormalizeModel(providerId, model);
+      const sameProvider = browser.provider === providerId;
+      if (!sameProvider || browser.model !== serverModel) {
+        const browserLabel = SETTINGS_PROVIDER_LABELS[browser.provider] || browser.provider;
+        const here = sameProvider ? browser.model : `${browserLabel} · ${browser.model}`;
+        const there = sameProvider ? serverModel : `${label} · ${serverModel}`;
+        const canFix =
+          Boolean(SETTINGS_PROVIDER_DEFS[providerId]) &&
+          typeof browser.hasCredential === "function" &&
+          browser.hasCredential(providerId);
+        view.mismatch = {
+          text: `This browser is set to ${here}, but your drafts use ${there}.`,
+          hint: canFix
+            ? ""
+            : `Add your ${label} key below and save to use ${serverModel} here too.`,
+          providerId,
+          model: serverModel,
+          serverPin: {
+            provider: String(server.alias || server.provider || "").trim(),
+            model,
+            baseUrl: String(server.baseUrl || "").trim(),
+          },
+          canFix,
+          fixLabel: `Use ${serverModel} in this browser`,
+        };
+      }
+    }
+  } else {
+    view.unconfigured = true;
+    view.drafting = "No drafting model is set on the server yet. Choose a provider below and save.";
+  }
+  const last = server.lastDraft && typeof server.lastDraft === "object" ? server.lastDraft : null;
+  const used = last ? String(last.resolvedModel || last.requestedModel || "").trim() : "";
+  if (last && used) {
+    const role = llmStatusRoleLabel(last);
+    const when = formatLlmRelativeTime(last.finishedAt, input.nowMs);
+    view.lastDraft =
+      `Last draft used ${used}` + (role ? ` for ${role}` : "") + (when ? ` · ${when}` : "");
+  }
+  return view;
+}
+
+function isLoopbackSettingsPage() {
+  const loc = typeof location !== "undefined" ? location : null;
+  const host = loc ? String(loc.hostname || "").toLowerCase() : "";
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+}
+
+/**
+ * Read the server pin. A hosted page with no jobBoredApiUrl never tries the
+ * loopback default (the browser would log a blocked request); it reports
+ * unreachable instead. Never throws, never logs.
+ */
+async function fetchLlmStatus() {
+  const cfg =
+    (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  const configured = String(cfg.jobBoredApiUrl || "").trim();
+  if (!configured && !isLoopbackSettingsPage()) return { reachable: false };
+  if (typeof fetch !== "function") return { reachable: false };
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), LLM_STATUS_TIMEOUT_MS) : null;
+  try {
+    const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+      method: "GET",
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!resp || (resp.ok === false && resp.status !== 404)) return { reachable: false };
+    let body = null;
+    try {
+      body = await resp.json();
+    } catch (_) {
+      body = null;
+    }
+    if (!body || typeof body !== "object") return { reachable: false };
+    return { reachable: true, server: body };
+  } catch (_) {
+    return { reachable: false };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function llmStatusEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function ensureLlmStatusHost() {
+  if (typeof document === "undefined" || !document.getElementById) return null;
+  const existing = document.getElementById(LLM_STATUS_HOST_ID);
+  if (existing) return existing;
+  const receipt = document.querySelector('[data-receipt="ai"]');
+  if (!receipt || !receipt.parentNode) return null;
+  const hostEl = llmStatusEl("div", "settings-llm-status");
+  hostEl.id = LLM_STATUS_HOST_ID;
+  hostEl.setAttribute("aria-live", "polite");
+  receipt.parentNode.insertBefore(hostEl, receipt.nextSibling || null);
+  return hostEl;
+}
+
+function renderLlmStatus(view) {
+  const hostEl = ensureLlmStatusHost();
+  if (!hostEl) return;
+  while (hostEl.firstChild) hostEl.removeChild(hostEl.firstChild);
+  hostEl.setAttribute("data-state", view.kind === "ok" && view.mismatch ? "mismatch" : view.kind);
+  if (view.kind !== "ok") {
+    hostEl.appendChild(llmStatusEl("p", "settings-llm-status__line settings-llm-status__line--muted", view.text));
+    return;
+  }
+  hostEl.appendChild(
+    llmStatusEl(
+      "p",
+      view.unconfigured
+        ? "settings-llm-status__line settings-llm-status__line--muted"
+        : "settings-llm-status__line settings-llm-status__line--primary",
+      view.drafting,
+    ),
+  );
+  if (view.lastDraft) {
+    hostEl.appendChild(llmStatusEl("p", "settings-llm-status__line", view.lastDraft));
+  }
+  if (view.alias) {
+    hostEl.appendChild(
+      llmStatusEl("p", "settings-llm-status__line settings-llm-status__line--muted", view.alias),
+    );
+  }
+  if (view.mismatch) {
+    const warn = llmStatusEl("div", "settings-llm-status__warn");
+    warn.setAttribute("role", "status");
+    warn.appendChild(llmStatusEl("p", "settings-llm-status__warn-text", view.mismatch.text));
+    if (view.mismatch.canFix) {
+      const btn = llmStatusEl("button", "btn-modal-secondary settings-llm-status__fix", view.mismatch.fixLabel);
+      btn.type = "button";
+      btn.setAttribute("data-action", "settings_llm_match_server");
+      const mismatch = view.mismatch;
+      btn.addEventListener("click", () => {
+        void matchBrowserLlmToServer(mismatch);
+      });
+      warn.appendChild(btn);
+    } else if (view.mismatch.hint) {
+      warn.appendChild(llmStatusEl("p", "settings-llm-status__warn-text", view.mismatch.hint));
+    }
+    hostEl.appendChild(warn);
+  }
+}
+
+/**
+ * Adopt the server's provider + model in this browser. Persists only those
+ * two fields (other unsaved form edits stay unsaved) and re-pins the server
+ * WITHOUT an apiKey, so the key the drafter uses is kept.
+ */
+async function matchBrowserLlmToServer(mismatch) {
+  const def = SETTINGS_PROVIDER_DEFS[mismatch.providerId];
+  if (!def) return;
+  try {
+    mergeStoredConfigOverridePatch({
+      resumeProvider: mismatch.providerId,
+      [def.configModelField]: mismatch.model,
+    });
+  } catch (_) {
+    showToast("Could not save (storage may be full or disabled).", "error", true);
+    return;
+  }
+  const provEl = document.getElementById("settingsResumeProvider");
+  if (provEl) provEl.value = mismatch.providerId;
+  const modelEl = document.getElementById(def.modelSelectId);
+  if (modelEl) {
+    const has =
+      modelEl.options && [...modelEl.options].some((o) => o.value === mismatch.model);
+    if (!has && modelEl.tagName === "SELECT") {
+      const opt = document.createElement("option");
+      opt.value = mismatch.model;
+      opt.textContent = `${mismatch.model} (saved)`;
+      modelEl.appendChild(opt);
+    }
+    modelEl.value = mismatch.model;
+  }
+  // Both controls now match what was just saved; move the open-time
+  // snapshot with them so closing does not ask to discard a saved change.
+  if (settingsFormSnapshot) {
+    if (provEl && provEl.id) settingsFormSnapshot[provEl.id] = String(provEl.value || "");
+    if (modelEl && modelEl.id) settingsFormSnapshot[modelEl.id] = String(modelEl.value || "");
+  }
+  updateSettingsProviderPanels();
+  const pin = mismatch.serverPin || { provider: mismatch.providerId, model: mismatch.model, baseUrl: "" };
+  await postLlmConfigPin({ provider: pin.provider, model: pin.model, baseUrl: pin.baseUrl });
+  showToast("Saved", "success");
+  await refreshLlmStatus();
+}
+
+/** Fetch the server pin and redraw the block. Latest call wins. */
+async function refreshLlmStatus(opts) {
+  const seq = ++llmStatusSeq;
+  const nowMs = opts && typeof opts.nowMs === "number" ? opts.nowMs : Date.now();
+  const status = await fetchLlmStatus();
+  if (seq !== llmStatusSeq) return null;
+  const view = buildLlmStatusView({
+    reachable: status.reachable,
+    server: status.server || null,
+    browser: readBrowserLlmChoice(getEffectiveConfig()),
+    nowMs,
+  });
+  renderLlmStatus(view);
+  return view;
+}
+
 /**
  * Hand the user back to the beat that owns this value. `returnTo: "close"`
  * (lane A's controller seam) closes the shell when that one beat completes,
@@ -794,6 +1124,8 @@ async function openCommandCenterSettingsModal(opts) {
   if (modal) modal.style.display = "flex";
   if (modal) applySettingsInertBackground(modal);
   snapshotSettingsForm();
+  // The drafting-model block reads the local API; it never blocks opening.
+  void refreshLlmStatus();
   // Escape-to-close + auto-focus the close button. The brief asks for both:
   // - Escape lets keyboard users dismiss without hunting for the X.
   // - Focusing #settingsModalClose lands the user inside the trap with a
@@ -1241,14 +1573,18 @@ async function saveCommandCenterSettingsFromForm() {
   }
   const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
   if (selectedDef) {
-    await postLlmConfigPin({
+    const pin = {
       provider,
       model: payload[selectedDef.configModelField],
-      apiKey: payload[selectedDef.configKeyField],
       baseUrl: selectedDef.baseUrlInputId
         ? val(selectedDef.baseUrlInputId)
         : "",
-    });
+    };
+    // A blank key box (usual for Local) must not clear the server's key:
+    // the server treats apiKey "" as "remove the stored key".
+    const typedKey = String(payload[selectedDef.configKeyField] || "").trim();
+    if (typedKey) pin.apiKey = typedKey;
+    await postLlmConfigPin(pin);
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();
@@ -1525,6 +1861,9 @@ function initCommandCenterSettings() {
     populateCommandCenterSettingsForm,
     buildSettingsReceipt,
     renderSettingsReceipts,
+    buildLlmStatusView,
+    formatLlmRelativeTime,
+    refreshLlmStatus,
     settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,

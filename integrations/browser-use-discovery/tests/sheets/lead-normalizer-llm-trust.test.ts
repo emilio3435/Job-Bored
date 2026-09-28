@@ -186,7 +186,7 @@ test("scoreListingWithLlm uses OpenRouter chat completions without Gemini", asyn
   assert.equal(requestHeaders["x-goog-api-key"], undefined);
   assert.equal(requestBody.model, "openai/gpt-4.1-mini");
   assert.equal(requestBody.temperature, 0.2);
-  assert.equal(requestBody.max_tokens, 2048);
+  assert.equal(requestBody.max_tokens, 32768);
   assert.ok(Array.isArray(requestBody.messages));
   assert.equal(result.fitScore, 8);
   assert.equal(result.band, "Strong");
@@ -257,7 +257,8 @@ test("scoreListingWithLlm supports local OpenAI-compatible base URL without auth
   assert.equal(requestHeaders.authorization, undefined);
   assert.equal(requestHeaders["x-goog-api-key"], undefined);
   assert.equal(requestBody.model, "local-json-model");
-  assert.equal(requestBody.max_tokens, 2048);
+  assert.ok(!("max_tokens" in requestBody));
+  assert.ok(!("max_completion_tokens" in requestBody));
   assert.equal(result.fitScore, 7);
   assert.equal(result.band, "Interesting");
 });

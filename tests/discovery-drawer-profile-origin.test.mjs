@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /**
  * F2B-DISC01-ORIGIN — discovery drawer /profile origin.
  *
@@ -85,6 +86,7 @@ describe("F2B-DISC01-ORIGIN — discovery drawer must not fetch /profile on the 
       },
     };
     vm.createContext(ctx);
+    vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
     vm.runInContext(drawerJs, ctx, { filename: "discovery-drawer.js" });
     const drawer = ctx.window.JobBoredDiscovery.drawer;
     assert.equal(

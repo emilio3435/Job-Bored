@@ -11,11 +11,11 @@ const RESUME_TEXT = [
   "Jordan Rivera",
   "Austin, TX · jordan.rivera@example.com · 555-010-2030",
   "Northwind — Digital Sales Manager, 2021–2026",
-  "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
-  "- Drove 130% YoY paid-search conversion growth on a flagship account.",
-  "- Led the market to a 60% digital revenue mix with clear weekly readouts.",
+  "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
+  "- Drove 125% YoY paid-search conversion growth on a flagship account.",
+  "- Led the market to a 55% digital revenue mix with clear weekly readouts.",
   "Example App — Founder, 2024–present",
-  "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
+  "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
   "- Built streaming ingestion for analytics events with Kafka and Postgres.",
 ].join("\n");
 
@@ -46,6 +46,15 @@ const JD_TEXT = [
   "orchestration with Airflow, observability, and cloud platforms. You have shipped",
   "production data systems with clear reliability practices and documentation.",
 ].join("\n");
+
+/* Names the company early and twice, carries traced ledger metrics, and
+ * grounds each proof paragraph in a claim (rules 1, 2, 4). */
+const GOOD_LETTER = {
+  thesis: "Acme Analytics keeps warehouse pipelines and streaming ingestion honest for the analysts who depend on them, and I've spent years building the weekly readouts that people in that seat actually use to make decisions. Pipelines are my favorite kind of plumbing.",
+  analyticsProof: "At Northwind I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I led the market to a 55% digital revenue mix. Every week I owned the pipeline math with our analysts and turned it into clear weekly readouts for the digital sales team. People read them. That is rarer than it sounds.",
+  aiOpsProof: "I also built streaming ingestion for analytics events with Kafka and Postgres, and I shipped an SEM forecast tool that ran 24+ forecasts against $3.1M of pipeline. It's the same shape of work as your observability dashboards and spend reporting. A quiet data error there becomes a bad budget call.",
+  nextStep: "Here's my offer: I'd trace one Acme Analytics pipeline from source to readout, then write down where it can break and who would notice. Give me a short call with your team and I'll bring the sketch.",
+};
 
 const PIN = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
 const GATE = { verdict: "usable", confidence: 0.9, signals: {} };
@@ -100,21 +109,16 @@ function stageScripts() {
         letter: { analyticsProof: kept[0], aiOpsProof: kept[1] || kept[0] },
       });
     },
-    /* draft — answered dynamically from the featured claims */
+    /* draft — answered dynamically from the featured claims; bullets keep
+     * their own claim's words (and so its numbers). */
     (index, body) => {
       const user = body.messages[1].content;
-      const featured = [...user.matchAll(/^- (\S+): /gm)].map((m) => m[1]);
-      const spelled = ["one", "two", "three", "four", "five", "six", "seven"];
+      const featured = [...user.split("Earlier lines:")[0].matchAll(/^- (\S+): (.*)$/gm)].map((m) => ({ claimId: m[1], text: m[2] }));
       return JSON.stringify({
-        statement: "Platform engineer with analytics depth and production data systems experience.",
-        bullets: featured.map((claimId, i) => ({ claimId, text: `Drafted work item ${spelled[i] || "next"} with concrete outcomes.` })),
+        statement: "Revenue and analytics builder who shipped an SEM forecast tool and streaming ingestion for analytics events.",
+        bullets: featured,
         earlier: [],
-        letter: {
-          thesis: "You are hiring someone to keep pipelines honest, and that is the work I have done for years with clear weekly readouts.",
-          analyticsProof: "I owned pipeline math with analysts and shipped reporting the business trusted every single week of the year.",
-          aiOpsProof: "I built streaming ingestion for analytics events with Kafka and Postgres in production for real customers.",
-          nextStep: "I would start by tracing one pipeline from source to readout, and I would be glad to walk through it.",
-        },
+        letter: GOOD_LETTER,
       });
     },
   ];
@@ -152,7 +156,7 @@ describe("materials pipeline", () => {
     const { fetchImpl, calls } = scriptedFetch(stageScripts());
     const out = await runPipeline({ ...base(), fetchImpl });
     assert.equal(out.outcome, "published");
-    assert.equal(calls.length, 3, `three narrow calls, saw ${calls.length}`);
+    assert.equal(calls.length, 4, `three narrow calls plus the letter support check, saw ${calls.length}`);
     for (const name of ["manifest.json", "resume.html", "cover-letter.html", "resume.txt", "cover-letter.txt", "render-model.json", "run.json", "qa.json", "qa-report.md", "jd-extract.json", "selection.json", "outline.json", "draft.json"]) {
       const content = await readFile(join(dir, name), "utf8").catch(() => null);
       assert.ok(content && content.length > 0, `${name} written`);
@@ -162,7 +166,7 @@ describe("materials pipeline", () => {
     assert.ok(run.stages.some((s) => s.stage === "jd.extract" && s.llm === true));
     assert.ok(run.stages.some((s) => s.stage === "claims.select" && s.llm === true));
     assert.ok(run.stages.some((s) => s.stage === "draft" && s.llm === true));
-    assert.match(run.cacheKey, /\|both$/);
+    assert.match(run.cacheKey, /\|both\|local:stub$/);
     assert.equal(out.qa.status === "pass" || out.qa.status === "review", true);
   });
 
@@ -183,7 +187,7 @@ describe("materials pipeline", () => {
     assert.equal(calls, 0);
   });
 
-  it("publishes a degraded REVIEW package with no pin and no calls", async () => {
+  it("publishes a degraded package with no pin and no calls: resume REVIEW, empty letter FAIL, no repair", async () => {
     let calls = 0;
     const out = await runPipeline({
       ...base(),
@@ -195,8 +199,15 @@ describe("materials pipeline", () => {
     });
     assert.equal(out.outcome, "published");
     assert.equal(calls, 0);
-    assert.equal(out.qa.status, "review");
-    assert.ok(out.qa.issues.some((i) => i.code === "llm_unconfigured"), JSON.stringify(out.qa.issues));
+    const byDoc = Object.fromEntries(out.qa.documents.map((d) => [d.document, d]));
+    assert.equal(byDoc.resume.disposition, "REVIEW");
+    assert.ok(byDoc.resume.checks.some((c) => c.code === "llm_unconfigured"), JSON.stringify(byDoc.resume.checks));
+    /* The deterministic letter is empty: it cannot name the company, so
+     * it is never READY and never silently REVIEW. With no model there is
+     * nothing to repair with. */
+    assert.equal(byDoc.letter.disposition, "FAIL");
+    assert.ok(byDoc.letter.checks.some((c) => c.code === "company_unnamed"), JSON.stringify(byDoc.letter.checks));
+    assert.equal(out.qa.repaired, false);
     const html = await readFile(join(dir, "resume.html"), "utf8");
     assert.match(html, /Jordan|Northwind|Example App/);
   });
@@ -207,6 +218,38 @@ describe("materials pipeline", () => {
       runPipeline({ ...base(), ledger: { claims: [], employers: [], toolInventory: [] }, fetchImpl }),
       (e) => e.code === "ledger_empty",
     );
+  });
+
+  it("should flag letter tells without rewriting the letter, and repair it in one whole-letter draft call (voice v6)", async () => {
+    const scripts = stageScripts();
+    const draftScript = scripts[2];
+    /* The first draft carries a hard tell; the repair draft is clean. */
+    let draftCalls = 0;
+    scripts[2] = (index, body) => {
+      draftCalls += 1;
+      const reply = JSON.parse(draftScript(index, body));
+      if (draftCalls === 1) reply.letter = { ...reply.letter, nextStep: `${reply.letter.nextStep} It is a robust plan.` };
+      return JSON.stringify(reply);
+    };
+    /* Calls in order: extract, select, draft, support, repair draft, support. */
+    const support = (index, body) => {
+      const count = [...String(body.messages[1].content).split("Letter sentences:")[1].matchAll(/^(\d+)\. /gm)].length;
+      return JSON.stringify({ verdicts: Array.from({ length: count }, (_, i) => ({ i: i + 1, factual: true, supported: true, source: "stub" })) });
+    };
+    scripts.splice(3, 0, support, scripts[2], support);
+    const { fetchImpl, calls } = scriptedFetch(scripts);
+    const out = await runPipeline({ ...base(), fetchImpl });
+    assert.equal(out.outcome, "published");
+    const systems = calls.map((c) => String(c.system));
+    assert.ok(!systems.some((s) => s.startsWith("You rewrite resume and cover-letter fields")), "no delint rewrite call for letter spans");
+    assert.equal(systems.filter((s) => s.includes("resume slots")).length, 2, "one draft plus exactly one repair draft");
+    const repair = calls.filter((c) => String(c.system).includes("resume slots"))[1];
+    assert.match(repair.user, /REPAIR: rewrite the WHOLE letter \(all five beats\) as one piece, in one voice/);
+    assert.match(repair.user, /robust/, "the repair names the issue");
+    assert.match(repair.user, /Sentences the fact check supports \(keep their facts and wording unless an issue above names them\):\n- /);
+    assert.match(repair.user, /never add an outcome, frequency, adjective, scope or cause the facts do not state/);
+    const draft = JSON.parse(await readFile(join(dir, "draft.json"), "utf8"));
+    assert.doesNotMatch(JSON.stringify(draft.letter), /robust/);
   });
 
   it("F8: repair re-enters the draft with the current draft + instructions", async () => {
@@ -222,7 +265,7 @@ describe("materials pipeline", () => {
       repairInstructions: "Lead with the forecast tool, not the book.",
     });
     assert.equal(out.outcome, "published");
-    const draftCall = second.calls[second.calls.length - 1];
+    const draftCall = second.calls.filter((c) => c.system.includes("resume slots")).pop();
     assert.match(draftCall.user, /REPAIR/);
     assert.match(draftCall.user, /Lead with the forecast tool/);
     const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));

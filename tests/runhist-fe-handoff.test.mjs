@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 import { detailRunA, jsonResponse, listPage1, read } from "./runhist-fe-fixtures.mjs";
 
-function loadHandoff({ webhookUrl = "http://127.0.0.1:18644/webhook", secret = "", fetchImpl } = {}) {
+function loadHandoff({ webhookUrl = "http://127.0.0.1:18644/webhook", secret = "", fetchImpl, setTimeoutImpl = setTimeout, clearTimeoutImpl = clearTimeout } = {}) {
   const toasts = [];
   const window = {
     JobBoredDiscovery: {
@@ -31,8 +31,8 @@ function loadHandoff({ webhookUrl = "http://127.0.0.1:18644/webhook", secret = "
     URL,
     URLSearchParams,
     AbortController,
-    setTimeout,
-    clearTimeout,
+    setTimeout: setTimeoutImpl,
+    clearTimeout: clearTimeoutImpl,
     fetch: fetchImpl || (async () => { throw new Error("fetch not stubbed"); }),
   };
   vm.runInNewContext(read("discovery-status-handoff.js"), ctx, {
@@ -123,6 +123,76 @@ describe("runhist-fe · fetchRunDetail", () => {
     const res = await status.fetchRunDetail("/runs/run_zz");
     assert.equal(res.ok, false);
     assert.equal(res.reason, "run_not_found");
+  });
+});
+
+describe("runhist-fe · retry write", () => {
+  it("POSTs with the fresh dashboard token and webhook secret", async () => {
+    const seen = [];
+    const { status } = loadHandoff({
+      secret: "example-secret",
+      fetchImpl: async (url, init) => {
+        seen.push({ url: String(url), init });
+        return jsonResponse(200, { ok: true, run: { runId: "run_a", status: "completed" } });
+      },
+    });
+    const result = await status.retryRunWrite("run_a", "fresh-token");
+    assert.equal(result.ok, true);
+    assert.equal(seen[0].url, "http://127.0.0.1:18644/runs/run_a/retry-write");
+    assert.equal(seen[0].init.method, "POST");
+    assert.equal(seen[0].init.headers["x-discovery-secret"], "example-secret");
+    assert.deepEqual(JSON.parse(seen[0].init.body), { googleAccessToken: "fresh-token" });
+  });
+
+  it("uses a write-sized timeout and re-reads status after an aborted POST", async () => {
+    const timers = [];
+    const seen = [];
+    const { status } = loadHandoff({
+      secret: "example-secret",
+      setTimeoutImpl: (callback, delay) => {
+        timers.push({ callback, delay });
+        return timers.length;
+      },
+      clearTimeoutImpl: () => {},
+      fetchImpl: async (url, init) => {
+        seen.push({ url: String(url), init });
+        if (init.method === "POST") {
+          return new Promise((_, reject) => {
+            init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+            timers[0].callback();
+          });
+        }
+        return jsonResponse(200, { ok: true, runId: "run_a", terminal: true, status: "completed" });
+      },
+    });
+    const result = await status.retryRunWrite("run_a", "fresh-token");
+    assert.ok(timers[0].delay >= 120_000, "write retry needs more than the 4 s history budget");
+    assert.equal(timers[1].delay, 4000, "status re-read keeps the history budget");
+    assert.deepEqual(seen.map((call) => call.init.method), ["POST", "GET"]);
+    assert.equal(seen[1].url, "http://127.0.0.1:18644/runs/run_a");
+    assert.equal(seen[1].init.headers["x-discovery-secret"], "example-secret");
+    assert.equal(result.ok, true);
+    assert.equal(result.run.status, "completed");
+  });
+
+  it("does not report a failed write when status is still unresolved after abort", async () => {
+    const timers = [];
+    const { status } = loadHandoff({
+      setTimeoutImpl: (callback) => { timers.push(callback); return timers.length; },
+      clearTimeoutImpl: () => {},
+      fetchImpl: async (_url, init) => {
+        if (init.method === "GET") {
+          return jsonResponse(200, { ok: true, runId: "run_a", status: "write_failed" });
+        }
+        return new Promise((_, reject) => {
+          init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+          timers[0]();
+        });
+      },
+    });
+    const result = await status.retryRunWrite("run_a", "fresh-token");
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "status_unknown");
   });
 });
 

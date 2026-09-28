@@ -238,6 +238,7 @@ describe("C8 · the drawer footer names the setup cost (FD-04)", () => {
       console: { log() {}, warn() {}, error() {} },
     };
     vm.createContext(ctx);
+    vm.runInContext(readRepoFile("llm-output-budget.js"), ctx);
     vm.runInContext(readRepoFile("discovery-drawer.js"), ctx, {
       filename: "discovery-drawer.js",
     });

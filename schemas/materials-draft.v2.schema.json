@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-draft.v2.schema.json",
+  "title": "materials.draft.v2",
+  "description": "Plain-string draft slots from the Materials v3 draft stage: a statement, one string per featured bullet keyed by claim id, earlier lines, and five role-typed letter beats (hook, companyInsight, proof1, proof2, ask; K4). v1 drafts (thesis, analyticsProof, aiOpsProof, nextStep) stay readable through materials-draft.v1.schema.json. No markup in any field; emphasis is the metric tagger's job.",
+  "type": "object",
+  "required": ["contract", "jdHash", "ledgerHash", "statement", "bullets", "letter"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "materials.draft.v2" },
+    "jdHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "ledgerHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "statement": { "type": "string" },
+    "bullets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claimId", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "claimId": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "earlier": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text"],
+        "additionalProperties": false,
+        "properties": {
+          "claimId": { "type": ["string", "null"] },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "letter": {
+      "type": "object",
+      "required": ["hook", "companyInsight", "proof1", "proof2", "ask"],
+      "additionalProperties": false,
+      "properties": {
+        "hook": { "type": "string", "description": "Opening sentence: names the company and one specific fact about it." },
+        "companyInsight": { "type": "string", "description": "What the company needs from this role, in the posting's own nouns." },
+        "proof1": { "type": "string", "description": "Biggest-number proof answering one named job responsibility." },
+        "proof2": { "type": "string", "description": "Second proof answering a different responsibility." },
+        "ask": { "type": "string", "description": "A concrete next step." }
+      }
+    }
+  }
+}

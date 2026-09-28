@@ -22,6 +22,7 @@ import {
 } from "../contracts.ts";
 import type { DiscoveryRunStatusPayload } from "../contracts.ts";
 import { resolveAccessToken } from "./pipeline-writer.ts";
+import { getSheetValues, sendWithRetry, type RetryOptions } from "./sheets-client.ts";
 import {
   isLegacyDiscoveryRunsHeader,
   migrateLegacyDiscoveryRunsTab,
@@ -39,6 +40,8 @@ export type AppendDiscoveryRunRowDependencies = {
   fetchImpl?: FetchLike;
   now?: () => Date;
   tokenScope?: string;
+  /** Override the transport backoff for a caller with controlled timing. */
+  retryBaseMs?: number;
   log?(event: string, details: Record<string, unknown>): void;
 };
 
@@ -331,6 +334,7 @@ export async function appendDiscoveryRunRow(
 
   const now = dependencies.now || (() => new Date());
   const tokenScope = dependencies.tokenScope || DEFAULT_TOKEN_SCOPE;
+  const retry: RetryOptions = { retryBaseMs: dependencies.retryBaseMs };
 
   let token: string;
   try {
@@ -354,6 +358,7 @@ export async function appendDiscoveryRunRow(
     token,
     fetchImpl,
     dependencies.log,
+    retry,
   );
   if (!created.ok) return { ok: false, reason: created.reason };
 
@@ -369,19 +374,32 @@ export async function appendDiscoveryRunRow(
   appendUrl.searchParams.set("includeValuesInResponse", "false");
 
   let appendResponse: Response;
+  const appendInit: RequestInit = {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ majorDimension: "ROWS", values }),
+  };
   try {
-    appendResponse = await fetchImpl(appendUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ majorDimension: "ROWS", values }),
-    });
+    appendResponse = await sendWithRetry(fetchImpl, appendUrl, appendInit, { ...retry, retries: 0 });
   } catch (error) {
-    const message = formatError(error);
-    dependencies.log?.("discovery.runs_log.append_failed", { message });
-    return { ok: false, reason: `append request failed: ${message}` };
+    // The append may have landed even when its response was lost. Read its
+    // stable Run ID before any second attempt; an uncertain read stops here.
+    try {
+      const ids = await getSheetValues(
+        sheetId, `${DISCOVERY_RUNS_SHEET_NAME}!K2:K`, token, fetchImpl, retry,
+      );
+      if (ids.some((cells) => cells[0] === values[0][10])) {
+        return { ok: true, created: created.created };
+      }
+      appendResponse = await sendWithRetry(fetchImpl, appendUrl, appendInit, { ...retry, retries: 0 });
+    } catch (retryError) {
+      const message = formatError(retryError);
+      dependencies.log?.("discovery.runs_log.append_failed", { message });
+      return { ok: false, reason: `append request failed: ${message}` };
+    }
   }
 
   if (!appendResponse.ok) {
@@ -426,6 +444,7 @@ async function ensureTabExists(
   token: string,
   fetchImpl: FetchLike,
   log?: (event: string, details: Record<string, unknown>) => void,
+  retry: RetryOptions = {},
 ): Promise<{ ok: true; created: boolean } | { ok: false; reason: string }> {
   const headerRange = `${DISCOVERY_RUNS_SHEET_NAME}!A1:${LAST_COLUMN_LETTER}1`;
   const headerUrl = new URL(
@@ -436,10 +455,10 @@ async function ensureTabExists(
 
   let headerResponse: Response;
   try {
-    headerResponse = await fetchImpl(headerUrl, {
+    headerResponse = await sendWithRetry(fetchImpl, headerUrl, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
-    });
+    }, retry);
   } catch (error) {
     return { ok: false, reason: `header read failed: ${formatError(error)}` };
   }
@@ -462,7 +481,7 @@ async function ensureTabExists(
       return { ok: true, created: false };
     }
     // Tab exists but header is missing or wrong — (re)write the header row.
-    const writeHeader = await writeHeaderRow(sheetId, token, fetchImpl);
+    const writeHeader = await writeHeaderRow(sheetId, token, fetchImpl, retry);
     if (!writeHeader.ok) return writeHeader;
     return { ok: true, created: false };
   }
@@ -473,13 +492,13 @@ async function ensureTabExists(
     headerResponse.status === 400 ? await headerResponse.clone().text().catch(() => "") : "";
   // 4xx typically means the tab doesn't exist yet — create it then write header.
   if (headerResponse.status === 400 && /Unable to parse range/i.test(missingTabDetail)) {
-    const created = await addSheetTab(sheetId, token, fetchImpl);
+    const created = await addSheetTab(sheetId, token, fetchImpl, retry);
     if (!created.ok) return created;
     log?.("discovery.runs_log.tab_created", {
       sheetId,
       tabName: DISCOVERY_RUNS_SHEET_NAME,
     });
-    const writeHeader = await writeHeaderRow(sheetId, token, fetchImpl);
+    const writeHeader = await writeHeaderRow(sheetId, token, fetchImpl, retry);
     if (!writeHeader.ok) return writeHeader;
     return { ok: true, created: true };
   }
@@ -495,13 +514,14 @@ async function addSheetTab(
   sheetId: string,
   token: string,
   fetchImpl: FetchLike,
+  retry: RetryOptions,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const url = new URL(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}:batchUpdate`,
   );
   let response: Response;
   try {
-    response = await fetchImpl(url, {
+    response = await sendWithRetry(fetchImpl, url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -516,7 +536,7 @@ async function addSheetTab(
           },
         ],
       }),
-    });
+    }, retry);
   } catch (error) {
     return { ok: false, reason: `addSheet failed: ${formatError(error)}` };
   }
@@ -539,6 +559,7 @@ async function writeHeaderRow(
   sheetId: string,
   token: string,
   fetchImpl: FetchLike,
+  retry: RetryOptions,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const range = `${DISCOVERY_RUNS_SHEET_NAME}!A1:${LAST_COLUMN_LETTER}1`;
   const url = new URL(
@@ -550,7 +571,7 @@ async function writeHeaderRow(
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
+    response = await sendWithRetry(fetchImpl, url, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -561,7 +582,7 @@ async function writeHeaderRow(
         majorDimension: "ROWS",
         values: [[...DISCOVERY_RUNS_HEADER_ROW]],
       }),
-    });
+    }, retry);
   } catch (error) {
     return { ok: false, reason: `header write failed: ${formatError(error)}` };
   }

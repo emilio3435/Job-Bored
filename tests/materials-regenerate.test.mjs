@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,11 @@ import { regeneratePackage } from "../server/materials-regenerate.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
 import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+
+/* The drafter reads the profile and builds the claim ledger beside it; keep
+ * both out of the real HOME (a run without this overwrote the user's
+ * ~/.jobbored/claim-ledger.json on 2026-09-27). */
+process.env.JOBBORED_PROFILE_PATH = join(mkdtempSync(join(tmpdir(), "jb-regenerate-home-")), ".jobbored", "profile.json");
 
 const RUN_SCHEMA = JSON.parse(
   await readFile(new URL("../schemas/materials-run.v1.schema.json", import.meta.url), "utf8"),
@@ -43,6 +48,8 @@ function drafterFor(dir, extra = {}) {
     fetchImpl: stub.fetchImpl,
     openSession: null,
     logoLoader: async () => EXAMPLE_MARKS,
+    targetLogoLoader: async () => null,
+    employerLogoLoader: async () => [],
     now: () => new Date("2026-09-25T12:00:00.000Z"),
     ...extra,
   });
@@ -139,11 +146,11 @@ describe("each package records its template", () => {
     await draft(drafter, "acme-key", { template: "dossier" });
     const run = await readJson(join(dir, "acme-key", "run.json"));
     const intake = run.stages.find((s) => s.stage === "intake");
-    assert.match(intake.detail, /template dossier@1\.0/);
+    assert.match(intake.detail, /template dossier@1\.4/);
     const a = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("signal") });
     const b = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("editorial") });
     assert.notEqual(a, b);
-    assert.match(a, /\|signal@1\.0\|/);
+    assert.match(a, /\|signal@1\.4\|/);
   });
 
   it("should 400 an unknown template before anything is queued", async () => {
@@ -241,6 +248,25 @@ describe("regenerate in another template", () => {
       (e) => e.statusCode === 503 && e.code === "browser_unavailable" && /npx playwright install chromium/.test(e.message),
     );
     assert.deepEqual(await snapshot(pkg), before, "nothing in the package changed");
+  });
+
+  it("should regenerate a resume-only package whose stored model carries an empty letter shell", async () => {
+    /* A real resume-only package stored coverLetter.paragraphs = [], and
+       regenerate 422'd on it (render_model_invalid) though it never renders
+       the letter. */
+    await draft(drafterFor(dir), "acme-resume-only", { feature: "resume" });
+    const modelPath = join(dir, "acme-resume-only", "render-model.json");
+    const model = await readJson(modelPath);
+    model.documents.coverLetter = { ...(model.documents.coverLetter || { templateId: "signal.letter", salutation: "Dear hiring team," }), paragraphs: [] };
+    await writeFile(modelPath, JSON.stringify(model));
+    const run = await readJson(join(dir, "acme-resume-only", "run.json"));
+    assert.equal(run.feature, "resume");
+    const result = await regeneratePackage(
+      { slug: "acme-resume-only", template: "dossier" },
+      { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z") },
+    );
+    assert.equal(result.ok, true);
+    assert.ok(existsSync(join(dir, "acme-resume-only", "resume.html")));
   });
 
   it("should 400 an unknown family and 409 a package with no stored render model or a pending draft", async () => {

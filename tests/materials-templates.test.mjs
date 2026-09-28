@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { MATERIALS_BUDGETS } from "../server/materials-fit-budget.mjs";
-import { vendoredFontFaces } from "../server/materials-render.mjs";
+import { materialsSourceFaces, vendoredFontFaces } from "../server/materials-render.mjs";
 import {
   DEFAULT_FAMILY,
   familyIds,
@@ -102,7 +102,7 @@ describe("template registry", () => {
     const base = familyJson("signal");
     const tooManyWords = { ...base, budgets: { ...base.budgets, visibleWords: [340, MATERIALS_BUDGETS.resume.visibleWordsHardMax + 1] } };
     const tooManyEmployers = { ...base, budgets: { ...base.budgets, featuredEmployers: MATERIALS_BUDGETS.resume.featuredEmployersMax + 1 } };
-    const tooManyBullets = { ...base, budgets: { ...base.budgets, bulletsPerFeatured: [2, 5] } };
+    const tooManyBullets = { ...base, budgets: { ...base.budgets, bulletsPerFeatured: [2, 6] } };
     for (const bad of [tooManyWords, tooManyEmployers, tooManyBullets]) {
       assert.equal(validateFamily(bad).ok, false);
     }
@@ -122,14 +122,14 @@ describe("template registry", () => {
 });
 
 describe("vendored fonts (rule 5)", () => {
-  const faces = vendoredFontFaces();
+  const faces = [...vendoredFontFaces(), ...materialsSourceFaces()];
 
-  it("should declare every face a family sets in vendor/fonts/fonts.css, with the file on disk", () => {
+  it("should declare every face a family sets in vendor/fonts/fonts.css or materials/sources.css, with the file on disk", () => {
     for (const id of FAMILIES) {
       for (const name of resolveFamily(id).fonts) {
         const [familyName, italic] = name.endsWith(" Italic") ? [name.slice(0, -7), true] : [name, false];
         const matching = faces.filter(
-          (f) => f.family === familyName && (italic ? f.style === "italic" : f.style === "normal") && (f.subset === "latin" || f.subset === "latin-ext"),
+          (f) => f.family === familyName && (italic ? f.style === "italic" : f.style === "normal") && (f.subset === "latin" || f.subset === "latin-ext" || f.subset === "all"),
         );
         assert.ok(matching.length > 0, `${id}: ${name} is not vendored`);
         for (const face of matching) {
@@ -140,7 +140,7 @@ describe("vendored fonts (rule 5)", () => {
   });
 
   it("should ship the OFL license beside each vendored family a template uses", () => {
-    for (const dir of ["archivo", "martianmono", "bodonimoda", "sourcesans3", "jetbrainsmono", "caveat"]) {
+    for (const dir of ["archivo", "martianmono", "bodonimoda", "sourcesans3", "jetbrainsmono", "caveat", "geist", "geistmono", "marcellus"]) {
       const license = join(repoRoot, "vendor/fonts", dir, "OFL.txt");
       assert.ok(existsSync(license), `${dir}/OFL.txt`);
       assert.match(readFileSync(license, "utf8"), /SIL OPEN FONT LICENSE/i);

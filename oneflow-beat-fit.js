@@ -159,6 +159,9 @@
         targetSeniority: text(identity.targetSeniority) || "any",
         primaryNarrative: text(identity.primaryNarrative),
       },
+      // "Your details" (name, headline, email, phone, location, links):
+      // not edited here, carried through so this save never drops them.
+      contact: contactOf(identity),
       strengths,
       wants: strings(source.wants),
       avoids: strings(source.avoids),
@@ -182,15 +185,49 @@
     };
   }
 
+  const CONTACT_KEYS = ["fullName", "headline", "email", "phone", "location", "links"];
+
+  function contactOf(identity) {
+    const out = {};
+    if (!identity || typeof identity !== "object") return out;
+    CONTACT_KEYS.forEach(function (key) {
+      if (identity[key] !== undefined && identity[key] !== null && identity[key] !== "") {
+        out[key] = identity[key];
+      }
+    });
+    return out;
+  }
+
+  /**
+   * The details the "Your details" beat confirmed, when it did: the
+   * runtime copy first, then the persisted draft (a refresh between the
+   * two beats). Null when the step was skipped or never confirmed.
+   */
+  function confirmedContact(ctx) {
+    const runtime = (ctx && ctx.runtime) || {};
+    if (runtime.contactIdentity && typeof runtime.contactIdentity === "object") {
+      return runtime.contactIdentity;
+    }
+    const drafts = runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
+    const draft = drafts.contactDraft;
+    if (draft && typeof draft === "object" && draft.confirmed && draft.contact && typeof draft.contact === "object") {
+      return draft.contact;
+    }
+    return null;
+  }
+
   function buildPayload(model) {
     const hard = model.hardConstraints;
     const payload = {
       version: 1,
-      identity: {
-        targetRoles: strings(model.identity.targetRoles),
-        targetSeniority: text(model.identity.targetSeniority) || "any",
-        primaryNarrative: text(model.identity.primaryNarrative),
-      },
+      identity: Object.assign(
+        {
+          targetRoles: strings(model.identity.targetRoles),
+          targetSeniority: text(model.identity.targetSeniority) || "any",
+          primaryNarrative: text(model.identity.primaryNarrative),
+        },
+        contactOf(model.contact),
+      ),
       strengths: model.strengths
         .map(function (strength, index) {
           const entry = { name: text(strength.name), rank: index + 1 };
@@ -1361,6 +1398,9 @@
   async function confirmFit(ctx) {
     const record = getRecord(ctx);
     if (record.saving) return;
+    // What "Your details" confirmed wins over whatever the draft carried.
+    const confirmed = confirmedContact(ctx);
+    if (confirmed) record.model.contact = contactOf(confirmed);
     const checked = validate(record);
     if (!checked.payload) {
       if (checked.grouped.general.length) {

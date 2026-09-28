@@ -3,6 +3,12 @@
    ============================================ */
 
 (function () {
+  const output = window.JobBoredLlmOutputBudget || {
+    outputBudget: () => undefined,
+    shortOutputBudget: () => undefined,
+    geminiThinkingConfig: () => undefined,
+    outputLimitField: () => ({}),
+  };
   /**
    * Block fetches that send Bearer API keys to attacker-controlled hosts.
    *
@@ -309,7 +315,7 @@
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  async function callGemini(bundle, apiKey, model, isFallback = false) {
+  async function callGemini(bundle, apiKey, model, isFallback = false, retriedTruncation = false) {
     const resolvedModel = resolveGeminiFlashAlias(model);
     if (!isFallback) migrateStoredGeminiFlashPreference(model);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
@@ -319,7 +325,8 @@
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
       generationConfig: {
-        maxOutputTokens: 8192,
+        maxOutputTokens: output.outputBudget("gemini", resolvedModel),
+        thinkingConfig: output.geminiThinkingConfig(resolvedModel),
         temperature: 0.7,
       },
     };
@@ -348,19 +355,14 @@
       throw new Error(msg);
     }
     lastGeminiModelUsed = resolvedModel;
+    if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      if (!retriedTruncation) return callGemini(bundle, apiKey, model, isFallback, true);
+      throw new Error(`Gemini model ${resolvedModel} reached its output limit after a retry.`);
+    }
     const parts = data.candidates?.[0]?.content?.parts;
     const text = parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) throw new Error("Empty response from Gemini");
     return extractInsights(text);
-  }
-
-  /** GPT-5 / o-series and other newer chat models use max_completion_tokens, not max_tokens. */
-  function openAIUsesMaxCompletionTokens(model) {
-    const m = String(model || "").toLowerCase();
-    if (m.startsWith("gpt-5")) return true;
-    if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
-      return true;
-    return false;
   }
 
   function wantsParsedJson(opts) {
@@ -372,17 +374,6 @@
 
   function wantsJsonResponse(opts) {
     return !!(opts && (opts.json || wantsParsedJson(opts)));
-  }
-
-  // opts.maxOutputTokens lets a caller with a big JSON shape (B3's Fit
-  // Profile drafts run past 3,500 tokens) raise the ceiling; anything
-  // else falls back to the per-call default. Additive — existing callers
-  // that never pass it behave exactly as before.
-  function jsonLimit(opts, fallback) {
-    const override = opts && opts.maxOutputTokens;
-    return Number.isFinite(override) && override > 0
-      ? Math.floor(override)
-      : fallback;
   }
 
   function parseConfiguredAiJson(raw) {
@@ -422,7 +413,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      max_tokens: jsonLimit(opts, wantJson ? 4096 : 2048),
+      ...output.outputLimitField(label === "OpenRouter" ? "openrouter" : "local", model, wantJson ? undefined : 8192),
     };
     const headers = { "Content-Type": "application/json" };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -462,9 +453,6 @@
 
   async function callConfiguredAiOpenAI(system, user, apiKey, model, opts) {
     const m = model || "gpt-4o-mini";
-    const limitKey = openAIUsesMaxCompletionTokens(m)
-      ? "max_completion_tokens"
-      : "max_tokens";
     const body = {
       model: m,
       messages: [
@@ -472,7 +460,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      [limitKey]: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
+      ...output.outputLimitField("openai", m, wantsJsonResponse(opts) ? undefined : 8192),
     };
     let resp;
     try {
@@ -510,7 +498,7 @@
         },
         body: JSON.stringify({
           model: model || "claude-sonnet-4-6",
-          max_tokens: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
+          ...(output.outputBudget("anthropic", model || "claude-sonnet-4-6") === undefined ? {} : { max_tokens: wantsJsonResponse(opts) ? output.outputBudget("anthropic", model || "claude-sonnet-4-6") : output.shortOutputBudget("anthropic", model || "claude-sonnet-4-6") }),
           system,
           messages: [{ role: "user", content: user }],
         }),
@@ -582,15 +570,13 @@
     }
   }
 
-  async function callConfiguredAiGemini(system, user, apiKey, model, opts, isFallback = false) {
+  async function callConfiguredAiGemini(system, user, apiKey, model, opts, isFallback = false, retriedTruncation = false) {
     const resolvedModel = resolveGeminiFlashAlias(model);
     if (!isFallback) migrateStoredGeminiFlashPreference(model);
     const wantJson = wantsJsonResponse(opts);
-    const isThinkingModel =
-      resolvedModel === GEMINI_FLASH_PROVIDER_ALIAS ||
-      /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
-      maxOutputTokens: jsonLimit(opts, isThinkingModel || wantJson ? 8192 : 2048),
+      maxOutputTokens: wantJson ? output.outputBudget("gemini", resolvedModel) : output.shortOutputBudget("gemini", resolvedModel),
+      thinkingConfig: output.geminiThinkingConfig(resolvedModel),
       temperature: 0.5,
     };
     if (wantJson) generationConfig.responseMimeType = "application/json";
@@ -625,6 +611,10 @@
     }
     lastGeminiModelUsed = resolvedModel;
     const candidate = data.candidates?.[0];
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      if (!retriedTruncation) return callConfiguredAiGemini(system, user, apiKey, model, opts, isFallback, true);
+      throw new Error(`Gemini model ${resolvedModel} reached its output limit after a retry.`);
+    }
     const text =
       candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) {
@@ -761,9 +751,6 @@
     assertSafeBaseUrl(baseUrl);
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
-    const limitKey = openAIUsesMaxCompletionTokens(model)
-      ? "max_completion_tokens"
-      : "max_tokens";
     const body = {
       model,
       messages: [
@@ -771,7 +758,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.7,
-      [limitKey]: 8192,
+      ...output.outputLimitField("openai", model),
     };
     const url = `${String(baseUrl).replace(/\/+$/, "")}/chat/completions`;
     let resp;
@@ -836,7 +823,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.7,
-      max_tokens: 8000,
+      ...output.outputLimitField("openrouter", model),
     };
 
     async function requestOnce() {
@@ -870,8 +857,8 @@
 
   /**
    * Local OpenAI-compatible server (default: Ollama on 127.0.0.1:11434).
-   * Reuses the OpenAI chat-completions request shape parameterized by base URL,
-   * with max_tokens (not max_completion_tokens). Authorization is sent only when
+   * Reuses the OpenAI chat-completions request shape parameterized by base URL.
+   * Authorization is sent only when
    * resumeLocalApiKey is set (Ollama ignores it). A connection failure surfaces
    * actionable guidance to start the local server rather than a bare
    * "Failed to fetch".
@@ -889,7 +876,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.7,
-      max_tokens: 8000,
+      ...output.outputLimitField("local", model),
     };
     const headers = { "Content-Type": "application/json" };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -939,7 +926,7 @@
         },
         body: JSON.stringify({
           model,
-          max_tokens: 8192,
+          ...(output.outputBudget("anthropic", model) === undefined ? {} : { max_tokens: output.outputBudget("anthropic", model) }),
           system,
           messages: [{ role: "user", content: user }],
         }),

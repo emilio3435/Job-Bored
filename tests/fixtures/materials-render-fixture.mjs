@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveFamily } from "../../server/materials-templates.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const MOCK_DIR = join(repoRoot, "docs/materials-v3/mocks/3e-ai-marketing-analytics-manager");
@@ -39,7 +40,7 @@ export function baseRenderModel() {
  */
 export function fullRenderModel(family = "signal") {
   const model = baseRenderModel();
-  model.template = { family, version: "1.0", pageBudget: 1 };
+  model.template = { family, version: resolveFamily(family).version, pageBudget: 1 };
   model.documents.resume.templateId = `${family}.resume`;
   model.documents.coverLetter.templateId = `${family}.letter`;
 

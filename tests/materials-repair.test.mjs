@@ -107,7 +107,7 @@ describe("buildRepairRequestPayload", () => {
     assert.match(result.payload.notes, /Additional user notes:\nKeep the first client win\./);
   });
 
-  it("turns a short cover letter into an expand request toward 180 body words", () => {
+  it("turns a short cover letter into an expand request toward 120 body words", () => {
     const result = buildRepairRequestPayload({
       ...baseManifest,
       quality: {
@@ -118,7 +118,7 @@ describe("buildRepairRequestPayload", () => {
             words: 140,
             pageWords: [140],
             issues: [
-              { code: "cover_letter_too_short", message: "Cover letter has 140 body words (target 180–260)." },
+              { code: "cover_letter_too_short", message: "Cover letter has 140 body words (target 120–200)." },
             ],
           },
         },
@@ -127,7 +127,7 @@ describe("buildRepairRequestPayload", () => {
 
     assert.equal(result.payload.feature, "cover_letter");
     assert.equal(result.repair.strategy, "expand");
-    assert.match(result.payload.notes, /toward 180 body words/);
+    assert.match(result.payload.notes, /toward 120 body words/);
   });
 
   it("collapses by default when no issue names a strategy", () => {

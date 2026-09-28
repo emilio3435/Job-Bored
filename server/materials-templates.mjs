@@ -30,6 +30,8 @@ export const TEMPLATE_SOURCES = Object.freeze(["default", "preference", "request
  * @typedef {object} FamilyLogos
  * @property {{ mark: number, wordmark: number, lockup: number }} opticalSizesIn
  * @property {boolean} hideNameBesideWordmark
+ * @property {boolean} [monogramFallback] featured employers without a
+ *   resolved mark print a monogram (families that set marks in a column)
  */
 
 /**
@@ -59,6 +61,12 @@ export const TEMPLATE_SOURCES = Object.freeze(["default", "preference", "request
  * @property {string[]} accents
  * @property {string[]} densities
  * @property {FamilyLogos} logos
+ * @property {string[]} [headers] header variants the stylesheet defines
+ * @property {string} [defaultHeader]
+ * @property {{ metrics: string, letterSpacingEm: number, lineHeight: number }} [nameDots]
+ *   tittle dots over the name, placed from the display face's metrics
+ * @property {{ resume?: import("./materials-render.mjs").NameFitSpec, coverLetter?: import("./materials-render.mjs").NameFitSpec }} [nameFit]
+ *   one-line name sizing per document
  * @property {FamilyFit} fit
  * @property {FamilyBudgets} budgets
  * @property {string[]} reads

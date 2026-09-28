@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { checkLoopbackRequestHost } from "../../../../server/security-boundaries.mjs";
 import type { WorkerRuntimeConfig } from "../config.ts";
+import type { NormalizedLead, PipelineWriteResult, DiscoveryRunStatusPayload } from "../contracts.ts";
 import {
   CANDIDATE_CATALOG_STATUSES,
   type CandidateCatalogListQuery,
@@ -15,7 +16,7 @@ import {
   readBody as defaultReadBody,
 } from "../http/body-limit.ts";
 import { buildCorsHeaders, isOriginAllowed } from "../http/origin-guard.ts";
-import type { DiscoveryRunStatusStore } from "../state/run-status-store.ts";
+import type { DiscoveryRunStatusStore, DurableDiscoveryRunStatusPayload } from "../state/run-status-store.ts";
 import { withApiErrorEnvelope } from "./api-error.ts";
 import {
   hasValidWebhookSecret,
@@ -59,7 +60,8 @@ export interface WorkerRouterDependencies {
     WorkerRuntimeConfig,
     "runMode" | "allowedOrigins" | "allowedHosts" | "webhookSecret"
   >;
-  runStatusStore: Pick<DiscoveryRunStatusStore, "get"> & Partial<Pick<DiscoveryRunStatusStore, "list">>;
+  runStatusStore: Pick<DiscoveryRunStatusStore, "get"> & Partial<Pick<DiscoveryRunStatusStore, "list" | "finishWriteRetry">>;
+  retryWrite?(sheetId: string, leads: NormalizedLead[], googleAccessToken?: string): Promise<PipelineWriteResult>;
   cancelRegistry?: RunCancelRegistry;
   buildHealthPayload(): Promise<unknown>;
   /** DISCAT D5: read surface for `GET /candidates`. */
@@ -85,6 +87,14 @@ export const WORKER_POST_ROUTES: Readonly<
 };
 
 const RUN_CANCEL_PATH = /^\/runs\/([^/]+)\/cancel$/;
+const RUN_RETRY_WRITE_PATH = /^\/runs\/([^/]+)\/retry-write$/;
+
+function publicRunStatus(status: DiscoveryRunStatusPayload | null): Omit<DiscoveryRunStatusPayload, "selectedLeads"> | null {
+  if (!status) return null;
+  const { selectedLeads: _privateLeads, ...publicStatus } = status;
+  return publicStatus;
+}
+
 const CANDIDATES_PATH = "/candidates";
 const CANDIDATES_DEFAULT_LIMIT = 100;
 const CANDIDATES_MAX_LIMIT = 1000;
@@ -146,8 +156,9 @@ export function createWorkerRequestListener(
   deps: WorkerRouterDependencies,
 ): (request: IncomingMessage, response: ServerResponse) => void {
   const readBody = deps.readBody || defaultReadBody;
+  const retryingWrites = new Set<string>();
   return (request, response) => {
-    handleWorkerRequest(deps, readBody, request, response).catch(
+    handleWorkerRequest(deps, readBody, retryingWrites, request, response).catch(
       (error: unknown) => {
         // Catch-all: a handler bug answers 500 and never rethrows.
         console.error(
@@ -178,6 +189,7 @@ export function createWorkerRequestListener(
 async function handleWorkerRequest(
   deps: WorkerRouterDependencies,
   readBody: (request: IncomingMessage) => Promise<string>,
+  retryingWrites: Set<string>,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
@@ -317,6 +329,12 @@ async function handleWorkerRequest(
     return;
   }
 
+  const retryMatch = RUN_RETRY_WRITE_PATH.exec(requestPath);
+  if (retryMatch) {
+    await handleRunRetryWrite(deps, readBody, retryingWrites, request, method, retryMatch[1], finishJson, corsHeaders);
+    return;
+  }
+
   const cancelMatch = RUN_CANCEL_PATH.exec(requestPath);
   if (cancelMatch) {
     await handleRunCancel(deps, request, method, cancelMatch[1], finishJson, corsHeaders);
@@ -373,7 +391,7 @@ async function handleWorkerRequest(
       );
       return;
     }
-    finishJson(200, { ok: true, ...payload }, corsHeaders);
+    finishJson(200, { ok: true, ...publicRunStatus(payload) }, corsHeaders);
     return;
   }
 
@@ -563,7 +581,7 @@ async function handleRunCancel(
         code: "run_already_terminal",
         message: `Run already finished as ${current.status}.`,
         retryable: false,
-        run: current,
+        run: publicRunStatus(current),
       },
       corsHeaders,
     );
@@ -612,10 +630,116 @@ async function handleRunCancel(
       runId,
       cancelled: outcome.cancelled,
       stopConfirmed: outcome.stopConfirmed,
-      run: outcome.status || deps.runStatusStore.get(runId),
+      run: publicRunStatus(outcome.status || deps.runStatusStore.get(runId)),
     },
     corsHeaders,
   );
+}
+
+/** Replays only the saved write set. The pipeline writer rechecks Sheet links. */
+async function handleRunRetryWrite(
+  deps: WorkerRouterDependencies,
+  readBody: (request: IncomingMessage) => Promise<string>,
+  retryingWrites: Set<string>,
+  request: IncomingMessage,
+  method: string,
+  rawRunId: string,
+  finishJson: (status: number, body: unknown, extraHeaders?: Record<string, string>) => void,
+  corsHeaders: Record<string, string>,
+): Promise<void> {
+  if (method !== "POST") {
+    finishJson(405, { ok: false, message: "Method not allowed" }, { ...corsHeaders, allow: "POST,OPTIONS" });
+    return;
+  }
+  const auth = hasValidWebhookSecret(deps.runtimeConfig.webhookSecret, headersForHandler(request.headers));
+  if (!auth.valid) {
+    finishJson(401, { ok: false, message: "Unauthorized write retry request." }, corsHeaders);
+    return;
+  }
+  let runId = "";
+  try { runId = decodeURIComponent(rawRunId).trim(); } catch { /* Invalid percent-encoding. */ }
+  if (!runId) {
+    finishJson(400, { ok: false, code: "invalid_run_id", message: "Run id is malformed." }, corsHeaders);
+    return;
+  }
+  if (!deps.retryWrite || !deps.runStatusStore.finishWriteRetry) {
+    finishJson(503, { ok: false, message: "Write retry is unavailable on this worker." }, corsHeaders);
+    return;
+  }
+  const current = deps.runStatusStore.get(runId);
+  if (current?.status !== "write_failed" || !current.selectedLeads?.length) {
+    finishJson(409, { ok: false, code: "write_not_retryable", message: "This run has no saved write to retry." }, corsHeaders);
+    return;
+  }
+  if (retryingWrites.has(runId)) {
+    finishJson(409, { ok: false, code: "write_retry_running", message: "A write retry is already running." }, corsHeaders);
+    return;
+  }
+  let googleAccessToken = "";
+  try {
+    const bodyText = await readBody(request);
+    if (bodyText.trim()) {
+      const body: unknown = JSON.parse(bodyText);
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          ("googleAccessToken" in body && typeof body.googleAccessToken !== "string")) {
+        throw new Error("Invalid retry body.");
+      }
+      googleAccessToken = "googleAccessToken" in body ? String(body.googleAccessToken).trim() : "";
+    }
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      finishJson(413, { ok: false, code: "payload_too_large", message: "Request body exceeds the configured limit." }, corsHeaders);
+      return;
+    }
+    finishJson(400, { ok: false, code: "invalid_retry_body", message: "Retry body must be JSON with an optional googleAccessToken string." }, corsHeaders);
+    return;
+  }
+  if (retryingWrites.has(runId)) {
+    finishJson(409, { ok: false, code: "write_retry_running", message: "A write retry is already running." }, corsHeaders);
+    return;
+  }
+  retryingWrites.add(runId);
+  try {
+    const writeResult = await deps.retryWrite(current.request.sheetId, current.selectedLeads, googleAccessToken);
+    const warnings = current.warnings.filter((entry) => !entry.startsWith("Sheet write failed during"));
+    warnings.push(...writeResult.warnings);
+    const status = warnings.length ? "partial" : "completed";
+    const updatedAt = new Date().toISOString();
+    const updated: DurableDiscoveryRunStatusPayload = {
+      ...current,
+      status,
+      message: status === "partial" ? "Discovery write retried with warnings." : "Discovery write retried successfully.",
+      updatedAt,
+      completedAt: updatedAt,
+      error: undefined,
+      selectedLeads: undefined,
+      warnings,
+      writeResult,
+      ...(current.lifecycle ? { lifecycle: { ...current.lifecycle, state: status, completedAt: updatedAt } } : {}),
+      ...(current.runStats?.funnel ? { runStats: {
+        ...current.runStats,
+        funnel: { ...current.runStats.funnel, written: writeResult.appended, updated: writeResult.updated },
+      } } : {}),
+    };
+    deps.runStatusStore.finishWriteRetry(updated);
+    deps.logEvent("discovery.run.write_retry_completed", { runId, appended: writeResult.appended, updated: writeResult.updated });
+    finishJson(200, { ok: true, runId, run: publicRunStatus(updated) }, corsHeaders);
+  } catch (error) {
+    const message = formatError(error);
+    const updated = {
+      ...current,
+      status: "write_failed" as const,
+      message: `Write retry failed: ${message}`,
+      error: message,
+      updatedAt: new Date().toISOString(),
+    };
+    try { deps.runStatusStore.finishWriteRetry(updated); } catch { /* Original write set stays durable. */ }
+    deps.logEvent("discovery.run.write_retry_failed", { runId, error: message });
+    finishJson(503, { ok: false, code: "write_retry_failed", message, retryable: true,
+      nextStep: "Fix the Google connection or authorization, then retry this run's write." }, corsHeaders);
+  } finally {
+    retryingWrites.delete(runId);
+  }
 }
 
 /**

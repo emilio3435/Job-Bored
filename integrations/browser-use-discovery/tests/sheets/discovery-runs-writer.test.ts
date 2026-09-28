@@ -5,7 +5,7 @@ import type {
   DiscoveryRunLogRow,
   WorkerRuntimeConfig,
 } from "../../src/contracts.ts";
-import { DISCOVERY_RUNS_SHEET_NAME } from "../../src/contracts.ts";
+import { DISCOVERY_RUNS_HEADER_ROW, DISCOVERY_RUNS_SHEET_NAME } from "../../src/contracts.ts";
 import {
   appendDiscoveryRunRow,
   buildDiscoveryRunLogRowFromStatus,
@@ -251,6 +251,55 @@ test("appendDiscoveryRunRow returns ok:false when the append request fails (does
   if (result.ok === false) {
     assert.match(result.reason, /HTTP 500/);
   }
+});
+
+test("DiscoveryRuns re-reads Run ID after an uncertain append before retrying", async () => {
+  for (const alreadyLanded of [true, false]) {
+    let appends = 0;
+    let reads = 0;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes(":append")) {
+        appends++;
+        if (appends === 1) throw new TypeError("response lost");
+        return okJson({ updates: {} });
+      }
+      if (url.includes(encodeURIComponent("DiscoveryRuns!K2:K"))) {
+        reads++;
+        return okJson({ values: alreadyLanded ? [["run_test"]] : [] });
+      }
+      if (String(init?.method || "GET") === "GET") {
+        return okJson({ values: [[...DISCOVERY_RUNS_HEADER_ROW]] });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const result = await appendDiscoveryRunRow("sheet-123", makeRow(), {
+      runtimeConfig: makeRuntimeConfig(), fetchImpl,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(reads, 1);
+    assert.equal(appends, alreadyLanded ? 1 : 2);
+  }
+});
+
+test("DiscoveryRuns header read retries a transient Sheets response", async () => {
+  let headerReads = 0;
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (String(init?.method || "GET") === "GET") {
+      headerReads++;
+      return headerReads === 1
+        ? new Response("busy", { status: 503 })
+        : okJson({ values: [[...DISCOVERY_RUNS_HEADER_ROW]] });
+    }
+    if (url.includes(":append")) return okJson({ updates: {} });
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+  const result = await appendDiscoveryRunRow("sheet-123", makeRow(), {
+    runtimeConfig: makeRuntimeConfig(), fetchImpl, retryBaseMs: 0,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(headerReads, 2);
 });
 
 test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async () => {

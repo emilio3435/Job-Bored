@@ -1,23 +1,87 @@
 {
   "contract": "materials.voice.v1",
-  "version": "materials.voice.v3.0",
-  "note": "Deterministic half of the delint stage. A user copy at ~/.jobbored/profile/voice.md overrides `guide`; `banned`, `taglines`, and `cadence` are additive-only so a user cannot unban filler.",
+  "version": "materials.voice.v5.0",
+  "note": "Deterministic half of the delint stage and the voice every draft inherits. `guide` is the one voice for every role family; `families` only choose which proofs lead and what the ask offers. A user's ~/.jobbored/profile/voice.md is the source of truth when present: it overrides this guide where they conflict, its facts become approved claims, its avoid list joins the tells and its signature lines are exempt when quoted exactly. `banned`, `taglines`, `aiTells` and `cadence` are additive-only so a user cannot unban filler.",
   "guide": {
-    "oneLine": "Direct, evidence-first, KPI to business outcome. Sounds like a readout, not a brand deck.",
+    "oneLine": "A whimsical, curious inventor with an analyst's eye: writes about what he built, tested, broke and fixed, and is exact about every number.",
+    "persona": "One specific builder writing by hand to one company. Professional, a little warm, never corporate, never gushing, never machine-smooth.",
     "do": [
-      "Short sentences next to one longer one. Uneven on purpose.",
-      "Concrete nouns from the posting: readout, skills, connections, stage conversion, Demand Gen.",
-      "One vivid artifact per document.",
-      "First person in the letter; no I-spam on the resume.",
-      "Name the analog plainly instead of implying it."
+      "Inventor's lens: frame the work as things you built, tested, broke and fixed (a forecaster, a playbook, a desk of AEs coached every week).",
+      "Rigor: every number is copied from one claim, with its unit; say how it was measured when the claim says so. Never round up, never invent.",
+      "First person, active verbs. Contractions are fine (I'm, I've, it's).",
+      "Vary sentence length on purpose: at least one sentence of nine words or fewer, next to a longer one.",
+      "Proof sentences stay close to the claim's own wording (its nouns, verbs and numbers), in first person and active voice.",
+      "Name concrete things: tools, desks, accounts, forecasts, pitches, channels. Abstract nouns only next to a number or a named thing.",
+      "Use the posting's concrete nouns (products, channels, tools) wherever a claim supports them; what you never copy is its sentences.",
+      "Shape: three short paragraphs. Hook, two or three sentences: the most relevant fact about you for this role. Evidence, three or four sentences: one or two concrete proofs. Close, one or two sentences: what you want to do next and a direct ask. Fewer words over more.",
+      "Hook: open with a fact about you or the position, avoid with praise of the company or what it needs. Name the company within the first two sentences.",
+      "Personality: at most one small line, taken from your own phrasing; never at the cost of clarity, never a made-up aside."
     ],
     "dont": [
-      "Title stacking (\"X and Y with 10+ years optimizing...\").",
-      "Abstract noun piles.",
-      "Mission flattery.",
-      "Three consecutive bullets with the same grammar skeleton.",
-      "Claiming a tool the ledger records at level `none`."
-    ]
+      "Restate the posting's own language, or open with what the company requires, needs or seeks.",
+      "Stock openers: \"I am writing to\", \"With ten-plus years\", \"As a seasoned\".",
+      "Stock closers: \"I would welcome the chance/opportunity\", \"I look forward to\", \"Thank you for your consideration\".",
+      "Gush: passionate, thrilled, excited to, dream role, honored.",
+      "AI tells: delve, tapestry, testament, leverage, robust, seamless, synergy, holistic, cutting-edge, navigate the landscape, in today's fast-paced.",
+      "\"It's not just X, it's Y\", \"not X, but Y\", \"X rather than Y\" or \"instead of\" framing.",
+      "Three-item lists back to back; more than one em-dash in a paragraph.",
+      "Abstraction chains (adoption, alignment, governance, frameworks, impact, strategy) with no number or concrete thing nearby.",
+      "Stiff stock phrases: \"was my testing ground\", \"comes down to\", \"at the end of the day\", \"roll up sleeves\".",
+      "Title stacking and mission flattery.",
+      "Claiming a tool the ledger records at level `none`.",
+      "Invented color: scenes, counts, scopes or causes that no claim states, including connective claims that tie two facts together.",
+      "Canned asides (\"The lift proved the model.\", \"It took daily discipline.\").",
+      "Flattery, false humility, compensation numbers, or pejorative departure framing (\"laid off\", \"let go\")."
+    ],
+    "summary": "The resume summary is one sentence, twenty-eight to forty words: who you are in your own terms, one concrete thing you built or ran with its number, and one specific, slightly memorable detail. No buzzword chain, no years-of-experience opener, no posting title as identity."
+  },
+  "families": {
+    "note": "Per-role-family proof order for the draft stage (K4). Every family inherits `guide`; these only pick which proofs lead and what the ask offers. `general` is the fallback.",
+    "sales": {
+      "lead": "Lead with book size, ranking or attainment, then the team you built or coached.",
+      "proofs": "Scope, then result, then rank: book or quota size, desks or AEs coached, market ranking, revenue growth. Name the channels the posting sells.",
+      "ask": "Offer something concrete and a little playful: plan one of their live campaigns or accounts on a single page, or sit in on a pitch prep."
+    },
+    "customer-success": {
+      "lead": "Lead with retention, expansion or renewal numbers on a named book of accounts.",
+      "proofs": "Accounts owned, retention or NRR, a save or expansion story with a number.",
+      "ask": "Offer to sketch the renewal plan for one of their segments on one page."
+    },
+    "marketing": {
+      "lead": "Lead with a campaign result tied to revenue or pipeline, not impressions.",
+      "proofs": "Channel, spend or audience size, then the conversion, CPA or ROAS change.",
+      "ask": "Offer a short, honest teardown of one of their live campaigns or channels."
+    },
+    "analytics": {
+      "lead": "Lead with a decision your analysis changed and the number it moved.",
+      "proofs": "The question, the data or model, the measured change. Name the tools the posting names only where the claim shows them.",
+      "ask": "Offer to build a quick readout or model on one of their stated problems and show the working."
+    },
+    "engineering": {
+      "lead": "Lead with a system you shipped to production and its scale or reliability number.",
+      "proofs": "What you built, the stack the posting names, the measured effect (latency, cost, uptime, users).",
+      "ask": "Offer a whiteboard walkthrough of a system you built that maps to their stack, failures included."
+    },
+    "product": {
+      "lead": "Lead with a product outcome: adoption, retention or revenue from something you shipped.",
+      "proofs": "The user problem, the launch, the metric that moved.",
+      "ask": "Offer a one-page take on one roadmap problem from the posting."
+    },
+    "design": {
+      "lead": "Lead with a shipped design and the user or business result it produced.",
+      "proofs": "Research, the design decision, the measured result.",
+      "ask": "Offer to walk through one case study that matches their product, sketches and dead ends included."
+    },
+    "operations": {
+      "lead": "Lead with a process you fixed and the time, cost or throughput it saved.",
+      "proofs": "Scope of the operation, the change, the number.",
+      "ask": "Offer to map one of their processes and mark where it would break first."
+    },
+    "general": {
+      "lead": "Lead with your single biggest verified number.",
+      "proofs": "Each proof answers one named responsibility with a number from your claims.",
+      "ask": "Name one concrete, slightly playful next step you would do for them."
+    }
   },
   "banned": [
     { "pattern": "leverage", "severity": "fail", "note": "classic filler" },
@@ -49,7 +113,18 @@
     { "pattern": "i believe i would be", "severity": "fail" },
     { "pattern": "perfect fit", "severity": "fail" },
     { "pattern": "i would love the opportunity", "severity": "fail" },
-    { "pattern": "look forward to hearing", "severity": "review", "note": "replace with a concrete next step" }
+    { "pattern": "look forward to hearing", "severity": "review", "note": "replace with a concrete next step" },
+    { "pattern": "i welcome the opportunity", "severity": "fail", "note": "P-9: the _84d0 letter's closer" },
+    { "pattern": "ongoing success", "severity": "fail", "note": "P-9: abstract filler" },
+    { "pattern": "operational integrity", "severity": "fail", "note": "P-9: abstract filler" },
+    { "pattern": "strategic initiatives", "severity": "fail", "note": "P-9: abstract filler" },
+    { "pattern": "\\bI(?:'d| would| will)? (?:truly |greatly |really )?(?:welcome|appreciate|value|relish) (?:the|an|any|this) (?:opportunity|chance)\\b", "regex": true, "severity": "fail", "note": "closer variants of 'I welcome the opportunity'" },
+    { "pattern": "\\b(?:look|looking) forward to (?:hearing|speaking|discussing|connecting|talking)\\b", "regex": true, "severity": "review", "note": "replace with a concrete next step" },
+    { "pattern": "\\b(?:ongoing|continued|continuing|sustained|lasting) (?:success|growth and success)\\b", "regex": true, "severity": "fail", "note": "abstract filler variants" },
+    { "pattern": "\\bstrategic (?:initiatives?|priorities|imperatives)\\b", "regex": true, "severity": "fail", "note": "abstract filler variants" },
+    { "pattern": "\\boperational (?:integrity|excellence)\\b", "regex": true, "severity": "fail", "note": "abstract filler variants" },
+    { "pattern": "dream role", "severity": "fail", "note": "gush" },
+    { "pattern": "\\bI would welcome the chance\\b", "regex": true, "severity": "fail", "note": "stock closer" }
   ],
   "taglines": [
     { "pattern": "and the systems behind it", "severity": "fail", "note": "old template voice" },
@@ -74,5 +149,23 @@
   },
   "jdEcho": {
     "windowWords": 8
+  },
+  "aiTells": [
+    { "pattern": "\\bin (?:the )?realm of\\b", "note": "essay phrasing" },
+    { "pattern": "\\bplays? a (?:key|crucial|vital|pivotal) role\\b", "note": "essay phrasing" },
+    { "pattern": "\\b(?:at|in) the heart of\\b", "note": "essay phrasing" },
+    { "pattern": "\\bharness(?:es|ed|ing)? the power\\b", "note": "harness the power" },
+    { "pattern": "\\bdrive (?:meaningful|measurable|real) (?:impact|results|outcomes)\\b", "note": "abstract impact claim" },
+    { "pattern": "\\bdurable (?:adoption|impact|platforms?|value)\\b", "note": "the Seabright boilerplate" },
+    { "pattern": "\\b(?:was|is|became|served as) (?:my|our|the) (?:testing|proving) ground\\b", "note": "stiff phrase" },
+    { "pattern": "\\bcomes? down to\\b", "note": "stiff phrase" },
+    { "pattern": "\\bat the end of the day\\b", "note": "stiff phrase" },
+    { "pattern": "\\broll(?:ing)? up (?:my |our )?sleeves\\b", "note": "stiff phrase" }
+  ],
+  "humanVoice": {
+    "paragraphEmDashMax": 1,
+    "abstractionMax": 0.025,
+    "rhythmCvMin": 0.25,
+    "shortSentenceMax": 9
   }
 }

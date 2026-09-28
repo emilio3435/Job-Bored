@@ -417,3 +417,58 @@ test("the Case People controls write contact, last contact, reply, and follow-up
   expect(consoleErrors, "the People writeback run must be console-error free").toEqual([]);
   expect(fence.unexpectedExternal).toEqual([]);
 });
+
+/* CASEWHY: the fit number with its reason, read off the Pipeline row the
+   board already holds (K Fit Assessment, U Match Score). Stable keys are
+   Pipeline indices: role "1" (Chronicle) carries both cells, role "2"
+   carries neither and must show no block. */
+test("the Case shows why a role scored its fit, and nothing when the row has no reason", async ({
+  page,
+}) => {
+  const { consoleErrors, fence, jobs } = await bootGreenfield(page);
+  await page.waitForTimeout(3_000);
+  jobs[1].fitAssessment =
+    "Strong fit (score: 7/10). Ran a multi-region control plane and owns observability end to end, " +
+    "and the posting asks for the same incident-review habits and a steady hand on a busy platform team. " +
+    "Matches: Kubernetes · Observability · Go. Concerns: No on-call rotation lead yet. " +
+    "Application: Clean ATS — Greenhouse/Lever/Ashby.";
+  jobs[1].matchScore = 6;
+
+  await stageFakeSignedInSession(page);
+  await seedPipelineThroughApp(page, jobs);
+  await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key="1"]')).toBeAttached({
+    timeout: 10_000,
+  });
+
+  await page.evaluate(() => window.JobBoredFlowing.openRole.set("1"));
+  const why = page.locator(`${ROLE_REGION} .case .case__verdict .case__fitwhy`);
+  await expect(why).toBeVisible({ timeout: 10_000 });
+  await expect(why.locator(".case__fitwhy-h")).toHaveText("Why it scored 7/10");
+  await expect(why.locator(".case__fitwhy-text")).toContainText("Strong fit. Ran a multi-region control plane");
+  await expect(why.locator(".case__fitwhy-list--fits li")).toHaveText(["Kubernetes", "Observability", "Go"]);
+  await expect(why.locator(".case__fitwhy-list--watch li")).toHaveText(["No on-call rotation lead yet"]);
+  await expect(why.locator(".case__fitwhy-match")).toContainText("Match 6 / 10");
+
+  /* Grok CW-3: the clamp is measured at the width the reason actually has.
+     About 200 characters fit in four lines on a desktop Case and do not at
+     375px, so the same sentence is whole on one and clamped on the other. */
+  const reason = why.locator(".case__fitwhy-text");
+  const toggle = why.locator(".case__fitwhy-toggle");
+  await expect(reason).not.toHaveAttribute("data-clamped", "true");
+  await expect(toggle).toBeHidden();
+  await page.setViewportSize({ width: 375, height: 800 });
+  await expect(reason).toHaveAttribute("data-clamped", "true", { timeout: 5_000 });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveText("Show less");
+  await expect(reason).toHaveAttribute("data-clamped", "false");
+
+  await page.evaluate(() => window.JobBoredFlowing.openRole.set("2"));
+  await expect(page.locator(`${ROLE_REGION} .case`)).toContainText("Design Systems Lead", { timeout: 10_000 });
+  await expect(page.locator(`${ROLE_REGION} .case__fitwhy`)).toHaveCount(0);
+
+  expect(consoleErrors, "opening the Case with a fit reason must be console-error free").toEqual([]);
+  expect(fence.unexpectedExternal).toEqual([]);
+});

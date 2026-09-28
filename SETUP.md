@@ -327,6 +327,35 @@ The local scraper server drafts materials with the model you picked at setup; Ge
 
 See `config.example.js` for all keys. For the POST body your webhook receives, see [Resume generation webhook](#resume-generation-webhook) below.
 
+#### Materials model config (`~/.jobbored/llm.json`)
+
+The local server keeps the model you picked at setup in `~/.jobbored/llm.json` (mode `0600`; `JOBBORED_LLM_CONFIG_PATH` overrides the path). Settings writes `provider`, `model`, `apiKey`, and `baseUrl`. The file can also hold an optional `fallback` block, which you edit by hand. Settings never shows it, but a Settings save keeps it.
+
+```json
+{
+  "provider": "gemini",
+  "model": "gemini-flash",
+  "apiKey": "…",
+  "baseUrl": "",
+  "fallback": {
+    "enabled": false,
+    "stages": {
+      "jd.extract":    { "provider": "gemini", "model": "gemini-2.5-pro" },
+      "claims.select": { "provider": "openrouter", "model": "…", "apiKey": "…" },
+      "draft":         { "provider": "openai_compatible", "model": "…", "baseUrl": "http://127.0.0.1:11434/v1" },
+      "*":             { "provider": "gemini", "model": "gemini-2.5-pro" }
+    }
+  }
+}
+```
+
+- **Off by default.** Without a `fallback` block, or with `"enabled": false`, a stage whose model call fails falls back to its rule-based output, as it always has.
+- **When it triggers.** With `"enabled": true`, a materials stage (`jd.extract`, `claims.select`, `draft`) switches to its fallback model once the primary has failed twice. Retries count as failures: a reply cut off at the output limit, invalid JSON, or a 429/5xx that persists after backoff. A single non-retryable error, such as a 401 bad key, does not trigger the switch. `"*"` covers any stage that has no entry of its own.
+- **Keys.** A target may omit `apiKey` when it uses the same provider as the primary, and it then reuses the primary key. `baseUrl` is optional.
+- **Logged.** Each switch is logged on the server as `[materials] stage=… switching to fallback <provider>/<model>`, and the stage's entry in the package's `run.json` records `call.fallback` with `{ provider, model, reason }`. Keys are never logged or recorded.
+
+Every model stage in `run.json` carries a `call` record with `provider`, `model`, `attempts`, the last `finishReason`, `usage` (prompt, output, and thinking tokens), and, when the stage degraded, an `errorCode` plus a plain-language `degradedReason`, for example "output cut off at 8192 tokens (MAX_TOKENS) after 2 attempts". The server never serves a degraded or QA-failed package from cache. The cache key also includes the provider and model, so switching models re-drafts the package.
+
 ### Job posting scraper (Cheerio, optional)
 
 The **Skills, keywords & requirements** column can pull real text from the job URL. In the app, open **Settings → Setup guide** for a step-by-step panel, **Test connection**, and copy buttons.

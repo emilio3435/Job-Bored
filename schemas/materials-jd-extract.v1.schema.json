@@ -33,8 +33,43 @@
         "location": { "type": "string" },
         "workMode": { "type": "string" },
         "reportingLine": { "type": "string" },
-        "partners": { "type": "array", "items": { "type": "string" } }
+        "partners": { "type": "array", "items": { "type": "string" } },
+        "family": {
+          "description": "Role family (K4): steers which proofs the letter leads with and the voice guide.",
+          "enum": ["sales", "marketing", "analytics", "engineering", "product", "design", "operations", "customer-success", "general"]
+        },
+        "seniority": { "enum": ["entry", "mid", "senior", "lead", "manager", "director", "vp", "executive"] }
       }
+    },
+    "quality": {
+      "description": "RESJ Q3: how much role evidence this extract carries (counts, and a 0-1 score); recorded so a weak extract is visible.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "outcomes": { "type": "integer", "minimum": 0 },
+        "companyFacts": { "type": "integer", "minimum": 0 },
+        "differentiators": { "type": "integer", "minimum": 0 },
+        "bars": { "type": "integer", "minimum": 0 },
+        "stack": { "type": "integer", "minimum": 0 },
+        "nouns": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "degraded": {
+      "description": "RESJ Q3: why the model fill did not land and this is the deterministic half.",
+      "type": "object",
+      "required": ["code", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "companyFacts": {
+      "description": "Sentences from the posting's own About block the letter may cite for its company insight (Wave 1: posting only).",
+      "type": "array",
+      "maxItems": 6,
+      "items": { "type": "string" }
     },
     "split": {
       "type": "object",

@@ -2,18 +2,28 @@
  * Materials v3 — build the claim ledger from the user's resume and profile
  * (plan slice 1, mechanism §5).
  *
- * Deterministic extraction only: employers from profile experiences plus
- * resume header lines, claims from strength evidence plus resume bullets,
- * metric tokens from numerals, and a tool inventory split into
- * user-asserted (owned) and resume-mentioned (adjacent). Every string is
- * verbatim user text with a recorded source — nothing is inferred, so
- * every claim ships verified:true and selection can feature any of them.
+ * Employers come from profile experiences plus the resume structure
+ * (materials-resume-structure.mjs, or its model-structured twin when a pin
+ * is available); claims from strength evidence plus every line written
+ * under an employer, education and credential lines; metric tokens from
+ * numerals; and a tool inventory split into user-asserted (owned) and
+ * resume-mentioned (adjacent). Every string is verbatim user text with a
+ * recorded source — nothing is inferred, so every claim ships
+ * verified:true and selection can feature any of them.
  *
  * Fails with `ledger_empty` when neither input yields a fact.
  */
 
+import { toolPattern } from "./materials-tool-match.mjs";
+import { profileForLedger } from "./profile-identity.mjs";
+import { maskNonMetrics } from "./materials-numerals.mjs";
 import { createHash } from "node:crypto";
-import { hashLedger, readLedger, writeLedgerAtomic, LEDGER_CONTRACT } from "./materials-ledger.mjs";
+import { userInfo } from "node:os";
+import { join, resolve as resolvePath, sep } from "node:path";
+import { hashLedger, readLedger, resolveLedgerPath, writeLedgerAtomic, LEDGER_CONTRACT } from "./materials-ledger.mjs";
+import { aliasesFor, parseResumeStructure, slugify } from "./materials-resume-structure.mjs";
+import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
+import { desplitMetricTokens } from "./materials-resume-source.mjs";
 
 /**
  * @typedef {object} LedgerEmployer
@@ -25,12 +35,14 @@ import { hashLedger, readLedger, writeLedgerAtomic, LEDGER_CONTRACT } from "./ma
  * @property {string | null} [end]
  * @property {string} [scope]
  * @property {string} [site]
+ * @property {Array<{ id: string, title: string, start: string | null, end: string | null }>} [roles]
  */
 
 /**
  * @typedef {object} LedgerClaim
  * @property {string} id
  * @property {string | null} employerId
+ * @property {string} [roleId]
  * @property {"achievement" | "system" | "operations" | "role" | "credential" | "education"} kind
  * @property {string} text
  * @property {Array<{ token: string, unit?: string }>} [metrics]
@@ -42,6 +54,27 @@ import { hashLedger, readLedger, writeLedgerAtomic, LEDGER_CONTRACT } from "./ma
  */
 
 const MAX_CLAIM_TEXT = 2000;
+
+/* Bump when the builder's output changes for the same inputs. A stored
+ * ledger from an older builder (no field = 1, the bullet-only parser that
+ * produced 0-claim ledgers from unbulleted resumes) is rebuilt on the next
+ * ensureLedger even when the resume and profile hashes still match.
+ * 3: split figures re-joined ("$ 10 M +" → "$12M+") and product-name
+ * numerals ("Chirp 3 HD") no longer metric tokens. */
+/* 4: ambiguous tool names ("Go", "R", "Segment") no longer match plain
+ * English ("go-to", "R&D"), so older ledgers with a false "Go" rebuild. */
+/* 5: a department after the comma stays in the title ("Vice President,
+ * Operations" is a role at the umbrella employer, not an employer named
+ * "Operations"). */
+/* 6: the department rule applies only inside an umbrella employer again;
+ * a title alone on its line is a role (dated by a bare range under it); a
+ * short line with a figure ("Grew revenue 40%.") is a claim; and
+ * "Company, formerly Old Name" answers to both names. */
+/* 7: RECOGNITION headings are credentials, not loose claims; a
+ * "— formerly X —" header segment is the employer's former name. */
+/* 8: model labels resolve only to parsed employers, roles, dates and claims;
+ * rebuild ledgers that may contain a model-invented employer. */
+export const LEDGER_BUILDER_VERSION = 8;
 const MAX_INVENTORY = 40;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
@@ -50,11 +83,15 @@ const METRIC_RE = /((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)
 const YEAR_RE = /^(?:19|20)\d\d$/;
 const YEAR_RANGE_RE = /^(?:19|20)\d\d[–-](?:19|20)\d\d$/;
 
-/* "Employer — Title, dates" / "Employer | Title" header lines. */
-const EMPLOYER_HEADER_RE = /^(.{2,60}?)\s+[—–|]\s+(.{2,80})$/;
-const BULLET_RE = /^\s*(?:[-•*·]|\d+[.)])\s+/;
-const DATE_SPAN_RE = /(\d{4})\s*[–-]\s*(\d{4}|present)/i;
-const SECTION_RE = /^[A-Z][A-Z\s&/]{2,40}$/;
+/* P-12: a profile strength this close to a resume claim is the same fact. */
+export const DUPLICATE_JACCARD = 0.6;
+/* A strength that names no employer joins the employer of the resume claim
+ * it paraphrases, when one is at least this close; below it, it stays
+ * unbound rather than guessed. */
+export const BIND_JACCARD = 0.2;
+const STOPWORDS = new Set(
+  "a an and the of to in on at for with by from as is was were be into across through via per its it their our my i".split(" "),
+);
 
 /* Resume-mentioned tools ship as adjacent; profile keywords are owned. */
 const TOOL_LEXICON = [
@@ -69,6 +106,10 @@ const TOOL_LEXICON = [
   "Sheets", "Jira", "Figma", "Notion", "Slack", "Zoom", "Vertex AI",
   "Cloud Functions", "Pub/Sub", "Dataflow", "Looker", "Mode", "Hex",
   "Retool", "Zapier", "Segment", "Amplitude", "Mixpanel", "Optimizely",
+  /* Media and adtech channels (K5). */
+  "OTT/CTV", "CTV", "OTT", "SEM", "SEO", "DSP", "Paid Social", "Paid Search",
+  "Programmatic Display", "Programmatic", "Streaming Audio", "Podcast",
+  "Google Tag Manager", "Meta Ads Manager", "IAB",
 ];
 
 const SYSTEM_RE = /system|platform|pipeline|infrastructure|tool|api|workflow|automat|architect/i;
@@ -104,26 +145,16 @@ function clean(value, max = MAX_CLAIM_TEXT) {
   return text.length > max ? text.slice(0, max) : text;
 }
 
-/** @param {string} name */
-function slugify(name) {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-  return slug || "employer";
-}
-
 /**
  * @param {string} text
  * @returns {Array<{ token: string, unit?: string }>}
  */
-function extractMetrics(text) {
+export function extractMetrics(text) {
   /** @type {Array<{ token: string, unit: string }>} */
   /** @type {Array<{ token: string, unit?: string }>} */
   const out = [];
   const seen = new Set();
-  for (const match of text.matchAll(METRIC_RE)) {
+  for (const match of maskNonMetrics(text).matchAll(METRIC_RE)) {
     const token = match[1];
     if (!token || seen.has(token)) continue;
     if (YEAR_RE.test(token) || YEAR_RANGE_RE.test(token)) continue;
@@ -145,107 +176,204 @@ function extractMetrics(text) {
 function matchTools(text) {
   const found = [];
   for (const tool of TOOL_LEXICON) {
-    const re = new RegExp(`\\b${tool.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    if (re.test(text)) found.push(tool);
+    /* "Go" must not match "go-to" (ambiguous names match in their own case). */
+    if (toolPattern(tool).test(text)) found.push(tool);
   }
   return found;
 }
 
 /**
  * @param {string} text
- * @param {string} section
  * @returns {LedgerClaim["kind"]}
  */
-function guessKind(text, section) {
-  if (/EDUCATION|DEGREE|UNIVERSITY|COLLEGE/.test(section)) return "education";
-  if (/CERTIF|LICENSE/.test(section)) return "credential";
+function guessKind(text) {
   if (SYSTEM_RE.test(text)) return "system";
   if (OPERATIONS_RE.test(text)) return "operations";
   return "achievement";
 }
 
-/**
- * @param {string} rest title/dates remainder of a header line
- * @returns {{ title: string, start: string | null, end: string | null }}
- */
-function splitTitleDates(rest) {
-  const m = DATE_SPAN_RE.exec(rest);
-  if (!m) return { title: rest.trim(), start: null, end: null };
-  return {
-    title: rest.slice(0, m.index).replace(/[,;:\s]+$/, "").trim(),
-    start: m[1],
-    end: /present/i.test(m[2]) ? null : m[2],
-  };
+/** @param {unknown} value */
+function dateOrNull(value) {
+  const text = clean(value, 40);
+  return text && !/^(present|current|now)$/i.test(text) ? text : null;
+}
+
+/** @param {string} text */
+function tokenSet(text) {
+  return new Set((text.toLowerCase().match(/[a-z0-9$%+]+/g) || []).filter((t) => !STOPWORDS.has(t)));
 }
 
 /**
- * @param {unknown} profile
- * @param {string} resumeText
+ * Jaccard similarity over content words.
+ * @param {string} a
+ * @param {string} b
  */
-function collectEmployers(profile, resumeText) {
+export function claimSimilarity(a, b) {
+  const A = tokenSet(a);
+  const B = tokenSet(b);
+  if (!A.size || !B.size) return 0;
+  let shared = 0;
+  for (const t of A) if (B.has(t)) shared += 1;
+  return shared / (A.size + B.size - shared);
+}
+
+/** @param {string} s */
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Employers: profile experiences first (the user's own record, and the
+ * slugs logos key on), then every resume employer, merged by name or alias
+ * so "Brightwave Media" and "Brightwave Media (formerly Tidewater Radio)" stay
+ * one company.
+ * @param {unknown} profile
+ * @param {import("./materials-resume-structure.mjs").ResumeStructure} structure
+ */
+function collectEmployers(profile, structure) {
   /** @type {LedgerEmployer[]} */
   const employers = [];
-  /** @type {Map<string, LedgerEmployer>} */
-  const byName = new Map();
-  const add = (/** @type {LedgerEmployer} */ employer) => {
-    const key = employer.name.toLowerCase();
-    if (byName.has(key)) {
-      const prior = byName.get(key);
-      if (prior && !prior.title && employer.title) prior.title = employer.title;
-      return byName.get(key);
-    }
-    employers.push(employer);
-    byName.set(key, employer);
-    return employer;
+  /** @type {Map<string, Set<string>>} */
+  const keysById = new Map();
+  /** @type {Map<unknown, LedgerEmployer>} */
+  const byStructure = new Map();
+  /** @param {string[]} keys */
+  const findByAliases = (keys) =>
+    employers.find((e) => keys.some((k) => keysById.get(e.id)?.has(k))) || null;
+  /** @param {string} base */
+  const uniqueId = (base) => {
+    let id = base;
+    for (let n = 2; keysById.has(id); n += 1) id = `${base}-${n}`;
+    return id;
   };
+
   if (isRecord(profile) && Array.isArray(profile.experiences)) {
     for (const raw of profile.experiences) {
       if (!isRecord(raw)) continue;
       const name = clean(raw.company || raw.label, 120);
       if (!name) continue;
-      add({
-        id: typeof raw.slug === "string" && raw.slug ? raw.slug : slugify(name),
+      const keys = aliasesFor(name);
+      if (findByAliases(keys)) continue;
+      const id = uniqueId(typeof raw.slug === "string" && raw.slug ? raw.slug : slugify(name));
+      const roles = (Array.isArray(raw.roles) ? raw.roles : [])
+        .filter(isRecord)
+        .map((r, i) => ({ id: `${id}-r${i + 1}`, title: clean(r.title, 160), start: dateOrNull(r.start), end: dateOrNull(r.end) }))
+        .filter((r) => r.title);
+      const title = clean(raw.title, 160);
+      const location = clean(raw.location, 120);
+      const site = clean(raw.site, 160);
+      employers.push({
+        id,
         name,
-        ...(clean(raw.title, 160) ? { title: clean(raw.title, 160) } : {}),
+        ...(title ? { title } : {}),
+        ...(location ? { location } : {}),
+        ...(site ? { site } : {}),
+        ...("start" in raw ? { start: dateOrNull(raw.start), end: dateOrNull(raw.end) } : {}),
+        ...(roles.length ? { roles } : {}),
       });
+      keysById.set(id, new Set(keys));
     }
   }
-  for (const line of resumeText.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || BULLET_RE.test(trimmed)) continue;
-    const m = EMPLOYER_HEADER_RE.exec(trimmed);
-    if (!m) continue;
-    const name = m[1].trim();
-    if (/^(experience|education|skills|summary|projects?)$/i.test(name)) continue;
-    const { title, start, end } = splitTitleDates(m[2].trim());
-    add({
-      id: slugify(name),
-      name,
-      ...(title ? { title: clean(title, 160) } : {}),
-      ...(start ? { start } : {}),
-      ...(end ? { end } : {}),
-    });
+
+  for (const se of structure.employers) {
+    const keys = [...new Set([...se.aliases, ...aliasesFor(se.name)])];
+    let employer = findByAliases(keys);
+    if (!employer) {
+      const id = uniqueId(slugify(se.name));
+      employer = { id, name: clean(se.name, 120) };
+      employers.push(employer);
+      keysById.set(id, new Set());
+    }
+    const keySet = /** @type {Set<string>} */ (keysById.get(employer.id));
+    for (const k of keys) keySet.add(k);
+    const firstTitle = clean(se.roles[0]?.title, 160);
+    if (!employer.title && firstTitle) employer.title = firstTitle;
+    if (!employer.location && se.location) employer.location = se.location;
+    if (!employer.scope && se.scope) employer.scope = se.scope;
+    if (!employer.site && se.site) employer.site = se.site;
+    if (!("start" in employer)) {
+      employer.start = se.start;
+      employer.end = se.end;
+    }
+    if (!employer.roles?.length && se.roles.length) {
+      const id = employer.id;
+      employer.roles = se.roles.map((r, i) => ({ id: `${id}-r${i + 1}`, title: clean(r.title, 160), start: r.start, end: r.end }));
+    }
+    byStructure.set(se, employer);
   }
-  return { employers, byName };
+  return { employers, keysById, byStructure };
+}
+
+/**
+ * The employer a profile strength names, earliest mention first.
+ * @param {string} text
+ * @param {LedgerEmployer[]} employers
+ * @param {Map<string, Set<string>>} keysById
+ */
+function employerNamedIn(text, employers, keysById) {
+  const hay = text.toLowerCase();
+  /** @type {LedgerEmployer | null} */
+  let best = null;
+  let bestAt = Infinity;
+  for (const employer of employers) {
+    for (const key of keysById.get(employer.id) || []) {
+      if (key.length < 3 || key.includes("(")) continue;
+      const m = new RegExp(`\\b${escapeRe(key)}\\b`).exec(hay);
+      if (m && m.index < bestAt) {
+        best = employer;
+        bestAt = m.index;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * The employer of the employer-bound resume claim most like `text`.
+ * @param {string} text
+ * @param {LedgerClaim[]} resumeClaims
+ */
+function closestEmployerId(text, resumeClaims) {
+  let bestId = null;
+  let best = BIND_JACCARD;
+  for (const claim of resumeClaims) {
+    if (!claim.employerId) continue;
+    const score = claimSimilarity(text, claim.text);
+    if (score >= best) {
+      best = score;
+      bestId = claim.employerId;
+    }
+  }
+  return bestId;
 }
 
 /**
  * Build a claim ledger from profile JSON plus resume text. Pure and
- * synchronous: no LLM, no network, no disk.
+ * synchronous: no LLM, no network, no disk. Pass `structure` to use a
+ * model-structured resume (see ensureLedger); without it the resume text
+ * goes through the deterministic parser.
  * @param {object} input
  * @param {unknown} input.profile canonical UserProfile or null
  * @param {string} [input.resumeText] the user's resume, plain text
  * @param {string} [input.resumeSource] portfolio | profile | upload | …
  * @param {string} [input.nowIso]
+ * @param {import("./materials-resume-structure.mjs").ResumeStructure} [input.structure]
+ * @param {string} [input.note] how the resume was structured, kept on the ledger
  */
-export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSource = "upload", nowIso }) {
+export function buildLedger({
+  profile,
+  resumeText = "",
+  resumeSource: _resumeSource = "upload",
+  nowIso,
+  structure: givenStructure,
+  note,
+}) {
   const resume = String(resumeText || "").trim().slice(0, 60_000);
   const builtAt = nowIso || new Date().toISOString();
-  const { employers, byName } = collectEmployers(profile, resume);
+  const structure = givenStructure || parseResumeStructure(resume);
+  const { employers, keysById, byStructure } = collectEmployers(profile, structure);
 
-  /** @type {LedgerClaim[]} */
-  const claims = [];
-  /** @type {Array<{ id: string, kind: string, hash: string, ingestedAt: string }>} */
+  /** @type {Array<{ id: string, kind: "resume" | "profile", hash: string, ingestedAt: string }>} */
   const sources = [];
   if (resume) {
     sources.push({
@@ -255,21 +383,74 @@ export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSou
       ingestedAt: builtAt,
     });
   }
-  const profileText = isRecord(profile) ? JSON.stringify(profile) : "";
+  const profileText = isRecord(profile) ? JSON.stringify(profileForLedger(profile)) : "";
   if (profileText) {
     sources.push({ id: "profile", kind: "profile", hash: sha(profileText), ingestedAt: builtAt });
   }
-  const sourceIds = sources.map((s) => s.id);
+  const resumeRefs = sources.map((s) => s.id).filter((id) => id !== "profile");
 
+  /** @type {LedgerClaim[]} */
+  const resumeClaims = [];
+  /**
+   * @param {string} id
+   * @param {string | null} employerId
+   * @param {LedgerClaim["kind"]} kind
+   * @param {string} rawText
+   * @param {string} [roleId]
+   */
+  const addResumeClaim = (id, employerId, kind, rawText, roleId) => {
+    /* A figure split by a PDF text layer ("$ 10 M +") is re-joined, so the
+     * claim's metric token is the one a draft prints ("$12M+"). */
+    const text = desplitMetricTokens(clean(rawText));
+    if (!text) return;
+    if (resumeClaims.some((c) => claimSimilarity(c.text, text) >= DUPLICATE_JACCARD)) return;
+    resumeClaims.push({
+      id,
+      employerId,
+      ...(roleId ? { roleId } : {}),
+      kind,
+      text,
+      metrics: extractMetrics(text),
+      tools: matchTools(text),
+      sourceRefs: resumeRefs,
+      verified: true,
+    });
+  };
+  let bulletN = 0;
+  for (const se of structure.employers) {
+    const employer = byStructure.get(se);
+    for (const claim of se.claims) {
+      const roleTitle = claim.roleIndex === null ? "" : se.roles[claim.roleIndex]?.title || "";
+      const role = roleTitle
+        ? employer?.roles?.find((r) => r.title.toLowerCase() === roleTitle.toLowerCase())
+        : undefined;
+      bulletN += 1;
+      addResumeClaim(`resume-b${bulletN}`, employer?.id || null, guessKind(claim.text), claim.text, role?.id);
+    }
+  }
+  for (const text of structure.looseClaims) {
+    bulletN += 1;
+    addResumeClaim(`resume-b${bulletN}`, null, guessKind(text), text);
+  }
+  structure.education.forEach((text, i) => addResumeClaim(`resume-edu${i + 1}`, null, "education", text));
+  structure.credentials.forEach((text, i) => addResumeClaim(`resume-cred${i + 1}`, null, "credential", text));
+
+  /* P-12: a strength binds to the employer its evidence names (else the
+   * employer of the resume claim it paraphrases); one that restates a
+   * resume claim is dropped so the resume's wording wins. */
+  /** @type {LedgerClaim[]} */
+  const profileClaims = [];
   if (isRecord(profile) && Array.isArray(profile.strengths)) {
     for (const raw of profile.strengths) {
       if (!isRecord(raw)) continue;
-      const evidence = clean(raw.evidence, 1200);
+      const evidence = desplitMetricTokens(clean(raw.evidence, 1200));
       if (!evidence) continue;
-      const rank = typeof raw.rank === "number" ? raw.rank : claims.length + 1;
-      claims.push({
+      const kept = [...resumeClaims, ...profileClaims];
+      if (kept.some((c) => claimSimilarity(c.text, evidence) >= DUPLICATE_JACCARD)) continue;
+      const rank = typeof raw.rank === "number" ? raw.rank : profileClaims.length + 1;
+      profileClaims.push({
         id: `profile-strength-${rank}`,
-        employerId: null,
+        employerId: employerNamedIn(evidence, employers, keysById)?.id || closestEmployerId(evidence, resumeClaims),
         kind: "achievement",
         text: evidence,
         metrics: extractMetrics(evidence),
@@ -279,37 +460,7 @@ export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSou
       });
     }
   }
-
-  let bulletN = 0;
-  let section = "";
-  let currentEmployerId = null;
-  for (const line of resume.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (SECTION_RE.test(trimmed) && trimmed.length < 40) {
-      section = trimmed;
-      continue;
-    }
-    const header = EMPLOYER_HEADER_RE.exec(trimmed);
-    if (header && !BULLET_RE.test(trimmed)) {
-      currentEmployerId = byName.get(header[1].trim().toLowerCase())?.id || null;
-      continue;
-    }
-    if (!BULLET_RE.test(trimmed)) continue;
-    const text = clean(trimmed.replace(BULLET_RE, ""));
-    if (!text) continue;
-    bulletN += 1;
-    claims.push({
-      id: `resume-b${bulletN}`,
-      employerId: currentEmployerId,
-      kind: guessKind(text, section),
-      text,
-      metrics: extractMetrics(text),
-      tools: matchTools(text),
-      sourceRefs: sourceIds.filter((id) => id !== "profile"),
-      verified: true,
-    });
-  }
+  const claims = [...profileClaims, ...resumeClaims];
 
   if (!claims.length) throw ledgerEmptyError();
 
@@ -348,6 +499,8 @@ export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSou
     contract: LEDGER_CONTRACT,
     ledgerHash: "sha256:0",
     builtAt,
+    builderVersion: LEDGER_BUILDER_VERSION,
+    note: note || `structure:${structure.source}`,
     sources,
     employers,
     claims,
@@ -358,16 +511,61 @@ export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSou
 }
 
 /**
+ * Under `node --test`, refuse a ledger path inside the real user's
+ * ~/.jobbored. A drafter test that forgot to isolate HOME rebuilt the
+ * ledger from fixture text and overwrote the user's real
+ * claim-ledger.json (2026-09-27 12:06). The real home comes from the
+ * password database, not $HOME, so a test that does set HOME passes.
+ * JOBBORED_TEST_REAL_HOME adds a second protected home for the regression
+ * test; it can never lift the protection on the real one.
+ * @param {string} ledgerPath
+ */
+export function assertLedgerPathIsolated(ledgerPath) {
+  if (!process.env.NODE_TEST_CONTEXT) return;
+  /** @type {string[]} */
+  const homes = [];
+  try {
+    homes.push(userInfo().homedir);
+  } catch {
+    /* no passwd entry: nothing to protect */
+  }
+  if (process.env.JOBBORED_TEST_REAL_HOME) homes.push(process.env.JOBBORED_TEST_REAL_HOME);
+  const target = resolvePath(ledgerPath);
+  for (const home of homes) {
+    if (!home) continue;
+    if (target.startsWith(`${resolvePath(join(home, ".jobbored"))}${sep}`)) {
+      const err = /** @type {Error & { code: string }} */ (
+        new Error(`A test tried to use the real claim ledger at ${target}. Set HOME or JOBBORED_PROFILE_PATH to a temp dir.`)
+      );
+      err.code = "ledger_real_home_in_test";
+      throw err;
+    }
+  }
+}
+
+/**
  * Load the stored ledger, rebuilding it when the inputs moved. Returns
  * the ledger plus whether it was rebuilt.
+ *
+ * With a writer `pin` and `fetchImpl`, the resume is structured by one
+ * model call (materials-resume-structure-model.mjs) that may only return
+ * the resume's own words; any failure falls back to the rule parser. A
+ * stored rule-parsed ledger is upgraded once when a pin first arrives; a
+ * model failure is recorded on the ledger note and not retried until the
+ * resume or profile changes.
  * @param {object} input
  * @param {unknown} input.profile
  * @param {string} [input.resumeText]
  * @param {string} [input.resumeSource]
+ * @param {import("./materials-writer.mjs").WriterPin | null} [input.pin]
+ * @param {Function} [input.fetchImpl]
+ * @param {Function} [input.callStage] test seam for the model stage call
  */
-export async function ensureLedger({ profile, resumeText = "", resumeSource = "upload" }) {
+export async function ensureLedger({ profile, resumeText = "", resumeSource = "upload", pin = null, fetchImpl, callStage }) {
+  assertLedgerPathIsolated(resolveLedgerPath());
   const resume = String(resumeText || "").trim().slice(0, 60_000);
-  const profileText = isRecord(profile) ? JSON.stringify(profile) : "";
+  const profileText = isRecord(profile) ? JSON.stringify(profileForLedger(profile)) : "";
+  const canModel = Boolean(resume && pin && typeof fetchImpl === "function");
   const stored = await readLedger();
   if (stored.ok) {
     const sources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
@@ -381,11 +579,20 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
     const profileFresh =
       (profileText ? profileSourceEntry?.hash === sha(profileText) : !profileSourceEntry) &&
       (!profileSourceEntry || profileText);
-    if (resumeFresh && profileFresh) {
+    const { note, builderVersion } = /** @type {{ note?: unknown, builderVersion?: unknown }} */ (stored.ledger);
+    const awaitsModel = canModel && (note === undefined || note === "structure:rules");
+    const currentBuilder = (typeof builderVersion === "number" ? builderVersion : 1) === LEDGER_BUILDER_VERSION;
+    if (resumeFresh && profileFresh && currentBuilder && !awaitsModel) {
       return { ...stored.ledger, rebuilt: false };
     }
   }
-  const built = buildLedger({ profile, resumeText: resume, resumeSource });
+  /** @type {{ structure?: import("./materials-resume-structure.mjs").ResumeStructure, note?: string }} */
+  let structured = {};
+  if (canModel && pin && typeof fetchImpl === "function") {
+    const result = await structureResumeWithModel({ resumeText: resume, pin, fetchImpl, callStage });
+    structured = { structure: result.structure, note: result.note };
+  }
+  const built = buildLedger({ profile, resumeText: resume, resumeSource, ...structured });
   const { ledgerHash } = await writeLedgerAtomic(built);
   return { ...built, ledgerHash, rebuilt: true };
 }

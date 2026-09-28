@@ -348,7 +348,8 @@ test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON wi
   const body = JSON.parse(request.body);
   assert.equal(body.model, "openrouter/profile-test");
   assert.equal(body.temperature, 0.2);
-  assert.equal(body.max_tokens, 8192);
+  assert.ok(!("max_tokens" in body));
+  assert.ok(!("max_completion_tokens" in body));
   assert.equal(body.messages[0].role, "system");
   assert.equal(body.messages[1].role, "user");
   assert.match(body.messages[0].content, /strict JSON object/);

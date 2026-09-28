@@ -27,9 +27,11 @@ const SERVED = [
   "docs/SELF-HOSTING.md",
   "integrations/apps-script/Code.gs",
   "integrations/browser-use-discovery/README.md",
-  // The lone server/ exception: B3's serverless fallback loads it as a
-  // classic script. Named one by one — the rest of server/ stays dark.
+  // The server/ exceptions: B3's serverless fallback and the "Your voice"
+  // step load them as classic scripts. Named one by one — the rest of
+  // server/ stays dark.
   "server/profile-draft-shared.js",
+  "server/profile-voice-shared.js",
 ];
 
 const REFUSED = [

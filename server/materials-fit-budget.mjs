@@ -124,7 +124,7 @@
 
 /** @type {MaterialsBudgets} */
 export const MATERIALS_BUDGETS = Object.freeze({
-  version: "materials.budgets.v3.0",
+  version: "materials.budgets.v3.2",
   resume: Object.freeze({
     pages: 1,
     pagesMax: 2,
@@ -134,16 +134,20 @@ export const MATERIALS_BUDGETS = Object.freeze({
     statementWordsHardMax: 55,
     featuredEmployers: 2,
     featuredEmployersMax: 3,
-    bulletsPerFeatured: Object.freeze([2, 4]),
+    /* Proof-run design call: 5 bullets for the most recent featured
+     * employer, 3-4 for the next ones. */
+    bulletsPerFeatured: Object.freeze([2, 5]),
     earlierLines: Object.freeze([1, 3]),
     tokens: Object.freeze([8, 13]),
   }),
   letter: Object.freeze({
     pages: 1,
-    bodyWords: Object.freeze([180, 260]),
-    bodyWordsHardMin: 150,
-    bodyWordsHardMax: 280,
-    paragraphs: 4,
+    /* Voice v5: three short paragraphs (hook, evidence, close); fewer
+     * words over more (floor 120, per the user's voice guide). */
+    bodyWords: Object.freeze([120, 200]),
+    bodyWordsHardMin: 110,
+    bodyWordsHardMax: 230,
+    paragraphs: 3,
   }),
   run: Object.freeze({
     llmCalls: 3,

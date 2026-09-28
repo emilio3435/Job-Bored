@@ -25,7 +25,10 @@
 import { resumeWordCount } from "./materials-ats-text.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { renderDocument } from "./materials-render.mjs";
-import { resolveFamily } from "./materials-templates.mjs";
+import { readFamilyFile, resolveFamily } from "./materials-templates.mjs";
+
+/** Slack (px at 96dpi) a fitted page must leave before the air step is tried. */
+export const AIR_MIN_SLACK_PX = 96;
 
 /** Shared resume content steps, walked before the family's tail. */
 export const SHARED_RESUME_STEPS = Object.freeze([
@@ -242,7 +245,7 @@ function trimToWordBudget(model, family) {
  * @param {RenderModel} input the family-independent render model; its
  *   template block names the family to render in
  * @param {DocKind} doc
- * @param {{ measure?: import("./materials-pdf.mjs").PdfSession["measure"] | null }} [options]
+ * @param {{ measure?: import("./materials-pdf.mjs").PdfSession["measure"] | null, target?: import("./materials-render.mjs").RenderOptions["target"], header?: string }} [options]
  * @returns {Promise<FitResult>}
  */
 export async function fitDocument(input, doc, options = {}) {
@@ -253,10 +256,12 @@ export async function fitDocument(input, doc, options = {}) {
   /** @type {string[]} */
   const fitTokens = [];
   const measure = options.measure || null;
+  const target = options.target;
+  const header = options.header;
 
   if (!measure) {
     return {
-      html: renderDocument(model, doc, { fitTokens }),
+      html: renderDocument(model, doc, { fitTokens, target, header }),
       model,
       applied,
       fitTokens,
@@ -268,23 +273,42 @@ export async function fitDocument(input, doc, options = {}) {
   }
 
   const opts = { bottomMarginIn: family.fit.bottomMarginIn };
-  let html = renderDocument(model, doc, { fitTokens, fitVerified: true });
+  let html = renderDocument(model, doc, { fitTokens, fitVerified: true, target, header });
   let measurement = await measure(html, opts);
   for (const step of ladderFor(family, doc)) {
     if (measurement.fits) break;
     while (!measurement.fits) {
       if (!applyStep(model, step, fitTokens)) break;
       applied.push(step);
-      html = renderDocument(model, doc, { fitTokens, fitVerified: true });
+      html = renderDocument(model, doc, { fitTokens, fitVerified: true, target, header });
       measurement = await measure(html, opts);
       if (step.startsWith("css:")) break;
+    }
+  }
+  /* Air: a page that fits with room to spare opens up its setting (larger
+     text, looser rhythm) instead of ending in a blank band. Only families
+     whose stylesheet defines data-fit~="air" take it, only when no tighter
+     step ran, and only if the page still fits afterwards. No text changes. */
+  if (
+    measurement.fits &&
+    fitTokens.length === 0 &&
+    measurement.limit - measurement.lastTextBottom >= AIR_MIN_SLACK_PX &&
+    readFamilyFile(family, family.stylesheet).includes('data-fit~="air"')
+  ) {
+    const airTokens = ["air"];
+    const airHtml = renderDocument(model, doc, { fitTokens: airTokens, fitVerified: true, target, header });
+    const airMeasurement = await measure(airHtml, opts);
+    if (airMeasurement.fits) {
+      fitTokens.push("air");
+      html = airHtml;
+      measurement = airMeasurement;
     }
   }
   if (measurement.fits) {
     return { html, model, applied, fitTokens, measured: true, fits: true, overflow: false, measurement };
   }
   return {
-    html: renderDocument(model, doc, { fitTokens, overflow: true }),
+    html: renderDocument(model, doc, { fitTokens, overflow: true, target, header }),
     model,
     applied,
     fitTokens,

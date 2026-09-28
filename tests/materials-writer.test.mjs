@@ -43,7 +43,7 @@ describe("callWriter", () => {
     assert.match(calls[0].url, /gemini-3\.7-flash/);
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.generationConfig.temperature, 0.4);
-    assert.equal(body.generationConfig.maxOutputTokens, 8192);
+    assert.equal(body.generationConfig.maxOutputTokens, 65536);
     assert.match(body.systemInstruction.parts[0].text, /Rewrite.*for this JD/i);
     assert.match(body.systemInstruction.parts[0].text, /Freeze employers, titles, dates, and metrics/i);
     assert.match(body.systemInstruction.parts[0].text, /JSON only matching the spec schema/i);
@@ -258,7 +258,7 @@ function geminiTruncatedClipped() {
 }
 
 describe("callWriter truncation", () => {
-  it("names the finishReason and escalates the budget when Gemini truncates twice", async () => {
+  it("names the model and finishReason when Gemini truncates twice at its maximum", async () => {
     const budgets = [];
     const fetchImpl = async (_url, init) => {
       budgets.push(JSON.parse(init.body).generationConfig.maxOutputTokens);
@@ -275,13 +275,14 @@ describe("callWriter truncation", () => {
       (e) => e,
     );
     assert.ok(err, "expected callWriter to reject");
-    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /model gemini-3\.8-flash hit its maximum output limit/);
+    assert.doesNotMatch(err.message, /shorter resume/i);
     assert.match(err.message, /MAX_TOKENS/);
     assert.equal(err.code, "writer_truncated");
-    assert.deepEqual(budgets, [8192, 16384]);
+    assert.deepEqual(budgets, [65536, 65536]);
   });
 
-  it("recovers when the escalated retry completes", async () => {
+  it("recovers when the retry at the maximum completes", async () => {
     const budgets = [];
     let n = 0;
     const fetchImpl = async (_url, init) => {
@@ -303,7 +304,7 @@ describe("callWriter truncation", () => {
       fetchImpl,
     });
     assert.equal(out.letter.company, "EAB");
-    assert.deepEqual(budgets, [8192, 16384]);
+    assert.deepEqual(budgets, [65536, 65536]);
   });
 
   it("names finish_reason=length and sends json_object for first-party OpenAI", async () => {
@@ -328,13 +329,13 @@ describe("callWriter truncation", () => {
       (e) => e,
     );
     assert.ok(err, "expected callWriter to reject");
-    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /model gpt-4o-mini hit its maximum output limit/);
     assert.match(err.message, /length/);
     assert.equal(err.code, "writer_truncated");
     assert.deepEqual(calls[0].response_format, { type: "json_object" });
     assert.deepEqual(
       calls.map((b) => b.max_tokens),
-      [8192, 16384],
+      [16384, 16384],
     );
   });
 
@@ -361,12 +362,12 @@ describe("callWriter truncation", () => {
       (e) => e,
     );
     assert.ok(err, "expected callWriter to reject");
-    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /model claude-sonnet-4-6 hit its maximum output limit/);
     assert.match(err.message, /max_tokens/);
     assert.equal(err.code, "writer_truncated");
     assert.deepEqual(
       calls.map((b) => b.max_tokens),
-      [8192, 16384],
+      [128000, 128000],
     );
   });
 
@@ -390,7 +391,7 @@ describe("callWriter truncation", () => {
     }
   });
 
-  it("escalates once on unterminated JSON even without a stop signal", async () => {
+  it("retries once on unterminated JSON even without a stop signal", async () => {
     const budgets = [];
     const fetchImpl = async (_url, init) => {
       budgets.push(JSON.parse(init.body).max_tokens);
@@ -413,7 +414,7 @@ describe("callWriter truncation", () => {
     );
     assert.ok(err, "expected callWriter to reject");
     assert.match(err.message, /unterminated JSON object/);
-    assert.deepEqual(budgets, [8192, 16384]);
+    assert.deepEqual(budgets, [undefined, undefined]);
   });
 });
 
@@ -576,7 +577,7 @@ describe("callWriter blocked stops and thought parts", () => {
 describe("callJsonStage (v3 narrow calls)", () => {
   const pin = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
 
-  it("posts the narrow prompt with JSON mode and a stage cap", async () => {
+  it("posts the narrow prompt with JSON mode and the model maximum", async () => {
     const calls = [];
     const fetchImpl = async (url, init) => {
       calls.push({ url: String(url), init });
@@ -594,7 +595,7 @@ describe("callJsonStage (v3 narrow calls)", () => {
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.messages[0].content, "You pick claim ids. Return JSON only.");
     assert.equal(body.messages[1].content, "Shortlist: a, b.");
-    assert.equal(body.max_tokens, 1000);
+    assert.ok(!("max_tokens" in body));
     assert.deepEqual(body.response_format, { type: "json_object" });
   });
 
@@ -605,7 +606,7 @@ describe("callJsonStage (v3 narrow calls)", () => {
       return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }) };
     };
     await callJsonStage({
-      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      pin: { provider: "gemini", resolvedModel: "gemini-flash-latest", apiKey: "k", baseUrl: "" },
       systemPrompt: "s",
       userText: "u",
       maxOutputTokens: 500,
@@ -613,7 +614,7 @@ describe("callJsonStage (v3 narrow calls)", () => {
     });
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.generationConfig.responseMimeType, "application/json");
-    assert.equal(body.generationConfig.maxOutputTokens, 500);
+    assert.equal(body.generationConfig.maxOutputTokens, 65536);
   });
 
   it("retries once on invalid JSON then throws", async () => {
@@ -626,7 +627,7 @@ describe("callJsonStage (v3 narrow calls)", () => {
     assert.equal(n, 2);
   });
 
-  it("doubles a narrow Gemini cap once after MAX_TOKENS and parses the completed retry", async () => {
+  it("retries a narrow Gemini stage at the model maximum after MAX_TOKENS", async () => {
     const budgets = [];
     const fetchImpl = async (_url, init) => {
       budgets.push(JSON.parse(init.body).generationConfig.maxOutputTokens);
@@ -641,14 +642,14 @@ describe("callJsonStage (v3 narrow calls)", () => {
       };
     };
     const out = await callJsonStage({
-      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      pin: { provider: "gemini", resolvedModel: "gemini-flash-latest", apiKey: "k", baseUrl: "" },
       systemPrompt: "Select ids.",
       userText: "a",
       maxOutputTokens: 500,
       fetchImpl,
     });
     assert.deepEqual(out, { ids: ["a"] });
-    assert.deepEqual(budgets, [500, 1000]);
+    assert.deepEqual(budgets, [65536, 65536]);
   });
 
   it("reports a blocked stage with the provider reason without retry", async () => {
@@ -661,7 +662,7 @@ describe("callJsonStage (v3 narrow calls)", () => {
       };
     };
     const err = await callJsonStage({
-      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      pin: { provider: "gemini", resolvedModel: "gemini-flash-latest", apiKey: "k", baseUrl: "" },
       systemPrompt: "Select ids.",
       userText: "a",
       maxOutputTokens: 500,

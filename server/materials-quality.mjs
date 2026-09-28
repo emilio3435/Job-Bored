@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
+import { readDocumentQa } from "./materials-qa.mjs";
 
 const QUALITY_VERSION = "materials-quality.v1";
 
@@ -26,6 +27,20 @@ const RESUME_TWO_PAGE_MIN_PAGE_WORDS = 240;
  * @property {number[]} pageWords
  * @property {string[]} [sections]
  * @property {QualityIssue[]} issues
+ * @property {DocumentQa} [qa] the pipeline's verdict for this document
+ */
+
+/**
+ * The pipeline's per-document verdict (qa.resume.json / qa.letter.json),
+ * as the UI reads it: rubric rows, disposition and why, degraded stages.
+ * @typedef {object} DocumentQa
+ * @property {string} runId
+ * @property {"pass" | "review" | "fail"} status
+ * @property {"READY" | "REVIEW" | "FAIL"} disposition
+ * @property {string} dispositionReason
+ * @property {string[]} degraded
+ * @property {{ score: number, max: number, threshold: number, rows: Array<{ id: string, score: number, max: number, note: string }> }} rubric
+ * @property {{ attempted: boolean, before?: { status: string, score: number, max: number, codes: string[] } }} [repair]
  */
 
 /** @param {unknown} html */
@@ -217,7 +232,14 @@ export async function auditResume({ htmlPath, pdfPath } = {}) {
       `Second page has ${htmlStats.pageWords[1] || 0} words; expand with relevant evidence or collapse to one page.`,
     ));
   }
-  if (!hasAnySection(htmlStats.sections, ["summary"])) {
+  if (typeof html === "string" && /data-section="summary"[^>]*data-omitted="repeats-headline"/.test(html)) {
+    /* The renderer left the summary out on purpose: the draft's only summary
+       was the headline again (a degraded run). Worth a rewrite, not a fail. */
+    issues.push(issue(
+      "resume_summary_omitted",
+      "The draft had no summary beyond the headline, so the resume prints none; add a one-line summary.",
+    ));
+  } else if (!hasAnySection(htmlStats.sections, ["summary"])) {
     issues.push(issue("resume_summary_missing", "Resume is missing a summary section.", "fail"));
   } else {
     /* Slice 2: the statement is required and held to its budget band.
@@ -319,6 +341,32 @@ export async function auditApplicationMaterials(dir) {
     pdfPath: join(dir, "cover-letter.pdf"),
   });
   if (coverLetter) documents.cover_letter = coverLetter;
+
+  /* Fold in the pipeline's per-document verdicts: the QA's own issues
+   * join the audit's (so a manual repair addresses them too) and a FAIL
+   * verdict is never shown as a lesser status. */
+  const verdicts = await readDocumentQa(dir);
+  for (const [key, verdict] of /** @type {const} */ ([["resume", verdicts.resume], ["cover_letter", verdicts.letter]])) {
+    const doc = documents[key];
+    if (!doc || !verdict) continue;
+    for (const check of verdict.checks || []) {
+      if (check.severity !== "fail" && check.severity !== "review") continue;
+      if (doc.issues.some((item) => item.code === check.code)) continue;
+      doc.issues.push(issue(check.code, check.message, check.severity));
+    }
+    const rank = { pass: 0, review: 1, fail: 2 };
+    const fromIssues = statusFor(doc.issues);
+    doc.status = (rank[verdict.status] ?? 0) > rank[fromIssues] ? verdict.status : fromIssues;
+    doc.qa = {
+      runId: verdict.runId,
+      status: verdict.status,
+      disposition: verdict.disposition,
+      dispositionReason: verdict.dispositionReason || "",
+      degraded: Array.isArray(verdict.degraded) ? verdict.degraded : [],
+      rubric: verdict.rubric,
+      ...(verdict.repair ? { repair: verdict.repair } : {}),
+    };
+  }
 
   const allIssues = Object.values(documents).flatMap((doc) => doc.issues || []);
   return {

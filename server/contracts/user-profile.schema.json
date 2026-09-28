@@ -4,6 +4,14 @@
   "title": "JobBored User Profile",
   "description": "Single source of truth for who the user is, what they want, and what hard rules apply. Read by the LLM scorer, the discovery query builder, the onboarding wizard, and the Settings editor.",
   "type": "object",
+  "$defs": {
+    "httpUrl": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 300,
+      "pattern": "^https?://[^\\s/$.?#][^\\s]*$"
+    }
+  },
   "required": ["version", "identity", "strengths", "hardConstraints"],
   "additionalProperties": false,
   "properties": {
@@ -41,6 +49,65 @@
           "minLength": 20,
           "maxLength": 1200,
           "description": "1–4 sentence first-person 'who I am professionally and what I want next'. Embedded verbatim in the LLM scoring prompt."
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "The name printed on every resume and cover letter. The user's confirmed legal display name, never a nickname. Materials only; never sent to discovery scoring."
+        },
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "The line under the name on resumes and letters (e.g. 'Digital Sales Leader · AI Product Builder')."
+        },
+        "headlineConfirmed": {
+          "type": "boolean",
+          "description": "True when the user typed or confirmed the headline in Your details. A confirmed headline wins over the per-role positioning headline on resumes and letters; an unconfirmed one (pre-filled from the resume) yields to it."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 32,
+          "pattern": "^\\+?[0-9(][0-9 ().-]{5,29}[0-9]$",
+          "description": "As the user writes it; at least 7 digits."
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "city": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "state": { "type": "string", "minLength": 1, "maxLength": 80 }
+          },
+          "description": "Where the user lives, printed as 'City, State' in the contact block."
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "linkedin": { "$ref": "#/$defs/httpUrl" },
+            "website": { "$ref": "#/$defs/httpUrl", "description": "Personal site or portfolio." },
+            "github": { "$ref": "#/$defs/httpUrl" },
+            "other": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["label", "url"],
+                "properties": {
+                  "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+                  "url": { "$ref": "#/$defs/httpUrl" }
+                }
+              }
+            }
+          }
         }
       }
     },

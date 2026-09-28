@@ -202,16 +202,17 @@ for (const family of FAMILIES) {
 }
 
 describe("wordmarks and names", () => {
-  it("should hide signal's duplicate name beside a wordmark visually but keep it in the text", () => {
+  it("should set signal's marks in the date gutter, apart from the visible employer name", () => {
     const html = renderDocument(fullRenderModel("signal"), "resume");
-    assert.match(html, /<h2 class="org company-name visually-dup">Audacy <\/h2>/);
-    assert.match(html, /<h2 class="org company-name">Elio Intelligence Suite<\/h2>/, "a square mark keeps its visible name");
-    assert.match(styles(html), /\.visually-dup\s*\{[^}]*color: transparent/);
-    assert.doesNotMatch(styles(html).match(/\.visually-dup\s*\{[^}]*\}/)[0], /overflow:\s*hidden|clip/, "a clipped duplicate drops out of the PDF text layer");
+    const markNames = [...html.matchAll(/<span class="socket socket--wordmark"><img class="mark"[^>]*alt="([^"]+) logo"/g)].map((m) => m[1]);
+    const visibleNames = [...html.matchAll(/<h2 class="org company-name">([^<]+)<\/h2>/g)].map((m) => m[1]);
+    assert.ok(markNames.length, "a wordmark appears in the date gutter");
+    assert.ok(markNames.every((name) => visibleNames.includes(name)), "every wordmark has a visible employer name");
+    assert.match(styles(html), /\.visually-dup\s*\{[^}]*color: transparent/, "the shared ATS-copy rule stays for families that use it");
   });
 
-  it("should keep dossier's and editorial's names visible (their logos sit apart from the name)", () => {
-    for (const family of ["dossier", "editorial"]) {
+  it("should keep every family's employer names visible (their logos sit apart from the name)", () => {
+    for (const family of ["signal", "dossier", "editorial"]) {
       assert.doesNotMatch(renderDocument(fullRenderModel(family), "resume"), /visually-dup">/);
     }
   });

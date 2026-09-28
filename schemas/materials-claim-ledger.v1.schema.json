@@ -11,6 +11,11 @@
     "ledgerHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
     "builtAt": { "type": "string", "format": "date-time" },
     "note": { "type": "string" },
+    "builderVersion": {
+      "description": "Version of the builder that produced this ledger. A stored ledger from an older builder is rebuilt even when its sources are unchanged.",
+      "type": "integer",
+      "minimum": 1
+    },
     "sources": {
       "type": "array",
       "items": {
@@ -39,7 +44,22 @@
           "start": { "type": ["string", "null"] },
           "end": { "type": ["string", "null"] },
           "scope": { "type": "string" },
-          "site": { "type": "string" }
+          "site": { "type": "string" },
+          "roles": {
+            "description": "Titles held at this employer, most recent first; a promotion is a second role, not a second employer.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "title"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "title": { "type": "string", "minLength": 1 },
+                "start": { "type": ["string", "null"] },
+                "end": { "type": ["string", "null"] }
+              }
+            }
+          }
         }
       }
     },
@@ -53,6 +73,7 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "employerId": { "type": ["string", "null"] },
+          "roleId": { "description": "The employer role this claim was written under.", "type": "string" },
           "kind": { "enum": ["achievement", "system", "operations", "role", "credential", "education"] },
           "text": { "type": "string", "minLength": 1 },
           "metrics": {

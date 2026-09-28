@@ -621,7 +621,7 @@ function nullableString(value: unknown): string | null {
 function createPipelineWriterForRequest(
   runtimeConfigOverride: typeof runtimeConfig,
 ) {
-  return createPipelineWriter(runtimeConfigOverride);
+  return createPipelineWriter(runtimeConfigOverride, { requestScopedGoogleAccessToken: true });
 }
 
 function createDiscoveryRunsLoggerForRequest(
@@ -985,6 +985,10 @@ const server = createServer(
     runtimeConfig,
     runStatusStore,
     cancelRegistry: runCancelRegistry,
+    retryWrite: (sheetId, leads, googleAccessToken) =>
+      createPipelineWriter(googleAccessToken
+        ? { ...runtimeConfig, googleAccessToken }
+        : runtimeConfig, { requestScopedGoogleAccessToken: !!googleAccessToken }).write(sheetId, leads),
     buildHealthPayload,
     candidateCatalog: {
       listCandidates: (query) => rawDiscoveryMemoryStore.listCandidates(query),

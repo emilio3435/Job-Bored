@@ -86,7 +86,7 @@ const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
 // against THIS static host — the dashboard proxies those calls onward so a
 // stranger never has to configure a URL (SIXBEATS claim C3).
 const DEFAULT_PROFILE_API_PORT = 3847;
-const PROFILE_PROXY_METHODS = new Set(["GET", "POST", "PUT"]);
+const PROFILE_PROXY_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 // /profile/from-resume is LLM-backed and can think for tens of seconds; the
 // 3s cap the /__proxy status probes use would abort a live save.
 const PROFILE_PROXY_TIMEOUT_MS = 120000;
@@ -278,7 +278,7 @@ function isSameOriginProfileRequest(req) {
 
 function profilePreflightHeaders(req) {
   return buildLocalControlCorsHeaders(req, {
-    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
   });
@@ -3368,7 +3368,7 @@ function createRequestHandler({
       if (!PROFILE_PROXY_METHODS.has(String(req.method || ""))) {
         res.writeHead(
           405,
-          jsonCorsHeaders(req, { allow: "GET, POST, PUT, OPTIONS" }),
+          jsonCorsHeaders(req, { allow: "GET, POST, PUT, DELETE, OPTIONS" }),
         );
         res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
         return;

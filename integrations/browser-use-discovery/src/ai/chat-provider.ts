@@ -160,7 +160,6 @@ export async function callWorkerChatProvider(input: {
     // ceiling so a slow local model is not cut off at the 30 s default.
     timeoutMs: input.timeoutMs ?? MAX_PROVIDER_TIMEOUT_MS,
     temperature: input.temperature ?? 0.1,
-    maxTokens: input.maxTokens ?? 1024,
     fetchImpl: input.fetchImpl,
   });
   return { payload: result.payload, text: String(result.text || "").trim() };

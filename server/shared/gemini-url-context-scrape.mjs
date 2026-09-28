@@ -5,6 +5,7 @@
  */
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 import { resolveGeminiFlashWireModel } from "../model-family.mjs";
+import { shortOutputBudget, geminiThinkingConfig } from "../llm-output-budget.mjs";
 import { loadLlmConfig } from "../llm-config.mjs";
 import {
   geminiGenerateContentUrl,
@@ -18,7 +19,7 @@ const MIN_DESCRIPTION_CHARS = 80;
 
 /**
  * @param {string} rawUrl
- * @param {{ fetchImpl?: typeof globalThis.fetch, geminiApiKey?: string, geminiModel?: string, title?: string, company?: string, signal?: AbortSignal }} [options]
+ * @param {{ fetchImpl?: typeof globalThis.fetch, geminiApiKey?: string, geminiModel?: string, title?: string, company?: string, signal?: AbortSignal, retriedTruncation?: boolean }} [options]
  *   `geminiApiKey`/`geminiModel` override the pin (tests, explicit callers);
  *   otherwise the llm.json pin decides. `signal` cancels the billed call
  *   when the request goes away (E11).
@@ -53,7 +54,8 @@ export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
           tools: [{ url_context: {} }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 4500,
+            maxOutputTokens: shortOutputBudget("gemini", model, 16384),
+            ...(Object.keys(geminiThinkingConfig(model)).length ? { thinkingConfig: geminiThinkingConfig(model) } : {}),
           },
         }),
       },
@@ -62,6 +64,9 @@ export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
     if (!response || !response.ok || typeof response.json !== "function") return null;
     const payload = await response.json();
     if (!payload || typeof payload !== "object") return null;
+    if (payload.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      return options.retriedTruncation ? null : scrapeViaGeminiUrlContext(rawUrl, { ...options, retriedTruncation: true });
+    }
     if (!urlContextSucceeded(payload)) return null;
     const text = extractCandidateText(payload);
     if (text.length < MIN_DESCRIPTION_CHARS) return null;

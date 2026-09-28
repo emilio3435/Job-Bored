@@ -170,6 +170,7 @@ function loadDrawer() {
     fetch: async () => ({ ok: false }),
   };
   vm.createContext(ctx);
+  vm.runInContext(read("llm-output-budget.js"), ctx);
   vm.runInContext(read("discovery-drawer.js"), ctx, {
     filename: "discovery-drawer.js",
   });

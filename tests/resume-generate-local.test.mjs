@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -39,6 +40,7 @@ function loadResumeGenerate({ config = {}, fetchImpl } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx.window.CommandCenterResumeGenerate;
 }
@@ -104,7 +106,7 @@ const LOCAL_CONFIG = {
 };
 
 describe("resume-generate local provider — request shape (VAL-PROV-009)", () => {
-  it("local posts to configured base url with max_tokens, not max_completion_tokens", async () => {
+  it("local posts to configured base url without an undocumented output limit", async () => {
     const { fetchImpl, calls } = makeFetchStub(() =>
       okJsonResponse(SENTINEL_DRAFT),
     );
@@ -129,7 +131,7 @@ describe("resume-generate local provider — request shape (VAL-PROV-009)", () =
     );
     const body = JSON.parse(options.body);
     assert.equal(body.model, "gemma4:e2b-mlx");
-    assert.equal(body.max_tokens, 8000);
+    assert.ok(!("max_tokens" in body));
     assert.ok(
       !("max_completion_tokens" in body),
       "local body must use max_tokens, not max_completion_tokens",
@@ -332,7 +334,7 @@ describe("resume-generate local + openrouter — config layer wiring (VAL-PROV-0
     assert.equal(orNoKey.isResumeGenerationConfigured(), false);
   });
 
-  it("both local and openrouter reuse the OpenAI request shape (model + system/user messages + max_tokens)", async () => {
+  it("both local and openrouter reuse the OpenAI request shape without guessing output limits", async () => {
     for (const config of [
       {
         resumeProvider: "local",
@@ -352,7 +354,7 @@ describe("resume-generate local + openrouter — config layer wiring (VAL-PROV-0
       assert.ok(typeof body.model === "string" && body.model.length > 0);
       assert.equal(body.messages[0].role, "system");
       assert.equal(body.messages[1].role, "user");
-      assert.equal(body.max_tokens, 8000);
+      assert.ok(!("max_tokens" in body));
       assert.ok(!("max_completion_tokens" in body));
     }
   });
@@ -362,6 +364,7 @@ describe("resume-generate local — model options (VAL-PROV-009)", () => {
   it("CommandCenterResumeModelOptions.local offers gemma4:e2b (default) and gemma4:e2b-mlx", () => {
     const ctx = { window: {} };
     vm.createContext(ctx);
+    vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
     vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
     const opts = ctx.window.CommandCenterResumeModelOptions;
     assert.ok(Array.isArray(opts.local), "local model list exists");

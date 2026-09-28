@@ -89,7 +89,7 @@ function loadStatus(trackerState, hostOverrides = {}) {
     filename: "discovery-status-handoff.js",
   });
   const status = window.JobBoredDiscovery.status;
-  const TERMINAL = ["completed", "empty", "partial", "failed"];
+  const TERMINAL = ["completed", "empty", "partial", "failed", "write_failed"];
   window.JobBoredDiscovery.runTracker = {
     discoveryRunTracker: {
       getState: () => ({ ...trackerState }),
@@ -286,6 +286,34 @@ describe("FIX 2 — diagnosis honors the saved webhook kind", () => {
 });
 
 describe("FIX 3 — persisted terminal outcome is surfaced once after reload", () => {
+  it("a saved write failure shows its plain reason once after reload", () => {
+    const reason = "The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.";
+    const state = {
+      status: "write_failed", runId: "run_write", statusPath: "/runs/run_write",
+      errorMessage: reason, terminalAcknowledged: false,
+    };
+    const env = loadStatus(state);
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.equal(env.toasts.length, 1);
+    assert.match(env.toasts[0].msg, /Retry write/);
+    assert.match(env.toasts[0].msg, /Google sign-in from the dashboard expired/);
+    assert.equal(env.toasts[0].tone, "error");
+    assert.equal(env.toasts[0].sticky, true);
+    assert.deepEqual(env.acknowledged, ["write_failed"]);
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+    assert.equal(env.toasts.length, 1);
+  });
+
+  it("the live write-failed toast shows the plain reason", () => {
+    const reason = "The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.";
+    const env = loadStatus({ status: "write_failed", runId: "run_write", errorMessage: reason });
+    env.status.renderDiscoveryRunStatus();
+    assert.equal(env.toasts.length, 1);
+    assert.match(env.toasts[0].msg, /Google sign-in from the dashboard expired/);
+    assert.match(env.toasts[0].msg, /Retry write/);
+    assert.equal(env.toasts[0].tone, "error");
+  });
+
   it("a stored failed run renders a sticky toast with the error and an Open runs action", () => {
     const state = {
       status: "failed",

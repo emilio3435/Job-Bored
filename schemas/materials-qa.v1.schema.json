@@ -2,16 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-qa.v1.schema.json",
   "title": "materials.qa.v1",
-  "description": "Machine-readable QA result for one materials run. READY requires status `pass` and rubric score >= threshold; anything else publishes as REVIEW with the scorecard attached.",
+  "description": "Machine-readable QA result for one materials run and document (qa.resume.json, qa.letter.json; qa.json is the run's combined record). READY requires status `pass` and rubric score >= threshold; a document that still fails after at most one automatic repair is FAIL with its reasons; anything else is REVIEW.",
   "type": "object",
   "required": ["contract", "status", "disposition", "measurements", "rubric", "checks"],
   "additionalProperties": false,
   "properties": {
     "contract": { "const": "materials.qa.v1" },
     "runId": { "type": "string" },
+    "document": { "enum": ["resume", "letter"] },
     "status": { "enum": ["pass", "review", "fail"] },
-    "disposition": { "enum": ["READY", "REVIEW"] },
+    "disposition": { "enum": ["READY", "REVIEW", "FAIL"] },
     "dispositionReason": { "type": "string" },
+    "degraded": { "type": "array", "items": { "type": "string" } },
+    "repair": {
+      "type": "object",
+      "required": ["attempted"],
+      "additionalProperties": false,
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "before": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": { "type": "string" },
+            "score": { "type": "integer" },
+            "max": { "type": "integer" },
+            "codes": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
     "measurements": {
       "type": "object",
       "additionalProperties": true,
@@ -59,10 +79,18 @@
                   "proof_density",
                   "transfer_honesty",
                   "omission_record",
-                  "delint_clean"
+                  "delint_clean",
+                  "metric_dropped",
+                  "underfill",
+                  "company_specificity",
+                  "metric_in_letter",
+                  "letter_ungrounded",
+                  "sounds_human"
                 ]
               },
               "score": { "type": "integer", "minimum": 0, "maximum": 2 },
+              "max": { "type": "integer", "minimum": 1 },
+              "document": { "enum": ["resume", "letter"] },
               "note": { "type": "string" }
             }
           }

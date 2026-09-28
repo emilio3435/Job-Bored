@@ -120,6 +120,101 @@
     return s.trim();
   }
 
+  // Bullet glyphs PDF and Word exports use, including Symbol/Wingdings
+  // private-use code points; each becomes a plain "- " marker.
+  const BULLET_GLYPH_RE =
+    /^[\u2022\u2023\u2043\u2219\u25aa\u25ab\u25cf\u25e6\u25a0\u25a1\u27a2\u2756\uf0a7\uf0b7\uf0d8\uf076]\s*/;
+
+  /** @param {string} line */
+  function normalizeBulletLine(line) {
+    const trimmed = line.replace(/\s+/g, " ").trim();
+    return BULLET_GLYPH_RE.test(trimmed)
+      ? "- " + trimmed.replace(BULLET_GLYPH_RE, "")
+      : trimmed;
+  }
+
+  /**
+   * Rebuild text lines from pdf.js text items. A line ends where pdf.js
+   * marks hasEOL or where the baseline (transform[5]) moves; runs on one
+   * line join with a space only when there is a visible gap between them.
+   * Joining every run with " " flattened a whole resume into one line.
+   * @param {Array<{str?: string, hasEOL?: boolean, transform?: number[], width?: number, height?: number}>} items
+   * @returns {string[]}
+   */
+  function linesFromPdfTextItems(items) {
+    const lines = [];
+    let line = "";
+    let lastY = null;
+    let lastEndX = null;
+    const flush = () => {
+      const text = normalizeBulletLine(line);
+      if (text && text !== "-") lines.push(text);
+      line = "";
+      lastEndX = null;
+    };
+    for (const it of items || []) {
+      if (!it || typeof it.str !== "string") continue;
+      const t = Array.isArray(it.transform) ? it.transform : [];
+      const x = typeof t[4] === "number" ? t[4] : null;
+      const y = typeof t[5] === "number" ? t[5] : null;
+      const h = typeof it.height === "number" && it.height > 0 ? it.height : 0;
+      if (line && lastY !== null && y !== null && Math.abs(y - lastY) > Math.max(2, h * 0.5)) {
+        flush();
+      }
+      if (it.str) {
+        if (
+          line &&
+          lastEndX !== null &&
+          x !== null &&
+          x - lastEndX > 0.5 &&
+          !/\s$/.test(line) &&
+          !/^\s/.test(it.str)
+        ) {
+          line += " ";
+        }
+        line += it.str;
+        if (y !== null) lastY = y;
+        lastEndX =
+          x !== null && typeof it.width === "number" ? x + it.width : null;
+      }
+      if (it.hasEOL) flush();
+    }
+    flush();
+    return lines;
+  }
+
+  const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+  /**
+   * Word HTML (from mammoth.convertToHtml) to plain lines: each list item
+   * becomes a "- " line, each paragraph, heading and table row its own
+   * line. Pure string work so it runs without a DOM.
+   * @param {string} html
+   * @returns {string}
+   */
+  function textFromDocxHtml(html) {
+    const text = String(html || "")
+      .replace(/<li\b[^>]*>/gi, "\n- ")
+      .replace(/<\/(?:p|li|h[1-6]|tr|ul|ol|table|div)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/t[dh]>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code) => {
+        if (code[0] === "#") {
+          const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+          return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+        }
+        return Object.prototype.hasOwnProperty.call(HTML_ENTITIES, code.toLowerCase())
+          ? HTML_ENTITIES[code.toLowerCase()]
+          : m;
+      });
+    return text
+      .split("\n")
+      .map((l) => normalizeBulletLine(l.replace(/^-\s+(?=-\s)/, "")))
+      .filter((l) => l && l !== "-")
+      .join("\n");
+  }
+
   // Timing trace for "why is this PDF slow?" — the two usual suspects are
   // the worker boot (first parse spins up the pdf.js worker) and per-page
   // text extraction on large/scanned documents.
@@ -175,12 +270,10 @@
       lastParsePhase = `extracting text (page ${i}/${pdf.numPages})`;
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      const strings = content.items
-        .map((it) => ("str" in it ? it.str : ""))
-        .filter(Boolean);
-      parts.push(strings.join(" "));
+      const lines = linesFromPdfTextItems(content.items);
+      parts.push(lines.join("\n"));
       console.info(
-        `[JobBored] resume parse: page ${i}/${pdf.numPages} in ${Math.round(nowMs() - tPage)}ms (${strings.length} text runs)`,
+        `[JobBored] resume parse: page ${i}/${pdf.numPages} in ${Math.round(nowMs() - tPage)}ms (${content.items.length} text runs, ${lines.length} lines)`,
       );
     }
     console.info(
@@ -198,6 +291,12 @@
           : undefined;
     if (!mammothLib) {
       throw new Error("Mammoth not loaded");
+    }
+    // convertToHtml keeps Word's list structure, so bullets survive as
+    // "- " lines; extractRawText dropped them and the ledger found no claims.
+    if (typeof mammothLib.convertToHtml === "function") {
+      const html = await mammothLib.convertToHtml({ arrayBuffer });
+      return normalizeExtractedText(textFromDocxHtml(html.value || ""));
     }
     const result = await mammothLib.extractRawText({ arrayBuffer });
     return normalizeExtractedText(result.value || "");
@@ -295,11 +394,94 @@
     }
   }
 
+  // ---------------------------------------------------------------
+  // RESJ K3: garbled text. A PDF whose text layer splits words and
+  // figures ("S ummary", "$ 10 M +", "top -3") reads back broken, and
+  // drafts built from it lose the name line and print split figures.
+  // Same scoring as detectGarbledResume in server/materials-resume-
+  // source.mjs (tests/resj-garbled-ingest.test.mjs pins them equal).
+  // ---------------------------------------------------------------
+
+  const NICKNAME_RE = /\s*(?:“[^”\n]{1,24}”|"[^"\n]{1,24}"|‘[^’\n]{1,24}’|\([^)\n]{1,24}\))\s*/gu;
+
+  /** @param {string} text */
+  function candidateNameFromText(text) {
+    const first = String(text || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean);
+    if (!first) return "";
+    if (first.length > 60 || /[@\d:/]/.test(first)) return "";
+    if (first.split(/\s+/).length > 6) return "";
+    return first.replace(NICKNAME_RE, " ").replace(/\s+/g, " ").trim();
+  }
+
+  /** @param {string} text @param {RegExp} re */
+  function countMatches(text, re) {
+    return (text.match(re) || []).length;
+  }
+
+  /* Resume words a PDF splits after their capital; mirrors
+   * SPLIT_JOINED_WORDS in server/materials-resume-source.mjs. */
+  /* Section headings: two split ones are decisive (RESJ K3-LEN). */
+  const SPLIT_HEADING_WORDS = new Set(
+    "summary experience skills education profile projects certifications certificates languages awards objective employment leadership achievements accomplishments professional technical competencies volunteer publications interests references contact highlights career history training tools qualifications expertise responsibilities strengths selected work core key about honors activities affiliations memberships courses coursework portfolio overview background research teaching speaking patents".split(" "),
+  );
+  const SPLIT_JOINED_WORDS = new Set([
+    ...SPLIT_HEADING_WORDS,
+    ..."managed led built grew drove launched created developed designed owned delivered increased reduced improved implemented directed established executed generated negotiated oversaw partnered produced scaled shipped spearheaded streamlined supervised trained wrote analyzed coordinated mentored optimized senior director manager marketing product engineer engineering analyst specialist consultant president present company university college bachelor master associate performance growth strategy sales operations".split(" "),
+  ]);
+
+  /** Capitals split off their word; see countSplitWords on the server. */
+  function countSplitWords(text) {
+    let words = 0;
+    let headings = 0;
+    /* A and I too ("A wards", "I nterests"); "Type A", "A/B" and
+     * "I managed" never join into a listed word (RESJ K3-AI). */
+    for (const m of text.matchAll(/(?<![\p{L}\p{N}])([A-Z]) ([a-z]{2,})/gu)) {
+      const joined = (m[1] + m[2]).toLowerCase();
+      if (!SPLIT_JOINED_WORDS.has(joined)) continue;
+      words += 1;
+      if (SPLIT_HEADING_WORDS.has(joined)) headings += 1;
+    }
+    return { words, headings };
+  }
+
+  /**
+   * @param {string} text
+   * @returns {{ garbled: boolean, score: number, words: number, nameLine: boolean,
+   *   signals: { splitWords: number, spacedPunctuation: number, spacedMetrics: number, orphanLetters: number } }}
+   */
+  function detectGarbledText(text) {
+    const t = String(text || "");
+    const words = t.split(/\s+/).filter(Boolean).length;
+    const split = countSplitWords(t);
+    const signals = {
+      splitWords: split.words,
+      spacedPunctuation:
+        countMatches(t, /[\p{L}\p{N}] [,;:)](?=\s|$)/gu) +
+        countMatches(t, /[\p{L}\p{N}] \.(?=\s|$)/gu) +
+        countMatches(t, /\( [\p{L}\p{N}]/gu),
+      spacedMetrics: countMatches(t, /\$ \d|\d [KMB](?![\w&])|\btop -\d|\d \+(?=\s|$)|\d %|# \d/g),
+      orphanLetters: countMatches(t, /(?<=\s)[b-hj-z](?=\s)/g),
+    };
+    const score =
+      signals.splitWords * 3 + signals.spacedPunctuation + signals.spacedMetrics * 3 + signals.orphanLetters;
+    const nameLine = Boolean(candidateNameFromText(t));
+    const density = words ? (score / words) * 100 : 0;
+    /* Two split section headings are damage at any length (RESJ K3-LEN). */
+    const garbled = split.headings >= 2 || (score >= 12 && density >= 2) || (score >= 6 && !nameLine);
+    return { garbled, score, words, nameLine, signals };
+  }
+
   window.CommandCenterResumeIngest = {
+    detectGarbledText,
     normalizeExtractedText,
     extractTextFromFile,
     extractTextFromPdf,
     extractTextFromDocx,
+    linesFromPdfTextItems,
+    textFromDocxHtml,
     guessMime,
     loadResumeReaders,
   };

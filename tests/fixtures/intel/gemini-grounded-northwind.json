@@ -1,0 +1,150 @@
+{
+ "candidates": [
+  {
+   "content": {
+    "parts": [
+     {
+      "text": "```json\n{\n  \"news\": [\n    {\n      \"headline\": \"Butler/Till and NorthwindMedia Launch the Advertising Industry's First Agentic Streaming Audio Media Campaign\",\n      \"date\": \"2026-08-20\",\n      \"summary\": \"NorthwindMedia and Butler/Till completed the advertising industry's first agentic streaming audio campaign, executing premium streaming audio purchases through an AI-powered agentic media buying workflow.\",\n      \"source\": \"businesswire.com\",\n      \"relevance\": \"Marks the emergence of AI agentic media transactions across Northwind's audio network, creating new automated buying channels and packaging strategies for digital ad sales teams.\"\n    },\n    {\n      \"headline\": \"NorthwindMedia, Inc. Reports Results for 2026 Second Quarter\",\n      \"date\": \"2026-08-10\",\n      \"summary\": \"NorthwindMedia posted total second-quarter revenue of $977 million, with Digital Audio revenue increasing 12.4% driven primarily by rising demand for digital and podcast advertising.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Validates persistent double-digit growth and advertiser demand across podcast and digital audio channels, underscoring primary revenue drivers for digital sales leadership.\"\n    },\n    {\n      \"headline\": \"NorthwindMedia Expands Advertising Relationship with Amazon Ads Across Audio and Video Inventory\",\n      \"date\": \"2026-06-26\",\n      \"summary\": \"NorthwindMedia expanded its relationship with Amazon Ads to act as a local reseller of Amazon audio and video inventory while allowing advertisers to use Amazon DSP retail and streaming signals across Northwind's digital footprint.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Provides digital sales leaders with powerful first-party retail intent signals and cross-platform inventory to pitch higher-performing omnichannel campaigns to advertisers.\"\n    }\n  ]\n}\n```",
+      "thoughtSignature": "EpseCpgeAWkUfRNZfpC6E56jPo7jHQHyhPN9EubW0kPDxY1FrJJ3y2exWUbGmUKcE8/IhZHprwD367nu5Qbb6bhVQn3Pi0FZopduHJ3dqs5CMa87ztI2bRMueTYnHGwpX4QQ1QS0vJu0QjjjemMln5fam/3sBWLCP1JTFRT1FAaO7NKYozJBHyqw9Bux1NlMEBtjOOElRv8joJPQJhTAYwJ/WcQxZrCfOmaa7nQZ3HvZ86dj5eB7UKCFtCMkilkuSxC+E6tR99UPdq3WLxVv/Leq71EbV6FR/xwIvVmTsMxQWdhFJKrASSNp2suxdGPcJ7CKru79vThhNFIWlJ/JAHPheNdJljlTBKEoeIkeleEydeD68kgVkAdIG9Dlhw2AJamyIe0hKad2ztUmSNLmsbuRdIXXKmp812KwSgxBGFBa3wGAEUAoXDmKzrrSxm2rQa+679Uw6hyUICngHfr0vrlU0yJWS5I+hzQEVLpV/p5FPOsakMAEaOII91HjMmchhk8VWsTvzB8zmOzSVrshLZSzr98C4SpyuaPyhW9ccbx0IVC1lnYam7AQ0EaOHwCHqt1eLvic+y+zUsv3uDscKICzPXS6ZlUXn1/Ihtzbm/w820R5ylXolv95gk4hqVLplkGaw4vEhNxdBDLKi6nLDCt1CHS/T6Jy03h/FJygw9bEK8KqrKPLYOW+UAK2RjJ4rn2wZoIfJZfxbIUM8d9YAEAGYLEnzX2FfFJ+Q6YMsvaQCQJEt4yUAGHhDFa3ij1u4C5rzRpx29+vQ+mA2+8IwNJc/c5XDwCUgOI/6he19ORDho+d42H2q1l/0VDYvcFrno0KfXxx0YVSFQu7glsWzX4M/gDNv6c0UDTRtyYUFHcMZ4gVcUmqnBP4yXmNc+XCw1wViRoX4z7L/AjMK/jtv1T7nBAhDo2TmP/UK67TGHLbiQ9J1ZwdFqTGJ1Nt8kCRLivRqzCNu4wdGpDu5TL4Q7O1V/LYqy1WvjcRZkqxbGFpQdGI/panVOJU728pBX580pOe0UGVgO+nPE6JOrB41BeOc83lGFqrt/N6ABcahgZfLGivpleYAGTcCNJOyC4OW3VCtt3WFnr9HwzdjxAr+1oc7yZvO1Lii9Qa699geao5KpAx5rdJPbgqCF3aed3HJLdWu4IKJ4Jg/dSeP8lbrOBwuvn3kMtGnWKJyVhUTcVU7WtD37fKrZRqi0ga98nFy8zvtPd1LtdURa+7dL3l3GlOh5K+SDCOYQpeOoNvFJgsqhnyrZyXJt7gKDAdZvUhTDuZ4RHeARaTd57XarPS96ve8/i6rxRD/G5JIpVfCQ7Sfr31ygGMM7xt1ljzCZFFG7Q4xqf0qiaqocK/sjzfl3VJoVG8HStWVU/8jdJ3u9dtmWDApDGmbuLN10R8u4bJLqc0sHpDBJx0u5k63Hbs34Chhl3tZaF4H3vRwazipxlCQ5ZHTOpR0VRzJcpp/SHU+JjDnSKMbKxDz1ixnZ9Fr59JcF0f9HjpdulK74okQsIMxo7DKuT0IA9pNGwAHdwpHCtWG6kZrWrtdO1v/JXDlF+samIV/REzKzQPRt4MlzHvPqMuWkNy8dLnFV2PnwGOEgyk/p0dDTiYqp7THohQc0cVh9tXIQI3xxtTHoVMVL15/8bBLgNw6nHbOwNJSmSEmxE9jsQCtAHQm5gB+W7OR/xSV9+5yCCXFMqyYyHZ7EvXiJmi2cbqIWRhzwZOHgiH0/cZGwCXIVlXprdwzTThbhRvIe1BCUHAy3fjeNlwG/auxe6jG0wDiY8fyeiFbtL3PjSlJ/elELQq0iHluHWV4QjWvzOckuLLJX3jhpJVaNtLZeMMBtUq2zXHDvdodElgnN9YTGjo6wPjmDQnG/ZMtxUBh52RAWE0I9OSj6SYC73AD6xxqAcYh3+vgob/enTk8icTQ9jleYDzA7clN20MGN7xQDCLycoHmjCa7Tv2IKaGoDmThU/VCyNnMabHCFPdHXlgjsk9Xx046LuDGw2SBbaBaF0W3lJQNyGIcBwTl2MbZ1PaDdwjp4+NRdDbMNJtQEvci+caTetRqkMt33w33IFSN3S5y9hg53AX+HjBQZnbmKOMR+Jk1cX4WkPbtfeEI44Z3FfIMUm0C+oH08tG9lkp41SzvYMM4x2+XNsLmw1BkXYAcDDNErlG7yWqZItI2QWiZH9PaxCm2ZCOUVv0K7qhZwHDGynX2AyyhcCRhgUAq5Ew4SSDyulfofHeeo4mOrpm1Q90I5CoZK9Zlzihuf9RGwFwVJU1vsYGKm0Q5o+lpEDYvxVAzftaTqkrFd8vwyGYCvfiNxocLHJjiIl3iqOU3dc5oeuohjw+wrWxaqwYwKKGxAkTJSnohGrtWtfprldVRuaGPe0eej0bZWZcfu+XEtOkEseS1obKL+9G6uitw9rWPIzBIe8vkmVVc2F/5xYHjdOmi6Lu20joleDe+rWe1yf/44lDJ+wsxQy06f+s0ILcaX7zQWBiGwoYHijIWudAJB02AHMucu05nLG8vG6uFfIPzAu/BukXHGGP7Dw/SE/2b3vOLWtI7IKb/QVAqK/kbyYr3vCy/ECOMlbDBvddStC6qoa849Km8JhBTwshF91iY0Dr7tAokS5Q3UCZb4D0g9xJPpGTYNCbpVoPHI3mm6FR/exu6m27UdgXuUjxnua3uqG3B4Ob67BtxntHlgjfMDgegeXoxrfjHKaHzJW0ozh7QPmkj1LNLJo3eFNgW4qrxk59Q3mKWhE1rR2gyrCTvTum2rc6TeGVcmDSHyTBDoFLVIFlrJJRcIGu14rBVqPhWyHnNcbRa0WeZKcExrm1TBYHbzJfPACdS0vIME3BkCowriw02lKiIpqzXG8dCmDHuFsevMRJs8J+eg9wLM78Th5Z3RhcPgUGUCdll3HC8asNGO9QLUq61egQSnfqnSiOeHtTle/Retj36l7+00wDiCKLTzgaF2LU1PjTuUlUTUCBHrMX5awEU+Foa+xetd++l3Fsc+fzEMQNlsElJKiyto3dAqbokZDfxU1ZwQG3F7JzgHMWZQXI/kaj4GtaHXRtoHrBXbjLWxyhNQ5+lkW47ftAo8Yj0KaLrjT73TVzNnbh8QGmZIq1G8JX9mQh1IzsDY085qx3D5xvwVrGJfWJss14LhFBymTcQQ9TF+Z+jtRLuSV1DxBfFliBgPUej3HA6OL114NvF6ebkAzVCsBOPO88qCdTfl1GTiSfrgQLIthWMTBWURcJHArkXXggpGp4luSRzR1NeK8IKxPjK4xP1uxcQf6r4F/IAvQ+53dn72C3n2H2fGimdA3g0ZPIllTFRjM/Xc0pBJ5FYJPF74whxanaPmafUOU4pCUJLm4xBEk98d9Kw159Jn1Low32dncBcl7EXY4zI3pGHa7tuABO5zcc+RairtLxdTx/xggVs303fw6vokHXDqPyYf/R2YR+3Hgjm1nkPY7y78U9cjq/QSLLviZjiICkfWHS/uj8c4CWMATeSODP0vLFI2w0+YAZUUfeXghw1J2OuXcco6AbSjmCncQJX+qXN19Tw2U5TTD+/gx0+R+JW/737O9vCAUcbAix3gl8sZpbSIkWZD3D9yEfATE/0txIL/4R3dRNTkIYZXef4CU/89JSLo5rsSFXSFNb/f5abB6cT8WOC7k4JWtZd9rdLKWFe8J8tSNKGSOJUO1nrFajF/0Am8l8lPFygBCwE0LFPF0RyQRbvk2Ebc4XKR3F+lR4p/aEv/eIYZATEVtMc8z8L/g5STUT1xsxgfOpEsleyhCyKSEhzAOd/lxRm78Gv1qMsoTMlGnmaIykjrZIk3lCdO0obVYGAYjNR4iA49IB6XmAXjzJDiawg9F4xNrF9EpalsVASvBmT4XPARZjrmgTDEtOYojqtOkOyedYGi/MwRizdQ9Y5aBpCdo/MbW0mEdIBs7x+1vRL6aWvy+GWxgiNWNPO5uh4aclkgncw5GJLFXxmzCVzOIrTsiW0LypNyGxMl19/KNEtBZrqvvlA8LatNixhDa8ceX9lpBMbiZdoO/lsQt76z5FLskfMS4fpMQt7bQdNcWrJhQTLfPaqWmRgA27TxSLh+5QVfwZ/Q1b52E3pOrBnAmPDY28vNImUcfKVbPEdmT2rdLS6ue6FmiLgPX9YrMGc9PvHt+CsyVptLC2yuTKt2dM5Kf2akcbZnnQMB45cxFxQ6jSXdTdsAtUU4+owBdi57VDk178WJxs0pya1VhReYUbLBM2uUKYKw16Vek9EdB1aHWUg6StR0JBxBwTrF81ILVbVqnOoAcoUP9yXcVo1vcog7cqjafzBfxCYPsAFBaUZyx1mLrPNBtVhaVfC/j2Km2NdxnGne6zXp2haGRFT9KVTwOpG28/NfE6quSZjp0NTVGfQRZf9oWx6I741E9HhZDW+LRzNH7842dtuDe3+U/k1kR4ofwmJsoSX1sY6kkLL2oCqf6oh4JGbKjZQKmTyzNvnnLpqeQESwOicBAqe4nMGL/bw8tYaVy0yKrJ/HrdzYfMP6B0YKqA7x5pK2uuszeTuwOz10wXJbXklkC7LOVt4qOihVkXfXrHOCSGBr60tvvkdHYKMvc7TTcr4xFHvxbG9IyVe70yj6XHjAv2Q8tI94HxCOuocDHfu8dwrROViPbLe27ia5NuHV9lZ2IcMUofdlVGPZyAjMZvsjOzxrFjLc3kBJSxDK22zMjS9ujbTVXRsY1lGcsO2p4vKsAIR3e29QS+I3yTygJT2sLVZM0uji+miI05l7Hz31/qbqzdItElJf0VG0PCd4eWpv6FlI5vXPQfbkM02xgp2gt/5swpAk3u6yM3tqHhQirsqLyFuYQEXmhf/w8gHK7trQLFBRWuI+2d5plqOG72dM0qlu19FgiDpxygX1+oOiqYkM1tDq0a2Vo1hljAfs1+kU1ugnOKCEAqW9piZYlEhRoSnSqLWwKdzhodkLdH2CoRzUscd+Bbd0t/lHqQrmNtjA0wKip4RN4WQy/ChohoLAPmVdXFbX8H/a2zRWIXcVBx00jWDUwfdcgpzuhh0GTeFK5H8iibYCfAYDgPke308q1vhEjstypAeeyAjfrGJ2RliVL0B/N9o/tBRkWEFBiaHFiMdAL1ByH7kX7LwbE/trzFHAj0c0Of/Egg58mdHSmQZNSFFFj8f3POOFGLCyOT"
+     }
+    ],
+    "role": "model"
+   },
+   "finishReason": "STOP",
+   "index": 0,
+   "groundingMetadata": {
+    "groundingChunks": [
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEdNqdg-WyF8vBBJP9wjjwJRn1wnaG1C5lL6Jf1vpBYBXF36hy8jpW5uD0Un8vByd5Y8uowfj7WzrCIdGIsvXJtI1vXC8sEu2RvsDlYox-2E4QVVJYLB38_cd7rkjURZs6kl3xMBaIh4pCuxkNulkNF6p8eNIymapGaELVZvdDK3Dz2mogJbCzfYKA21Fwx7-zlhyi0-1khZMqAU9XhZXLnE6fWU-usqJ3Dnjo1_U-3IJaxNg==",
+       "title": "northwindmedia.com"
+      }
+     },
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHCVWr3ATcbuqdIu5FWtfMBtaFbYChkkVZBDzOLuamr9ijwP2hDrMHEaPx_y-PcKoNE2FdLRC0fO1BPBoH99dvZSvgQ9Tq3UOHES-6sOIXDDHzY7eDeX6aWBchETkjnH54UY73iNYshFEjIetnPQk7p1W2AYwmjxd49PRzRRgdZBhnTFqU0as0D_D7oqDR7dx2tQN38FeGe7UeyLWxhZXZtXgq25Mya7mvbEyfa_OZF26a1PZkRLNemqioqlVio_YgFKicv2zRdq5oLZHZl2PmjbhL_OXdfWhbwY3Zg0sf--WmXFHSd",
+       "title": "northwindmedia.com"
+      }
+     },
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEgR7bNE9yHn52GG2fv-UUlY51s8Xt4mQxnkfDQkEPblbgLRqhk4Ko_GILkBF4grhYg7oYj-kMMhq7VnNJsgGoVD6AJDTGAjZwk7wHDUqoXMGhGDGrnjvdaUrXaoNXU576T3FHkf61CXySLx08lbTVcsnlb90VX05PZzpBQ4MB0gg==",
+       "title": "northwindmedia.com"
+      }
+     },
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF7N5zCyTalepddw2PhjWvvnNUYQuQ2wPneDKD7tI1N2JjDlHKkDaEL9Ievc0ye1oXpLROiZ1Sp0bGq9uChfWcDL3MJZvFMSZUgQXqodzXIYhW96rwL_VESpwgomYfTujZXnD3VdFwNSErM1JfkW9-9uuqQ0v3YtaaBGBd9GZ_2TEf2Hrszp6fZN59PFhC_NAu_6VwVvBAMiJvM77XDG0p3hCvBPUDOOw==",
+       "title": "northwindmedia.com"
+      }
+     },
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElmdb6lO9is7eS0FeTtuEk51HJcVvDN2VaYd4z_uZonbNvFCw2xV7Tyb3RGxs61hc6NlAPkmcHGfE2Dy7oDo_Ob6RY3daLp_dm2CBEgapoZbA_VIoMbKZX_EVjmN4Kvao5RMV6-CKzCd1lA0X1od_oh5-2_LdEm0MIIzoWtInJHfw93X3_HwfvzWx3SxC4Ha2gIUFnMA54WMP_ZbXQj8IXzAQo8wG0jB7AkyDZfye7bQ==",
+       "title": "northwindmedia.com"
+      }
+     },
+     {
+      "web": {
+       "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElmdb6lO9is7eS0FeTtuEk51HJcVvDN2VaYd4z_uZonbNvFCw2xV7Tyb3RGxs61hc6NlAPkmcHGfE2Dy7oDo_Ob6RY3daLp_dm2CBEgapoZbA_VIoMbKZX_EVjmN4Kvao5RMV6-CKzCd1lA0X1od_oh5-2_LdEm0MIIzoWtInJHfw93X3_HwfvzWx3SxC4Ha2gIUFnMA54WMP_ZbXQj8IXzAQo8wG0jB7AkyDZfye7bQ==",
+       "title": "northwindmedia.com"
+      }
+     }
+    ],
+    "groundingSupports": [
+     {
+      "segment": {
+       "endIndex": 402,
+       "text": "```json\n{\n  \"news\": [\n    {\n      \"headline\": \"Butler/Till and NorthwindMedia Launch the Advertising Industry's First Agentic Streaming Audio Media Campaign\",\n      \"date\": \"2026-08-20\",\n      \"summary\": \"NorthwindMedia and Butler/Till completed the advertising industry's first agentic streaming audio campaign, executing premium streaming audio purchases through an AI-powered agentic media buying workflow"
+      },
+      "groundingChunkIndices": [
+       0,
+       1
+      ]
+     },
+     {
+      "segment": {
+       "endIndex": 636,
+       "text": "```json\n{\n  \"news\": [\n    {\n      \"headline\": \"Butler/Till and NorthwindMedia Launch the Advertising Industry's First Agentic Streaming Audio Media Campaign\",\n      \"date\": \"2026-08-20\",\n      \"summary\": \"NorthwindMedia and Butler/Till completed the advertising industry's first agentic streaming audio campaign, executing premium streaming audio purchases through an AI-powered agentic media buying workflow.\",\n      \"source\": \"businesswire.com\",\n      \"relevance\": \"Marks the emergence of AI agentic media transactions across Northwind's audio network, creating new automated buying channels and packaging strategies for digital ad sales teams"
+      },
+      "groundingChunkIndices": [
+       0,
+       1
+      ]
+     },
+     {
+      "segment": {
+       "startIndex": 689,
+       "endIndex": 955,
+       "text": "Reports Results for 2026 Second Quarter\",\n      \"date\": \"2026-08-10\",\n      \"summary\": \"NorthwindMedia posted total second-quarter revenue of $977 million, with Digital Audio revenue increasing 12.4% driven primarily by rising demand for digital and podcast advertising"
+      },
+      "groundingChunkIndices": [
+       2,
+       3
+      ]
+     },
+     {
+      "segment": {
+       "startIndex": 689,
+       "endIndex": 1185,
+       "text": "Reports Results for 2026 Second Quarter\",\n      \"date\": \"2026-08-10\",\n      \"summary\": \"NorthwindMedia posted total second-quarter revenue of $977 million, with Digital Audio revenue increasing 12.4% driven primarily by rising demand for digital and podcast advertising.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Validates persistent double-digit growth and advertiser demand across podcast and digital audio channels, underscoring primary revenue drivers for digital sales leadership"
+      },
+      "groundingChunkIndices": [
+       3
+      ]
+     },
+     {
+      "segment": {
+       "startIndex": 689,
+       "endIndex": 1586,
+       "text": "Reports Results for 2026 Second Quarter\",\n      \"date\": \"2026-08-10\",\n      \"summary\": \"NorthwindMedia posted total second-quarter revenue of $977 million, with Digital Audio revenue increasing 12.4% driven primarily by rising demand for digital and podcast advertising.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Validates persistent double-digit growth and advertiser demand across podcast and digital audio channels, underscoring primary revenue drivers for digital sales leadership.\"\n    },\n    {\n      \"headline\": \"NorthwindMedia Expands Advertising Relationship with Amazon Ads Across Audio and Video Inventory\",\n      \"date\": \"2026-06-26\",\n      \"summary\": \"NorthwindMedia expanded its relationship with Amazon Ads to act as a local reseller of Amazon audio and video inventory while allowing advertisers to use Amazon DSP retail and streaming signals across Northwind's digital footprint"
+      },
+      "groundingChunkIndices": [
+       4,
+       5
+      ]
+     },
+     {
+      "segment": {
+       "startIndex": 689,
+       "endIndex": 1816,
+       "text": "Reports Results for 2026 Second Quarter\",\n      \"date\": \"2026-08-10\",\n      \"summary\": \"NorthwindMedia posted total second-quarter revenue of $977 million, with Digital Audio revenue increasing 12.4% driven primarily by rising demand for digital and podcast advertising.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Validates persistent double-digit growth and advertiser demand across podcast and digital audio channels, underscoring primary revenue drivers for digital sales leadership.\"\n    },\n    {\n      \"headline\": \"NorthwindMedia Expands Advertising Relationship with Amazon Ads Across Audio and Video Inventory\",\n      \"date\": \"2026-06-26\",\n      \"summary\": \"NorthwindMedia expanded its relationship with Amazon Ads to act as a local reseller of Amazon audio and video inventory while allowing advertisers to use Amazon DSP retail and streaming signals across Northwind's digital footprint.\",\n      \"source\": \"northwindmedia.com\",\n      \"relevance\": \"Provides digital sales leaders with powerful first-party retail intent signals and cross-platform inventory to pitch higher-performing omnichannel campaigns to advertisers"
+      },
+      "groundingChunkIndices": [
+       4,
+       5
+      ]
+     }
+    ],
+    "webSearchQueries": [
+     "\"NorthwindMedia Expands Advertising Relationship with Amazon Ads\"",
+     "\"Butler/Till and NorthwindMedia Launch the Advertising Industry's First Agentic Streaming Audio Media Campaign\"",
+     "NorthwindMedia news partnerships earnings digital sales 2024"
+    ]
+   }
+  }
+ ],
+ "usageMetadata": {
+  "promptTokenCount": 1521,
+  "candidatesTokenCount": 506,
+  "totalTokenCount": 4305,
+  "cachedContentTokenCount": 440,
+  "promptTokensDetails": [
+   {
+    "modality": "TEXT",
+    "tokenCount": 1521
+   }
+  ],
+  "cacheTokensDetails": [
+   {
+    "modality": "TEXT",
+    "tokenCount": 440
+   }
+  ],
+  "thoughtsTokenCount": 2278,
+  "serviceTier": "standard"
+ },
+ "modelVersion": "gemini-3.8-flash",
+ "responseId": "COy5aqq-FujV-sAP1Nza4A8",
+ "_recorded": "2026-09-28 live Gemini generateContent reply (gemini-3.8-flash, google_search), NorthwindMedia news search; searchEntryPoint HTML removed"
+}

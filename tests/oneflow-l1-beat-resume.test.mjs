@@ -148,7 +148,8 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
       [...env.beats.resume.getRenderedStages().map((s) => `${s.label}:${s.state}`)],
-      ["Reading your resume:done", "Drafting your profile:done"],
+      // RESJ2-EXTRACT: named for what each stage is (browser save, AI read).
+      ["Saving your resume in this browser:done", "Reading your resume with AI:done"],
       "the 20–120s silent wait is the teardown's flagship defect",
     );
   });
@@ -341,7 +342,7 @@ describe("B3 — serverless direct drafting (hosted site, down server)", () => {
     // Field-wise: the opts object crosses the vm boundary, so its
     // prototype differs from this realm's Object.
     assert.equal(directCalls[0][2].json, true);
-    assert.equal(directCalls[0][2].maxOutputTokens, 8192);
+    assert.equal(directCalls[0][2].maxOutputTokens, undefined);
     const draft = env.beats.resume.getDraft();
     assert.equal(draft.profile.identity.targetRoles[0], "Staff Engineer");
     assert.equal(

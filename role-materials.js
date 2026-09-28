@@ -54,7 +54,17 @@
     "job-description.md": { format: "Markdown", inline: false },
     "manual-apply-checklist.md": { format: "Markdown", inline: false },
     "manifest.json": { format: "JSON", inline: false },
+    /* U-3: the ATS plain-text twins the server already writes and serves. */
+    "resume.txt": { format: "TXT", inline: false },
+    "cover-letter.txt": { format: "TXT", inline: false },
   };
+
+  /* Wave 2 (U-1, U-3, U-4, U-6, U-7): pure view helpers live in
+     materials-insights.js. Without it the rows paint as before. */
+  function insights() {
+    var mi = root.JobBoredMaterialsInsights;
+    return mi && typeof mi.scorecardHtml === "function" ? mi : null;
+  }
 
   var DOC_LABELS = {
     resume: { label: "Tailored Resume", role: "primary" },
@@ -355,7 +365,8 @@
      panel card and the Case's compact rows so the allowlist, the inline-vs-
      download split and the cache-busting version all live in one place;
      `cls(kind)` supplies each host's own button classes. */
-  function docActionButtons(slug, doc, base, primaryQualityIssue, cls) {
+  function docActionButtons(slug, doc, base, primaryQualityIssue, cls, opts) {
+    var o = opts || {};
     var preview = pickPreviewFile(doc);
     var download = pickDownloadFile(doc);
     var hasPreview = !!(preview && (ALLOWED_FILES[preview.filename] || {}).inline);
@@ -379,7 +390,21 @@
         + '>Preview</a>'
       );
     }
-    if (download) {
+    var mi = o.menu ? insights() : null;
+    if (mi && (doc.type === "resume" || doc.type === "cover_letter")) {
+      /* U-3: one Download menu (PDF, ATS text, Word, LinkedIn copy). */
+      var txt = doc.text && doc.text.filename && ALLOWED_FILES[doc.text.filename] ? doc.text : null;
+      var docxName = doc.type === "resume" ? "resume.docx" : "cover-letter.docx";
+      var menu = mi.downloadMenuHtml({
+        type: doc.type,
+        pdfHref: download ? fileUrl(base, slug, download.filename, { download: true, version: fileVersion(download) }) : "",
+        txtHref: txt ? fileUrl(base, slug, txt.filename, { download: true, version: fileVersion(txt) }) : "",
+        docxHref: doc.exports && doc.exports.docx ? exportUrl(base, slug, docxName, { download: true, version: fileVersion(download || txt) }) : "",
+        linkedin: !!(doc.type === "resume" && doc.exports && doc.exports.linkedin),
+        fail: !!o.fail,
+      });
+      if (menu) actions.push(menu);
+    } else if (download) {
       actions.push(
         '<a class="' + cls("ghost") + '"'
         + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
@@ -389,10 +414,19 @@
         + ' download'
         + ' data-action="materials-download"'
         + ' data-filename="' + escapeHtml(download.filename) + '"'
+        + (o.fail ? ' data-gate="fail"' : "")
         + '>Download PDF</a>'
       );
     }
     return actions;
+  }
+
+  function exportUrl(base, slug, name, opts) {
+    var params = [];
+    if (opts && opts.download) params.push("download=1");
+    if (opts && opts.version) params.push("v=" + encodeURIComponent(String(opts.version)));
+    return base + "/api/applications/" + encodeURIComponent(slug)
+      + "/export/" + encodeURIComponent(name) + (params.length ? "?" + params.join("&") : "");
   }
 
   function renderCard(slug, doc, base, pending, identity, quality) {
@@ -417,9 +451,10 @@
     var statusLabel = primaryQualityIssue ? "Review" : "Ready";
     var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
 
+    var mi = insights();
     var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
       return "brief-materials__btn brief-materials__btn--" + kind;
-    });
+    }, { fail: !!(mi && mi.isFail(quality)) });
 
     var metaParts = [];
     var primaryFormat = formats.filter(function (f) { return f; })[0];
@@ -475,12 +510,16 @@
     if (!rec) return null;
     var text = String(rec.extractedText || rec.text || "").trim();
     if (!text) return null;
-    return {
+    var payload = {
       source: String(rec.source || "file"),
       filename: String(rec.label || rec.filename || "My resume"),
       addedAt: String(rec.createdAt || rec.addedAt || ""),
       text: text,
     };
+    /* The server drafts from the user's newest saved resume unless this one
+       was pinned on purpose; it never drafts from garbled text. */
+    if (rec.pinned === true) payload.pinned = true;
+    return payload;
   }
 
   function setResumeSummary(payload) {
@@ -924,6 +963,7 @@
         + '</div>'
         + identityHtml
         + '<div class="brief-materials__progress-message">' + escapeHtml(message) + '</div>'
+        + (insights() && progress && !isQueued ? insights().timelineHtml(progress, pending.feature) : "")
         + (noteSnippet
             ? '<div class="brief-materials__progress-note">"' + escapeHtml(noteSnippet) + '"</div>'
             : '')
@@ -966,8 +1006,11 @@
     var r = recorded || resumeSummary;
     if (!r || !r.filename) return "";
     var added = r.addedAt ? ", added " + escapeHtml(String(r.addedAt).slice(0, 10)) : "";
+    /* When the server chose a different resume (the page's copy was older or
+       garbled), it says so. */
+    var note = recorded && recorded.note ? ' <span class="case__provenance-note">' + escapeHtml(String(recorded.note)) + "</span>" : "";
     return '<p class="case__provenance">' + (recorded ? "Drafted from " : "Drafts use ")
-      + "<b>" + escapeHtml(r.filename) + "</b>" + added
+      + "<b>" + escapeHtml(r.filename) + "</b>" + added + note
       + ' <button type="button" class="case__link" data-action="open-resume">Change</button></p>';
   }
 
@@ -1006,7 +1049,7 @@
   function extraDocActions(type, doc) {
     var files = doc && Array.isArray(doc.files) ? doc.files : [];
     var out = [];
-    if (type === "qa_report" || type === "manual_apply_checklist") {
+    if (type === "qa_report" || (type === "manual_apply_checklist" && !checklistAvailable())) {
       var md = files.filter(function (f) { return f && /\.md$/i.test(String(f.filename || "")); })[0];
       if (md && ALLOWED_FILES[md.filename]) {
         out.push('<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-open-md"'
@@ -1035,11 +1078,16 @@
     var pendingProgress = pending && pending.progress ? pending.progress : null;
     var qualityDocs = manifest.quality && manifest.quality.documents ? manifest.quality.documents : {};
 
+    var mi = insights();
+    /* U-5 "Draft both": the letter waits behind the resume's run. */
+    var pendingLive = pending && !/^(complete|done|failed)$/i.test(String((pendingProgress && pendingProgress.phase) || "queued"));
+    var queuedNext = pendingLive && pending.next ? String(pending.next) : "";
     var rows = defs.map(function (def) {
       var doc = docs.filter(function (d) { return d && d.type === def.type; })[0] || null;
       var phase = pending && pendingFeature === def.type
         ? (pendingProgress ? (String(pendingProgress.phase || "") || "queued") : "queued")
-        : "";
+        : (queuedNext === def.type ? "queued" : "");
+      var isNextInLine = queuedNext === def.type && pendingFeature !== def.type;
       var isPending = !!phase && !/^(complete|done|failed)$/i.test(phase);
       var status = isPending
         ? "drafting"
@@ -1054,8 +1102,9 @@
         ? qualityForRow.issues.filter(function (i) { return i && (i.message || i.code); })
         : [];
       if (status === "ready" && flags.length) status = "review";
-      var attempt = Number(pendingProgress && pendingProgress.attempt) || 1;
-      var elapsed = pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—";
+      var rowProgress = isNextInLine ? null : pendingProgress;
+      var attempt = Number(rowProgress && rowProgress.attempt) || 1;
+      var elapsed = rowProgress ? formatElapsed(liveElapsedSeconds(rowProgress)) : "—";
       var isQueued = /^queued$/i.test(phase);
       /* The meta line, which owns the whole row's width (SPEC §3.4). Every
          sentence the row has to say lands here rather than beside the label:
@@ -1080,7 +1129,12 @@
          happening and for how long, the worker's own message says what it is
          doing, and the indeterminate track says it is still alive. */
       var progressHtml = "";
-      if (isPending) {
+      if (isPending && isNextInLine) {
+        progressHtml = '<span class="case__doc-progress" data-phase="queued" aria-live="polite">'
+          + '<span class="case__doc-eyebrow">next in line</span>'
+          + '<span class="case__doc-msg">' + escapeHtml("Drafts after the " + featureLabel(pendingFeature) + " finishes, with its own quality check.") + '</span>'
+        + '</span>';
+      } else if (isPending) {
         var prog = pendingProgress;
         var eyebrow = (isQueued ? "waiting in queue" : (/^drafting$/i.test(phase) ? "drafting in progress" : phaseWords(phase)))
           + " · " + elapsed
@@ -1100,6 +1154,8 @@
           + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
           + stall
           + '<span class="case__doc-track" aria-hidden="true"><i></i></span>'
+          /* U-4: the named steps, never the raw "stage: status" strings. */
+          + (mi && !isQueued ? mi.timelineHtml(prog, pendingFeature) : "")
         + '</span>';
       } else if (status === "failed") {
         /* Same words the pill used to carry in 15 nowrap characters, in the
@@ -1107,13 +1163,19 @@
         var reason = pendingProgress && pendingProgress.message
           ? String(pendingProgress.message)
           : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.";
-        progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>';
+        progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>'
+          + (mi && pendingProgress && Array.isArray(pendingProgress.stages) && pendingProgress.stages.length
+            ? mi.timelineHtml(pendingProgress, pendingFeature) : "");
       }
       var issue = flags[0] || null;
+      /* U-1: with a pipeline verdict the scorecard owns Repair and the fix,
+         so the action row does not repeat it. */
+      var verdict = mi && (status === "ready" || status === "review") ? mi.scorecardHtml(qualityForRow, def.type) : "";
+      var fail = !!(mi && mi.isFail(qualityForRow));
       var actions = status === "ready" || status === "review"
-        ? docActionButtons(manifest.slug, doc, base, issue, function (kind) {
+        ? docActionButtons(manifest.slug, doc, base, verdict ? null : issue, function (kind) {
           return "case__doc-btn case__doc-btn--" + kind;
-        }).concat(extraDocActions(def.type, doc))
+        }, { menu: true, fail: fail }).concat(extraDocActions(def.type, doc))
         : (status === "missing" && def.draftAction
           ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
             + escapeHtml(def.draftAction) + '">Draft</button>']
@@ -1138,20 +1200,74 @@
           ? "review \u00b7 " + flags.length + " flag" + (flags.length === 1 ? "" : "s")
           : (isPending && isQueued ? "queued" : status));
       var stateClass = isPending && isQueued ? "queued" : status;
-      return '<div class="case__doc case__doc--' + status + '" data-doc="' + escapeHtml(def.type) + '">'
+      if (isNextInLine) stateWord = "next";
+      if (verdict) {
+        /* The pill carries the verdict and its score ("fail · 6 / 12"). */
+        var tone = mi.dispositionOf(qualityForRow).toLowerCase();
+        stateWord = mi.pillText(qualityForRow).toLowerCase();
+        stateClass = "qa-" + (tone === "ready" ? "ready" : tone);
+        if (status === "review") {
+          var ready = doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted";
+          meta = ready + (doc && Array.isArray(doc.files) && doc.files.length ? " · " + doc.files.length + " file" + (doc.files.length === 1 ? "" : "s") : "");
+        }
+      }
+      if (verdict && (def.type === "resume" || def.type === "cover_letter")) {
+        actions = actions.concat(['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-history"'
+          + ' data-feature="' + escapeHtml(def.type) + '" aria-expanded="false">Versions</button>']);
+      }
+      var coverage = mi && (status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter")
+        ? coverageFor(manifest, def.type, doc) : "";
+      /* The manual-apply checklist is a live, checkable list the server
+         builds from the package, not a .md to download. */
+      var checklist = "";
+      if (def.type === "manual_apply_checklist" && checklistAvailable()) {
+        var prog = root.JobBoredApplyChecklist.progress(manifest.slug);
+        status = "checklist";
+        stateClass = "checklist";
+        stateWord = prog ? prog.done + " / " + prog.total + " done" : "to do";
+        meta = "";
+        progressHtml = "";
+        actions = ['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-checklist-toggle"'
+          + ' aria-expanded="' + (checklistOpen ? "true" : "false") + '">' + (checklistOpen ? "Hide checklist" : "Show checklist") + '</button>'];
+        if (checklistOpen) {
+          var contact = currentContext && currentContext.enrichment && currentContext.enrichment.contact
+            ? String(currentContext.enrichment.contact) : "";
+          checklist = '<jb-apply-checklist data-slug="' + escapeHtml(manifest.slug) + '" data-base="' + escapeHtml(base) + '"'
+            + ' data-version="' + escapeHtml(String(manifest.updatedAt || "") + "|" + String(manifest.runId || "")) + '"'
+            + (contact ? ' data-contact="' + escapeHtml(contact) + '"' : "") + '></jb-apply-checklist>';
+        }
+      }
+      return '<div class="case__doc case__doc--' + status + (fail ? " case__doc--qafail" : "") + '" data-doc="' + escapeHtml(def.type) + '"'
+        + (fail ? ' data-qa="fail"' : "") + '>'
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
         + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
           + escapeHtml(stateWord) + '</span>'
         + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + '</div>'
+        + (verdict || coverage || checklist ? '<div class="case__doc-qa">' + verdict + coverage + checklist + '</div>' : "")
         + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
       + '</div>';
     }).join("");
 
+    /* U-5: one click queues the resume, then the letter, each its own run
+       with its own verdict. Offered while nothing is in flight. */
+    var draftBoth = mi && !pendingLive && defs.some(function (d) { return d.type === "resume"; })
+      && defs.some(function (d) { return d.type === "cover_letter"; })
+      ? '<p class="mat-both"><button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-draft-both">Draft both</button>'
+        + '<span class="mat-both__hint">Resume first, then the cover letter, each with its own quality check.</span></p>'
+      : "";
+    /* Wave 3 surfaces, when the package carries them. */
+    var outreachRow = mi ? outreachRowHtml(manifest) : "";
+    var intel = mi ? intelFor(manifest) : "";
+    var option = mi && !pendingLive ? outreachOptionHtml() : "";
     appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows"'
       + ' aria-label="Application materials" data-slug="' + escapeHtml(manifest.slug) + '">'
       + provenanceHtml(manifest)
       + templateBarHtml(manifest)
+      + draftBoth
+      + option
       + rows
+      + outreachRow
+      + intel
       + draftNotesHtml()
       + '</section>');
     wireSection(hostEl);
@@ -1365,10 +1481,17 @@
     var section = briefEl.querySelector("." + SECTION_CLASS);
     if (!section || section.__wired) return;
     section.__wired = true;
+    section.addEventListener("change", function (e) {
+      var t = e && e.target;
+      if (t && t.getAttribute && t.getAttribute("data-materials-outreach") != null) includeOutreach = !!t.checked;
+    });
     section.addEventListener("input", function (e) {
       var t = e && e.target;
       if (t && t.getAttribute && t.getAttribute("data-materials-notes") != null) {
         draftNotes = String(t.value || "");
+      }
+      if (t && t.getAttribute && t.getAttribute("data-materials-outreach") != null) {
+        includeOutreach = !!t.checked;
       }
     });
     section.addEventListener("click", function (e) {
@@ -1376,7 +1499,15 @@
       while (t && t !== section) {
         if (t.getAttribute) {
           var action = t.getAttribute("data-action");
+          if (action === "materials-download" && t.getAttribute("data-gate") === "fail") {
+            /* U-1: a FAIL draft never downloads silently — ask in the page. */
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            closeDownloadMenus(section);
+            showFailConfirm(t, { kind: "link", href: t.getAttribute("href") || "", filename: t.getAttribute("data-filename") || "" });
+            return;
+          }
           if (action === "materials-preview" || action === "materials-download") {
+            if (action === "materials-download") closeDownloadMenus(section);
             dispatch(
               action === "materials-preview"
                 ? "jb:role:materials:opened"
@@ -1386,6 +1517,61 @@
                 filename: t.getAttribute("data-filename") || "",
               },
             );
+            return;
+          }
+          if (action === "materials-download-menu") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            toggleDownloadMenu(t, section);
+            return;
+          }
+          if (action === "materials-download-anyway") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            downloadAnyway(t, section);
+            return;
+          }
+          if (action === "materials-copy-linkedin") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            closeDownloadMenus(section);
+            if (t.getAttribute("data-gate") === "fail") {
+              showFailConfirm(t, { kind: "linkedin" });
+              return;
+            }
+            copyForLinkedIn(t, section);
+            return;
+          }
+          if (action === "materials-open-profile") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            openProfileSettings(t.getAttribute("data-focus") || "");
+            return;
+          }
+          if (action === "materials-history") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            toggleHistory(t, section);
+            return;
+          }
+          if (action === "materials-promote") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            promoteVersion(t, section);
+            return;
+          }
+          if (action === "materials-diff") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            diffVersions(t, section);
+            return;
+          }
+          if (action === "materials-copy-text") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            copyNearbyText(t);
+            return;
+          }
+          if (action === "materials-checklist-toggle") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            toggleChecklist(t);
+            return;
+          }
+          if (action === "materials-draft-both") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            handleDraftRequest("resume", null, { then: "cover_letter" });
             return;
           }
           if (action === "materials-dismiss") {
@@ -1431,6 +1617,7 @@
           }
           if (action === "materials-repair") {
             if (typeof e.preventDefault === "function") e.preventDefault();
+            removeFailConfirm(t);
             handleRepair(
               section.getAttribute("data-slug") || "",
               t.getAttribute("data-feature") || "",
@@ -1440,7 +1627,454 @@
         }
         t = t.parentNode;
       }
+      /* A click anywhere else in the section closes an open menu. */
+      closeDownloadMenus(section);
     });
+    section.addEventListener("keydown", function (e) {
+      if (!e || e.key !== "Escape") return;
+      var open = section.querySelector(".mat-dl__menu:not([hidden])");
+      var confirm = section.querySelector(".mat-confirm");
+      if (open) {
+        var toggle = open.parentNode && open.parentNode.querySelector(".mat-dl__toggle");
+        closeDownloadMenus(section);
+        if (toggle && typeof toggle.focus === "function") toggle.focus();
+      } else if (confirm) {
+        removeFailConfirm(confirm);
+      }
+    });
+    ensureOutsideMenuClose();
+  }
+
+  /* -------------------- Wave 2: menus, gate, exports, history -------------------- */
+
+  var outsideCloseWired = false;
+  function ensureOutsideMenuClose() {
+    if (outsideCloseWired || typeof document === "undefined" || !document.addEventListener) return;
+    outsideCloseWired = true;
+    document.addEventListener("click", function (e) {
+      var t = e && e.target;
+      while (t && t.getAttribute) {
+        if (t.getAttribute("data-dl") != null) return;
+        t = t.parentNode;
+      }
+      if (document.querySelectorAll) {
+        var menus = document.querySelectorAll(".mat-dl__menu:not([hidden])");
+        for (var i = 0; i < menus.length; i++) closeMenu(menus[i]);
+      }
+    });
+  }
+
+  function closeMenu(menu) {
+    if (!menu) return;
+    menu.setAttribute("hidden", "");
+    var toggle = menu.parentNode && menu.parentNode.querySelector ? menu.parentNode.querySelector(".mat-dl__toggle") : null;
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+  }
+
+  function closeDownloadMenus(section, except) {
+    if (!section || !section.querySelectorAll) return;
+    var menus = section.querySelectorAll(".mat-dl__menu:not([hidden])");
+    for (var i = 0; i < menus.length; i++) if (menus[i] !== except) closeMenu(menus[i]);
+  }
+
+  function toggleDownloadMenu(btn, section) {
+    var wrap = btn.parentNode;
+    var menu = wrap && wrap.querySelector ? wrap.querySelector(".mat-dl__menu") : null;
+    if (!menu) return;
+    var opening = menu.hasAttribute("hidden");
+    closeDownloadMenus(section, menu);
+    if (!opening) {
+      closeMenu(menu);
+      return;
+    }
+    menu.removeAttribute("hidden");
+    btn.setAttribute("aria-expanded", "true");
+    var first = menu.querySelector("[role=menuitem]");
+    if (first && typeof first.focus === "function") first.focus();
+  }
+
+  /* The row (or legacy card) a control belongs to. */
+  function docHostOf(node) {
+    var t = node;
+    while (t && t.getAttribute) {
+      if (t.getAttribute("data-doc") != null || t.getAttribute("data-doc-type") != null) return t;
+      t = t.parentNode;
+    }
+    return null;
+  }
+
+  function docTypeOf(host) {
+    if (!host) return "";
+    return host.getAttribute("data-doc") || host.getAttribute("data-doc-type") || "";
+  }
+
+  function showFailConfirm(trigger, target) {
+    var mi = insights();
+    var host = docHostOf(trigger);
+    if (!mi || !host) return;
+    var prior = host.querySelector(".mat-confirm");
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+    var holder = document.createElement("div");
+    holder.innerHTML = mi.failConfirmHtml(docTypeOf(host), target);
+    var box = holder.firstElementChild || holder.firstChild;
+    if (!box) return;
+    host.appendChild(box);
+    var first = box.querySelector("button");
+    if (first && typeof first.focus === "function") first.focus();
+  }
+
+  function removeFailConfirm(node) {
+    var t = node;
+    while (t && t.getAttribute) {
+      if (t.classList && t.classList.contains("mat-confirm")) {
+        if (t.parentNode) t.parentNode.removeChild(t);
+        return;
+      }
+      t = t.parentNode;
+    }
+  }
+
+  function triggerDownload(href) {
+    if (!href || typeof document === "undefined") return;
+    var a = document.createElement("a");
+    a.href = href;
+    a.setAttribute("download", "");
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    if (a.parentNode) a.parentNode.removeChild(a);
+  }
+
+  function downloadAnyway(btn, section) {
+    var kind = btn.getAttribute("data-kind") || "link";
+    var host = docHostOf(btn);
+    removeFailConfirm(btn);
+    if (kind === "linkedin") {
+      copyForLinkedIn(host || btn, section);
+      return;
+    }
+    var href = btn.getAttribute("data-href") || "";
+    triggerDownload(href);
+    dispatch("jb:role:materials:downloaded", {
+      slug: section.getAttribute("data-slug") || "",
+      filename: btn.getAttribute("data-filename") || "",
+      afterFailConfirm: true,
+    });
+  }
+
+  function copyForLinkedIn(node, section) {
+    var slug = section.getAttribute("data-slug") || "";
+    if (!slug) return;
+    var host = docHostOf(node);
+    fetchJson(exportUrl(materialsBase(), slug, "linkedin.json")).then(function (body) {
+      var text = String((body && body.text) || "");
+      if (!text) throw new Error("nothing to copy yet");
+      var nav = root.navigator;
+      var write = nav && nav.clipboard && typeof nav.clipboard.writeText === "function"
+        ? nav.clipboard.writeText(text)
+        : Promise.reject(new Error("no clipboard"));
+      return write.then(function () {
+        toast("Copied your About and Experience. Paste them into LinkedIn.", "success");
+      }, function () {
+        showCopyFallback(host, text);
+      });
+    }).catch(function (err) {
+      toast("Couldn\u2019t build the LinkedIn text: " + ((err && err.message) || "unknown error"), "error");
+    });
+  }
+
+  /* No clipboard permission: show the text selected, ready for Ctrl/Cmd+C. */
+  function showCopyFallback(host, text) {
+    if (!host || typeof document === "undefined") return;
+    var prior = host.querySelector(".mat-copy");
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+    var box = document.createElement("div");
+    box.className = "mat-copy";
+    var label = document.createElement("p");
+    label.className = "mat-copy__hint";
+    label.textContent = "Copy this into LinkedIn (it is selected: press Ctrl+C or \u2318C).";
+    var area = document.createElement("textarea");
+    area.className = "mat-copy__text";
+    area.readOnly = true;
+    area.rows = 8;
+    area.setAttribute("aria-label", "About and Experience text for LinkedIn");
+    area.value = text;
+    box.appendChild(label);
+    box.appendChild(area);
+    host.appendChild(box);
+    try { area.focus(); area.select(); } catch (e) { /* selection is a convenience */ }
+  }
+
+  function openProfileSettings(focus) {
+    var open = root.openCommandCenterSettingsModal;
+    if (typeof open === "function") {
+      try {
+        open({ tab: "fit-profile" });
+        return;
+      } catch (e) { /* fall through to the resume view */ }
+    }
+    if (focus !== "voice") openResume();
+  }
+
+  /* -------------------- Wave 3: outreach note + company facts --------------------
+     Both are read lazily from the package (outreach.json, intel.json) when the
+     manifest names them, cached per run, and painted in place. Absent fields
+     render nothing. */
+  var includeOutreach = false;
+  var outreachCache = {};
+  var intelCache = {};
+
+  function outreachOptionHtml() {
+    return '<label class="mat-opt"><input type="checkbox" data-materials-outreach' + (includeOutreach ? " checked" : "") + '>'
+      + '<span>Include outreach note</span><span class="mat-opt__hint">A LinkedIn note and a short email to the hiring manager, written with the cover letter.</span></label>';
+  }
+
+  function outreachMeta(manifest) {
+    var o = manifest && manifest.outreach;
+    return o && typeof o === "object" ? o : null;
+  }
+
+  function outreachRowHtml(manifest) {
+    var mi = insights();
+    var meta = outreachMeta(manifest);
+    if (!mi || !meta) return "";
+    var key = manifest.slug + "|" + String(meta.runId || manifest.runId || "");
+    var hit = outreachCache[key];
+    if (!hit) {
+      outreachCache[key] = { state: "loading" };
+      loadOutreach(manifest.slug, String(meta.json || "outreach.json"), key);
+    }
+    var record = hit && hit.state === "done" ? hit.record : null;
+    var body = record ? mi.outreachHtml(record, meta) : "";
+    var tone = mi.outreachStatus(meta, record);
+    return '<div class="case__doc case__doc--ready mat-outreach" data-doc="outreach_note">'
+      + '<div class="case__doc-n"><span class="case__doc-label">Outreach note</span></div>'
+      + '<span class="case__docst case__docst--' + (tone ? "qa-" + tone : "ready") + '" data-outreach-qa="' + escapeHtml(tone) + '">'
+        + escapeHtml(tone || "drafted") + '</span>'
+      + '<div class="case__doc-meta">LinkedIn note + email</div>'
+      + '<div class="case__doc-qa" data-outreach-body>' + (body || (hit && hit.state === "none"
+        ? '<p class="mat-hist__empty">The note isn\u2019t on disk any more. Draft the letter again with the outreach note.</p>'
+        : '<p class="mat-hist__empty">Loading the note\u2026</p>')) + '</div>'
+    + '</div>';
+  }
+
+  function loadOutreach(slug, filename, key) {
+    if (!ALLOWED_FILES[filename]) filename = "outreach.json";
+    fetchJson(fileUrl(materialsBase(), slug, filename)).then(function (record) {
+      outreachCache[key] = { state: "done", record: record };
+    }, function () {
+      outreachCache[key] = { state: "none" };
+    }).then(function () { repaintMaterials(slug); });
+  }
+
+  function intelFor(manifest) {
+    var mi = insights();
+    var meta = manifest && manifest.intel && typeof manifest.intel === "object" ? manifest.intel : null;
+    if (!mi || !meta) return "";
+    if (Array.isArray(meta.facts)) return mi.intelHtml(mi.intelFactsFrom(null, meta), manifest.company, meta.degraded);
+    var key = manifest.slug + "|" + String(meta.runId || manifest.runId || "");
+    var hit = intelCache[key];
+    if (!hit) {
+      intelCache[key] = { state: "loading" };
+      fetchJson(fileUrl(materialsBase(), manifest.slug, "intel.json")).then(function (pack) {
+        intelCache[key] = { state: "done", facts: mi.intelFactsFrom(pack, null) };
+      }, function () {
+        intelCache[key] = { state: "none" };
+      }).then(function () { repaintMaterials(manifest.slug); });
+      return "";
+    }
+    return hit.state === "done" ? mi.intelHtml(hit.facts, manifest.company, meta.degraded) : "";
+  }
+
+  /* Repaint the rows from the last manifest once lazily-read data lands. */
+  function repaintMaterials(slug) {
+    if (!currentManifest || !currentManifest.manifest || currentManifest.manifest.slug !== slug) return;
+    var host = findMount();
+    if (!host) return;
+    var section = host.querySelector && host.querySelector("." + SECTION_CLASS);
+    if (section && section.contains && typeof document !== "undefined" && section.contains(document.activeElement)
+      && document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
+    renderManifest(host, currentManifest.manifest, currentManifest.base);
+  }
+
+  function copyNearbyText(btn) {
+    var part = btn.parentNode;
+    var src = part && part.querySelector ? part.querySelector("[data-copy-src]") : null;
+    if (!src) return;
+    var text = String(src.textContent || "");
+    var nav = root.navigator;
+    var write = nav && nav.clipboard && typeof nav.clipboard.writeText === "function"
+      ? nav.clipboard.writeText(text)
+      : Promise.reject(new Error("no clipboard"));
+    write.then(function () {
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+    }, function () {
+      /* No clipboard permission: select the text for Ctrl/Cmd+C. */
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(src);
+        var sel = root.getSelection && root.getSelection();
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+        btn.textContent = "Selected: press \u2318C";
+      } catch (e) { /* a convenience */ }
+    });
+  }
+
+  /* The manual-apply checklist (apply-checklist.js). Open by default; the
+     row's toggle folds it for this session. */
+  var checklistOpen = true;
+  function checklistAvailable() {
+    return !!(root.JobBoredApplyChecklist && root.customElements
+      && typeof root.customElements.get === "function" && root.customElements.get("jb-apply-checklist"));
+  }
+
+  function toggleChecklist(btn) {
+    checklistOpen = !checklistOpen;
+    var row = docHostOf(btn);
+    if (!row) return;
+    btn.setAttribute("aria-expanded", checklistOpen ? "true" : "false");
+    btn.textContent = checklistOpen ? "Hide checklist" : "Show checklist";
+    var el = row.querySelector("jb-apply-checklist");
+    if (!checklistOpen) {
+      var band = el && el.parentNode;
+      if (el && band) band.removeChild(el);
+      if (band && !band.children.length && band.parentNode) band.parentNode.removeChild(band);
+      return;
+    }
+    if (currentManifest && currentManifest.manifest) {
+      var host = findMount();
+      if (host) renderManifest(host, currentManifest.manifest, currentManifest.base);
+    }
+  }
+
+  /* U-7: role-term coverage, computed in the browser with Scribe's own
+     keywordCoverage over the run's jd-extract.json nouns. One fetch pair per
+     served text version. */
+  var coverageCache = {};
+  function coverageFor(manifest, type, doc) {
+    var mi = insights();
+    var score = root.JobBoredScribeScore;
+    if (!mi || !score || typeof score.keywordCoverage !== "function") return "";
+    if (!doc || !doc.text || !doc.text.filename) return "";
+    var key = manifest.slug + "|" + type + "|" + fileVersion(doc.text) + "|" + (manifest.runId || "");
+    var hit = coverageCache[key];
+    if (hit && hit.state === "done") return mi.coverageHtml(hit.cov, type);
+    if (!hit) {
+      coverageCache[key] = { state: "loading" };
+      loadCoverage(manifest.slug, type, doc, key);
+    }
+    return "";
+  }
+
+  function loadCoverage(slug, type, doc, key) {
+    var base = materialsBase();
+    Promise.all([
+      fetchJson(fileUrl(base, slug, "jd-extract.json")),
+      fetchText(fileUrl(base, slug, doc.text.filename, { version: fileVersion(doc.text) })),
+    ]).then(function (out) {
+      var mi = insights();
+      var score = root.JobBoredScribeScore;
+      if (!mi || !score) return;
+      var terms = mi.termsFromExtract(out[0]);
+      if (!terms.length) {
+        coverageCache[key] = { state: "none" };
+        return;
+      }
+      var cov = score.keywordCoverage(String(out[1] || ""), terms);
+      coverageCache[key] = { state: "done", cov: cov };
+      paintCoverage(slug, type, mi.coverageHtml(cov, type));
+    }).catch(function () {
+      coverageCache[key] = { state: "none" };
+    });
+  }
+
+  function paintCoverage(slug, type, html) {
+    var host = findMount();
+    if (!host || !host.querySelector) return;
+    var section = host.querySelector("." + SECTION_CLASS);
+    if (!section || section.getAttribute("data-slug") !== slug) return;
+    var row = section.querySelector('[data-doc="' + type + '"]');
+    if (!row) return;
+    var prior = row.querySelector(".mat-kw");
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+    var qa = row.querySelector(".case__doc-qa");
+    if (!qa) {
+      qa = document.createElement("div");
+      qa.className = "case__doc-qa";
+      var acts = row.querySelector(".case__doc-actions");
+      row.insertBefore(qa, acts || null);
+    }
+    qa.insertAdjacentHTML("beforeend", html);
+  }
+
+  /* U-6: every run of this document, which one is in use, and a diff. */
+  function toggleHistory(btn, section) {
+    var mi = insights();
+    var row = docHostOf(btn);
+    if (!mi || !row) return;
+    var open = row.querySelector(".mat-hist");
+    if (open) {
+      if (open.parentNode) open.parentNode.removeChild(open);
+      btn.setAttribute("aria-expanded", "false");
+      return;
+    }
+    var type = btn.getAttribute("data-feature") || docTypeOf(row);
+    var slug = section.getAttribute("data-slug") || "";
+    var panel = document.createElement("div");
+    panel.className = "mat-hist";
+    panel.setAttribute("data-hist-for", type);
+    panel.innerHTML = '<p class="mat-hist__empty">Loading versions\u2026</p>';
+    row.appendChild(panel);
+    btn.setAttribute("aria-expanded", "true");
+    fetchJson(materialsBase() + "/api/applications/" + encodeURIComponent(slug) + "/runs").then(function (body) {
+      panel.innerHTML = mi.historyHtml(body && body.runs, type);
+    }).catch(function (err) {
+      panel.innerHTML = '<p class="mat-hist__empty">' + escapeHtml("Couldn\u2019t load versions: " + ((err && err.message) || "unknown error")) + "</p>";
+    });
+  }
+
+  function promoteVersion(btn, section) {
+    var runId = btn.getAttribute("data-run") || "";
+    var slug = section.getAttribute("data-slug") || "";
+    if (!runId || !slug) return;
+    var base = materialsBase();
+    btn.setAttribute("disabled", "");
+    postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(runId) + "/promote", {})
+      .then(function () {
+        dispatch("jb:materials:changed", { slug: slug, reason: "promoted" });
+        return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
+      })
+      .then(function (manifest) {
+        var brief = findMount();
+        if (brief && manifest) commitManifest(brief, manifest, base, currentContext && currentContext.jobKey);
+        toast("That version is in use again. Preview and Download serve it now.", "success");
+      })
+      .catch(function (err) {
+        btn.removeAttribute("disabled");
+        toast("Couldn\u2019t switch versions: " + ((err && err.message) || "unknown error"), "error");
+      });
+  }
+
+  function diffVersions(btn, section) {
+    var mi = insights();
+    var panel = btn;
+    while (panel && !(panel.classList && panel.classList.contains("mat-hist"))) panel = panel.parentNode;
+    if (!mi || !panel) return;
+    var a = panel.querySelector("[data-hist-a]");
+    var b = panel.querySelector("[data-hist-b]");
+    var out = panel.querySelector("[data-hist-diff]");
+    var slug = section.getAttribute("data-slug") || "";
+    var doc = btn.getAttribute("data-feature") || "resume";
+    if (!a || !b || !out || !slug) return;
+    out.innerHTML = '<p class="mat-hist__empty">Comparing\u2026</p>';
+    fetchJson(materialsBase() + "/api/applications/" + encodeURIComponent(slug) + "/runs-diff?a="
+      + encodeURIComponent(a.value) + "&b=" + encodeURIComponent(b.value) + "&doc=" + encodeURIComponent(doc))
+      .then(function (diff) { out.innerHTML = mi.diffHtml(diff); })
+      .catch(function (err) {
+        out.innerHTML = '<p class="mat-hist__empty">' + escapeHtml("Couldn\u2019t compare: " + ((err && err.message) || "unknown error")) + "</p>";
+      });
   }
 
   function rowOf(node) {
@@ -1982,7 +2616,47 @@
          stage decides whether "Did you apply?" is still a question. */
       source: firstText(primary.source, fallback.source),
       stage: firstText(primary.stage, primary.status, fallback.stage, fallback.status),
+      /* C-4: sheet fields the draft prompt carries. */
+      fitScore: primary.fitScore != null ? primary.fitScore : fallback.fitScore,
+      talkingPoints: primary.talkingPoints || fallback.talkingPoints || null,
+      contacts: firstArray(primary.contacts, fallback.contacts),
+      contact: firstText(primary.contact, fallback.contact),
     };
+  }
+
+  function textList(value) {
+    var list = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\n+/) : [];
+    return list
+      .map(function (item) {
+        var text = item && typeof item === "object" ? item.text || item.label || "" : item;
+        return String(text == null ? "" : text).replace(/^\s*(?:[-\u2022*]|\d+[.)])\s+/, "").trim();
+      })
+      .filter(Boolean);
+  }
+
+  /* C-4: what JobBored already knows about the role (enrichment + sheet
+     fields) rides along with every materials request. Empty fields are
+     left out so the server sees only real signal. */
+  function materialsEnrichment(job) {
+    if (!job) return null;
+    var pe = job._postingEnrichment || {};
+    var en = job.enrichment || {};
+    var out = {};
+    var fitAngle = firstText(pe.fitAngle, en.fitAngle);
+    if (fitAngle) out.fitAngle = fitAngle;
+    var talking = textList(pe.talkingPoints);
+    if (!talking.length) talking = textList(en.talkingPoints);
+    if (!talking.length) talking = textList(job.talkingPoints);
+    if (talking.length) out.talkingPoints = talking.slice(0, 6);
+    var musts = textList(pe.mustHaves);
+    if (!musts.length) musts = textList(en.mustHaves);
+    if (musts.length) out.mustHaves = musts.slice(0, 8);
+    var first = Array.isArray(job.contacts) && job.contacts[0];
+    var contact = firstText(first && first.name, job.contact);
+    if (contact && !/^unknown$/i.test(contact)) out.contact = contact;
+    var score = Number(job.fitScore);
+    if (job.fitScore !== null && job.fitScore !== "" && job.fitScore !== undefined && isFinite(score)) out.fitScore = score;
+    return Object.keys(out).length ? out : null;
   }
 
   function getMaterialsJob(jobKey) {
@@ -2007,6 +2681,7 @@
       jobUrl: pickPostingUrl(job),
       base: base,
       cachedJobDescription: pickCachedJobDescription(job),
+      enrichment: materialsEnrichment(job),
     };
   }
 
@@ -2344,6 +3019,7 @@
       jobUrl: pickPostingUrl(job),
       base: base,
       cachedJobDescription: pickCachedJobDescription(job),
+      enrichment: materialsEnrichment(job),
     };
 
     /* If this role is the one open in the dossier, stamp an immediate
@@ -2391,6 +3067,7 @@
               notes: "",
               jdSource: jdResult && jdResult.source,
             };
+            if (ctx.enrichment) body.enrichment = ctx.enrichment;
             if (resumeForRun) body.resume = resumeForRun;
             /* The opt-in run says what it is spending, as it happens. */
             toast("Drafting resume + letter for " + (ctx.title || "this role") + (ctx.company ? " at " + ctx.company : ""), "info");
@@ -2621,7 +3298,7 @@
      If the request fires successfully, swap the materials section to
      a pending state and start polling. If it fails, surface the
      error inline (no toast framework wired in yet). */
-  function handleDraftRequest(feature, jobKeyHint) {
+  function handleDraftRequest(feature, jobKeyHint, opts) {
     if (!shouldRun()) return;
     var ctx = resolveMaterialsContext(jobKeyHint);
     var brief = findMount();
@@ -2655,7 +3332,7 @@
       }
       var notes = String(draftNotes || "").trim();
       draftNotes = "";
-      submitDraftRequest(ctx, feature, notes, r.resume);
+      submitDraftRequest(ctx, feature, notes, r.resume, opts);
     });
   }
 
@@ -2700,7 +3377,7 @@
     });
   }
 
-  function submitDraftRequest(ctx, feature, notes, resume) {
+  function submitDraftRequest(ctx, feature, notes, resume, opts) {
     var brief = findMount();
     if (!brief) return;
     return probeServer(ctx.base).then(function (up) {
@@ -2710,11 +3387,13 @@
         return;
       }
       setServerState("up");
-      return sendDraftRequest(ctx, feature, notes, resume);
+      return sendDraftRequest(ctx, feature, notes, resume, opts);
     });
   }
 
-  function sendDraftRequest(ctx, feature, notes, resume) {
+  function sendDraftRequest(ctx, feature, notes, resume, opts) {
+    /* U-5 "Draft both": the server queues the letter after the resume. */
+    var then = opts && opts.then === "cover_letter" && feature === "resume" ? "cover_letter" : "";
 
     /* Optimistic UI: stamp a fresh "pending" banner immediately so the
        click visibly registers, even before the server responds. */
@@ -2732,7 +3411,7 @@
         slug: ctx.slug,
         feature: feature,
         at: Date.now(),
-        pending: { feature: feature, company: ctx.company, title: ctx.title, jobUrl: ctx.jobUrl, requestedAt: new Date().toISOString(), notes: notes, source: "jobbored-dossier" },
+        pending: { feature: feature, company: ctx.company, title: ctx.title, jobUrl: ctx.jobUrl, requestedAt: new Date().toISOString(), notes: notes, source: "jobbored-dossier", next: then || undefined },
       };
       renderOptimisticPending(ctx, feature, notes, "jobbored-dossier", optimisticRun.pending);
       /* Run the JD fallback chain BEFORE asking Hermes to draft. The
@@ -2750,6 +3429,11 @@
         notes: notes,
         jdSource: jdResult && jdResult.source,
       };
+      if (ctx.enrichment) body.enrichment = ctx.enrichment;
+      if (then) body.then = then;
+      /* Wave 3: the outreach note is written with the letter (a resume-only
+         request never asks; Draft both hands it to the chained letter). */
+      if (includeOutreach && (feature !== "resume" || then)) body.extras = ["outreach"];
       /* C11: the server drafts from this, and 422s without it. */
       if (resume) body.resume = resume;
       return withTemplatePreference(body).then(function (b) {
@@ -3076,6 +3760,8 @@
     /* C16: the return prompt, callable directly in tests. */
     noteViewPosting: noteViewPosting,
     answerReturnPrompt: answerReturnPrompt,
+    /* Wave 2: the in-page confirm and draft-both entry, for tests. */
+    handleDraftRequest: handleDraftRequest,
     /** Test-only hook to inject a fresh applications list. */
     _resetCache: clearCache,
     _refreshContextApplication: refreshContextApplication,
