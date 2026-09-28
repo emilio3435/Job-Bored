@@ -96,6 +96,52 @@ test("verbatim job-description windows are caught", () => {
   assert.equal(echoed.counts.jd_echo, 1);
 });
 
+test("W1: six or more copied words from voice.md are advisory spans", () => {
+  const reference = "I make complex systems easier for teams to trust.";
+  const copied = delint({
+    fields: { "letter.hook": "My approach is simple: I make complex systems easier for teams to trust." },
+    voiceReferences: [reference],
+    pack,
+  });
+  const span = copied.spans.find((item) => item.code === "verbatim_voice");
+  assert.ok(span, "the copied voice line is found");
+  assert.equal(span.severity, "review", "voice copying is advisory, never a hard failure");
+  assert.equal(span.text, reference.replace(/\.$/, ""));
+
+  const shortOverlap = delint({
+    fields: { statement: "I make complex systems easier." },
+    voiceReferences: [reference],
+    pack,
+  });
+  assert.equal(shortOverlap.spans.some((item) => item.code === "verbatim_voice"), false, "five shared words stay below the threshold");
+
+  const interiorOverlap = delint({
+    fields: { "letter.hook": "Venn diagram of media, data, and engineering is how I frame the work." },
+    voiceReferences: ["The Venn diagram of media, data, and engineering."],
+    pack,
+  });
+  assert.equal(interiorOverlap.spans.find((item) => item.code === "verbatim_voice")?.text, "Venn diagram of media, data, and engineering");
+});
+
+test("a verbless first letter sentence is a review span even when the paragraph has a later first-person sentence", () => {
+  const result = delint({
+    letter: {
+      hook: "The Venn diagram of media, data, and engineering. I spent six years building tools for the teams in that middle.",
+      companyInsight: "This role lets me bring that view to Harbor Fleet.",
+      proof1: "At Northwind I built a route forecaster for 620 vans.",
+      proof2: "At RouteLab I shipped a scheduling tool for 80 drivers.",
+      ask: "Could we review one route together?",
+    },
+    letterText: "The Venn diagram of media, data, and engineering. I spent six years building tools for the teams in that middle. This role lets me bring that view to Harbor Fleet. At Northwind I built a route forecaster for 620 vans. At RouteLab I shipped a scheduling tool for 80 drivers. Could we review one route together?",
+    company: "Harbor Fleet",
+    pack,
+  });
+  const span = result.spans.find((item) => item.code === "verbless_opener");
+  assert.ok(span, "the first sentence is called out");
+  assert.equal(span.severity, "review", "a fragment opener is never a hard gate");
+  assert.equal(span.text, "The Venn diagram of media, data, and engineering.");
+});
+
 test("adjective stacks and title stacking are cadence failures", () => {
   const stacked = delint({
     fields: { p3: "I am proactive, collaborative, and adaptable." },

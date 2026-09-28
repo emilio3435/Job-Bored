@@ -61,7 +61,7 @@ describe("voice.md heading contract: the onboarding template and the hand-writte
 
   it("should use an onboarding guide's examples as the pattern and its client facts as named-client proofs", () => {
     const text = voiceProfileLines(ONBOARDING, { positioning: { kind: "consultant", why: "test", phrase: "" } }).join("\n");
-    assert.match(text, /THE PATTERN TO IMITATE[\s\S]*Candidate version: I cut first-response time from 26 hours to 4 at Harbor Health\./);
+    assert.match(text, /Voice\.md examples and sample lines are style references, not to be copied[\s\S]*Candidate version: I cut first-response time from 26 hours to 4 at Harbor Health\./);
     assert.deepEqual(namedClientProofs(ONBOARDING), ["Clients included Pine Clinics' 30 locations."]);
   });
 

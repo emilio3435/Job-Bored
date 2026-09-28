@@ -261,16 +261,18 @@ function scanJdEcho(field, text, jdText, windowWords) {
 /**
  * @param {object} input
  * @param {Record<string, string>} [input.fields] Named prose fields (statement, p1..p4, bullets as bullet:<claimId>).
+ * @param {Record<string, string>} [input.voiceFields] Additional prose fields used only for verbatim voice-copy advisories.
  * @param {string[]} [input.bullets] Resume bullets in rendered order, for the parallel-skeleton check.
  * @param {string} [input.letterText] Concatenated letter body, for em-dash density.
  * @param {string} [input.jdText] Posting text, for verbatim echo. Withheld from the LLM half on purpose.
  * @param {string[]} [input.echoBans] Extra per-posting phrases from jd-extract.
+ * @param {string[]} [input.voiceReferences] Voice.md sample and example lines, used only for copy advisories.
  * @param {Record<string, unknown> | null} [input.letter] The draft's letter beats, for the whole-letter "sounds human" tells.
  * @param {string} [input.company] The hiring company (its name never anchors an abstraction).
  * @param {VoicePack} input.pack
  * @returns {DelintResult}
  */
-export function delint({ fields = {}, bullets = [], letterText = "", jdText = "", echoBans = [], letter = null, company = "", pack }) {
+export function delint({ fields = {}, voiceFields = {}, bullets = [], letterText = "", jdText = "", echoBans = [], voiceReferences = [], letter = null, company = "", pack }) {
   const cadence = pack.cadence || {};
   /** @type {DelintSpan[]} */
   const spans = [];
@@ -283,6 +285,7 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
 
   for (const [field, text] of Object.entries(fields)) {
     if (typeof text !== "string" || !text) continue;
+    spans.push(...scanVerbatimVoice(field, text, voiceReferences));
     const isResume = field === "statement" || field.startsWith("bullet");
     /* A literal phrase and its regex variant can hit the same span. */
     const seenSpans = new Set();
@@ -304,6 +307,11 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
     if (jdText) {
       spans.push(...scanJdEcho(field, text, jdText, pack.jdEcho?.windowWords || 8));
     }
+  }
+
+  for (const [field, text] of Object.entries(voiceFields)) {
+    if (typeof text !== "string" || !text || fields[field] === text) continue;
+    spans.push(...scanVerbatimVoice(field, text, voiceReferences));
   }
 
   if (cadence.titleStackPattern && typeof fields.statement === "string") {
@@ -361,6 +369,70 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
     llmRewriteNeeded: spans.length > 0,
     counts,
   };
+}
+
+/**
+ * Find copied runs of six or more words from voice.md in a prose field.
+ * Punctuation and case do not break a match. These are review spans for
+ * the independent judge; they never act as hard gates.
+ * @param {string} field
+ * @param {string} text
+ * @param {string[]} references
+ * @returns {DelintSpan[]}
+ */
+function scanVerbatimVoice(field, text, references) {
+  /** @param {string} value */
+  const tokens = (value) => [...String(value || "").matchAll(/[\p{L}\p{N}]+/gu)].map((match) => ({
+    word: match[0].toLowerCase(),
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+  }));
+  const referenceTokens = [...new Map((Array.isArray(references) ? references : [])
+    .filter((reference) => typeof reference === "string")
+    .map((reference) => {
+      const words = tokens(reference).map((token) => token.word);
+      return [words.join(" "), words];
+    }))
+    .values()]
+    .filter((words) => words.length >= 6);
+  const referenceWindows = new Map();
+  for (const words of referenceTokens) {
+    for (let offset = 0; offset + 6 <= words.length; offset += 1) {
+      const key = words.slice(offset, offset + 6).join("\u001f");
+      const candidates = referenceWindows.get(key) || [];
+      candidates.push({ words, offset });
+      referenceWindows.set(key, candidates);
+    }
+  }
+  const bodyTokens = tokens(text);
+  /** @type {DelintSpan[]} */
+  const spans = [];
+  for (let i = 0; i + 6 <= bodyTokens.length;) {
+    let best = 0;
+    const key = bodyTokens.slice(i, i + 6).map((token) => token.word).join("\u001f");
+    for (const { words, offset } of referenceWindows.get(key) || []) {
+      let length = 6;
+      while (i + length < bodyTokens.length && offset + length < words.length && words[offset + length] === bodyTokens[i + length].word) length += 1;
+      if (length > best) best = length;
+    }
+    if (!best) {
+      i += 1;
+      continue;
+    }
+    const start = bodyTokens[i].start;
+    const end = bodyTokens[i + best - 1].end;
+    spans.push({
+      code: "verbatim_voice",
+      severity: "review",
+      field,
+      start,
+      end,
+      text: text.slice(start, end),
+      note: "6+ word run copied from voice.md; advisory only",
+    });
+    i += best;
+  }
+  return spans;
 }
 
 /**

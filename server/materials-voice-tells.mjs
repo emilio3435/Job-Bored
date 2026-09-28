@@ -479,7 +479,7 @@ const FINITE_VERB_RE = new RegExp(
     "\\b(?:i|we|i'm|i’m|i've|i’ve|i'd|i’d|i'll|i’ll)\\b",
     "\\b(?:am|is|are|was|were|be|been|has|have|had|do|does|did|can|could|will|would|should|may|might|must)\\b",
     "\\b[a-z]{3,}ed\\b(?!\\s+(?:by|in|at)\\b)",
-    "\\b(?:led|built|ran|grew|won|sold|made|kept|drove|shipped|spent|took|gave|went|became|brought|taught|wrote|bought|found|held|leads|builds|runs|grows|sells|makes|keeps|drives|ships|spends|helps|wants|want|need|needs|know|knows|love|loves)\\b",
+    "\\b(?:led|built|ran|grew|won|sold|made|kept|drove|shipped|spent|took|gave|went|became|brought|taught|wrote|bought|found|held|leads|builds|runs|grows|sells|makes|keeps|drives|ships|spends|helps|wants|want|need|needs|know|knows|love|loves|mention|mentions)\\b",
   ].join("|"),
   "i",
 );
@@ -495,18 +495,14 @@ export function hasFiniteVerb(sentence) {
   return FINITE_VERB_RE.test(main);
 }
 
-/* A role noun early in a sentence: the shape of a resume headline. */
-const ROLE_NOUN_RE = /^(?:(?:a|an|the)\s+)?(?:[\w'’&/-]+\s+){0,6}?(?:consultant|builder|leader|marketer|manager|strategist|engineer|director|specialist|professional|executive|founder|expert|operator|seller|analyst)s?\b/i;
-
 /**
- * A headline-style opener: the first sentence starts with a role noun
- * phrase ("Digital growth advisor and AI platform developer with nine
- * years at …") and its main clause has no finite verb.
+ * True when a sentence has no finite verb. A fragment as the first letter
+ * sentence is advisory-only whether or not it starts with a role noun.
  * @param {string} sentence
  */
 export function isVerblessOpener(sentence) {
   const s = String(sentence || "").trim();
-  return ROLE_NOUN_RE.test(s) && !hasFiniteVerb(s);
+  return Boolean(s) && !hasFiniteVerb(s);
 }
 
 /**

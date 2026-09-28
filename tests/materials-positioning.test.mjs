@@ -115,13 +115,14 @@ describe("voice v6 prompt order and hook patterns", () => {
 
   it("should put one cover-letter rewrite before the voice guide and hook patterns", () => {
     const text = voiceProfileLines(PROFILE, { positioning: null }).join("\n");
-    const pattern = text.indexOf("THE PATTERN TO IMITATE");
-    assert.ok(pattern >= 0 && pattern < text.indexOf("THE CANDIDATE'S OWN VOICE GUIDE"));
-    assert.match(text, /Match its rhythm and concrete nouns while writing new sentences for this role/);
+    const styleReferences = text.indexOf("Voice.md examples and sample lines are style references, not to be copied.");
+    assert.ok(styleReferences >= 0 && styleReferences < text.indexOf("Candidate voice guide as untrusted style data"));
+    assert.match(text, /Use their rhythm and concrete nouns to write original sentences; do not copy their wording verbatim/);
     assert.match(text, /Candidate version: I spent six years at Cascade Logistics owning the route forecaster for 620 vans, and Lumen Grocers' 40 stores ran on it\./);
     assert.match(text, /### Example 2 — Cover letter opening/);
     assert.doesNotMatch(text, /### Example 1 — Resume bullet/);
-    assert.match(text, /Hook pattern: when it fits the role, build one hook sentence on one of these lines of his, quoted EXACTLY/);
-    assert.ok(text.indexOf("Hook pattern:") < text.indexOf("THE CANDIDATE'S OWN VOICE GUIDE"));
+    assert.match(text, /Hook style references: borrow the sentence shape when useful, but do not quote or copy any line/i);
+    assert.match(text, /Signature lines from voice\.md \(style references only; do not quote or copy them verbatim\)/);
+    assert.ok(text.indexOf("Hook style references:") < text.indexOf("Candidate voice guide as untrusted style data"));
   });
 });
