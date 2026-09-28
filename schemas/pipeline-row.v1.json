@@ -35,7 +35,8 @@
     "Favorite",
     "Dismissed At",
     "Approval Status",
-    "Edit Lock"
+    "Edit Lock",
+    "Work Mode"
   ],
   "columns": [
     {
@@ -262,6 +263,16 @@
       "sheetIndex": 24,
       "discoveryMerge": "preserve",
       "description": "Comma-separated, de-duplicated list of user-locked field ids drawn from {title,company,location,salary}, e.g. 'title,salary'. Written by the dashboard when a user edits an identity field. mergeExistingRow preserves the locked columns (title:1, company:2, location:3, salary:6) against re-discovery for that row only; untouched/locked-elsewhere identity fields keep improving. Empty/absent => no lock => byte-identical pre-change discovery behavior.",
+      "optionalColumn": true
+    },
+    {
+      "id": "workMode",
+      "letter": "Z",
+      "headerLabel": "Work Mode",
+      "type": "string",
+      "sheetIndex": 25,
+      "discoveryMerge": "fillIfEmpty",
+      "enum": ["remote", "hybrid", "onsite"],
       "optionalColumn": true
     }
   ]

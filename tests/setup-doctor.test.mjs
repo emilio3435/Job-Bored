@@ -517,7 +517,7 @@ describe("SetupDoctor pipeline tab repair", () => {
             },
           };
         }
-        if (init.method === "PUT" && String(url).includes("/values/Pipeline!A1")) {
+        if (init.method === "PUT" && String(url).includes("/values/Pipeline!")) {
           writes.push(JSON.parse(init.body));
           return {
             ok: true,
@@ -533,8 +533,39 @@ describe("SetupDoctor pipeline tab repair", () => {
 
     const out = await api.autoHeal({});
     assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
-    assert.equal(writes.length, 1);
-    assert.deepEqual(writes[0].values, [pipelineSchema.headerRow]);
+    assert.deepEqual(writes.map((write) => write.range), ["Pipeline!A1:Y1", "Pipeline!Z1"]);
+    assert.deepEqual(writes[0].values, [pipelineSchema.headerRow.slice(0, 25)]);
+    assert.deepEqual(writes[1].values, [["Work Mode"]]);
+  });
+
+  it("repairs only empty Z and leaves an occupied Z alone", async () => {
+    for (const [zHeader, badCore, expectedWrites, expectFinding] of [
+      ["", false, ["Pipeline!Z1"], true],
+      ["Work Mode", false, [], false],
+      ["Custom", false, [], false],
+      ["Custom", true, ["Pipeline!A1:Y1"], true],
+    ]) {
+      const writes = [];
+      const headers = [...pipelineSchema.headerRow.slice(0, 25), zHeader];
+      if (badCore) headers[0] = "Wrong";
+      const { api } = loadDoctor({
+        accessToken: "tok", getSheetId: () => "SHEET",
+        fetch: async (url, init = {}) => {
+          if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] }) };
+          if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+          if (init.method === "PUT") {
+            writes.push(JSON.parse(init.body));
+            return { ok: true, json: async () => ({}) };
+          }
+          return { ok: false, status: 404, json: async () => ({}) };
+        },
+      });
+      const diagnosis = await api.diagnose({});
+      assert.equal(diagnosis.issues.some((issue) => issue.id === "pipeline_headers_wrong"), expectFinding);
+      await api.autoHeal({});
+      assert.deepEqual(writes.map((write) => write.range), expectedWrites);
+    }
   });
 });
 

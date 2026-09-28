@@ -239,7 +239,7 @@ export function resolveProfileApiPort() {
 }
 
 function isProfileApiPath(pathname) {
-  return pathname === "/profile" || pathname.startsWith("/profile/");
+  return pathname === "/api/leads/chat" || pathname === "/profile" || pathname.startsWith("/profile/");
 }
 
 /**

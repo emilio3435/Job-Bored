@@ -178,11 +178,11 @@ own app: click **Advanced → Go to JobBored (unsafe)**. If Google shows
   headers below in row 1.
 
 **Blank sheet by hand:** create a new Google Sheet, rename the first tab to
-`Pipeline`, and paste these 25 headers into row 1 (columns A–Y), then connect
+`Pipeline`, and paste these 26 headers into row 1 (columns A–Z), then connect
 it as an existing sheet:
 
 ```text
-Date Found	Title	Company	Location	Link	Source	Salary	Fit Score	Priority	Tags	Fit Assessment	Contact	Status	Applied Date	Notes	Follow-up Date	Talking Points	Last contact	Did they reply?	Logo URL	Match Score	Favorite	Dismissed At	Approval Status	Edit Lock
+Date Found	Title	Company	Location	Link	Source	Salary	Fit Score	Priority	Tags	Fit Assessment	Contact	Status	Applied Date	Notes	Follow-up Date	Talking Points	Last contact	Did they reply?	Logo URL	Match Score	Favorite	Dismissed At	Approval Status	Edit Lock	Work Mode
 ```
 
 **Copy the template:** [Make a copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy).
@@ -383,8 +383,8 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 
 ## Template Sheet Columns
 
-The **Pipeline** sheet has **25 columns (A–Y)**, matching the starter sheet the
-dashboard creates. A–Q hold the core job record; R–Y add tracking and agent
+The **Pipeline** sheet has **26 columns (A–Z)**, matching the starter sheet the
+dashboard creates. A–Q hold the core job record; R–Z add tracking and agent
 safety fields.
 
 | Column | Header          | Description                                                                                                                                                      |
@@ -414,6 +414,7 @@ safety fields.
 | W      | Dismissed At    | Optional. Timestamp recorded when a role is dismissed from the board.                                                                                  |
 | X      | Approval Status | Apply-gate approval marker; an agent may submit only after this is `Approved`.                                                                          |
 | Y      | Edit Lock       | Optional. Comma-separated identity fields edited in the app; discovery preserves those values.                                                         |
+| Z      | Work Mode       | Optional. `remote`, `hybrid`, or `onsite`; blank means unknown. Discovery fills an empty cell. |
 
 ### Status Values
 

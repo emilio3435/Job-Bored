@@ -488,6 +488,16 @@ body.jb-v2 .flow-section__inner {
     height: 32px;
   }
 
+  /* Four views (Leads joined) fit a 375px row once the numbers go. */
+  body.jb-v2 .page-nav__pill {
+    padding: 0 4px;
+    letter-spacing: 0.06em;
+  }
+
+  body.jb-v2 .page-nav__pill .page-nav__pill-num {
+    display: none;
+  }
+
   body.jb-v2 .page-top__actions .page-top__action--primary::after {
     content: "";
   }
@@ -630,7 +640,13 @@ html body.jb-v2[data-jb-view="pipeline"]:has(#dashboard) [data-region="role"],
 html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="today"],
 html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="dawn"],
 html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="pipeline"],
-html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="lattice"] {
+html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="lattice"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="today"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="dawn"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="pipeline"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="lattice"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="role"],
+html body.jb-v2[data-jb-view="leads"]:has(#dashboard) [data-region="scribe"] {
   /* !important and one extra type selector: jb-v2-legacy-hide.css forces
      every region to display:block !important once #dashboard shows, with
      an id inside :has(), so a plain rule here can never win. */
