@@ -114,8 +114,9 @@ describe("P0 — the dossier never prints a claim it has not earned", () => {
   /* P0-5. The caption branched only on `drafting`, so 0/4 read "All ready". */
   it("the Materials caption counts, it does not congratulate", () => {
     /* Nothing drafted yet: the four Case doc types are all missing, so the
-       tile reads 0/4 — and 0/4 has never been "All ready". */
-    const out = html({ manifest: { documents: [], pending: null } });
+       tile reads 0/4 — and 0/4 has never been "All ready". DFIT retired the
+       Fit tile, so a recorded reply keeps the two tiles the band needs. */
+    const out = html({ manifest: { documents: [], pending: null }, vmPatch: { replied: "No" } });
     assert.match(out, /data-num="materials"[\s\S]*?0 of 4 ready/);
     assert.doesNotMatch(out, /data-num="materials"[\s\S]*?All ready/);
   });
@@ -123,7 +124,7 @@ describe("P0 — the dossier never prints a claim it has not earned", () => {
     const documents = Case.model.CASE_DOC_TYPES.map((d) => ({
       type: d.type, label: d.label, status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [],
     }));
-    assert.match(html({ manifest: { documents, pending: null } }), /data-num="materials"[\s\S]*?All ready/);
+    assert.match(html({ manifest: { documents, pending: null }, vmPatch: { replied: "No" } }), /data-num="materials"[\s\S]*?All ready/);
   });
 
   /* P0-6 / spec §3: "each tile hides when its input is absent". */
@@ -187,11 +188,12 @@ describe("P1 — the dossier is navigable and readable by assistive tech", () =>
   });
 
   /* P1-4: ~10 stray tokens per full read ("Fit sheet 8 slash 10"). */
-  it("provenance chips are aria-hidden and their meaning moves to the tile's label", () => {
+  it("provenance chips are aria-hidden and the dial announces its own meaning", () => {
     const out = html();
     assert.doesNotMatch(out, /<span class="case__src case__src--[a-z]+">/, "every source chip is aria-hidden");
     assert.match(out, /class="case__src case__src--sheet" aria-hidden="true"/);
-    assert.match(out, /data-num="fit" aria-label="Fit, from your sheet"/);
+    /* DFIT retired the Fit tile: the dial is one labelled image now. */
+    assert.match(out, /<div class="case__fit-dial" role="img" aria-label="Fit score 8 out of 10, strong fit"/);
   });
 
   /* P1-5: outline:none at (0,4,1) beats the app's :focus-visible rule. */
@@ -406,7 +408,7 @@ describe("DFIT — the instrument is operable by assistive tech", () => {
     const details = [...mount.innerHTML.matchAll(/<details class="case__fit-ev"[^>]*>([\s\S]*?)<\/details>/g)];
     assert.ok(details.length >= 2, "rows with evidence disclose");
     for (const [, body] of details) {
-      assert.match(body, /<summary>[\s\S]*?\S[\s\S]*?<\/summary>[\s\S]*?\S/, "non-empty summary, non-empty body");
+      assert.match(body, /<summary[^>]*>[\s\S]*?\S[\s\S]*?<\/summary>[\s\S]*?\S/, "non-empty summary, non-empty body");
     }
   });
 });

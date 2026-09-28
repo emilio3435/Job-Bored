@@ -124,6 +124,8 @@ function makeElement(tagName, attributes) {
       return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
     },
     setAttribute(name, v) { attrs[name] = String(v); },
+    removeAttribute(name) { delete attrs[name]; },
+    hasAttribute(name) { return Object.prototype.hasOwnProperty.call(attrs, name); },
     matches(selector) {
       return compileSelector(selector).some((chain) => chain[chain.length - 1](el));
     },
@@ -473,11 +475,13 @@ describe("The Case interactions", () => {
     ]);
   });
 
-  it("the keywords tile opens the existing profile-match modal with the raw job", () => {
+  it("the keywords drawer opens the existing profile-match modal with the raw job", () => {
     const { region, profileMatchOpens } = boot();
-    const tile = region.querySelector('[data-action="open-profile-match"]');
-    assert.ok(tile, "the keywords tile is a button when a match analysis exists");
-    tile.click();
+    /* DFIT: the action moved from the retired tile into the drawer. */
+    region.querySelector('[data-action="toggle-fit-readout"][data-ro="keywords"]').click();
+    const button = region.querySelector('[data-action="open-profile-match"]');
+    assert.ok(button, "the drawer carries the full-match action when a match analysis exists");
+    button.click();
     assert.equal(profileMatchOpens.length, 1);
     assert.equal(profileMatchOpens[0].jobKey, "job-1");
   });

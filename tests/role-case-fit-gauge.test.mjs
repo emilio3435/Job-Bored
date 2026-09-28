@@ -71,13 +71,18 @@ function gaugeModel(patch = {}, depsOver = {}) {
   const deps = baseDeps(depsOver);
   const base = deps.vm.job;
   deps.vm = { job: { ...base, ...patch, enrichment: { ...base.enrichment, ...((patch && patch.enrichment) || {}) } } };
-  return Case.model.buildCaseModel("job-1", deps);
+  /* The model is assembled inside the vm realm: round-trip through JSON so
+     deepEqual compares values, not prototypes (model test idiom). */
+  return JSON.parse(JSON.stringify(Case.model.buildCaseModel("job-1", deps)));
 }
-function plateOf(m) {
+function renderFull(m) {
   const mount = { innerHTML: "" };
   Case.render(mount, m);
-  const html = mount.innerHTML;
-  const at = html.indexOf('<section class="case__fit"');
+  return mount.innerHTML;
+}
+function plateOf(m) {
+  const html = renderFull(m);
+  const at = html.indexOf('<section class="case__fit');
   if (at === -1) return "";
   const end = html.indexOf("<!--/case__fit-->", at);
   assert.ok(end !== -1, "the plate closes with its end marker");
@@ -206,7 +211,7 @@ describe("DFIT — drawers", () => {
     assert.match(p, /Ran the alpha program for years\./);
     assert.match(p, /from your resume/);
     assert.match(p, /<a class="case__fit-all" href="#case-they-job-1">See all 8 in They want<\/a>/);
-    assert.match(p, /<section class="case__section case__section--they" id="case-they-job-1">/);
+    assert.match(renderFull(gaugeModel()), /<section class="case__section case__section--they" id="case-they-job-1">/);
   });
 
   it("keywords list gaps first, fold the found terms, and keep the full match action", () => {

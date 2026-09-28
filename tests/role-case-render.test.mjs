@@ -115,8 +115,11 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /class="case__pill case__pill--open"/);
     assert.match(html, /<button[^>]*data-action="stage-step"[^>]*data-stage="applied"/);
     assert.match(html, /class="case__step case__step--now"[^>]*>[\s\S]*?researching[\s\S]*?day 2/i);
-    assert.match(html, /<div class="case__num" data-num="fit"[^>]*>[\s\S]*?8<small>\/10<\/small>/);
-    assert.match(html, /data-num="keywords"[\s\S]*?74<small>%<\/small>[\s\S]*?12 found · 4 partial · 1 missing/);
+    /* DFIT: the dial is the Fit tile's one home and the Keywords drawer
+       carries the full-match action, so both tiles stand down. */
+    assert.match(html, /<span class="case__fit-num">8<\/span>[\s\S]*?<span class="case__fit-standing">Strong fit<\/span>/);
+    assert.doesNotMatch(html, /data-num="fit"/);
+    assert.doesNotMatch(html, /data-num="keywords"/);
     assert.match(html, /<button[^>]*data-action="open-profile-match"/);
     assert.match(html, /class="case__quote"[^>]*>[\s\S]*?Design infrastructure that ships\./);
   });
@@ -166,9 +169,9 @@ describe("The Case renders every block from the model", () => {
      was the one it never wrote. Every clause is traceable to a model field,
      and an absent input drops its clause rather than guessing it. */
   describe("the verdict line", () => {
-    it("opens with standing, gap and the one urgent clause", () => {
+    it("opens with gap and the one urgent clause while the dial carries the number", () => {
       const html = renderHtml(model({ vmPatch: { closesAt: "2026-09-10" } }));
-      assert.match(html, /<p class="case__verdict-line"><b>Strong fit — 2 of 2 requirements matched, 1 keyword missing\.<\/b> <em>The cover letter is being written now\.<\/em> Closes in 9 days\.<\/p>/);
+      assert.match(html, /<p class="case__verdict-line"><em>The cover letter is being written now\.<\/em> Closes in 9 days\.<\/p>/);
     });
 
     it("says it is still reading rather than printing a fit read it does not have", () => {
@@ -182,7 +185,7 @@ describe("The Case renders every block from the model", () => {
 
     it("invites a resume instead of leaving the match empty", () => {
       const html = renderHtml(model({ keywords: null, scorecard: null }));
-      assert.match(html, /case__verdict-line"><b>Fit 8 of 10\.<\/b>[\s\S]*?Add a resume to see which of the 2 requirements you actually answer\./);
+      assert.match(html, /case__verdict-line"><em>The cover letter is being written now\.<\/em> Day 2 in researching\. Add a resume to see which of the 2 requirements you actually answer\./);
     });
 
     it("a closed role's lede is what happened and what is still on file", () => {
@@ -763,7 +766,7 @@ describe("DFIT — the fit instrument renders one number and its evidence", () =
     return model({ ...depsOver, vmPatch: { ...patch, enrichment: { ...base.enrichment, ...((patch && patch.enrichment) || {}) } } });
   }
   function plate(html) {
-    const at = html.indexOf('<section class="case__fit"');
+    const at = html.indexOf('<section class="case__fit');
     if (at === -1) return "";
     const end = html.indexOf("<!--/case__fit-->", at);
     assert.ok(end !== -1, "the plate closes with its end marker");
