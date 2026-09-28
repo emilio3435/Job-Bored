@@ -386,32 +386,86 @@ export function providerRequestError(provider, cause, callerSignal) {
 
 /* ─── Schema helpers ──────────────────────────────────────────────────── */
 
-const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
-  "additionalProperties",
-  "$schema",
-  "$id",
-  "$ref",
-  "allOf",
-  "anyOf",
-  "oneOf",
-  "not",
+const GEMINI_SCHEMA_KEYS = new Set([
+  "type", "format", "title", "description", "enum", "items", "minItems", "maxItems",
+  "minimum", "maximum", "properties", "required", "propertyOrdering", "nullable",
 ]);
+
+/** Inline local definitions before sending a schema to an API. Ajv still checks the original. */
+function toStructuredOutputSchema(/** @type {unknown} */ schema) {
+  /** @param {string} ref */
+  function target(ref) {
+    if (!ref.startsWith("#/")) throw new TypeError("Only local schema references are supported");
+    const parts = ref.slice(2).split("/").map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+    let node = schema;
+    for (const part of parts) {
+      if (!node || typeof node !== "object" || !Object.hasOwn(node, part)) throw new TypeError("Unknown schema reference");
+      node = /** @type {Record<string, unknown>} */ (node)[part];
+    }
+    return node;
+  }
+
+  /** @param {unknown} node @param {Set<string>} refs @returns {unknown} */
+  function expand(node, refs) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+    const record = /** @type {Record<string, unknown>} */ (node);
+    /** @type {Record<string, unknown>} */
+    let out = {};
+    if (Object.hasOwn(record, "$ref")) {
+      const ref = record.$ref;
+      if (typeof ref !== "string" || refs.has(ref)) throw new TypeError("Invalid or circular schema reference");
+      out = /** @type {Record<string, unknown>} */ (expand(target(ref), new Set([...refs, ref])));
+    }
+    for (const [key, value] of Object.entries(record)) {
+      if (key.startsWith("$") || key === "uniqueItems") continue;
+      if (key === "const") { out.enum = [value]; continue; }
+      if (key === "properties" || key === "patternProperties" || key === "dependentSchemas") {
+        out[key] = Object.fromEntries(Object.entries(/** @type {Record<string, unknown>} */ (value))
+          .map(([name, child]) => [name, expand(child, refs)]));
+      } else if (["items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames"].includes(key)) {
+        out[key] = expand(value, refs);
+      } else if (["allOf", "anyOf", "oneOf", "prefixItems"].includes(key) && Array.isArray(value)) {
+        out[key] = value.map((child) => expand(child, refs));
+      } else {
+        out[key] = value;
+      }
+    }
+    if (!out.type && Array.isArray(out.enum) && out.enum.length && out.enum.every((value) => typeof value === "string")) {
+      out.type = "string";
+    }
+    return out;
+  }
+  return expand(schema, new Set());
+}
 
 /** @param {unknown} schema */
 export function toGeminiSchema(schema) {
   /** @param {unknown} node @returns {unknown} */
-  function clean(node) {
-    if (Array.isArray(node)) return node.map(clean);
-    if (!node || typeof node !== "object") return node;
+  function project(node) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
     /** @type {Record<string, unknown>} */
     const out = {};
     for (const [k, v] of Object.entries(node)) {
-      if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k)) continue;
-      out[k] = clean(v);
+      if (!GEMINI_SCHEMA_KEYS.has(k)) continue;
+      if (k === "properties") {
+        out[k] = Object.fromEntries(Object.entries(/** @type {Record<string, unknown>} */ (v))
+          .map(([name, child]) => [name, project(child)]));
+      } else if (k === "items") {
+        out[k] = project(v);
+      } else {
+        out[k] = v;
+      }
     }
     return out;
   }
-  return clean(schema);
+  return project(toStructuredOutputSchema(schema));
+}
+
+/** xAI's Chat Completions endpoint supports structured output; other compatible endpoints vary. */
+function supportsStrictSchema(/** @type {ResolvedProvider} */ resolved) {
+  if (resolved.provider === "openai") return openAISupportsStrictSchema(resolved.model);
+  if (resolved.provider !== "openai_compatible") return false;
+  try { return new URL(resolved.baseUrl).hostname === "api.x.ai"; } catch { return false; }
 }
 
 /** @param {unknown} model */
@@ -587,12 +641,10 @@ export async function chat(input) {
     const limitKey = provider === "openai" && openAIUsesMaxCompletionTokens(model) ? "max_completion_tokens" : "max_tokens";
     /** @type {Record<string, unknown> | undefined} */
     let responseFormat;
-    if (schema && provider === "openai") {
-      responseFormat = openAISupportsStrictSchema(model)
-        ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema } }
+    if (schema && (provider === "openai" || provider === "openai_compatible")) {
+      responseFormat = supportsStrictSchema(resolved)
+        ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema: toStructuredOutputSchema(schema) } }
         : { type: "json_object" };
-    } else if (schema && provider === "openai_compatible") {
-      responseFormat = { type: "json_object" };
     }
     body = {
       model,

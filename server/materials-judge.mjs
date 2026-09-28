@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
-import { chat, resolveProvider } from "./ai/provider.mjs";
+import { chat, ProviderApiError, resolveProvider } from "./ai/provider.mjs";
 import { parseStageJson } from "./materials-writer.mjs";
 
 export const JUDGE_PROMPT_VERSION = "materials-judge-v1";
@@ -46,7 +46,7 @@ const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type 
 const validateSchema = new Ajv({ allErrors: true, strict: false }).compile(JUDGE_SCHEMA);
 /** @typedef {{ id: string, text: string }} InputSentence */
 /** @typedef {{ document: "letter" | "resume", text: string, textHash: string, sentences: InputSentence[] }} InputDocument */
-/** @typedef {{ provider?: string, model?: string, apiKey?: string, baseUrl?: string }} JudgePin */
+/** @typedef {{ provider?: string, model?: string, resolvedModel?: string, apiKey?: string, baseUrl?: string }} JudgePin */
 /** @typedef {{ sourceId: string, quote: string }} Citation */
 /** @typedef {{ id: string, status: string, reason: string, citations: Citation[] }} JudgedSentence */
 /** @typedef {{ dimension: string, score: number, reason: string, sentenceIds: string[] }} Rating */
@@ -188,9 +188,11 @@ function validJudgment(judgment, documents, sources) {
  * @param {typeof fetch} [input.fetchImpl]
  */
 export async function judgeMaterials({ writer, judge, documents, sources, signal, fetchImpl }) {
-  const pin = judge || writer;
+  const selectedPin = judge || writer;
+  const pin = selectedPin && { ...selectedPin, model: selectedPin.resolvedModel || selectedPin.model };
   const resolved = resolveProvider(pin);
-  const independent = Boolean(judge && writer && (judge.provider !== writer.provider || judge.model !== writer.model));
+  const writerResolved = judge && writer && resolveProvider({ ...writer, model: writer.resolvedModel || writer.model });
+  const independent = Boolean(writerResolved && (resolved.provider !== writerResolved.provider || resolved.model !== writerResolved.model));
   const started = Date.now();
   /** @type {{ provider: string, model: string, independent: boolean, promptVersion: string, latencyMs: number, tokensIn: number | null, tokensOut: number | null }} */
   const meta = { provider: resolved.provider, model: resolved.model, independent, promptVersion: JUDGE_PROMPT_VERSION, latencyMs: 0, tokensIn: null, tokensOut: null };
@@ -224,7 +226,9 @@ export async function judgeMaterials({ writer, judge, documents, sources, signal
     try { judgment = parseStageJson(result.text); } catch { return finish("invalid", { error: "invalid_json" }); }
     if (!validJudgment(judgment, documents, sourceTexts)) return finish("invalid", { error: "invalid_judgment" });
     return { ...finish("ok"), judgment };
-  } catch {
-    return finish("unavailable", { error: "judge_call_failed" });
+  } catch (error) {
+    // ProviderApiError messages omit upstream bodies, which may contain prompts or secrets.
+    const cause = error instanceof ProviderApiError ? error.message : "unexpected_error";
+    return finish("unavailable", { error: `judge_call_failed: ${cause}` });
   }
 }
