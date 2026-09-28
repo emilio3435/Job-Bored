@@ -330,6 +330,16 @@ describe("Scribe v2 keeps the keyboard while it is open (F1-trap)", () => {
     assert.ok(env.doc.activeElement === next, "focus follows to the new Stop button");
   });
 
+  it("B1M-STAGE shows checking facts as the current step", async () => {
+    const env = boot();
+    const { api, run } = drivableApi();
+    const host = await startRequest(env, api);
+    run.emit({ event: "stage", data: { stage: "checking facts" } });
+    assert.equal(host.querySelector(".scribe__stage-short").textContent, "Checking facts");
+    const now = host.querySelector('.scribe__stages [data-s="now"]');
+    assert.match(now.textContent, /Checking facts/);
+  });
+
   it("should hand focus to the composer when the run ends under a focused Stop", async () => {
     const env = boot();
     const { api, run } = drivableApi();

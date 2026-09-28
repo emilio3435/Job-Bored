@@ -390,7 +390,7 @@ it("service SSE emits blocked shape and Stop retains validated partial ops", asy
     const [, event, data] = /^event: ([^\n]+)\ndata: (.+)$/s.exec(part);
     return { event, data: JSON.parse(data) };
   });
-  assert.deepEqual(events.map((entry) => entry.event), ["stage", "stage", "stage", "op", "blocked", "stage", "proposal", "done"]);
+  assert.deepEqual(events.map((entry) => entry.event), ["stage", "stage", "stage", "stage", "op", "blocked", "stage", "proposal", "done"]);
   assert.equal(events.find((entry) => entry.event === "blocked").data.reason, "locked");
   assert.equal(events.find((entry) => entry.event === "blocked").data.op.opId, "o3");
   await service.reject(pkg.slug, blocked.proposalId);
@@ -448,8 +448,8 @@ it("POST edits enforces stale base and one open proposal; SSE event order and sh
   assert.equal((await request(`${pkg.path}/edits`, "POST", { doc: "resume", baseRunId: "r0", instruction: "edit", scope: "all", lockFacts: true })).data.code, "materials_pending");
   assert.equal((await request(`${pkg.path}/edits/bad/stream`)).status, 400);
   const events = await stream(pkg, id);
-  assert.deepEqual(events.map((e) => e.event), ["stage", "stage", "stage", "op", "op", "stage", "proposal", "done"]);
-  assert.deepEqual(events.filter((e) => e.event === "stage").map((e) => e.data.stage), ["reading", "drafting", "checking", "measuring"]);
+  assert.deepEqual(events.map((e) => e.event), ["stage", "stage", "stage", "stage", "op", "op", "stage", "proposal", "done"]);
+  assert.deepEqual(events.filter((e) => e.event === "stage").map((e) => e.data.stage), ["reading", "drafting", "checking facts", "checking", "measuring"]);
   assert.equal(events.at(-1).data.status, "ready");
   assert.equal(events.find((e) => e.event === "op").data.op.opId, "o1");
   assert.equal(events.find((e) => e.event === "proposal").data.summary.changes, 2);
