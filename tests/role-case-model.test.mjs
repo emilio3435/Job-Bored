@@ -542,26 +542,31 @@ describe("failures are loud, and never upgrade a guess (P0-E)", () => {
    all-null case must still produce a line that says nothing false.
    ------------------------------------------------------------ */
 describe("the verdict", () => {
-  it("reads standing from the fit, the requirement match and the keyword miss", () => {
+  /* DFIT: with the instrument present the dial carries the number, so the
+     normal rung keeps gap + next + note and drops its standing clause. */
+  it("keeps gap and next while the dial carries the number", () => {
     const v = build(baseDeps()).verdict;
-    assert.equal(v.standing, "Strong fit — 2 of 2 requirements matched, 1 keyword missing");
+    assert.equal(v.standing, "");
+    assert.equal(v.gap, "The cover letter is being written now.");
+    assert.equal(v.next, "Day 2 in researching");
   });
 
   it("grades the fit bands off the score alone", () => {
     const standing = (fitScore) => {
       const d = baseDeps();
       d.vm.job.fitScore = fitScore;
-      return build(d).verdict.standing;
+      return build(d).fitGauge.score.standing;
     };
     assert.match(standing(8), /^Strong fit/);
     assert.match(standing(6), /^Solid fit/);
-    assert.match(standing(4), /^Mixed fit/);
+    assert.match(standing(5), /^Mixed fit/);
+    assert.match(standing(4), /^Weak fit/);
     assert.match(standing(1), /^Weak fit/);
   });
 
-  it("says the raw fit when there is no resume to match against, and invites one", () => {
+  it("invites a resume when there is none to match against", () => {
     const v = build(baseDeps({ keywords: null, scorecard: null })).verdict;
-    assert.equal(v.standing, "Fit 8 of 10");
+    assert.equal(v.standing, "");
     assert.equal(v.note, "Add a resume to see which of the 2 requirements you actually answer.");
   });
 
@@ -710,11 +715,11 @@ describe("CASEWHY — the model carries the fit reason and the match score", () 
     }
   });
 
-  it("carries Match Score only when it is a real 0–10 number", () => {
-    assert.deepEqual(withJob({ matchScore: 7.4 }).numbers.matchScore, { value: 7.4, max: 10 });
-    assert.deepEqual(withJob({ matchScore: 0 }).numbers.matchScore, { value: 0, max: 10 });
-    for (const v of [null, undefined, "", NaN, 74, -1, "abc"]) {
-      assert.equal(withJob({ matchScore: v }).numbers.matchScore, null, "matchScore " + String(v));
+  /* DFIT: column U has two writers with different meanings and the client
+     cannot tell which wrote the cell, so it is removed from the Dossier. */
+  it("never carries Match Score: H is the only fit number", () => {
+    for (const v of [7.4, 0, 9, null, undefined, "", NaN, 74, -1, "abc"]) {
+      assert.ok(!("matchScore" in withJob({ matchScore: v }).numbers), "matchScore " + String(v));
     }
   });
 
