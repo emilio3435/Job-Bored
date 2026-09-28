@@ -8,9 +8,9 @@ Stop when: The integrated branch is green and lane worktrees are swept, or a rep
 
 | Lane | Family | State | Worktree | Report |
 |---|---|---|---|---|
-| ingest | sol | running | `Job-Bored.worktrees/RESD-ingest` | `.lane-evidence/LANE-REPORT-ingest.md` |
-| account | sol | running after approved package/schema fence extension | `Job-Bored.worktrees/RESD-account` | `.lane-evidence/LANE-REPORT-account.md` |
-| dossier | opus | merged as `24a540e4`; focused floor green | `Job-Bored.worktrees/RESD-dossier` | `reports/dossier.md` |
-| verify | muse | queued after integration | integration snapshot | `reports/VERIFY.md` |
+| ingest | sol | merged; 50 focused tests passed; temporary worktree swept | `fix/resume-dossier-ingest` | `reports/ingest.md` |
+| account | sol | merged; 76 focused tests passed; temporary worktree swept | `fix/resume-dossier-account` | `reports/account.md` |
+| dossier | opus | merged as `24a540e4`; 46 focused tests passed; temporary worktree swept | `fix/resume-dossier-ui` | `reports/dossier.md` |
+| verify | independent Astra review plus integration owner floor; Muse unavailable | baseline-equivalent full floor, one inherited active failure | `fix/resume-dossier-grounding` | `RESULTS.md` |
 
-Model mix and timestamped readings are in `SPEC-RESD-20260928.md`. No publication is authorized.
+Model mix and timestamped readings are in `SPEC-RESD-20260928.md`. Grok's diff CLI stalled twice, so independent Astra reviews and the integration owner's full floor supplied review evidence; the verifier-family pin could not be claimed. No publication is authorized.

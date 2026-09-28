@@ -294,7 +294,8 @@ describe("GET /api/applications/:slug/export/*", () => {
     /* Same words as the ATS twin: every bullet line of resume.txt appears. */
     const txt = readFileSync(join(appsRoot, SLUG, "resume.txt"), "utf8");
     const firstBullet = txt.split("\n").find((l) => /^- /.test(l));
-    if (firstBullet) assert.ok(doc.includes(firstBullet.slice(2, 30).replace(/&/g, "&amp;")), firstBullet);
+    const docText = [...doc.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map((match) => match[1]).join("");
+    if (firstBullet) assert.ok(docText.includes(firstBullet.slice(2, 30).replace(/&/g, "&amp;")), firstBullet);
   });
 
   it("should build a Word cover letter", async () => {

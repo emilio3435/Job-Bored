@@ -1,4 +1,4 @@
-/** In-process provider replies for the MREV extract → write → judge funnel. */
+/** In-process replies for resume structure and the MREV extract → write → judge funnel. */
 import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
 const dimensions = ["role_relevance", "evidence_quality", "voice", "coherence", "economy"];
