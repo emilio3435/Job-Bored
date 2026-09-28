@@ -297,7 +297,10 @@ describe("letter-only golden on the cached Northwind posting (C-1 / P-1 / K4)", 
     assert.match(user, /^Company: NorthwindMedia$/m, "legal suffix dropped for the letter");
     assert.match(user, /^Job title: Director, Digital Sales$/m);
     for (const o of extract.outcomes) assert.ok(user.includes(o.text), `outcome ${o.id} missing`);
-    assert.ok(user.includes(`- contoso-book: ${claimOf("contoso-book").text}\n  from: Contoso · Digital Sales Manager · 2021–2026 · metrics: $12M+`), "prompt carries the exact fictional claim, employer and metric");
+    const employerBlocks = [...user.matchAll(/^Employer: ([^\r\n]+)\n(\x60{3})text\n([\s\S]*?)\n\2$/gm)];
+    const contosoBook = employerBlocks.find(([, employer, , data]) => employer === "Contoso" && data.includes("- contoso-book:"));
+    assert.ok(contosoBook, "fictional Contoso claims are inside a fenced employer data block");
+    assert.ok(contosoBook[3].includes(`- contoso-book: ${JSON.stringify(claimOf("contoso-book").text)}\n  from: "Contoso · Digital Sales Manager · 2021–2026" · metrics: "$12M+"`), "prompt carries the exact fictional claim, employer and metric");
     assert.match(user, /Letter word band: 120-200 words/);
     assert.match(user, /88% of Residents/, "company facts from the posting");
     assert.match(user, /Role family context \(use where the claims support it\):\n- Lead: Lead with book size/);

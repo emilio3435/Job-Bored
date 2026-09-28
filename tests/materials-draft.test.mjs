@@ -162,6 +162,7 @@ describe("draft", () => {
     }).join("\n");
     const hostileBlocks = blocksFor(hostilePrompt);
     assert.deepEqual(hostileBlocks.map((block) => block.employer), expectedNames, "claim text cannot create a new employer heading");
+    assert.doesNotMatch(hostilePrompt, /\\nEmployer: Spoofed Org/, "claim-text newlines are stripped before prompt serialization");
     for (const group of outline.featured) {
       const name = ledger.employers.find((item) => item.id === group.employerId).name;
       assert.deepEqual(hostileBlocks.find((block) => block.employer === name).claimIds, group.claimIds, `${name} owns only its claim rows`);

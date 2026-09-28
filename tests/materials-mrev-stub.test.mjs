@@ -16,7 +16,16 @@ function reply(url, content) {
 /** @param {string} user */
 function writerReply(user) {
   const company = user.match(/^Company: (.+)$/m)?.[1] || "the employer";
-  const claims = [...user.matchAll(/^- ([a-zA-Z0-9_-]+): (.+)$/gm)].map((match) => ({ claimId: match[1], text: match[2] }));
+  const claims = [...user.matchAll(/^- ([a-zA-Z0-9_-]+): (.+)$/gm)].map((match) => {
+    let text = match[2];
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === "string") text = parsed;
+    } catch {
+      /* Older prompt shapes use raw text; keep those replies readable. */
+    }
+    return { claimId: match[1], text };
+  });
   const first = claims[0]?.text || "I built a practical reporting process.";
   const second = claims[1]?.text || first;
   return {
