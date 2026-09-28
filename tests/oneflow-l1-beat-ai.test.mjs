@@ -219,6 +219,10 @@ describe("B2 Give it a brain — the check is the gate (spec §5 B2 exit)", () =
       }),
     });
     await pickAndCheck(env, "local", "http://127.0.0.1:11434/v1");
+    // The local save earns the optional judge offer; answering it completes.
+    assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+    assert.ok(env.mount().querySelector(".oneflow-judge"));
+    await env.beats.ai.handleAction("ai_judge_skip");
     assert.ok(env.flow.getState().completedBeats.includes(BEAT_ID));
     const merged = Object.assign(
       {},

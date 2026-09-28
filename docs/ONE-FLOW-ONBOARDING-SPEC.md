@@ -113,6 +113,7 @@ Each beat lists: content (copy is normative — ship these strings), interaction
 - **Gemini bonus (automatic):** when the chosen provider is Gemini, write the key through to the discovery worker env (`/__proxy/discovery-env-key`) so grounded web search and Add-job-from-URL light up with zero extra asks; say so inline ("Your Gemini key also unlocks URL import and grounded search — done, no extra step.").
 - **Skip:** none. This is the product's utility; the ask is honest instead of avoidable. Shell close pauses (§3.4).
 - **Exit:** a provider config saved **and** its live check passed this session (or previously verified per §3.3). **Telemetry:** `beat_completed {beat:"ai", provider, checkMs}`.
+- **Grading model (optional, recommended):** after a computer save that lands, the beat offers a second model to grade the writing (MREV K1 judge), prefilled to OpenRouter with the other five providers one click away. Each provider carries its key-page link and a cost note (xAI pre-fills `https://api.x.ai/v1` + `grok-4.7` and warns the API is prepaid). **Test judge key** live-checks the candidate against `POST /api/llm-config/judge-test` without saving; **Save & continue** stores it beside the writer pin; **Skip for now** finishes exactly as "Not now" did. No offer after a declined/failed save or with no local server. **Telemetry:** `key_check {beat:"ai", provider, ok, ms, role:"judge"}`.
 
 ### B3 — Hand us your resume
 

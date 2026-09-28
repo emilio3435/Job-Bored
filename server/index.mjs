@@ -92,7 +92,7 @@ import {
   rescoreAllPipelineRows,
   tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
-import { handleGetLlmConfig, handlePostLlmConfig, loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
+import { handleGetLlmConfig, handleJudgeTest, handlePostLlmConfig, loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { handlePostJudgeModels } from "./judge-models.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
@@ -377,6 +377,7 @@ app.get("/api/llm-config", (req, res) =>
 );
 app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
 app.post("/api/llm-config/judge-models", (req, res) => handlePostJudgeModels(req, res));
+app.post("/api/llm-config/judge-test", (req, res) => handleJudgeTest(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
   let targetUrl = "";
