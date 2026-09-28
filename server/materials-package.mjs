@@ -298,6 +298,7 @@ async function writeJson(path, value) {
  * @property {string} slug
  * @property {string} feature
  * @property {string | Record<string, string>} [textHash]
+ * @property {{ selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} [selectionSummary]
  * @property {{ parentRunId?: string | null, instruction?: string, issueIds?: string[], changed?: boolean | null, adopted?: boolean | null, reason?: string }} [repair]
  * @property {string} requestedAt
  * @property {string} finishedAt
@@ -371,6 +372,7 @@ export function buildRunRecord(input) {
   if (input.resume) run.resume = input.resume;
   if (input.inputs) run.inputs = input.inputs;
   if (input.textHash) run.textHash = input.textHash;
+  if (input.selectionSummary) run.selectionSummary = input.selectionSummary;
   if (input.repair) run.repair = input.repair;
   return run;
 }

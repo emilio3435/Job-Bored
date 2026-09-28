@@ -220,6 +220,10 @@ describe("C11 drafter drafts from the user's resume", () => {
     await drafter.runUntilIdle();
 
     assert.ok(stub.calls.length > 0, "model stages should run");
+    const structureCall = stub.calls.find((c) => c.system.startsWith("Interpret the resume source itself"));
+    assert.ok(structureCall, "resume.structure call issued");
+    assert.match(structureCall.user, /Northwind Logistics — Operations Analyst, 2021–2025/);
+    assert.match(structureCall.user, /Cut late shipments 18% by rebuilding the carrier scorecard\./);
     const writeCall = stub.calls.find((c) => c.system.startsWith("Goal: Write truthful"));
     assert.ok(writeCall, "write call issued");
     assert.match(writeCall.user, /carrier scorecard/);

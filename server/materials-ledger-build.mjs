@@ -72,9 +72,10 @@ const MAX_CLAIM_TEXT = 2000;
  * "Company, formerly Old Name" answers to both names. */
 /* 7: RECOGNITION headings are credentials, not loose claims; a
  * "— formerly X —" header segment is the employer's former name. */
-/* 8: model labels resolve only to parsed employers, roles, dates and claims;
+/* 9: model labels resolve only to parsed employers, roles, dates and claims;
  * rebuild ledgers that may contain a model-invented employer. */
-export const LEDGER_BUILDER_VERSION = 9;
+/* 10: quote-grounded model structure and current-source ingest status. */
+export const LEDGER_BUILDER_VERSION = 10;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -547,11 +548,8 @@ export function assertLedgerPathIsolated(ledgerPath) {
  * the ledger plus whether it was rebuilt.
  *
  * With a writer `pin` and `fetchImpl`, the resume is structured by one
- * model call (materials-resume-structure-model.mjs) that may only return
- * the resume's own words; any failure falls back to the rule parser. A
- * stored rule-parsed ledger is upgraded once when a pin first arrives; a
- * model failure is recorded on the ledger note and not retried until the
- * resume or profile changes.
+ * model call. A failed current model interpretation retains the last ledger
+ * byte for byte and reports a current-source ingest failure to the caller.
  * @param {object} input
  * @param {unknown} input.profile
  * @param {string} [input.resumeText]
@@ -563,9 +561,30 @@ export function assertLedgerPathIsolated(ledgerPath) {
 export async function ensureLedger({ profile, resumeText = "", resumeSource = "upload", pin = null, fetchImpl, callStage }) {
   assertLedgerPathIsolated(resolveLedgerPath());
   const resume = String(resumeText || "").trim().slice(0, 60_000);
+  const sourceHash = resume ? sha(resume) : "";
   const profileText = isRecord(profile) ? JSON.stringify(profileForLedger(profile)) : "";
   const canModel = Boolean(resume && pin && typeof fetchImpl === "function");
   const stored = await readLedger();
+  /** @param {Record<string, unknown> | null} ledger @param {number} [rejectedClaims] */
+  const coverageFor = (ledger, rejectedClaims = 0) => {
+    const employers = Array.isArray(ledger?.employers) ? ledger.employers : [];
+    const claims = Array.isArray(ledger?.claims) ? ledger.claims : [];
+    const resumeClaims = claims.filter((claim) => isRecord(claim) && typeof claim.id === "string" && claim.id.startsWith("resume-"));
+    return {
+      totalEmployers: employers.length,
+      employersWithClaims: new Set(resumeClaims.map((claim) => claim.employerId).filter(Boolean)).size,
+      rejectedClaims,
+      looseClaims: resumeClaims.filter((claim) => !claim.employerId && claim.kind !== "education" && claim.kind !== "credential").length,
+    };
+  };
+  /** @param {"ready" | "failed" | "not_required"} status @param {string} code @param {Record<string, unknown> | null} ledger @param {number} [rejectedClaims] */
+  const ingest = (status, code, ledger, rejectedClaims = 0) => ({ status, sourceHash, code, coverage: coverageFor(ledger, rejectedClaims) });
+  /** @param {string} code @param {number} [rejectedClaims] */
+  const failed = (code, rejectedClaims = 0) => ({
+    ...(stored.ok ? stored.ledger : {}),
+    rebuilt: false,
+    ingest: ingest("failed", code, null, rejectedClaims),
+  });
   if (stored.ok) {
     const sources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
       Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []
@@ -579,19 +598,41 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
       (profileText ? profileSourceEntry?.hash === sha(profileText) : !profileSourceEntry) &&
       (!profileSourceEntry || profileText);
     const { note, builderVersion } = /** @type {{ note?: unknown, builderVersion?: unknown }} */ (stored.ledger);
-    const awaitsModel = canModel && (note === undefined || note === "structure:rules");
+    const awaitsModel = canModel && note !== "structure:model";
     const currentBuilder = (typeof builderVersion === "number" ? builderVersion : 1) === LEDGER_BUILDER_VERSION;
     if (resumeFresh && profileFresh && currentBuilder && !awaitsModel) {
-      return { ...stored.ledger, rebuilt: false };
+      return { ...stored.ledger, rebuilt: false, ingest: ingest(resume ? "ready" : "not_required", "", stored.ledger) };
     }
   }
   /** @type {{ structure?: import("./materials-resume-structure.mjs").ResumeStructure, note?: string }} */
   let structured = {};
   if (canModel && pin && typeof fetchImpl === "function") {
     const result = await structureResumeWithModel({ resumeText: resume, pin, fetchImpl, callStage });
+    if (result.ingest.status !== "ready" || !result.structure) {
+      return failed(result.ingest.code || "invalid_structure", result.rejected.filter((entry) => entry.kind === "claim").length);
+    }
     structured = { structure: result.structure, note: result.note };
   }
-  const built = buildLedger({ profile, resumeText: resume, resumeSource, ...structured });
+  let built;
+  try {
+    built = buildLedger({ profile, resumeText: resume, resumeSource, ...structured });
+  } catch (err) {
+    if (canModel && err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") return failed("model_empty");
+    throw err;
+  }
+  if (canModel && coverageFor(built).employersWithClaims === 0) return failed("unsupported_attribution");
+  if (canModel && stored.ok) {
+    const oldSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []);
+    const sameSource = oldSources.some((source) => source?.kind === "resume" && source.hash === sourceHash);
+    if (sameSource) {
+      const oldCoverage = coverageFor(stored.ledger);
+      const newCoverage = coverageFor(built);
+      const oldClaims = /** @type {Array<{ id?: unknown }>} */ (stored.ledger.claims);
+      const oldResumeClaims = oldClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
+      const newResumeClaims = built.claims.filter((claim) => claim.id.startsWith("resume-")).length;
+      if (newCoverage.totalEmployers < oldCoverage.totalEmployers || newResumeClaims < oldResumeClaims) return failed("model_sparse");
+    }
+  }
   const { ledgerHash } = await writeLedgerAtomic(built);
-  return { ...built, ledgerHash, rebuilt: true };
+  return { ...built, ledgerHash, rebuilt: true, ingest: ingest(resume ? "ready" : "not_required", "", built) };
 }

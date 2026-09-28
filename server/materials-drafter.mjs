@@ -4,7 +4,7 @@
  */
 
 import { jdEvidence } from "./materials-jd-extract.mjs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
@@ -395,6 +395,7 @@ async function writeJdFile(dir, text, meta = {}) {
  * @property {(url: string) => Promise<{ description?: unknown }>} [scrapeJob]
  * @property {(input: string | URL, init?: RequestInit) => Promise<Response>} [fetchImpl]
  *   Model-call transport for the pipeline stages (defaults to global fetch).
+ * @property {Function} [structureCallStage] test seam for a decoded resume structure reply
  * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [openSession]
  *   Opens the headless browser the pipeline measures fit and prints PDFs
  *   with. Defaults to openPdfSession; null renders unmeasured (tests).
@@ -592,7 +593,7 @@ export function createMaterialsDrafter(deps = {}) {
     const name = String(error?.name || "");
     const errCode = String(error?.code || "");
     /* First-class resumable states keep their own neutral message. */
-    if ((errCode === "jd_unusable" || errCode === "ledger_empty") && typeof error?.message === "string") {
+    if ((errCode === "jd_unusable" || errCode === "ledger_empty" || errCode === "resume_source_review") && typeof error?.message === "string") {
       return { code: errCode, message: error.message };
     }
     if (name === "WriterJsonError" || errCode === "writer_json_error") {
@@ -753,13 +754,6 @@ export function createMaterialsDrafter(deps = {}) {
     }
 
     const jdText = jd.text;
-    if (jd.source === "scrape" || jd.source === "request") {
-      await writeJdFile(dir, jdText, {
-        source: jd.source,
-        jobUrl: payload.jobUrl,
-        nowIso: isoNow(),
-      });
-    }
 
     /* Slice 6: a missing pin degrades to a deterministic REVIEW package —
      * it no longer 409s. The dossier renders the llm_unconfigured note. */
@@ -821,7 +815,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     let ledger;
     try {
-      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl });
+      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
     } catch (err) {
       if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
         await failJob(job, {
@@ -831,6 +825,28 @@ export function createMaterialsDrafter(deps = {}) {
         return;
       }
       throw err;
+    }
+
+    const currentHash = `sha256:${createHash("sha256").update(resumeText.trim().slice(0, 60_000)).digest("hex")}`;
+    const ledgerSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (ledger.sources);
+    const ledgerResume = Array.isArray(ledger.sources)
+      ? ledgerSources.find((source) => source.kind === "resume")
+      : null;
+    if (ledger.ingest?.status !== "ready" || ledger.ingest.sourceHash !== currentHash || ledgerResume?.hash !== currentHash) {
+      await failJob(job, {
+        code: "resume_source_review",
+        message: "We couldn't verify this resume's employers and claims. Review or re-add the resume in Settings → Profile, then retry.",
+      });
+      return;
+    }
+
+    await writeResumeSnapshot(dir, resumeSource, job.record.requested_at || isoNow());
+    if (jd.source === "scrape" || jd.source === "request") {
+      await writeJdFile(dir, jdText, {
+        source: jd.source,
+        jobUrl: payload.jobUrl,
+        nowIso: isoNow(),
+      });
     }
 
     if (payload.resumeFrom && !payload.repair) {
@@ -1002,19 +1018,6 @@ export function createMaterialsDrafter(deps = {}) {
 
     try {
       await mkdir(dir, { recursive: true });
-      await writeResumeSnapshot(dir, resumeSource, requestedAt);
-      const providedJd =
-        (typeof payload.jobDescription === "string" && payload.jobDescription) ||
-        (typeof payload.jdText === "string" && payload.jdText) ||
-        "";
-      if (providedJd.trim()) {
-        await writeJdFile(dir, providedJd, {
-          source: "request",
-          jobUrl: payload.jobUrl,
-          nowIso: isoNow(),
-        });
-      }
-
       await writePending(pendingPath, record);
       queue.push({
         payload: { ...payload, resume: resumeSource, resumeChoice },

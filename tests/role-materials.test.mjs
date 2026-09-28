@@ -900,6 +900,108 @@ describe("materials rows in the case mount", () => {
     assert.doesNotMatch(rowsHtml(legacyHost), /case__template/);
   });
 
+  /* RESD R5: a resume source the server could not ground stops the draft
+     with pending.progress.code=resume_source_review. The row says so and
+     offers Retry and Open Resume; no other failure grows an Open Resume. */
+  it("R5 · should offer Retry and Open Resume on a resume_source_review failure", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: {
+        feature: "resume",
+        progress: { phase: "failed", code: "resume_source_review", elapsedSeconds: 3, attempt: 1 },
+      },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.match(row, /case__docst--failed" data-status="failed">failed</);
+    assert.match(row, /data-review="resume_source_review"/);
+    assert.match(row, /case__doc-msg" data-review="resume_source_review">We couldn’t read your resume clearly enough to draft from it\. Your last resume is unchanged\. Check the resume, then try again\.</);
+    assert.match(row, /data-action="materials-retry"[^>]*data-feature="resume"[^>]*>Retry</);
+    assert.match(row, /data-action="open-resume"[^>]*>Open Resume</);
+    assert.doesNotMatch(row, /materials-preview|materials-download/, "the old package is not offered as this run's result");
+  });
+
+  it("R5 · should keep the server's own recovery message for a resume_source_review failure", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      documents: [],
+      pending: {
+        feature: "resume",
+        progress: { phase: "failed", code: "resume_source_review", message: "Check the resume source, then retry." },
+      },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), /case__doc-msg" data-review="resume_source_review">Check the resume source, then retry\.</);
+  });
+
+  it("R5 · should not offer Open Resume for any other failure", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      documents: [],
+      pending: { feature: "resume", progress: { phase: "failed", code: "worker_crash", elapsedSeconds: 3 } },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.doesNotMatch(row, /data-action="open-resume"/);
+    assert.doesNotMatch(row, /data-review=/);
+    assert.match(row, /data-action="materials-retry"[^>]*>Try again</);
+  });
+
+  const PUBLISHED = (() => {
+    const { pending: _pending, ...published } = CASE_MANIFEST;
+    return published;
+  })();
+
+  it("R5 · should show the current run's page-budget exclusion count on the resume row", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...PUBLISHED,
+      selectionSummary: { selected: 9, featured: 5, earlier: 0, pageBudgetExcluded: 4 },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.match(row, /class="case__doc-note" data-page-budget-excluded="4">4 selected points didn’t fit on one page\.</);
+    assert.doesNotMatch(rowFor(host, "cover_letter"), /case__doc-note/);
+  });
+
+  it("R5 · should say 'point' for a single exclusion", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...PUBLISHED,
+      selectionSummary: { selected: 6, featured: 4, earlier: 1, pageBudgetExcluded: 1 },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), />1 selected point didn’t fit on one page\.</);
+  });
+
+  it("R5 · should show no exclusion note for a legacy manifest, a zero-exclusion run, or no resume", () => {
+    const cases = [
+      PUBLISHED,
+      { ...PUBLISHED, selectionSummary: { selected: 6, featured: 5, earlier: 1, pageBudgetExcluded: 0 } },
+      { ...PUBLISHED, selectionSummary: { selected: 6, featured: 5, earlier: 1, pageBudgetExcluded: "4" } },
+      { ...PUBLISHED, documents: [], selectionSummary: { selected: 9, featured: 5, earlier: 0, pageBudgetExcluded: 4 } },
+    ];
+    for (const manifest of cases) {
+      const host = makeCaseMount();
+      api.renderManifest(host, manifest, "http://127.0.0.1:3847");
+      assert.doesNotMatch(rowsHtml(host), /case__doc-note|didn’t fit/);
+    }
+  });
+
+  it("R5 · should hide the old run's count beside a newer failed or running resume request", () => {
+    for (const progress of [
+      { phase: "failed", code: "resume_source_review" },
+      { phase: "failed" },
+      { phase: "drafting", elapsedSeconds: 4 },
+    ]) {
+      const host = makeCaseMount();
+      api.renderManifest(host, {
+        ...PUBLISHED,
+        selectionSummary: { selected: 9, featured: 5, earlier: 0, pageBudgetExcluded: 4 },
+        pending: { feature: "resume", progress },
+      }, "http://127.0.0.1:3847");
+      assert.doesNotMatch(rowsHtml(host), /case__doc-note|didn’t fit/, "phase " + progress.phase);
+    }
+  });
+
   it("falls back to the legacy panel in a brief-only mount", () => {
     const brief = makeElement("div", { "data-mount": "brief" });
     api.renderManifest(brief, CASE_MANIFEST, "http://127.0.0.1:3847");

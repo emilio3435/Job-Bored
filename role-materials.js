@@ -1066,6 +1066,24 @@
     return out;
   }
 
+  /* RESD: the server stopped the draft because it could not ground the
+     current resume source. The last good package is untouched on disk. */
+  var RESUME_SOURCE_REVIEW_CODE = "resume_source_review";
+  var RESUME_SOURCE_REVIEW_MESSAGE = "We couldn\u2019t read your resume clearly enough to draft from it. "
+    + "Your last resume is unchanged. Check the resume, then try again.";
+
+  /* RESD R5: the published run's count-only selectionSummary. Only a
+     positive integer count is news; a legacy manifest has no block, and a
+     resume request in flight or failed since then makes it an old run's
+     number, so it stays hidden beside that request. */
+  function pageBudgetExcludedOf(manifest, pending) {
+    var acc = manifest && manifest.selectionSummary;
+    var n = acc && typeof acc === "object" ? acc.pageBudgetExcluded : null;
+    if (typeof n !== "number" || !Number.isInteger(n) || n <= 0) return 0;
+    if (pending && String(pending.feature || "") === "resume") return 0;
+    return n;
+  }
+
   /* One row per CASE_DOC_TYPES entry — every deliverable is always listed,
      so "not drafted yet" is as visible as "ready". */
   function renderCaseRows(hostEl, manifest, base, defs) {
@@ -1077,6 +1095,9 @@
     var pendingFeature = pending ? String(pending.feature || "") : "";
     var pendingProgress = pending && pending.progress ? pending.progress : null;
     var qualityDocs = manifest.quality && manifest.quality.documents ? manifest.quality.documents : {};
+    var sourceReview = !!(pendingProgress && /^failed$/i.test(String(pendingProgress.phase || ""))
+      && pendingProgress.code === RESUME_SOURCE_REVIEW_CODE);
+    var budgetExcluded = pageBudgetExcludedOf(manifest, pending);
 
     var mi = insights();
     /* U-5 "Draft both": the letter waits behind the resume's run. */
@@ -1162,8 +1183,11 @@
            place that has room for them. */
         var reason = pendingProgress && pendingProgress.message
           ? String(pendingProgress.message)
-          : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.";
-        progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>'
+          : (sourceReview
+            ? RESUME_SOURCE_REVIEW_MESSAGE
+            : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.");
+        progressHtml = '<span class="case__doc-msg"'
+          + (sourceReview ? ' data-review="' + RESUME_SOURCE_REVIEW_CODE + '"' : "") + '>' + escapeHtml(reason) + '</span>'
           + (mi && pendingProgress && Array.isArray(pendingProgress.stages) && pendingProgress.stages.length
             ? mi.timelineHtml(pendingProgress, pendingFeature) : "");
       }
@@ -1182,12 +1206,17 @@
           /* A failure with no way out is a dead end: the legacy panel always
              paired FAILED with dismiss + retry, and the row must too. The
              feature is the pending run's, which is what both handlers key on. */
+          : (status === "failed" && pendingFeature && sourceReview
+            /* RESD: the fix is in the resume, so the row opens it. */
+            ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-retry"'
+              + ' data-feature="' + escapeHtml(pendingFeature) + '">Retry</button>',
+              '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="open-resume">Open Resume</button>']
           : (status === "failed" && pendingFeature
             ? ['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-dismiss"'
               + ' data-feature="' + escapeHtml(pendingFeature) + '">Dismiss</button>',
               '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-retry"'
               + ' data-feature="' + escapeHtml(pendingFeature) + '">Try again</button>']
-            : []));
+            : [])));
       /* Three areas, never one line (SPEC §3.4). The shipped row was
          `minmax(0, 1fr) auto auto` — name, pill, buttons — and both `auto`
          tracks were nowrap, so at a 323px lane they took 309px and the name
@@ -1237,6 +1266,11 @@
             + (contact ? ' data-contact="' + escapeHtml(contact) + '"' : "") + '></jb-apply-checklist>';
         }
       }
+      /* RESD R5: say how much selected evidence the one-page budget left out. */
+      var budgetNote = def.type === "resume" && doc && budgetExcluded
+        ? '<span class="case__doc-note" data-page-budget-excluded="' + budgetExcluded + '">'
+          + budgetExcluded + " selected point" + (budgetExcluded === 1 ? "" : "s") + " didn\u2019t fit on one page.</span>"
+        : "";
       var repairBlocks = def.type === "resume" || def.type === "cover_letter"
         ? repairBlocksHtml(manifest.slug, def.type, qualityForRow, isPending) : "";
       return '<div class="case__doc case__doc--' + status + (fail ? " case__doc--qafail" : "") + '" data-doc="' + escapeHtml(def.type) + '"'
@@ -1244,7 +1278,7 @@
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
         + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
           + escapeHtml(stateWord) + '</span>'
-        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + '</div>'
+        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + budgetNote + '</div>'
         + (verdict || coverage || checklist ? '<div class="case__doc-qa">' + verdict + coverage + checklist + '</div>' : "")
         + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
         + repairBlocks

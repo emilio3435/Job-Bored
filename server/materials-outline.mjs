@@ -18,6 +18,7 @@ import { claimById } from "./materials-ledger.mjs";
  * @property {string[]} toolsLine
  * @property {LetterBeats | null} letterBeats
  * @property {{ claimId: string, reason: "page_budget" }[]} dropped kept claims the page budget left out (P-15)
+ * @property {{ selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} [selectionSummary] count-only accounting for selected resume claims
  */
 
 /**
@@ -53,9 +54,10 @@ import { claimById } from "./materials-ledger.mjs";
  * @returns {Outline}
  */
 export function buildOutline({ selection, ledger, feature, extract }) {
-  const kept = (selection.kept || [])
-    .map((k) => (k && typeof k.claimId === "string" ? k.claimId : ""))
-    .filter(Boolean);
+  const resumeRequested = feature !== "cover_letter";
+  const kept = resumeRequested
+    ? selectedResumeIds(selection, ledger)
+    : (selection.kept || []).map((/** @type {{ claimId?: unknown }} */ k) => (k && typeof k.claimId === "string" ? k.claimId : "")).filter(Boolean);
   const budget = selection.budget || {};
   const featuredMax =
     typeof budget.featuredEmployers === "number"
@@ -71,11 +73,12 @@ export function buildOutline({ selection, ledger, feature, extract }) {
   /** @type {Outline} */
   const outline = { featured: [], earlier: [], toolsLine: [], letterBeats: null, dropped: [] };
 
-  if (feature !== "cover_letter") {
+  if (resumeRequested) {
     const plan = planResume({ ledger, kept, featuredMax, perFeaturedMax: perFeatured, earlierMax });
     outline.featured = plan.featured;
     outline.earlier = plan.earlier;
     outline.dropped = plan.dropped;
+    outline.selectionSummary = summarizeSelectedResume(kept, plan);
 
     outline.toolsLine = skillsLine({ ledger, kept, extract, max: tokensMax });
   }
@@ -107,6 +110,84 @@ export function buildOutline({ selection, ledger, feature, extract }) {
   }
 
   return outline;
+}
+
+/** Validate the selected claim IDs before planning can silently drop one. */
+/** @param {{ kept?: Array<{ claimId?: unknown }> }} selection @param {{ claims?: Array<{ id?: unknown }> }} ledger @returns {string[]} */
+function selectedResumeIds(selection, ledger) {
+  if (!Array.isArray(selection.kept)) throw new Error("selected claim accounting requires a kept list");
+  const known = new Set((ledger.claims || []).map((claim) => claim?.id).filter((id) => typeof id === "string" && id));
+  const seen = new Set();
+  return selection.kept.map((item) => {
+    const id = item?.claimId;
+    if (typeof id !== "string" || !id.trim() || !known.has(id) || seen.has(id)) {
+      throw new Error("selected claim accounting found a missing, unknown, or duplicate claim ID");
+    }
+    seen.add(id);
+    return id;
+  });
+}
+
+/** Every selected ID must reach one resume slot or one page-budget exclusion. */
+/** @param {string[]} kept @param {Pick<Outline, "featured" | "earlier" | "dropped">} plan */
+function summarizeSelectedResume(kept, plan) {
+  const selected = new Set(kept);
+  const accounted = new Set();
+  const summary = { selected: kept.length, featured: 0, earlier: 0, pageBudgetExcluded: 0 };
+  /** @param {string} id @param {"featured" | "earlier" | "pageBudgetExcluded"} field */
+  const mark = (id, field) => {
+    if (!selected.has(id)) return; // Earlier may include an unselected ledger claim as context.
+    if (accounted.has(id)) throw new Error("selected claim accounting assigned a claim more than once");
+    accounted.add(id);
+    summary[field] += 1;
+  };
+  for (const group of plan.featured) for (const id of group.claimIds) mark(id, "featured");
+  for (const id of plan.earlier) mark(id, "earlier");
+  for (const drop of plan.dropped) {
+    if (drop.reason !== "page_budget") throw new Error("selected claim accounting found an unknown exclusion reason");
+    mark(drop.claimId, "pageBudgetExcluded");
+  }
+  if (accounted.size !== selected.size) throw new Error("selected claim accounting left a claim unassigned");
+  return summary;
+}
+
+/**
+ * Count selected claims in the model that survived the final one-page fit.
+ * A fitter can retain a claimId on an entry after removing its line, so IDs
+ * count only when their bullet or line still has rendered content.
+ * @param {object} input
+ * @param {{ kept?: Array<{ claimId?: unknown }> }} input.selection
+ * @param {{ claims?: Array<{ id?: unknown }> }} input.ledger
+ * @param {import("./materials-render.mjs").RenderModel | null | undefined} input.model
+ */
+export function summarizeRenderedResumeSelection({ selection, ledger, model }) {
+  const kept = selectedResumeIds(selection, ledger);
+  const resume = model?.documents.resume;
+  if (!resume) throw new Error("selected claim accounting requires a fitted resume model");
+  const selected = new Set(kept);
+  const rendered = new Set();
+  const summary = { selected: kept.length, featured: 0, earlier: 0, pageBudgetExcluded: 0 };
+  /** @param {unknown} id @param {"featured" | "earlier"} field */
+  const mark = (id, field) => {
+    if (typeof id !== "string" || !selected.has(id)) return;
+    if (rendered.has(id)) throw new Error("selected claim accounting rendered a claim more than once");
+    rendered.add(id);
+    summary[field] += 1;
+  };
+  for (const section of resume.sections || []) {
+    const field = section.kind === "experience" ? "featured" : section.kind === "earlier" ? "earlier" : null;
+    if (!field) continue;
+    for (const entry of section.entries || []) {
+      if (typeof entry.line === "string" && entry.line.trim()) mark(entry.claimId, field);
+      for (const bullet of entry.bullets || []) {
+        const hasContent = Array.isArray(bullet.runs) && bullet.runs.some((run) =>
+          typeof run.t === "string" && run.t.trim() || typeof run.n === "string" && run.n.trim() || typeof run.hl === "string" && run.hl.trim());
+        if (hasContent) mark(bullet.claimId, field);
+      }
+    }
+  }
+  summary.pageBudgetExcluded = kept.length - rendered.size;
+  return summary;
 }
 
 /**
