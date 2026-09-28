@@ -8,9 +8,9 @@ Stop when: The integrated branch is green and lane worktrees are swept, or a rep
 
 | Lane | Family | State | Worktree | Report |
 |---|---|---|---|---|
-| ingest | sol | queued | `Job-Bored.worktrees/RESD-ingest` | `.lane-evidence/LANE-REPORT-ingest.md` |
-| account | sol | queued | `Job-Bored.worktrees/RESD-account` | `.lane-evidence/LANE-REPORT-account.md` |
-| dossier | opus | queued after backend contract | `Job-Bored.worktrees/RESD-dossier` | `.lane-evidence/LANE-REPORT-dossier.md` |
+| ingest | sol | running | `Job-Bored.worktrees/RESD-ingest` | `.lane-evidence/LANE-REPORT-ingest.md` |
+| account | sol | running after approved package/schema fence extension | `Job-Bored.worktrees/RESD-account` | `.lane-evidence/LANE-REPORT-account.md` |
+| dossier | opus | merged as `24a540e4`; focused floor green | `Job-Bored.worktrees/RESD-dossier` | `reports/dossier.md` |
 | verify | muse | queued after integration | integration snapshot | `reports/VERIFY.md` |
 
 Model mix and timestamped readings are in `SPEC-RESD-20260928.md`. No publication is authorized.
