@@ -21,7 +21,7 @@
 
   <div class="body">
     {{#if resume.statement.show}}<section class="statement" data-section="summary">
-      <p>{{resume.statement.html}}</p>
+      <p data-node="{{resume.statement.nodeId}}">{{resume.statement.html}}</p>
     </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
 
     {{#if resume.experience}}
@@ -34,13 +34,13 @@
           <span class="when">{{dates}}{{#if place}}<br />{{place}}{{/if}}</span>
         </div>
         <div>
-          <div class="head"><h2 class="org company-name">{{org}}</h2>{{#if hasSeat}}<span class="seat">{{seatHtml}}</span>{{/if}}</div>
+          <div class="head"><h2 class="org company-name">{{org}}</h2>{{#if hasSeat}}<span class="seat" data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}</div>
           {{#if hasRoles}}
           {{#each roles}}
           <div class="subrole"><span class="subrole-title">{{seatHtml}}</span>{{#if dates}}<span class="subrole-when">{{dates}}</span>{{/if}}</div>
           {{#if hasBullets}}
           <ul>
-            {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+            {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{html}}</li>
             {{/each}}
           </ul>
           {{/if}}
@@ -48,11 +48,11 @@
           {{else}}
           {{#if hasBullets}}
           <ul>
-            {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+            {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{html}}</li>
             {{/each}}
           </ul>
           {{else}}
-          {{#if line}}<p class="line" data-claim="{{claimId}}">{{line}}</p>{{/if}}
+          {{#if line}}<p class="line" data-claim="{{claimId}}" data-node="{{lineNodeId}}">{{line}}</p>{{/if}}
           {{/if}}
           {{/if}}
         </div>
@@ -66,7 +66,7 @@
       <div class="sec-label sec-label--gut"><h2>{{resume.earlier.label}}</h2></div>
       <div class="earlier">
         {{#each resume.earlier.entries}}
-        <p class="earlier-line" data-claim-group="{{employerId}}">{{#if logo}}<img class="mark-inline" src="{{logo.src}}" alt="{{logo.alt}}" />{{/if}}{{#if showOrg}}<b class="company-name-inline">{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{else}}{{#if hasSeat}}<b class="company-name-inline">{{seatHtml}}</b>{{/if}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}{{#if hasHead}}<br />{{/if}}<span data-claim="{{claimId}}">{{line}}</span>{{/if}}</p>
+        <p class="earlier-line" data-claim-group="{{employerId}}">{{#if logo}}<img class="mark-inline" src="{{logo.src}}" alt="{{logo.alt}}" />{{/if}}{{#if showOrg}}<b class="company-name-inline">{{org}}</b>{{#if hasSeat}}, <span data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}{{else}}{{#if hasSeat}}<b class="company-name-inline" data-node="{{seatNodeId}}">{{seatHtml}}</b>{{/if}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}{{#if hasHead}}<br />{{/if}}<span data-claim="{{claimId}}" data-node="{{lineNodeId}}">{{line}}</span>{{/if}}</p>
         {{/each}}
       </div>
     </section>
@@ -77,7 +77,7 @@
       <div class="sec-label sec-label--gut"><h2>{{resume.ventures.label}}</h2></div>
       <div class="ventures">
         {{#each resume.ventures.entries}}
-        <p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}<br />{{line}}{{/if}}</p>
+        <p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, <span data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}<br /><span data-node="{{lineNodeId}}">{{line}}</span>{{/if}}</p>
         {{/each}}
       </div>
     </section>
@@ -89,7 +89,7 @@
       {{#if resume.showSkillLabels}}
       <dl class="spec">
         {{#each resume.toolkit.groups}}<dt>{{label}}</dt>
-        <dd>{{itemsText}}</dd>
+        <dd data-node="{{nodeId}}">{{itemsText}}</dd>
         {{/each}}
         {{#each resume.skills}}<dt>{{label}}</dt>
         <dd>{{itemsText}}</dd>
@@ -106,7 +106,7 @@
       <div class="sec-label sec-label--gut"><h2>{{resume.education.label}}</h2></div>
       <div class="cred">
         {{#if resume.education.logo}}<img class="mark-cc" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
-        <p>{{#each resume.education.lines}}<span{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</span>{{#unless @last}}<br />{{/unless}}{{/each}}</p>
+        <p>{{#each resume.education.lines}}<span{{#if claimId}} data-claim="{{claimId}}"{{/if}}{{#if nodeId}} data-node="{{nodeId}}"{{/if}}>{{html}}</span>{{#unless @last}}<br />{{/unless}}{{/each}}</p>
       </div>
     </section>
     {{/if}}
