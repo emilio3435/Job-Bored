@@ -713,7 +713,10 @@ test("should keep the run's catalog when the run fails after scouting", async ()
         throw new Error("writer crashed");
       },
     });
-    await assert.rejects(harness.run(), /writer crashed/, "the original error surfaces");
+    // A failed Sheet write no longer throws: the run resolves as write_failed,
+    // keeps the selected leads for Retry write, and carries the original error.
+    const result = await harness.run();
+    assert.match(String(result.writeResult?.writeError?.message || ""), /writer crashed/, "the original error surfaces");
     const counts = raw.listCandidates({ limit: 100 }).counts;
     assert.equal(counts.rejected, 2, JSON.stringify(counts));
     assert.ok((counts.backlog || 0) >= 3, JSON.stringify(counts));
