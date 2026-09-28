@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readRepoFile } from './oneflow-l0-harness.mjs';
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
-function load(fetchImpl) {
+function load(fetchImpl, hostedToken = "") {
   const doc = { readyState: 'loading', addEventListener() {} };
   const win = {
     document: doc,
@@ -16,9 +16,12 @@ function load(fetchImpl) {
     } },
     JobBoredLeads: { rows: () => [{ title: 'RevOps lead' }], profile: () => ({ hardConstraints: {} }) },
     fetch: fetchImpl,
+    location: { href: 'http://127.0.0.1:8080/', origin: 'http://127.0.0.1:8080' },
+    COMMAND_CENTER_CONFIG: hostedToken ? { jobBoredApiUrl: 'http://127.0.0.1:3847', jobBoredApiToken: hostedToken } : {},
   };
   const ctx = { window: win, fetch: fetchImpl, document: doc };
   vm.createContext(ctx);
+  if (hostedToken) vm.runInContext(readRepoFile('hosted-api-auth.js'), ctx, { filename: 'hosted-api-auth.js' });
   vm.runInContext(readRepoFile('leads-tune.js'), ctx, { filename: 'leads-tune.js' });
   vm.runInContext(readRepoFile('leads-agent.js'), ctx, { filename: 'leads-agent.js' });
   return win;
@@ -52,6 +55,19 @@ describe('Leads agent transport', () => {
     assert.deepEqual(plain(out.changes.map((c) => c.field)), ['hardConstraints.workMode', 'view.fitMin']);
     assert.ok(counted >= 1);
     assert.equal(JSON.stringify(req.settings).includes('remote_only'), false);
+  });
+
+  it('uses hosted apiFetch so the configured API token reaches the provider route', async () => {
+    const calls = [];
+    const win = load(async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, json: async () => ({ ok: true, reply: 'Ready.', changes: [] }) };
+    }, 'example-hosted-token');
+    const out = await win.JobBoredLeadsAgent.propose(req);
+    assert.equal(out.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer example-hosted-token');
+    assert.equal(calls[0].init.headers['X-Api-Token'], 'example-hosted-token');
   });
 
   it('keeps the API error code and HTTP status', async () => {

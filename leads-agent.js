@@ -64,9 +64,11 @@
     };
     var url = root.JobBoredProfileApi && typeof root.JobBoredProfileApi.profileUrl === 'function'
       ? root.JobBoredProfileApi.profileUrl('/api/leads/chat') : '/api/leads/chat';
+    var auth = root.JobBoredHostedApiAuth;
+    var fetcher = auth && typeof auth.apiFetch === 'function' ? auth.apiFetch : root.fetch;
     var response;
     try {
-      response = await root.fetch(url, {
+      response = await fetcher.call(auth || root, url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

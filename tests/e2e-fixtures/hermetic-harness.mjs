@@ -39,6 +39,14 @@ export const DISPOSABLE_AUTH = {
   materialsOrigin: "http://127.0.0.1:3847",
 };
 
+const CHAT_UNAVAILABLE = {
+  ok: false,
+  hermetic: true,
+  error: "The chat agent is unavailable in the hermetic harness.",
+  code: "agent_not_connected",
+  retryable: false,
+};
+
 export const PIPELINE_HEADERS = [
   "Date Found",
   "Title",
@@ -340,13 +348,7 @@ export async function installHermeticNetworkFence(page, options = {}) {
           return;
         }
         if (url.pathname === "/api/leads/chat" && method === "POST") {
-          await fulfillJson(route, {
-            ok: false,
-            hermetic: true,
-            error: "The chat agent is unavailable in the hermetic harness.",
-            code: "agent_not_connected",
-            retryable: false,
-          }, 503);
+          await fulfillJson(route, CHAT_UNAVAILABLE, 503);
           return;
         }
         // RESJ K1: every primary-resume save copies the text to the
@@ -528,6 +530,10 @@ export async function installHermeticNetworkFence(page, options = {}) {
     }
 
     if (url.origin === materialsOrigin) {
+      if (url.pathname === "/api/leads/chat" && method === "POST") {
+        await fulfillJson(route, CHAT_UNAVAILABLE, 503);
+        return;
+      }
       if (url.pathname === "/api/applications/queue" && method === "GET") {
         const queue =
           materialsRequestSubmitted && !materialsReady
