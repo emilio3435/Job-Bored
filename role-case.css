@@ -327,6 +327,8 @@ body.jb-v2 [data-region="role"] .case .case__doc-meta { grid-area: meta; font-fa
 body.jb-v2 [data-region="role"] .case .case__doc-progress { display: block; }
 body.jb-v2 [data-region="role"] .case .case__doc-eyebrow { display: block; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--case-amber-deep); }
 body.jb-v2 [data-region="role"] .case .case__doc-msg { display: block; margin-top: 3px; font-family: var(--serif); font-style: italic; font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--ink-soft); }
+/* RESD R5: the published run's page-budget exclusion count, under the resume's meta line. */
+body.jb-v2 [data-region="role"] .case .case__doc-note { display: block; margin-top: 3px; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--ink-soft); }
 body.jb-v2 [data-region="role"] .case .case__doc-track { display: block; height: 3px; margin-top: 8px; border-radius: 2px; background: rgba(231, 181, 73, 0.25); overflow: hidden; }
 body.jb-v2 [data-region="role"] .case .case__doc-track i { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--amber); animation: case-indeterminate 1.6s ease-in-out infinite; }
 @keyframes case-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
