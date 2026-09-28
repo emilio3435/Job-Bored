@@ -187,7 +187,13 @@
       ]),
       /* region:F2-header — Show changes (D) joins this group. */
       /* region:F3-header — Compare (C) joins this group. */
-      h("div", { class: "scribe__group scribe__group--tools" }, [r.close]),
+      h("div", { class: "scribe__group scribe__group--tools" }, [
+        r.compareBtn = root.JBScribeVersions ? h("button", {
+          type: "button", class: "scribe__btn scribe__btn--small", "data-ver-compare": "", "aria-pressed": "false",
+          "aria-keyshortcuts": "C", title: "Compare two versions (C)",
+        }, ["Compare ", h("kbd", { class: "scribe__compare-kbd", text: "C" })]) : null,
+        r.close,
+      ]),
     ]);
 
     r.segs = ["doc", "chat", "versions"].map(function (s) {
@@ -218,7 +224,8 @@
     r.versionsPanel = h("div", { class: "scribe__panel", id: ids.versions, role: "tabpanel", "aria-labelledby": ids.stVersions, hidden: true }, [
       r.versions,
       /* region:F3-versions — View, Compare with current and Restore as new
-         attach to each row; the compare pane lives under .scribe__compare. */
+         attach to each row; the compare pane lives under .scribe__compare
+         (scribe-v2-versions.js adds it to the document pane). */
     ]);
 
     r.scope = h("div", { class: "scribe__scope" });
@@ -384,12 +391,28 @@
     return msg;
   }
 
+  /* region:F3-versions — scribe-v2-versions.js owns View, Compare and
+     Bring back; it attaches once, on the first versions render. */
+  function versionsUi(ctl) {
+    if (ctl.versionsUi || !root.JBScribeVersions) return ctl.versionsUi || null;
+    ctl.versionsUi = root.JBScribeVersions.attach(ctl, {
+      h: h,
+      announce: announce,
+      logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
+      renderVersions: function () { renderVersions(ctl); },
+      reload: function () { return loadDoc(ctl); },
+    });
+    return ctl.versionsUi;
+  }
+
   function renderVersions(ctl) {
     var el = ctl.refs.versions;
+    var ui = versionsUi(ctl);
     clear(el);
     var list = ctl.state.versions || [];
     if (!list.length) {
       el.appendChild(h("li", { class: "scribe__ver-empty", text: ctl.state.loading ? "Loading versions…" : "No saved versions yet." }));
+      if (ui) ui.sync();
       return;
     }
     var byId = {};
@@ -420,13 +443,18 @@
         }));
       }
       /* region:F3-version-actions — View, Compare with current, Restore as new. */
+      var f3 = ui ? ui.rowParts(v) : null;
+      var metaText = meta.filter(Boolean).join(" · ") + (current ? " · Current" : "");
       el.appendChild(h("li", { class: "scribe__ver", "data-run": v.runId, "aria-current": current ? "true" : null }, [
         h("span", { class: "scribe__ver-n", text: "v" + v.n }),
         h("span", { class: "scribe__ver-what" }, what.quoted ? [h("q", { text: what.text })] : [what.text]),
-        h("span", { class: "scribe__ver-meta", text: meta.filter(Boolean).join(" · ") + (current ? " · Current" : "") }),
+        h("span", { class: "scribe__ver-meta" }, f3 ? [f3.tag, metaText] : [metaText]),
         acts,
+        f3 && f3.acts,
+        f3 && f3.confirm,
       ]));
     });
+    if (ui) ui.sync();
   }
 
   function renderAll(ctl) {
@@ -783,6 +811,10 @@
     }
     /* region:F2-keys — j/k/a/r, Shift+A, D and Cmd/Ctrl+Z bind here. */
     /* region:F3-keys — c (Compare) binds here. */
+    if ((e.key === "c" || e.key === "C") && !e.shiftKey && ctl.versionsUi) {
+      e.preventDefault();
+      ctl.versionsUi.toggleCompare();
+    }
   }
 
   function onClick(ctl, e) {
