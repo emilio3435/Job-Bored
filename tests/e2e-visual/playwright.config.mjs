@@ -27,6 +27,9 @@ export default defineConfig({
   // test as "flaky" instead of failing the job. Locally a failure is final.
   // trace retain-on-failure keeps the failed attempt's trace for diagnosis.
   retries: process.env.CI ? 1 : 0,
+  // A normal run never writes a screenshot baseline (leads.spec.mjs); record
+  // one only with an explicit --update-snapshots=missing.
+  updateSnapshots: "none",
   reporter: [["list"]],
   use: {
     headless: true,
