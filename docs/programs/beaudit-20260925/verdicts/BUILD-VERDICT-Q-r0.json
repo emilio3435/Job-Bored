@@ -1,0 +1,109 @@
+{
+  "claims": [
+    {
+      "command": "node --experimental-strip-types /tmp/verify-e15.mjs; node --test tests/beaudit-q-ai-provider.test.mjs (LANE-REPORT-E \u00a74 has no E15 probe; E15 is \u00a72-table read-only, reproducer is enum/pin-only/redaction check)",
+      "excerpt": "PROVIDERS=[\"anthropic\",\"gemini\",\"openai\",\"openai_compatible\",\"openrouter\"]\nlocal->openai_compatible ollama->openai_compatible webhook->\"\"\npin-only: gemini empty key configured=false apiKey=\"\" (env ignored)\nlocal pin -> provider=openai_compatible alias=local configured=true endpoint=http://127.0.0.1:11434/v1/chat/completions\nworker ProviderApiError===shared: true normalize(local)=openai_compatible\ntaxonomy: provider=openrouter status=429 class=rate_limit retryable=true leaksSecret=false\nimports of shared provider: chat-provider.ts, llm-config.mjs, profile-from-resume.mjs, profile-rescore-worker.mjs, ats-scorecard.mjs, gemini-url-context-scrape.mjs, index.mjs\nnode --test tests/beaudit-q-ai-provider.test.mjs: tests 10 pass 10 fail 0",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "adapted probes/E/probe-e-local-pin.sh (LANE-REPORT-E \u00a74) on bbuild-q: env -i HOME=.lane-evidence/home PORT=19040 node server/index.mjs; curl POST /api/llm-config {provider:local,model:gemma4:e2b,baseUrl:127.0.0.1:11434/v1}; curl GET /health; curl POST /api/ats-scorecard minimal payload",
+      "excerpt": "POST pin -> {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false}\nGET /health -> {\"ok\":true,\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}\nPOST /api/ats-scorecard -> {\"overallScore\":0,\"model\":\"gemma4:e2b\"} [HTTP 200]\nBefore fix (audit): atsProvider gemini, atsConfigured false, 503 Missing API key. Now routed to local model.",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-e9.mjs (adapted LANE-REPORT-E \u00a75 E9 camelCase-vs-snake_case check; no \u00a74 probe); node --test tests/beaudit-q-scrape-gemini.test.mjs tests/beaudit-q-browser-gemini.test.mjs",
+      "excerpt": "camelCase SUCCESS -> HIT About the role: Staff Backend Engineer t...\nsnake_case SUCCESS -> HIT About the role: Staff Backend Engineer t...\ncamelCase ERROR -> null (correct)\ntests/beaudit-q-scrape-gemini E9: accepts urlContextMetadata.urlMetadata[].urlRetrievalStatus \u2714\ntests/beaudit-q-browser-gemini: camelCase success/failure + snake_case still works \u2714 (23 tests pass in combined E9/E10/E11/E14 run)",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-e10.mjs (adapted LANE-REPORT-E \u00a75 E10: pin local + GEMINI_API_KEY must skip Gemini lane)",
+      "excerpt": "pin=local + env key -> calls=0 hit=null (correct)\nno pin + env key -> calls=0 hit=null (correct)\npin=gemini -> HIT url=https://generativelanguage.googleapis.com/v1beta/models/gemini-pin-model:generateContent header=pin-key hasKeyInUrl=false\nNo env fallback; job-scraper-core.mjs:1698 passes options through to scrapeViaGeminiUrlContext which resolves from pin only.",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "adapted probes/E/probe-e-cors.sh hijack portion (LANE-REPORT-E \u00a73 E12 evidence) on 19041 HOME=.lane-evidence/home: POST /api/llm-config seed/omit/empty/null/evil/badUrl/attacker-repoint sequence",
+      "excerpt": "1 seed gemini+key -> keyPresent:true\n2 omitted apiKey same target -> keyPresent:true (kept)\n3 emptied apiKey:\"\" -> keyPresent:false (cleared)\n4 explicit null -> keyPresent:false\n5 evil provider -> {error:Unsupported provider...,code:llm_invalid} [HTTP 400]\n6 file:///etc/passwd baseUrl -> {error:baseUrl must be http(s)...} [HTTP 400]\n7 repoint to https://attacker.test/v1 without key -> keyPresent:false (no carry)\nfile mode 600",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-e14.mjs (adapted LANE-REPORT-E \u00a75 E14: atomic 0600 + header); rg --fixed-strings \"?key=\" server/ browser worker (expect none)",
+      "excerpt": "atomic rename over 0444 -> apiKey=k mode=600 files=[\"llm.json\"]\nmodels.list -> resolved=gemini-3.9-flash calls=1 (second resolve cached) urlHasKey=false header=k1\nrg --fixed-strings \"?key=\" -> no matches (rg-exit:1)\nx-goog-api-key in provider.mjs geminiHeaders, llm-config models.list, rescore, profile-from-resume, materials-writer, gemini-url-context-scrape",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "rg -n --fixed-strings \"?key=\" server/ discovery-drawer.js job-posting-insights.js model-catalog.js resume-generate.js integrations/browser-use-discovery/src (LANE-REPORT-B \u00a75 B17 grep); node --test tests/beaudit-q-ai-provider.test.mjs (B17 scans)",
+      "excerpt": "?key= offenders: none (rg-exit:1)\ngenerativelanguage sites (19): all bare ...:generateContent or .../v1beta/models with Header x-goog-api-key (model-catalog, resume-generate x2, job-posting-insights x2, discovery-drawer, profile-from-resume, provider GEMINI_API_BASE, worker chat-provider/grounded-search/profile-to-companies/extractor)\nB17 scans: no server or browser module builds ?key= \u2714; every tracked file naming host scanned \u2714\nB17 materials writer: sends x-goog-api-key and key-free URL \u2714",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-e11.mjs (adapted LANE-REPORT-E \u00a75 E11: fetch never resolves, abort after 50ms); node --test tests/beaudit-q-route-abort.test.mjs (live disconnect, API 19046 provider 19047)",
+      "excerpt": "rejected in 51ms name=AbortError class=cancelled aborted=true\nverdict: ABORTS ON REQUEST SIGNAL (FIXED) (not 30s timeout)\nrouteDeadline before close aborted=false, after res close aborted=true; 20ms deadline after 60ms aborted=true\nserver/index.mjs wiring: import routeDeadlineSignal; :282 scrape-job, :303 ats-scorecard (45s), :501 from-resume (180s), :654 rescore Infinity, :848 scrape-job-description\ntests/beaudit-q-route-abort.test.mjs: 4/4 pass (ats-scorecard + from-resume upstream closed <5s after disconnect)",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "HOME=/var/folders/.../tmp.ppQK2ELDVv\n> eslint . (clean)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "HOME=/var/folders/.../tmp.qZZu0DPEGr\n> tsc --noEmit -p integrations/browser-use-discovery/tsconfig.json (no errors)\n> tsc --noEmit -p server/tsconfig.json (no errors)\nnode --check ... (all browser/server/scripts files pass)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "HOME=/var/folders/.../tmp.gSKEHyKHE1\n\u2139 tests 3316 \u2139 suites 803 \u2139 pass 3308 \u2139 fail 0 \u2139 todo 8\n\u2716 lines are todo-marked target behaviors owned by other lanes (beaudit-p-e17 E5 lane O x2, E7 lane L x4, submission-record-audit x1)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/folders/.../tmp.TTTlYvU243\n\u2139 tests 772 \u2139 suites 2 \u2139 pass 772 \u2139 fail 0 \u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "HOME=/var/folders/.../tmp.MvIjQti1Ya\nOK schema: discovery-webhook x3 + payload/readiness\nOK schema ATS request/response + builder x2\nOK pipeline-row + pipeline-update + skills\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "58783a06c31c7c6cdf4b9d57f88d66b84ac85734",
+  "lane": "Q",
+  "summary": "Lane Q head 58783a06 verified read-only. Floor 5/5 green with fresh HOME (lint, typecheck, npm test 3316/3308/0/8 todo, worker 772/772, contract all OK). Added tests/ats-posting-intact 1/1 green (asserts prompt is missing requirement line per line; Benefits administration line now reaches prompt); repair 2/2 and repair2 15/15 green with trim blocks removed; repair3/4 deleted; budget 42000->45000 (PROMPT_BUDGET 45_000) with 7000-char Description clip. Claims E15,E2,E9,E10,E12,E14,B17,E11 all FIXED via adapted audit reproducers on 127.0.0.1:19040-19041 and unit reproducers; E18 not checked per instruction (deferred). No servers left; git status clean.",
+  "tests": [
+    {
+      "excerpt": "\u25b6 E18 descope: the ATS prompt keeps the posting's requirement lines\n\u2714 a posting with About us, About the role, Job Summary and a Benefits-led requirement reaches the prompt intact\n\u2139 tests 1 pass 1 fail 0 EXIT:0\nFile asserts `prompt is missing requirement line: ${line}` per REQUIREMENT_LINES including Benefits administration experience is required.; red before descope, green after.",
+      "file": "tests/ats-posting-intact.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 B17 materials writer \u2714 sends x-goog-api-key and key-free URL\n\u25b6 E18 worst-case ATS prompt size \u2714 stays under 45000 characters with every input at its cap\n\u2139 tests 2 pass 2 fail 0\nPROMPT_BUDGET=45_000 (was 42000); postingPart<=7100; server/ats-scorecard.mjs:406 Description:\\n${clipText(posting.description,7000)}; trim describes removed (only B17+E18 describes remain).",
+      "file": "tests/beaudit-q-repair.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 shared chat() temperature \u2714 10/10 (gemini/anthropic/openai/openrouter/compat x 0/0.2)\n\u25b6 worker callWorkerChatProvider temperature \u2714 5/5 (0.1/0.2 per provider)\n\u2139 tests 15 pass 15 fail 0\nHeader notes posting-trim tests removed to tests/ats-posting-intact.test.mjs; rg trim hits only descope comments.",
+      "file": "tests/beaudit-q-repair2.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "ls: tests/beaudit-q-repair3.test.mjs: No such file or directory\nDeleted in 58783a06 (trim-only: E18 keeps text under unrecognised headings; HEAD~1 file tested trimPostingToRequirements).",
+      "file": "tests/beaudit-q-repair3.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "ls: tests/beaudit-q-repair4.test.mjs: No such file or directory\nDeleted in 58783a06 (trim-only: 6 heading-shape reset tests for trimPostingToRequirements).",
+      "file": "tests/beaudit-q-repair4.test.mjs",
+      "passed": true
+    }
+  ]
+}

@@ -360,12 +360,16 @@ it("service path validates proposal, stream, commit, restore and stale PDF witho
   const accepted = await service.accept(pkg.slug, started.proposalId, { accept: ["o1"], confirmUnverified: [] });
   assert.equal(accepted.statusCode, 200);
   assert.equal(accepted.body.run.pdf, "ready");
+  const acceptedQa = JSON.parse(await readFile(join(pkg.dir, "qa.resume.json"), "utf8"));
+  assert.equal(acceptedQa.runId, accepted.body.run.runId);
+  assert.equal(acceptedQa.status, "review");
   assert.equal((await service.versions(safeDir, "resume")).versions.length, 2);
   const restored = await service.restore(pkg.slug, "r0");
   assert.equal(restored.statusCode, 200);
   assert.equal((await service.versions(safeDir, "resume")).versions.length, 3);
   const last = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
   assert.equal(last.restoredFrom, "r0");
+  assert.equal(JSON.parse(await readFile(join(pkg.dir, "qa.resume.json"), "utf8")).runId, last.runId);
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "runs", "r0", "run.json"), "utf8")).runId, "r0");
 
   const stale = await seed();
@@ -375,6 +379,7 @@ it("service path validates proposal, stream, commit, restore and stale PDF witho
     assert.equal(result.statusCode, 503);
     assert.equal(result.body.run.pdf, "stale");
     assert.match(await readFile(join(stale.dir, "resume.html"), "utf8"), /Tracked shipments\./);
+    assert.equal(JSON.parse(await readFile(join(stale.dir, "qa.resume.json"), "utf8")).status, "fail");
   } finally { browserAvailable = true; }
 });
 

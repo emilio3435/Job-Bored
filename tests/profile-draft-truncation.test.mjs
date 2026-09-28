@@ -51,13 +51,13 @@ describe("profile drafter — output cap and truncation", () => {
     );
   });
 
-  it("OpenAI-compatible: finish_reason=length is reported as truncated and the cap is ≥ 8192", async () => {
+  it("OpenAI-compatible: finish_reason=length is reported as truncated without guessing a model cap", async () => {
     const calls = stubFetch(() => json({ choices: [{ finish_reason: "length", message: { content: CUT_JSON } }] }));
     await assert.rejects(
       () => mod.analyzeResumeToProfile(RESUME, { config: { provider: "openrouter", apiKey: "k", model: "openai/gpt-oss-120b", baseUrl: "https://openrouter.ai/api/v1" } }),
       (err) => { assert.match(String(err.code || ""), /truncated/, `code was ${err.code}`); return true; },
     );
-    const cap = calls[0].body.max_tokens ?? calls[0].body.max_completion_tokens;
-    assert.ok(cap >= 8192, `cap was ${cap}`);
+    assert.ok(!("max_tokens" in calls[0].body));
+    assert.ok(!("max_completion_tokens" in calls[0].body));
   });
 });

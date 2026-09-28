@@ -48,6 +48,87 @@
     );
   }
 
+  /** RESJ K3: the user declined to save broken PDF text. */
+  const GARBLED_NOT_SAVED = "Resume not saved. Paste the text or upload the .docx instead.";
+
+  /**
+   * "Resume updated", or — when the server copy was not saved (RESJ K1) —
+   * the line that says so, so a browser-only save never reads as done.
+   * @param {NonNullable<ReturnType<typeof getUserContent>>} UC
+   * @param {{ serverSync?: Promise<object> } | undefined} saved
+   * @param {string} doneMessage
+   */
+  async function showResumeSavedToast(UC, saved, doneMessage) {
+    const sync = saved && saved.serverSync ? await saved.serverSync : null;
+    const warning =
+      typeof UC.describeResumeServerSync === "function"
+        ? UC.describeResumeServerSync(sync)
+        : "";
+    if (warning) showToast(warning, "warning", true);
+    else showToast(doneMessage, "success");
+  }
+
+  /**
+   * RESJ2-EXTRACT: the status line and the "what we read" panel under the
+   * resume dropzone, created once. Null when the modal isn't in the page
+   * or profile-identity.js (window.JobBoredResumeRead) didn't load.
+   */
+  function resumeReadHosts() {
+    const reader = window.JobBoredResumeRead;
+    const dropzone = document.getElementById("profileResumeDropzone");
+    if (!reader || !dropzone || !dropzone.parentNode) return null;
+    let status = document.getElementById("profileResumeReadStatus");
+    let panel = document.getElementById("profileResumeRead");
+    if (!status) {
+      status = document.createElement("p");
+      status.id = "profileResumeReadStatus";
+      status.hidden = true;
+      dropzone.insertAdjacentElement("afterend", status);
+    }
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "profileResumeRead";
+      panel.className = "jb-resume-read-host";
+      panel.hidden = true;
+      status.insertAdjacentElement("afterend", panel);
+    }
+    return { reader, status, panel };
+  }
+
+  /**
+   * After a resume is saved, have the AI read it and say so: which
+   * provider and model are reading, then what they read, or the plain
+   * reason it failed with Try again. The text box filling is only the
+   * browser's text extraction; this is the step the user needs to see.
+   * @param {string} text
+   */
+  async function readResumeWithAi(text) {
+    const hosts = resumeReadHosts();
+    if (!hosts) return null;
+    const { reader, status, panel } = hosts;
+    const provider =
+      window.JobBoredOneFlowBeatResume &&
+      typeof window.JobBoredOneFlowBeatResume.verifiedProviderConfig === "function"
+        ? window.JobBoredOneFlowBeatResume.verifiedProviderConfig()
+        : null;
+    /* No provider: say so now, never "Reading…" for a read that cannot
+     * happen (Grok review, running-without-provider). */
+    if (provider) reader.renderReadStatus(status, "running", reader.readingLine(provider));
+    const result = await reader.readWithAi(text);
+    if (result.ok) {
+      reader.renderReadStatus(status, "done", reader.summaryLine(result.read));
+      reader.renderReadPanel(panel, result.read);
+      return result.read;
+    }
+    reader.renderReadStatus(
+      status,
+      "failed",
+      reader.failedLine(result.message),
+      result.locked ? undefined : () => void readResumeWithAi(text),
+    );
+    return null;
+  }
+
   /**
    * @param {File} file
    * @param {NonNullable<ReturnType<typeof getUserContent>>} UC
@@ -66,14 +147,19 @@
       }
       const label =
         (file.name || "Resume").replace(/\.[^/.]+$/, "") || "My resume";
-      await UC.setPrimaryResume({
+      const saved = await UC.savePrimaryResumeChecked({
         source: "file",
         rawMime: ingest.guessMime(file),
         label,
         extractedText: text,
       });
+      if (!saved) {
+        showToast(GARBLED_NOT_SAVED, "info");
+        return;
+      }
       await refreshMaterialsUI();
-      showToast("Resume updated", "success");
+      await showResumeSavedToast(UC, saved, "Resume updated");
+      await readResumeWithAi(text);
     } catch (err) {
       console.error(err);
       showToast(err.message || "Could not read file", "error");
@@ -407,6 +493,14 @@
         if (resumeDropzone)
           resumeDropzone.classList.add("profile-dropzone--has-file");
       }
+      /* RESJ2-EXTRACT: show what was read from the saved resume, unless a
+       * read is on screen or running right now. */
+      const hosts = resumeReadHosts();
+      if (hosts && hosts.status.hidden && hosts.panel.hidden) {
+        void hosts.reader.fetchRead().then((read) => {
+          if (read && hosts.status.hidden) hosts.reader.renderReadPanel(hosts.panel, read);
+        });
+      }
     }
 
     listSamples.innerHTML =
@@ -475,6 +569,7 @@
   Object.assign(profileMaterials, {
     LINKEDIN_CAPTURE_FIELDS,
     profileApplyResumeFile,
+    readResumeWithAi,
     profileApplySampleFiles,
     bindProfileDropzone,
     renderLinkedInProfileMeta,

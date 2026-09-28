@@ -236,6 +236,7 @@ function makeHostDouble(overrides = {}) {
  *   host?: Record<string, unknown>,
  *   verifyProvider?: Function,
  *   extractTextFromFile?: Function,
+ *   extraFiles?: string[],
  * }} [options]
  */
 export function loadArrival(options = {}) {
@@ -318,6 +319,9 @@ export function loadArrival(options = {}) {
     "oneflow-beat-fit.js",
     "oneflow-beat-discovery.js",
     "oneflow-beat-payoff.js",
+    // Scripts index.html loads later that a probe opts into (RESJ2-EXTRACT:
+    // profile-identity.js, whose shared reader B3 uses when present).
+    ...(options.extraFiles || []),
   ];
   for (const file of files) {
     vm.runInContext(readRepoFile(file), ctx, { filename: file });

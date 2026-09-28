@@ -2,7 +2,7 @@
 <article class="sheet page" data-page="1" {{sheetAttrs}}>
 
   <header class="masthead">
-    <h1 class="name">{{identity.name}}</h1>
+    <h1 class="name{{#if identity.nameFit.full}} name--full{{/if}}" style="font-size:{{identity.nameFit.pt}}pt">{{identity.name}}</h1>
     <p class="target">{{identity.target}}</p>
   </header>
 

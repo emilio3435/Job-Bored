@@ -11,11 +11,15 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
+  lstat,
   mkdir,
+  readdir,
   realpath,
   readFile,
   writeFile,
   rename,
+  stat,
+  unlink,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -28,6 +32,7 @@ import {
   resolve as resolvePath,
 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { companyDisplayName, companyDomainHint, companyKey } from "./materials-monogram.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -365,7 +370,16 @@ export async function runResolver({
   }
   const args = [script, "--template-dir", root];
   if (force) args.push("--force");
+  return spawnResolver(args, DEFAULT_TIMEOUT_MS);
+}
 
+/**
+ * Run logo_resolver.py and parse its report.
+ * @param {string[]} args
+ * @param {number} timeoutMs
+ * @returns {Promise<ResolverRow[]>}
+ */
+function spawnResolver(args, timeoutMs) {
   return new Promise((resolveFn, rejectFn) => {
     let stdout = "";
     let stderr = "";
@@ -379,7 +393,7 @@ export async function runResolver({
       settled = true;
       try { child.kill("SIGKILL"); } catch {}
       rejectFn(makeError("logo resolver timed out", 504));
-    }, DEFAULT_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
@@ -399,13 +413,23 @@ export async function runResolver({
   });
 }
 
+/**
+ * An SVG document: `<svg` first, or after an XML prolog, comments or a
+ * doctype (sites often serve `<?xml …?>` first, as logo_resolver.py accepts).
+ * @param {Buffer} buffer
+ */
+function isSvg(buffer) {
+  const head = buffer.subarray(0, 4096).toString("utf8").replace(/^\uFEFF/, "").trimStart();
+  const body = head.replace(/^(?:<\?xml[\s\S]*?\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>]*>|\s)*/i, "");
+  return /^<svg[\s>]/i.test(body);
+}
+
 /** @param {Buffer | Uint8Array | string | number[] | null | undefined} data */
 export function looksLikeImage(data) {
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
   if (buffer.length < 16) return false;
   if (buffer.subarray(8, 12).equals(Buffer.from("WEBP"))) return true;
-  const trimmed = buffer.subarray(0, 512).toString("utf8").trimStart();
-  if (/^<svg[\s>]/i.test(trimmed)) return true;
+  if (isSvg(buffer)) return true;
   return IMAGE_MAGIC.some((magic) => buffer.subarray(0, magic.length).equals(magic));
 }
 
@@ -426,9 +450,7 @@ function imageMime(data) {
   if (buffer.subarray(0, 4).equals(Buffer.from([0x00, 0x00, 0x01, 0x00]))) {
     return "image/x-icon";
   }
-  if (/^<svg[\s>]/i.test(buffer.subarray(0, 512).toString("utf8").trimStart())) {
-    return "image/svg+xml";
-  }
+  if (isSvg(buffer)) return "image/svg+xml";
   return "application/octet-stream";
 }
 
@@ -516,6 +538,250 @@ export async function readResolvedMarks({ templateRoot } = {}) {
     };
     if (existsSync(join(root, "uploads", `logo-${slug}.png`))) mark.source = "upload";
     marks.push(mark);
+  }
+  return marks;
+}
+
+/* ------------------------------------------------------------------ *
+ * Target company marks (the company a package is addressed to)
+ * ------------------------------------------------------------------ */
+
+const TARGET_DIR = "targets";
+const TARGET_TIMEOUT_MS = 25_000;
+const TARGET_MISS_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+/* A company whose resume line names its domain is retried after a day: the
+ * hint makes a later lookup likely to land, and the miss may predate it. */
+const TARGET_MISS_RETRY_DOMAIN_MS = 24 * 60 * 60 * 1000;
+const MISS_FILE_RE = /^\.miss-[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Whether a recorded miss still blocks a lookup. A miss is written as JSON
+ * ({ at, key, domain }); one recorded without the domain this lookup now
+ * has (an older miss, or a miss under an older key shape) never blocks.
+ * @param {string} path
+ * @param {{ nowMs: number, domain: string }} input
+ */
+async function missBlocks(path, { nowMs, domain }) {
+  if (!existsSync(path)) return false;
+  let recordedDomain = null;
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    if (parsed && typeof parsed === "object" && typeof parsed.domain === "string") recordedDomain = parsed.domain;
+  } catch {
+    recordedDomain = null;
+  }
+  if (domain && recordedDomain !== domain) return false;
+  const retryMs = domain ? TARGET_MISS_RETRY_DOMAIN_MS : TARGET_MISS_RETRY_MS;
+  return nowMs - (await stat(path)).mtimeMs < retryMs;
+}
+
+/**
+ * Clear recorded logo misses so the next draft looks those companies up
+ * again. Removes only `.miss-<key>` files directly under <logos>/targets —
+ * never an asset, an upload or logos.json. By default it clears misses in
+ * the old plain-timestamp format (written before misses recorded their
+ * domain); `before` also clears any miss last written before that time.
+ *
+ * @param {{ templateRoot?: string, before?: Date | null, dryRun?: boolean }} [options]
+ * @returns {Promise<{ dir: string, removed: string[], kept: string[] }>}
+ */
+export async function clearStaleLogoMisses(options = {}) {
+  const root = options.templateRoot || getBrandLogosTemplateRoot();
+  const dir = join(root, TARGET_DIR);
+  /** @type {string[]} */
+  const removed = [];
+  /** @type {string[]} */
+  const kept = [];
+  let names = [];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return { dir, removed, kept };
+  }
+  const beforeMs = options.before instanceof Date ? options.before.getTime() : NaN;
+  for (const name of names.sort()) {
+    if (!MISS_FILE_RE.test(name)) continue;
+    const path = join(dir, name);
+    const info = await lstat(path).catch(() => null);
+    if (!info || !info.isFile()) continue;
+    let legacy = true;
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf8"));
+      legacy = !(parsed && typeof parsed === "object" && typeof parsed.at === "string");
+    } catch {
+      legacy = true;
+    }
+    const old = Number.isFinite(beforeMs) && info.mtimeMs < beforeMs;
+    if (!legacy && !old) {
+      kept.push(name);
+      continue;
+    }
+    if (!options.dryRun) await unlink(path);
+    removed.push(name);
+  }
+  return { dir, removed, kept };
+}
+
+/**
+ * The cache slug for a target company: its name without a legal suffix
+ * ("NorthwindMedia, Inc." → "northwindmedia").
+ * @param {unknown} company
+ */
+export function targetSlug(company) {
+  return companyKey(company);
+}
+
+/**
+ * The cached mark for a target company, read-only and offline: the file the
+ * resolver wrote under <logos>/targets/assets, or null.
+ *
+ * @param {unknown} company
+ * @param {{ templateRoot?: string }} [options]
+ * @returns {Promise<{ src: string, alt: string, shape: LogoShape, company: string } | null>}
+ */
+export async function readTargetMark(company, { templateRoot } = {}) {
+  const slug = targetSlug(company);
+  if (!isValidSlug(slug)) return null;
+  const root = templateRoot || getBrandLogosTemplateRoot();
+  const assetPath = join(root, TARGET_DIR, "assets", `logo-${slug}.png`);
+  if (!existsSync(assetPath)) return null;
+  const data = await readFile(assetPath);
+  if (!looksLikeImage(data)) return null;
+  return {
+    src: `data:${imageMime(data)};base64,${data.toString("base64")}`,
+    alt: `${String(company).trim()} logo`,
+    shape: logoShape(data),
+    /* The company this file was resolved for; renderPackage prints the
+       mark only for an addressee with the same key. */
+    company: String(company).trim(),
+  };
+}
+
+/**
+ * The target company's mark for a render: the cache, else one resolver run
+ * (site logo, Wikidata, favicon; see logo_resolver.py) bounded by a timeout,
+ * else null, and the renderer draws a monogram. A company that resolved to
+ * nothing is not retried for a week. Never throws: a logo must never fail a
+ * draft.
+ *
+ * @param {unknown} company
+ * @param {{ domain?: string, templateRoot?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean, timeoutMs?: number, nowMs?: number }} [options]
+ * @returns {Promise<{ src: string, alt: string, shape: LogoShape, company: string } | null>}
+ */
+export async function loadTargetMark(company, options = {}) {
+  return loadCompanyMark(company, options);
+}
+
+/**
+ * @typedef {(job: { dir: string, slug: string, label: string, domain: string, timeoutMs: number }) => Promise<ResolverRow[]>} CompanyResolver
+ *   Resolves one company's mark into <dir>/assets/logo-<slug>.png (the
+ *   default runs logo_resolver.py: site logo, Wikidata, favicon). Tests pass
+ *   a stub, so no test touches the network.
+ */
+
+/**
+ * Any company's mark (the addressee, or an employer on the resume): the
+ * cache under <logos>/targets, else one resolver run bounded by a timeout,
+ * else null, and the renderer draws a monogram. The cache is keyed by the
+ * company's own name (companyKey: no legal suffix, parenthetical or
+ * "formerly" clause); a domain the resume gives in a parenthetical is the
+ * lookup hint, else the resolver's name-to-domain lookup. A company that
+ * resolved to nothing is not retried for a week, or a day when its line
+ * names a domain; a miss recorded without that domain never blocks. Never
+ * throws: a logo must never fail a draft.
+ *
+ * @param {unknown} company
+ * @param {{ domain?: string, templateRoot?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean, timeoutMs?: number, nowMs?: number, resolve?: CompanyResolver }} [options]
+ * @returns {Promise<{ src: string, alt: string, shape: LogoShape, company: string, source?: string } | null>}
+ */
+export async function loadCompanyMark(company, options = {}) {
+  try {
+    const slug = targetSlug(company);
+    if (!isValidSlug(slug)) return null;
+    const root = options.templateRoot || getBrandLogosTemplateRoot();
+    const cached = await readTargetMark(company, { templateRoot: root });
+    if (cached) return cached;
+
+    const script = getLogoResolverScript();
+    if (!options.resolve) {
+      const gate = logoResolverGate({ env: options.env, platform: options.platform, probeDeveloperTools: options.probeDeveloperTools });
+      if (!gate.enabled || !existsSync(script)) return null;
+    }
+    assertNotRepoSample(root);
+    const dir = join(root, TARGET_DIR);
+    await mkdir(dir, { recursive: true });
+    const miss = join(dir, `.miss-${slug}`);
+    const now = options.nowMs ?? Date.now();
+    const label = companyDisplayName(company) || String(company).trim();
+    const domain = normalizeDomain(options.domain) || companyDomainHint(company);
+    if (await missBlocks(miss, { nowMs: now, domain })) return null;
+
+    const timeoutMs = options.timeoutMs ?? TARGET_TIMEOUT_MS;
+    const resolve = options.resolve || ((/** @type {{ dir: string, slug: string, label: string, domain: string, timeoutMs: number }} */ job) => {
+      const args = [script, "--template-dir", job.dir, "--slug", job.slug, "--label", job.label];
+      if (job.domain) args.push("--domain", job.domain);
+      return spawnResolver(args, job.timeoutMs);
+    });
+    const rows = await resolve({ dir, slug, label, domain, timeoutMs });
+    const found = await readTargetMark(company, { templateRoot: root });
+    if (!found && rows.some((r) => r.slug === slug && r.source === "missing")) {
+      await writeFile(miss, `${JSON.stringify({ at: new Date(now).toISOString(), key: slug, domain })}\n`, "utf8");
+    }
+    return found;
+  } catch {
+    return null;
+  }
+}
+
+const EMPLOYER_CONCURRENCY = 3;
+const EMPLOYER_TIMEOUT_MS = 20_000;
+const EMPLOYER_BUDGET_MS = 60_000;
+
+/**
+ * Marks for every employer on a resume, for the renderer's `marks`: each
+ * company from the cache, else one bounded resolver run (loadCompanyMark),
+ * a few at a time, within an overall budget; companies not reached in time
+ * are skipped and get a monogram. The monogram is only ever the last resort
+ * once every source failed. Never throws.
+ *
+ * @param {unknown[]} companies employer names as the resume writes them
+ * @param {{ templateRoot?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean, timeoutMs?: number, budgetMs?: number, resolve?: CompanyResolver, nowMs?: number }} [options]
+ * @returns {Promise<Array<{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape, source?: "upload" }>>}
+ */
+export async function loadEmployerMarks(companies, options = {}) {
+  const seen = new Set();
+  /** @type {string[]} */
+  const names = [];
+  for (const raw of Array.isArray(companies) ? companies : []) {
+    const name = String(raw || "").trim();
+    const key = companyKey(name);
+    if (!name || !isValidSlug(key) || seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  const deadline = Date.now() + (options.budgetMs ?? EMPLOYER_BUDGET_MS);
+  /** @type {Array<{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape }>} */
+  const marks = [];
+  let next = 0;
+  async function worker() {
+    while (next < names.length) {
+      const name = names[next];
+      next += 1;
+      const remaining = deadline - Date.now();
+      /* Past the budget: only the cache, never a new network run. */
+      const mark = remaining > 1000
+        ? await loadCompanyMark(name, { ...options, timeoutMs: Math.min(options.timeoutMs ?? EMPLOYER_TIMEOUT_MS, remaining) })
+        : await readTargetMark(name, { templateRoot: options.templateRoot }).catch(() => null);
+      if (mark) {
+        const label = companyDisplayName(name) || name;
+        marks.push({ slug: companyKey(name), label, domain: companyDomainHint(name), src: mark.src, alt: `${label} logo`, shape: mark.shape });
+      }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(EMPLOYER_CONCURRENCY, names.length) }, worker));
+  } catch {
+    /* a logo never fails a draft */
   }
   return marks;
 }

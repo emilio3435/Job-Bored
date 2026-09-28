@@ -1,0 +1,118 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/probe-C1-x.mjs (adapted from probes/C/C-ssrf-session.mjs, PORT 18130->19020, imports absolute to bbuild-x)",
+      "excerpt": "session(no command) loopback ->              {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",\"message\":\"Local and private-network scrape targets are not allowed\"}\nsession(no command) redirect ->              {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",\"message\":\"Local and private-network scrape targets are not allowed\"}\nsession(command fails -> fetch_fallback) ->  {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",\"message\":\"Local and private-network scrape targets are not allowed\"}\nsafeFetch loopback ->                        \"BLOCKED: Local and private-network scrape targets are not allowed\"\nEXIT:0",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",...}' | HOME=.lane-evidence/home AGENT_BROWSER_PATH=/tmp/fake-agent-browser-x.sh BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=/tmp/bbuildx-sock-x node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs (adapted from probes/C/C-ssrf-browser-command.sh)",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed\nexit=1\n--- argv seen by agent-browser:\n(no argv file - browser never spawned)",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/probe-D15-x.mjs (adapted from probes/D/p14-cleanup-loopback-fetch.mjs, PORT 18140->19021)",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url\nBLOCKED: no fetch\nEXIT:0",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/probe-C8-x.mjs (adapted from probes/C/C-safefetch-redirect-headers.mjs, import absolute to bbuild-x server)",
+      "excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false}\nFIXED: credentials stripped, body not replayed\nEXIT:0",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/probe-C9-x.mjs (hermetic maxBytes streaming cap; original https://speed.hetzner.de/100MB.bin forbidden by 127.0.0.1-only boundary)",
+      "excerpt": "streaming: rejected(exceeds-cap) pulls=6 cancelled=true -> FIXED\ncontent-length: rejected(Response body exceeds 1024 bytes) -> FIXED\nEXIT:0",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/probe-E8-x.mjs (adapted from probes/E/probe-e-ssrf.mjs, import absolute to bbuild-x server)",
+      "excerpt": "blocked  literal  http://[64:ff9b::7f00:1]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[64:ff9b::a9fe:a9fe]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[2002:7f00:1::]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://198.18.0.1/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[fec0::1]/  (Local and private-network scrape targets are not allowed)\nblocked  dns->64:ff9b::7f00:1  https://a.example/job\nblocked  dns->2002:a9fe:a9fe::1  https://b.example/job\nblocked  dns->10.0.0.5  https://c.example/job\nEXIT:0 (all 12 literals + 3 DNS blocked; 7 previously ALLOWED now blocked)",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types --test --test-name-pattern=\"session refuses a loopback page|session refuses a redirect to cloud metadata|session refuses a private URL before spawning\" session-ssrf.test.ts; --test-name-pattern=\"agent-browser command refuses a metadata URL\" agent-browser-bin-ssrf.test.ts (C16 has no probe; fix is new loopback/redirect-to-metadata tests)",
+      "excerpt": "\u2714 session refuses a loopback page on the real transport and the server sees no hit\n\u2714 session refuses a redirect to cloud metadata and never fetches the second hop\n\u2714 session refuses a private URL before spawning the browser command, with no fetch fallback\n\u2139 tests 3 pass 3 fail 0 EXIT:0\n\u2714 agent-browser command refuses a metadata URL before spawning agent-browser\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "\u2139 tests 3159\n\u2139 pass 3147\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 12\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 766\n\u2139 pass 766\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json\nOK discovery-payload.js covers schema properties\nOK schema (ATS request): examples/ats-scorecard-request.v1.json\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request): examples/pipeline-update-request.v1.json\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "2a24d31abf7d0ed534668492e566e13f29d0d5df",
+  "lane": "X",
+  "summary": "Lane X (bbuild-x) at 2a24d31a: all 5 floor commands pass with fresh HOME (lint, typecheck, npm test 3159/0 fail, worker 766/766, contracts all OK); all 8 targeted IPv6/deflate-raw tests pass (1+1+1+6+1+4+1+1); all 7 claims FIXED via adapted 127.0.0.1-only probes on ports 19020-19021 (C9 via hermetic maxBytes cap since external URL forbidden). Workspace left clean.",
+  "tests": [
+    {
+      "excerpt": "\u2714 decodes a deflate-raw body before the caller parses it (8.18ms)\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 allows a public IPv6 literal without a DNS lookup\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 safeFetch reaches a public IPv6 literal through the transport\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 still blocks private IPv6 literal http://[::1]/\n\u2714 still blocks private IPv6 literal http://[fc00::1]/\n\u2714 still blocks private IPv6 literal http://[fd12:3456::1]/\n\u2714 still blocks private IPv6 literal http://[fe80::1]/\n\u2714 still blocks private IPv6 literal http://[::ffff:127.0.0.1]/\n\u2714 still blocks private IPv6 literal http://[::ffff:7f00:1]/\n\u2139 tests 6 pass 6 fail 0 EXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 agent-browser command opens a public IPv6 literal without a DNS lookup (286ms)\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 agent-browser command still refuses private IPv6 literal http://[::1]/jobs\n\u2714 agent-browser command still refuses private IPv6 literal http://[fc00::1]/jobs\n\u2714 agent-browser command still refuses private IPv6 literal http://[fe80::1]/jobs\n\u2714 agent-browser command still refuses private IPv6 literal http://[::ffff:127.0.0.1]/jobs\n\u2139 tests 4 pass 4 fail 0 EXIT:0",
+      "file": "integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 session visits a public IPv6 literal and still refuses a private one\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 checkJobPostingUrl checks a public IPv6 literal Link and refuses a private one\n\u2139 tests 1 pass 1 fail 0 EXIT:0",
+      "file": "integrations/browser-use-discovery/tests/sheets/expired-job-cleanup-ssrf.test.ts",
+      "passed": true
+    }
+  ]
+}

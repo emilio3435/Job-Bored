@@ -62,6 +62,32 @@ function rejectUpstream(captured: string[]): typeof fetch {
   }) as typeof fetch;
 }
 
+test("schema-less Gemini search and URL context keep short ceilings and retry truncation once", async () => {
+  const urlBodies: Array<Record<string, any>> = [];
+  const extraction = await extractJobWithGeminiUrlContext({
+    url: "https://example.com/jobs/1", runId: "synthetic-cap", runtimeConfig: runtimeConfig("gemini-3.8-flash"),
+    fetchImpl: (async (_url, init) => {
+      urlBodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "partial" }] } }] }), { status: 200 });
+    }) as typeof fetch,
+  });
+  assert.equal(extraction.ok, false);
+  assert.equal(urlBodies.length, 2);
+  assert.deepEqual(urlBodies.map((body) => body.generationConfig.maxOutputTokens), [16384, 16384]);
+
+  const searchBodies: Array<Record<string, any>> = [];
+  const grounded = createGroundedSearchClient(runtimeConfig("gemini-3.8-flash"), {
+    fetchImpl: (async (_url, init) => {
+      searchBodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "partial" }] } }] }), { status: 200 });
+    }) as typeof fetch,
+  });
+  await grounded.search({ name: "Example" }, RUN);
+  const toolBodies = searchBodies.filter((body) => body.tools?.some((tool: Record<string, unknown>) => "google_search" in tool));
+  assert.equal(toolBodies.length, 2);
+  assert.deepEqual(toolBodies.map((body) => body.generationConfig.maxOutputTokens), [8192, 8192]);
+});
+
 for (const [configured, expected] of CASES) {
   test(`Gemini worker HTTP edges map ${configured || "blank"} to ${expected}`, async () => {
     const config = runtimeConfig(configured);

@@ -25,6 +25,8 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { coverLetterText, resumeText } from "./materials-ats-text.mjs";
 import { fitDocument } from "./materials-fit.mjs";
+import { matchMark } from "./materials-render-model-adapter.mjs";
+import { addresseeMark, targetCompanyOf, withMonograms } from "./materials-monogram.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { resolveFamily, templateCacheSegment, templateIdsFor } from "./materials-templates.mjs";
 
@@ -117,6 +119,48 @@ export function materialsCacheKey({ jdText, resumeText: resume, family }) {
 }
 
 /**
+ * The employers (featured and earlier) the model has no mark for, as the
+ * resume writes them. Regenerate looks these up; the rest keep the marks
+ * their draft found.
+ *
+ * @param {RenderModel} model
+ * @returns {string[]}
+ */
+export function employersWithoutMarks(model) {
+  /** @type {string[]} */
+  const out = [];
+  for (const section of model.documents.resume?.sections || []) {
+    if (section.kind !== "experience" && section.kind !== "earlier") continue;
+    for (const entry of section.entries || []) if (!entry.logo && entry.org) out.push(entry.org);
+  }
+  return out;
+}
+
+/**
+ * A copy of the model in which every featured or earlier employer with no
+ * mark takes a matching one from `marks` (matchMark, keyed on the company's
+ * own name). Entries that already have a mark keep it.
+ *
+ * @param {RenderModel} model
+ * @param {import("./materials-render-model-adapter.mjs").ResolvedMark[]} marks
+ * @returns {RenderModel}
+ */
+export function attachEmployerMarks(model, marks) {
+  if (!Array.isArray(marks) || !marks.length) return model;
+  /** @type {RenderModel} */
+  const out = JSON.parse(JSON.stringify(model));
+  for (const section of out.documents.resume?.sections || []) {
+    if (section.kind !== "experience" && section.kind !== "earlier") continue;
+    for (const entry of section.entries || []) {
+      if (entry.logo || !entry.org) continue;
+      const logo = matchMark(marks, { employerId: entry.employerId, org: entry.org });
+      if (logo) entry.logo = logo;
+    }
+  }
+  return out;
+}
+
+/**
  * The model with every SVG logo swapped for its PNG rendering, so no logo
  * adds glyphs to the PDF text layer. The stored render-model.json keeps the
  * resolver's original marks; this copy is only what gets printed.
@@ -154,13 +198,37 @@ export async function rasterizeLogos(model, rasterize) {
  * @param {string} input.feature resume | cover_letter | both
  * @param {import("./materials-pdf.mjs").PdfSession | null} [input.session]
  * @param {{ resumePdfPath?: string, coverLetterPdfPath?: string }} [input.pdfPaths]
+ * @param {(import("./materials-render.mjs").Logo & { company?: string }) | null} [input.targetMark]
+ *   the resolved mark of the company the package is addressed to (see
+ *   brand-logos.mjs loadTargetMark), tagged with the company it was
+ *   resolved for. It prints only when that company is the letter's own
+ *   addressee; otherwise, or without one, the addressee gets a monogram.
+ * @param {import("./materials-render-model-adapter.mjs").ResolvedMark[]} [input.employerMarks]
+ *   marks for employers the model has none for (attachEmployerMarks)
+ * @param {string} [input.header] a header variant the family lists
+ *   (family.json `headers`); default: the family's `defaultHeader`
  * @returns {Promise<RenderedPackage & { pdf: { resume?: { pages: number, blockedRequests: number }, coverLetter?: { pages: number, blockedRequests: number } } }>}
  */
-export async function renderPackage({ model: input, feature, session = null, pdfPaths = {} }) {
+export async function renderPackage({ model: input, feature, session = null, pdfPaths = {}, targetMark = null, header, employerMarks = [] }) {
   const measure = session ? session.measure.bind(session) : null;
-  const model = session && typeof session.rasterize === "function"
-    ? await rasterizeLogos(input, session.rasterize.bind(session))
-    : input;
+  const rasterize = session && typeof session.rasterize === "function" ? session.rasterize.bind(session) : null;
+  /* The printed copy: in a family that sets marks in a column, every
+     featured employer without a mark gets a monogram; then SVG marks become
+     PNGs. render-model.json keeps the resolver's marks as they were. */
+  const marked = attachEmployerMarks(input, employerMarks);
+  const withMarks = resolveFamily(input.template.family).logos.monogramFallback ? withMonograms(marked) : marked;
+  const model = rasterize ? await rasterizeLogos(withMarks, rasterize) : withMarks;
+  const targetCompany = targetCompanyOf(input);
+  /** @type {import("./materials-render.mjs").Logo | null} */
+  let targetLogo = addresseeMark(targetCompany, targetMark);
+  if (targetLogo && rasterize) {
+    try {
+      targetLogo = { ...targetLogo, src: await rasterize(targetLogo.src) };
+    } catch {
+      /* keep the SVG */
+    }
+  }
+  const target = targetCompany ? { company: targetCompany, logo: targetLogo } : undefined;
   /** @type {RenderedPackage & { pdf: Record<string, { pages: number, blockedRequests: number }> }} */
   const out = { fit: {}, issues: [], notes: [], pdf: {} };
   const family = resolveFamily(model.template.family);
@@ -170,7 +238,7 @@ export async function renderPackage({ model: input, feature, session = null, pdf
    * @param {string | undefined} pdfPath
    */
   async function one(doc, pdfPath) {
-    const result = await fitDocument(model, doc, { measure });
+    const result = await fitDocument(model, doc, { measure, target, header });
     out.fit[doc] = result;
     const label = doc === "resume" ? "Resume" : "Cover letter";
     if (!result.measured) {
@@ -188,6 +256,9 @@ export async function renderPackage({ model: input, feature, session = null, pdf
       try {
         const pdf = await session.pdf(result.html, pdfPath);
         out.pdf[doc] = { pages: pdf.pages, blockedRequests: pdf.blockedRequests };
+        if (pdf.type3Fonts) {
+          out.notes.push(`pdf_text_layer: ${label} PDF embeds ${pdf.type3Fonts} Type3 font(s); text extractors may split words.`);
+        }
         if (pdf.blockedRequests > 0) {
           out.issues.push({
             code: "render_network_request",
@@ -238,6 +309,19 @@ async function writeJson(path, value) {
  * @property {{ path: string, bytes?: number, sha256?: string, pages?: number }[]} [artifacts]
  * @property {string} [cacheKey]
  * @property {{ code: string, reenteredAt: string, detail?: string }[]} [repairs]
+ * @property {import("./materials-resume-source.mjs").RunResumeBlock} [resume]
+ *   which resume the draft used and why
+ * @property {RunInputs} [inputs] the exact inputs this run drafted from
+ */
+
+/**
+ * RESJ Q2: fingerprints of what a run drafted from, so a thin package can
+ * be told apart from a thin input (a stale resume, a small ledger, a
+ * short posting) without the input files themselves.
+ * @typedef {object} RunInputs
+ * @property {{ hash: string, chars: number }} [resume]
+ * @property {{ hash: string, claims: number, employers: number, builderVersion?: number }} [ledger]
+ * @property {{ hash: string, words: number, source: string }} [jd]
  */
 
 /**
@@ -282,6 +366,8 @@ export function buildRunRecord(input) {
   if (Array.isArray(input.repairs) && input.repairs.length) run.repairs = input.repairs.slice(0, 2);
   if ((input.source === "edit" || input.source === "manual") && input.edit) run.edit = input.edit;
   if (input.source === "restore" && input.restoredFrom) run.restoredFrom = input.restoredFrom;
+  if (input.resume) run.resume = input.resume;
+  if (input.inputs) run.inputs = input.inputs;
   return run;
 }
 
@@ -314,8 +400,13 @@ async function artifactStats(dir, names) {
  * @param {Record<string, number>} [input.pages] pdf page counts by file name
  * @param {Record<string, string>} [input.manifestDefaults] company / title /
  *   job_url for a manifest.json that does not carry them yet
+ * @param {Record<string, unknown>} [input.manifestExtra] Wave 3: keys this run
+ *   sets on manifest.json (outreach, intel), over any earlier value
+ * @param {string[]} [input.extraFiles] Wave 3: more files this run wrote
+ *   (outreach.json, outreach.txt, intel.json, support.json), copied into
+ *   runs/<runId>/ beside the package
  */
-export async function writePackageRecords({ dir, rendered, model, run, pages = {}, manifestDefaults = {} }) {
+export async function writePackageRecords({ dir, rendered, model, run, pages = {}, manifestDefaults = {}, manifestExtra = {}, extraFiles = [] }) {
   if (typeof rendered.resumeTxt === "string") await writeFile(join(dir, "resume.txt"), rendered.resumeTxt, "utf8");
   if (typeof rendered.letterTxt === "string") await writeFile(join(dir, "cover-letter.txt"), rendered.letterTxt, "utf8");
   await writeJson(join(dir, "render-model.json"), model);
@@ -350,7 +441,18 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
   for (const [key, value] of Object.entries(manifestDefaults)) {
     if (typeof value === "string" && value.trim()) defaults[key] = value;
   }
-  const nextManifest = { ...defaults, ...manifest, runId: run.runId, template: record.template, updated_at: run.finishedAt };
+  /** @type {Record<string, unknown>} */
+  const nextManifest = { ...defaults, ...manifest, ...manifestExtra, runId: run.runId, template: record.template, updated_at: run.finishedAt };
+  /* The dashboard's "Drafted from" line: the resume this draft really used,
+   * and why when the server had to choose. */
+  if (run.resume && run.resume.filename) {
+    nextManifest.resume = {
+      source: run.resume.source || "",
+      filename: run.resume.filename,
+      addedAt: run.resume.addedAt || "",
+      ...(run.resume.message ? { note: run.resume.message } : {}),
+    };
+  }
   await writeJson(manifestPath, nextManifest);
 
   const runDir = join(dir, RUNS_DIR, run.runId);
@@ -359,12 +461,24 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
     ...packageFiles,
     "qa-report.md",
     "qa.json",
+    /* Only this run's own verdicts: the other document's file in `dir`
+     * belongs to an earlier run. */
+    ...(typeof rendered.resumeHtml === "string" ? ["qa.resume.json"] : []),
+    ...(typeof rendered.letterHtml === "string" ? ["qa.letter.json"] : []),
     "render-model.json",
     "run.json",
     "jd-extract.json",
     "selection.json",
     "outline.json",
     "draft.json",
+    /* RESJ Q2: the resume this run used, beside the run (the app-level
+     * copy is overwritten by the next draft). */
+    "resume-source.json",
+    ...extraFiles.filter((n) => typeof n === "string" && /^[a-z0-9.-]+$/i.test(n)),
+    /* Schema-invalid model replies this run saved (redacted), if any. */
+    ...(Array.isArray(run.stages) ? run.stages : [])
+      .flatMap((/** @type {{ out?: unknown }} */ s) => (Array.isArray(s.out) ? s.out : []))
+      .filter((/** @type {unknown} */ n) => typeof n === "string" && /^raw-reply\.[a-z0-9.-]+\.json$/i.test(n)),
   ]) {
     if (existsSync(join(dir, name))) await copyFile(join(dir, name), join(runDir, name));
   }

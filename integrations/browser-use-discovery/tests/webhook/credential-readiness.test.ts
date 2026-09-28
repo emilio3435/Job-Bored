@@ -272,6 +272,29 @@ test("validateSheetsCredentialReadiness fails service-account readiness when she
   assert.match(status.remediation || "", /share the target Sheet/i);
 });
 
+test("credential-readiness retries a transient Sheets access response", async () => {
+  let calls = 0;
+  const status = await validateSheetsCredentialReadiness(
+    { ...baseRuntimeConfig, googleServiceAccountJson: makeServiceAccountJson() },
+    {
+      sheetId: "sheet_retry",
+      retryBaseMs: 0,
+      fetchImpl: async (input) => {
+        if (String(input).includes("oauth2.googleapis.com")) {
+          return new Response(JSON.stringify({ access_token: "example-token", expires_in: 3600 }), { status: 200 });
+        }
+        calls++;
+        return calls === 1
+          ? new Response("busy", { status: 503 })
+          : new Response(JSON.stringify({ spreadsheetId: "sheet_retry" }), { status: 200 });
+      },
+    },
+  );
+  assert.equal(status.active, true);
+  assert.equal(status.sheetAccess, "verified");
+  assert.equal(calls, 2);
+});
+
 test("handleDiscoveryWebhook fails fast when a configured service-account file is missing", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "job-bored-credential-readiness-"));
   try {

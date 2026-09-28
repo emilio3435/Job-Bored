@@ -1,0 +1,4 @@
+inferTransportKindFromUrl(ts.net) = ""
+result: {"ok":false,"reason":"ngrok_api_down"}
+fetched: [ 'http://127.0.0.1:4040/api/tunnels' ]
+spawned: []

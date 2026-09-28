@@ -1,0 +1,140 @@
+{
+  "contract": "materials.jd-extract.v1",
+  "jdHash": "sha256:11da816d0da0bb1c",
+  "source": "paste",
+  "gate": {
+    "verdict": "usable",
+    "confidence": 0.95,
+    "signals": {
+      "words": 1058,
+      "source": "cache"
+    }
+  },
+  "role": {
+    "title": "Director, Digital Sales",
+    "company": "NorthwindMedia, Inc."
+  },
+  "outcomes": [
+    {
+      "id": "o1",
+      "text": "Existing staff and contract contractors select here to submit and search by the Job Posting Title.",
+      "weight": 0.5
+    },
+    {
+      "id": "o2",
+      "text": "The broadcast revolution is here – and Northwind is leading it! NorthwindMedia, the number one broadcast organization in The-country, contacts 88% of Residents each period - a per-month reach that’s twice the size of any other broadcast organization – nearly three fold the size of the biggest VIDEO channel – and nearly 4 fold the s",
+      "weight": 0.5
+    },
+    {
+      "id": "o3",
+      "text": "In fact, Northwind has: More #1 ranked regions versus the following two biggest radio companies combined;",
+      "weight": 0.5
+    }
+  ],
+  "nouns": [
+    {
+      "term": "sales",
+      "weight": 1
+    },
+    {
+      "term": "digital",
+      "weight": 1
+    },
+    {
+      "term": "audio",
+      "weight": 0.82
+    },
+    {
+      "term": "company",
+      "weight": 0.77
+    },
+    {
+      "term": "media",
+      "weight": 0.72
+    },
+    {
+      "term": "america",
+      "weight": 0.68
+    },
+    {
+      "term": "largest",
+      "weight": 0.68
+    },
+    {
+      "term": "experience",
+      "weight": 0.68
+    },
+    {
+      "term": "northwindmedia",
+      "weight": 0.63
+    },
+    {
+      "term": "northwind",
+      "weight": 0.63
+    },
+    {
+      "term": "music",
+      "weight": 0.63
+    },
+    {
+      "term": "streaming",
+      "weight": 0.63
+    },
+    {
+      "term": "northwindradio",
+      "weight": 0.63
+    },
+    {
+      "term": "ability",
+      "weight": 0.63
+    },
+    {
+      "term": "radio",
+      "weight": 0.58
+    },
+    {
+      "term": "build",
+      "weight": 0.58
+    },
+    {
+      "term": "clients",
+      "weight": 0.58
+    },
+    {
+      "term": "managers",
+      "weight": 0.58
+    },
+    {
+      "term": "monthly",
+      "weight": 0.54
+    },
+    {
+      "term": "audience",
+      "weight": 0.54
+    },
+    {
+      "term": "almost",
+      "weight": 0.54
+    },
+    {
+      "term": "times",
+      "weight": 0.54
+    },
+    {
+      "term": "service",
+      "weight": 0.54
+    },
+    {
+      "term": "podcast",
+      "weight": 0.54
+    }
+  ],
+  "stack": {
+    "required": [],
+    "preferred": []
+  },
+  "differentiators": [],
+  "bars": [],
+  "constraints": [],
+  "echoBans": []
+}

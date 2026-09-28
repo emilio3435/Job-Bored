@@ -204,7 +204,8 @@ describe("outline", () => {
     const outline = buildOutline({ selection, ledger: led, feature: "both" });
     assert.ok(outline.featured.length >= 1 && outline.featured.length <= 2);
     assert.ok(outline.toolsLine.length <= 13);
-    assert.ok(outline.letterBeats.analyticsProof);
+    assert.ok(outline.letterBeats.proof1);
+    assert.ok(outline.letterBeats.proof2);
     const resumeOnly = buildOutline({ selection, ledger: led, feature: "resume" });
     assert.equal(resumeOnly.letterBeats, null);
     const letterOnly = buildOutline({ selection, ledger: led, feature: "cover_letter" });

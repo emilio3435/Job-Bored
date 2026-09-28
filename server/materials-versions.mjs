@@ -9,7 +9,7 @@ import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
-import { commitModelAsRun, withPackagePublishClaim } from "./materials-regenerate.mjs";
+import { commitModelAsRun, withPackagePublishClaim, writeVersionQa } from "./materials-regenerate.mjs";
 import { renderDocument } from "./materials-render.mjs";
 import { readProfile } from "./user-profile.mjs";
 
@@ -293,16 +293,18 @@ export function createMaterialsVersionService(deps = {}) {
         await rm(join(dir, "resume.pdf"), { force: true });
         await rm(join(dir, "cover-letter.pdf"), { force: true });
         const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
-        await writeFile(join(dir, "qa-report.md"), "# QA report\n\nStatus: REVIEW\n\nPDF stale: browser unavailable.\n", "utf8");
+        await writeVersionQa({ dir, rendered, runId, issues: rendered.issues || [], notes: ["PDF stale: browser unavailable."], pdfReady: false });
+        const provenance = source === "restore" && restoredFrom ? (await runFiles(dir, restoredFrom)).run : current;
         await writePackageRecords({ dir, rendered, model, run: {
           runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
           requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
           source, ...(source === "restore" ? { restoredFrom } : {}), ...(edit ? { edit } : {}),
+          resume: provenance.resume, inputs: provenance.inputs,
           stages: [
             { stage: "intake", status: "ok", llm: false },
             { stage: "fit", status: "skipped", llm: false, detail: "browser unavailable" },
             { stage: "render", status: "ok", llm: false },
-            { stage: "qa", status: "review", llm: false, detail: "PDF stale" },
+            { stage: "qa", status: "failed", llm: false, detail: "PDF stale" },
             { stage: "publish", status: "ok", llm: false },
           ],
         } });

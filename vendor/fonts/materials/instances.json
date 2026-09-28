@@ -1,0 +1,24 @@
+{
+  "$comment": "Static instances for the materials PDFs (scripts/build-materials-fonts.py). One entry per face a template family actually paints; axes are pinned exactly, so each CSS weight/stretch a stylesheet asks for must appear here.",
+  "instances": [
+    { "family": "Marcellus", "axes": { "wght": 400 }, "metrics": true },
+    { "family": "Geist", "axes": { "wght": 400 } },
+    { "family": "Geist", "axes": { "wght": 500 } },
+    { "family": "Geist", "axes": { "wght": 600 } },
+    { "family": "Geist", "axes": { "wght": 700 } },
+    { "family": "Geist Mono", "axes": { "wght": 400 } },
+    { "family": "Geist Mono", "axes": { "wght": 500 } },
+    { "family": "Geist Mono", "axes": { "wght": 600 } },
+    { "family": "Caveat", "axes": { "wght": 600 } },
+    { "family": "JetBrains Mono", "axes": { "wght": 500 } },
+    { "family": "JetBrains Mono", "axes": { "wght": 600 } },
+    { "family": "Source Sans 3", "axes": { "wght": 400 } },
+    { "family": "Source Sans 3", "axes": { "wght": 600 } },
+    { "family": "Source Sans 3", "axes": { "wght": 700 }, "metrics": true },
+    { "family": "Bodoni Moda", "axes": { "wght": 600, "opsz": 14 } },
+    { "family": "Bodoni Moda", "axes": { "wght": 700, "opsz": 14 } },
+    { "family": "Bodoni Moda", "axes": { "wght": 900, "opsz": 48 }, "metrics": true },
+    { "family": "Bodoni Moda", "style": "italic", "axes": { "wght": 400, "opsz": 16 } },
+    { "family": "Bodoni Moda", "style": "italic", "axes": { "wght": 600, "opsz": 18 } }
+  ]
+}

@@ -193,6 +193,41 @@
     return Number.isInteger(value) && value >= 0 ? value : null;
   }
 
+  const FILTER_STATS_MAX_KEYWORDS = 20;
+
+  /**
+   * DISCAT D9: lifecycle.filterStats from GET /runs/:id, typed and bounded.
+   * Null when absent (runs from before DISCAT) or unusable.
+   */
+  function sanitizeFilterStats(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const listingsSeen = cleanRunProgressCount(raw.listingsSeen);
+    if (listingsSeen === null) return null;
+    const byReason = {};
+    if (raw.byReason && typeof raw.byReason === "object") {
+      for (const [reason, count] of Object.entries(raw.byReason)) {
+        const n = cleanRunProgressCount(count);
+        if (n !== null) byReason[String(reason).slice(0, 40)] = n;
+      }
+    }
+    const byExcludeKeyword = [];
+    if (Array.isArray(raw.byExcludeKeyword)) {
+      for (const entry of raw.byExcludeKeyword) {
+        if (byExcludeKeyword.length >= FILTER_STATS_MAX_KEYWORDS) break;
+        if (!entry || typeof entry !== "object") continue;
+        const keyword = typeof entry.keyword === "string" ? entry.keyword.trim().slice(0, 80) : "";
+        const count = cleanRunProgressCount(entry.count);
+        if (keyword && count !== null) byExcludeKeyword.push({ keyword, count });
+      }
+    }
+    return {
+      listingsSeen,
+      listingsRejected: cleanRunProgressCount(raw.listingsRejected) ?? 0,
+      byReason,
+      byExcludeKeyword,
+    };
+  }
+
   /** Keep only contract fields, typed and bounded. Null when unusable. */
   function sanitizeRunProgress(raw) {
     if (!raw || typeof raw !== "object") return null;
@@ -589,6 +624,7 @@
           progress: sanitizeRunProgress(parsed.progress),
           progressObservedAt: parsed.progressObservedAt || "",
           progressHeartbeatSeen: !!parsed.progressHeartbeatSeen,
+          filterStats: sanitizeFilterStats(parsed.filterStats),
         };
       } catch (_) {
         return this._idle();
@@ -633,6 +669,7 @@
         progress: null,
         progressObservedAt: "",
         progressHeartbeatSeen: false,
+        filterStats: null,
       };
     }
 
@@ -691,6 +728,7 @@
         progress: null,
         progressObservedAt: "",
         progressHeartbeatSeen: false,
+        filterStats: null,
       };
       this._persist(this._state);
       return this;
@@ -782,6 +820,7 @@
       }
       this._absorbProgress(statusData.progress);
       if (isTerminal) {
+        this._state.filterStats = sanitizeFilterStats(lifecycle.filterStats);
         this._state.status = runStatus; // completed | empty | partial | failed
         this._state.terminalAt = new Date().toISOString();
         this._state.terminalKind = runStatus;
@@ -928,9 +967,9 @@
       return ["pending", "running", "polling_error"].includes(this._state.status);
     }
 
-    /** True when the run has reached a terminal state (completed/empty/partial/failed). */
+    /** True when the run has reached a terminal state. */
     isTerminal() {
-      return ["completed", "empty", "partial", "failed"].includes(this._state.status);
+      return ["completed", "empty", "partial", "failed", "write_failed"].includes(this._state.status);
     }
 
     /** True when status polling is in an error state that might recover. */
@@ -948,7 +987,7 @@
       let logStatus = "failure";
       if (status === "completed" || status === "empty") logStatus = "success";
       else if (status === "partial") logStatus = "partial";
-      else if (status === "failed") logStatus = "failure";
+      else if (status === "failed" || status === "write_failed") logStatus = "failure";
       else logStatus = "partial";
       return {
         runAt:

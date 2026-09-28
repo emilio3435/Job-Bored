@@ -1,0 +1,931 @@
+{
+  "status": "IN_PROGRESS_AUTHENTICATION_HANDOFF",
+  "date": "2026-09-07",
+  "baseline": {
+    "recorded_at": "2026-09-07T06:24:44.918525+00:00",
+    "commit": "3a0f59c",
+    "node": "v24.13.0",
+    "npm": "11.17.0",
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0\nBuildVersion:\t\t26A5421a\n",
+    "arch": "arm64",
+    "browser": {
+      "name": "Comet",
+      "version": "151.0.7922.247",
+      "connection_label": "Chrome",
+      "identity_verification": "Unique tab opened in ai.perplexity.comet was observed through the browser extension connection."
+    },
+    "health_checks": [
+      {
+        "start": "2026-09-07T06:16:59.452312Z",
+        "url": "http://localhost:8080/",
+        "status": 200,
+        "network_ms": 14.79,
+        "response_bytes": 207106
+      },
+      {
+        "start": "2026-09-07T06:16:59.467120Z",
+        "url": "http://127.0.0.1:3847/health",
+        "status": 200,
+        "network_ms": 1.15,
+        "response_bytes": 94,
+        "atsProvider": "gemini",
+        "atsConfigured": true
+      },
+      {
+        "start": "2026-09-07T06:16:59.468278Z",
+        "url": "http://127.0.0.1:8644/health",
+        "status": 200,
+        "network_ms": 141.36,
+        "response_bytes": 2197,
+        "ready": true
+      }
+    ],
+    "sandbox_note": "Initial loopback attempts returned Operation not permitted. Authorized unsandboxed read-only checks succeeded. No process restarted.",
+    "viewport_limit": "Requested 390x844 returned document 520x1125 under inherited 75% zoom. Initial desktop and mobile captures are exploratory; requested CSS viewport and DPR are not yet verified.",
+    "telemetry_limit": "Browser supports DOM snapshots, screenshots and console message strings. No HAR/network interception or profiler capability is advertised. Page evaluate provides a restricted DOM scope; navigator/performance globals unavailable."
+  },
+  "measurement_protocol": {
+    "timestamps": "UTC ISO 8601, millisecond resolution for recorded browser actions",
+    "automation_action_s": "Wall-clock time for tool action to return; includes automation overhead and does not imply UI completion",
+    "user_s": null,
+    "wait_s": null,
+    "null_reason": "No human timing instrument or browser-side completion timing available. Null is not zero.",
+    "network": "Three shell HTTP health round trips only; no HAR or packet capture",
+    "console": "Cumulative message snapshots with deduplicated new counts; object payloads and stacks unavailable",
+    "viewport": "Exploratory only until effective CSS size and DPR can be verified"
+  },
+  "steps": [
+    {
+      "id": "01-02",
+      "label": "poke-around",
+      "start_time": "2026-09-07T06:18:17.934Z",
+      "interaction_time": "2026-09-07T06:18:18.001Z",
+      "completion_time": "2026-09-07T06:18:18.281Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.28,
+      "capture_setup_s": 0.067,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 39m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-02-poke-around-before.png",
+        "media/01-02-poke-around-after.png"
+      ],
+      "surface": "S0 sample board",
+      "action": "Collapse invitation",
+      "expected": "Invitation becomes setup pill",
+      "observed": "Invitation collapsed; eight demo roles remain. Accessibility tree also contains an old stalled materials request.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "new_error_count": 1,
+      "new_warning_count": 1
+    },
+    {
+      "id": "01-03",
+      "label": "restore-invitation",
+      "start_time": "2026-09-07T06:19:42.788Z",
+      "interaction_time": "2026-09-07T06:19:42.851Z",
+      "completion_time": "2026-09-07T06:19:43.134Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.283,
+      "capture_setup_s": 0.063,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 40m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\" [active]:\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-03-restore-invitation-before.png",
+        "media/01-03-restore-invitation-after.png"
+      ],
+      "surface": "S0 sample board",
+      "action": "Click setup pill",
+      "expected": "Restore invitation card",
+      "observed": "Pill opens Beat 1 directly, rather than restoring the invitation. This differs from the requested matrix; usefulness of shortcut is not treated as a defect.",
+      "verdict": "MISMATCH",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-04",
+      "label": "existing-sheet-branch",
+      "start_time": "2026-09-07T06:20:02.837Z",
+      "interaction_time": "2026-09-07T06:20:02.896Z",
+      "completion_time": "2026-09-07T06:20:03.173Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.277,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 40m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: Paste the link to a Sheet you already use. It needs a Pipeline tab; we'll check we can read it before connecting.\n  - textbox \"Google Sheet link\":\n    - /placeholder: https://docs.google.com/spreadsheets/d/\u2026\n  - button \"Connect this sheet\"\n  - button \"Back to sign-in\"\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-04-existing-sheet-branch-before.png",
+        "media/01-04-existing-sheet-branch-after.png"
+      ],
+      "surface": "Beat 1",
+      "action": "Open existing-sheet branch",
+      "expected": "Sheet-link input and connection controls",
+      "observed": "Google Sheet link field, Connect this sheet, and Back to sign-in render.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-05",
+      "label": "empty-sheet-validation",
+      "start_time": "2026-09-07T06:20:19.800Z",
+      "interaction_time": "2026-09-07T06:20:19.893Z",
+      "completion_time": "2026-09-07T06:20:20.293Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.4,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 41m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: Paste the link to a Sheet you already use. It needs a Pipeline tab; we'll check we can read it before connecting.\n  - textbox \"Google Sheet link\":\n    - /placeholder: https://docs.google.com/spreadsheets/d/\u2026\n  - button \"Connect this sheet\"\n  - button \"Back to sign-in\"\n  - alert: That doesn't look like a Google Sheet link or ID. Paste the full URL from your browser's address bar.\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-05-empty-sheet-validation-before.png",
+        "media/01-05-empty-sheet-validation-after.png"
+      ],
+      "surface": "Beat 1",
+      "action": "Submit empty sheet field",
+      "expected": "Specific validation feedback",
+      "observed": "Expected validation alert explains that a Google Sheet link or ID is required. ERROR verdict follows requested taxonomy; this is a passing negative test.",
+      "verdict": "ERROR",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-06",
+      "label": "return-google-branch",
+      "start_time": "2026-09-07T06:20:20.458Z",
+      "interaction_time": "2026-09-07T06:20:20.507Z",
+      "completion_time": "2026-09-07T06:20:20.777Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.27,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 41m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-06-return-google-branch-before.png",
+        "media/01-06-return-google-branch-after.png"
+      ],
+      "surface": "Beat 1",
+      "action": "Back to sign-in",
+      "expected": "Return to primary Google branch",
+      "observed": "Primary Google branch restored.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-07",
+      "label": "google-auth-gate",
+      "start_time": "2026-09-07T06:20:20.895Z",
+      "interaction_time": "2026-09-07T06:20:20.952Z",
+      "completion_time": "2026-09-07T06:20:21.227Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.275,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 41m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\" [disabled]\n  - button \"Connect an existing sheet instead\"\n  - list:\n    - generic: \u25cc\n    - generic: Waiting for Google sign-in\u2026\n    - generic: \u00b7\n    - generic: Creating your Pipeline sheet\u2026\n    - generic: \u00b7\n    - generic: Sheet ready \u2713\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-07-google-auth-gate-before.png",
+        "media/01-07-google-auth-gate-after.png"
+      ],
+      "surface": "Beat 1",
+      "action": "Continue without OAuth client",
+      "expected": "Immediate prerequisite feedback; no false waiting state",
+      "observed": "Toast says sign-in is not ready, but Continue disables and Waiting for Google sign-in remains. Later timeout blames a potentially blocked popup.",
+      "verdict": "ERROR",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-08",
+      "label": "google-client-help",
+      "start_time": "2026-09-07T06:20:40.839Z",
+      "interaction_time": "2026-09-07T06:20:40.919Z",
+      "completion_time": "2026-09-07T06:20:41.211Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.292,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 41m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\" [active]\n  - paragraph: Google makes you mint your own key before it will let an app touch your Sheets. It takes about 10 minutes and it is genuinely tedious. You only ever do this once.\n  - paragraph:\n    - generic: \"This page's origin:\"\n    - code: http://localhost:8080\n    - button \"Copy\"\n  - link \"Open Google Cloud Console \u2197\":\n    - /url: https://console.cloud.google.com/apis/credentials\n  - list:\n    - listitem: In Google Cloud Console, create or pick a project (top bar \u2192 project picker \u2192 New project).\n    - listitem: Configure the OAuth consent screen (APIs & Services \u2192 OAuth consent screen). Pick External, fill in an app name and your email, save. Add yourself as a test user under Audience so Google stops calling it an unverified app.\n    - listitem: Enable the Google Sheets API for the project (APIs & Services \u2192 Library \u2192 search \u2192 Enable).\n    - listitem: Open Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 application type Web application.\n    - listitem: Under Authorized JavaScript origins, click Add URI and paste this page's origin. Leave redirect URIs empty \u2014 JobBored doesn't use them.\n    - listitem: Click Create. Google shows your Client ID \u2014 paste it below.\n  - textbox \"Google OAuth Client ID\":\n    - /placeholder: xxxx.apps.googleusercontent.com\n  - button \"Save Client ID\"\n  - paragraph: A Client ID always ends in .apps.googleusercontent.com. If you hit redirect_uri_mismatch later, the app type was wrong \u2014 recreate it as a Web application.\n  - button \"Continue with Google\" [disabled]\n  - button \"Connect an existing sheet instead\"\n  - list:\n    - generic: \u25cc\n    - generic: Waiting for Google sign-in\u2026\n    - generic: \u00b7\n    - generic: Creating your Pipeline sheet\u2026\n    - generic: \u00b7\n    - generic: Sheet ready \u2713\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-08-google-client-help-before.png",
+        "media/01-08-google-client-help-after.png"
+      ],
+      "surface": "Beat 1",
+      "action": "Open Client ID help",
+      "expected": "Recovery instructions and client input",
+      "observed": "Detailed Google Cloud setup instructions and Save Client ID are present. Waiting state remains.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-09",
+      "label": "mobile-google-help",
+      "start_time": "2026-09-07T06:21:03.535Z",
+      "interaction_time": "2026-09-07T06:21:03.603Z",
+      "completion_time": "2026-09-07T06:21:03.612Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.009,
+      "error": null,
+      "dom": "- text: Run\n- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 41m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\" [active]\n  - paragraph: Google makes you mint your own key before it will let an app touch your Sheets. It takes about 10 minutes and it is genuinely tedious. You only ever do this once.\n  - paragraph:\n    - generic: \"This page's origin:\"\n    - code: http://localhost:8080\n    - button \"Copy\"\n  - link \"Open Google Cloud Console \u2197\":\n    - /url: https://console.cloud.google.com/apis/credentials\n  - list:\n    - listitem: In Google Cloud Console, create or pick a project (top bar \u2192 project picker \u2192 New project).\n    - listitem: Configure the OAuth consent screen (APIs & Services \u2192 OAuth consent screen). Pick External, fill in an app name and your email, save. Add yourself as a test user under Audience so Google stops calling it an unverified app.\n    - listitem: Enable the Google Sheets API for the project (APIs & Services \u2192 Library \u2192 search \u2192 Enable).\n    - listitem: Open Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 application type Web application.\n    - listitem: Under Authorized JavaScript origins, click Add URI and paste this page's origin. Leave redirect URIs empty \u2014 JobBored doesn't use them.\n    - listitem: Click Create. Google shows your Client ID \u2014 paste it below.\n  - textbox \"Google OAuth Client ID\":\n    - /placeholder: xxxx.apps.googleusercontent.com\n  - button \"Save Client ID\"\n  - paragraph: A Client ID always ends in .apps.googleusercontent.com. If you hit redirect_uri_mismatch later, the app type was wrong \u2014 recreate it as a Web application.\n  - button \"Continue with Google\" [disabled]\n  - button \"Connect an existing sheet instead\"\n  - list:\n    - generic: \u25cc\n    - generic: Waiting for Google sign-in\u2026\n    - generic: \u00b7\n    - generic: Creating your Pipeline sheet\u2026\n    - generic: \u00b7\n    - generic: Sheet ready \u2713\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-09-mobile-google-help-before.png",
+        "media/01-09-mobile-google-help-after.png"
+      ],
+      "surface": "Mobile setup",
+      "action": "Request 390x844 viewport",
+      "expected": "390x844 CSS viewport",
+      "observed": "Document reports 520x1125 under inherited zoom. This is a measurement setup mismatch, not an application layout defect.",
+      "verdict": "MISMATCH",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-10",
+      "label": "reset-page-zoom",
+      "start_time": "2026-09-07T06:21:17.993Z",
+      "interaction_time": "2026-09-07T06:21:18.061Z",
+      "completion_time": "2026-09-07T06:21:18.078Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.017,
+      "error": null,
+      "dom": "- text: Run\n- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 42m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\" [active]\n  - paragraph: Google makes you mint your own key before it will let an app touch your Sheets. It takes about 10 minutes and it is genuinely tedious. You only ever do this once.\n  - paragraph:\n    - generic: \"This page's origin:\"\n    - code: http://localhost:8080\n    - button \"Copy\"\n  - link \"Open Google Cloud Console \u2197\":\n    - /url: https://console.cloud.google.com/apis/credentials\n  - list:\n    - listitem: In Google Cloud Console, create or pick a project (top bar \u2192 project picker \u2192 New project).\n    - listitem: Configure the OAuth consent screen (APIs & Services \u2192 OAuth consent screen). Pick External, fill in an app name and your email, save. Add yourself as a test user under Audience so Google stops calling it an unverified app.\n    - listitem: Enable the Google Sheets API for the project (APIs & Services \u2192 Library \u2192 search \u2192 Enable).\n    - listitem: Open Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 application type Web application.\n    - listitem: Under Authorized JavaScript origins, click Add URI and paste this page's origin. Leave redirect URIs empty \u2014 JobBored doesn't use them.\n    - listitem: Click Create. Google shows your Client ID \u2014 paste it below.\n  - textbox \"Google OAuth Client ID\":\n    - /placeholder: xxxx.apps.googleusercontent.com\n  - button \"Save Client ID\"\n  - paragraph: A Client ID always ends in .apps.googleusercontent.com. If you hit redirect_uri_mismatch later, the app type was wrong \u2014 recreate it as a Web application.\n  - button \"Continue with Google\" [disabled]\n  - button \"Connect an existing sheet instead\"\n  - list:\n    - generic: \u25cc\n    - generic: Waiting for Google sign-in\u2026\n    - generic: \u00b7\n    - generic: Creating your Pipeline sheet\u2026\n    - generic: \u00b7\n    - generic: Sheet ready \u2713\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-10-reset-page-zoom-before.png",
+        "media/01-10-reset-page-zoom-after.png"
+      ],
+      "surface": "Mobile setup",
+      "action": "Send browser zoom reset shortcut",
+      "expected": "Restore 100% zoom",
+      "observed": "Document remains 520x1125. Required mobile size and DPR are unverified.",
+      "verdict": "MISMATCH",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-12",
+      "label": "existing-client-setup",
+      "start_time": "2026-09-07T06:22:35.437Z",
+      "interaction_time": "2026-09-07T06:22:35.505Z",
+      "completion_time": "2026-09-07T06:22:42.768Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 7.263,
+      "error": "Error: Playwright selector deadline exceeded\nlocator.fill failed for selector internal:role=textbox[name=\"Google OAuth Client ID\"s]\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"fill\",\"locator\":\"internal:role=textbox[name=\\\"Google OAuth Client ID\\\"s]\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 43m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n  - alert: Google sign-in didn't finish. If the popup was blocked, allow popups for this page and press Continue with Google again.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-12-existing-client-setup-before.png",
+        "media/01-12-existing-client-setup-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Attempt client fill after timeout",
+      "expected": "Client field remains available",
+      "observed": "Timeout rerender collapsed help, so locator had no match. Automation error; no client entered.",
+      "verdict": "ERROR",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-13",
+      "label": "save-client",
+      "start_time": "2026-09-07T06:22:42.894Z",
+      "interaction_time": "2026-09-07T06:22:42.944Z",
+      "completion_time": "2026-09-07T06:22:45.985Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 3.041,
+      "error": "Error: Playwright selector deadline exceeded\nwaiting on click for selector internal:role=button[name=\"Save Client ID\"s]\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"internal:role=button[name=\\\"Save Client ID\\\"s]\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 43m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n  - alert: Google sign-in didn't finish. If the popup was blocked, allow popups for this page and press Continue with Google again.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-13-save-client-before.png",
+        "media/01-13-save-client-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Attempt Save after missing field",
+      "expected": "Save control available",
+      "observed": "No matching Save control because help was collapsed. Dependent automation action was attempted after a failed fill; excluded from product defects.",
+      "verdict": "ERROR",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-14",
+      "label": "reopen-client-help",
+      "start_time": "2026-09-07T06:22:54.397Z",
+      "interaction_time": "2026-09-07T06:22:54.457Z",
+      "completion_time": "2026-09-07T06:22:54.739Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.282,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 43m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\" [active]\n  - paragraph: Google makes you mint your own key before it will let an app touch your Sheets. It takes about 10 minutes and it is genuinely tedious. You only ever do this once.\n  - paragraph:\n    - generic: \"This page's origin:\"\n    - code: http://localhost:8080\n    - button \"Copy\"\n  - link \"Open Google Cloud Console \u2197\":\n    - /url: https://console.cloud.google.com/apis/credentials\n  - list:\n    - listitem: In Google Cloud Console, create or pick a project (top bar \u2192 project picker \u2192 New project).\n    - listitem: Configure the OAuth consent screen (APIs & Services \u2192 OAuth consent screen). Pick External, fill in an app name and your email, save. Add yourself as a test user under Audience so Google stops calling it an unverified app.\n    - listitem: Enable the Google Sheets API for the project (APIs & Services \u2192 Library \u2192 search \u2192 Enable).\n    - listitem: Open Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 application type Web application.\n    - listitem: Under Authorized JavaScript origins, click Add URI and paste this page's origin. Leave redirect URIs empty \u2014 JobBored doesn't use them.\n    - listitem: Click Create. Google shows your Client ID \u2014 paste it below.\n  - textbox \"Google OAuth Client ID\":\n    - /placeholder: xxxx.apps.googleusercontent.com\n  - button \"Save Client ID\"\n  - paragraph: A Client ID always ends in .apps.googleusercontent.com. If you hit redirect_uri_mismatch later, the app type was wrong \u2014 recreate it as a Web application.\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n  - alert: Google sign-in didn't finish. If the popup was blocked, allow popups for this page and press Continue with Google again.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-14-reopen-client-help-before.png",
+        "media/01-14-reopen-client-help-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Reopen Client ID help",
+      "expected": "Input and Save visible",
+      "observed": "Help reopens; recovery controls return.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-15",
+      "label": "fill-existing-oauth-client",
+      "start_time": "2026-09-07T06:23:03.528Z",
+      "interaction_time": "2026-09-07T06:23:03.623Z",
+      "completion_time": "2026-09-07T06:23:03.653Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.03,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 43m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - paragraph: Google makes you mint your own key before it will let an app touch your Sheets. It takes about 10 minutes and it is genuinely tedious. You only ever do this once.\n  - paragraph:\n    - generic: \"This page's origin:\"\n    - code: http://localhost:8080\n    - button \"Copy\"\n  - link \"Open Google Cloud Console \u2197\":\n    - /url: https://console.cloud.google.com/apis/credentials\n  - list:\n    - listitem: In Google Cloud Console, create or pick a project (top bar \u2192 project picker \u2192 New project).\n    - listitem: Configure the OAuth consent screen (APIs & Services \u2192 OAuth consent screen). Pick External, fill in an app name and your email, save. Add yourself as a test user under Audience so Google stops calling it an unverified app.\n    - listitem: Enable the Google Sheets API for the project (APIs & Services \u2192 Library \u2192 search \u2192 Enable).\n    - listitem: Open Credentials \u2192 Create credentials \u2192 OAuth client ID \u2192 application type Web application.\n    - listitem: Under Authorized JavaScript origins, click Add URI and paste this page's origin. Leave redirect URIs empty \u2014 JobBored doesn't use them.\n    - listitem: Click Create. Google shows your Client ID \u2014 paste it below.\n  - textbox \"Google OAuth Client ID\" [active]:\n    - /placeholder: xxxx.apps.googleusercontent.com\n    - text: [REDACTED]\n  - button \"Save Client ID\"\n  - paragraph: A Client ID always ends in .apps.googleusercontent.com. If you hit redirect_uri_mismatch later, the app type was wrong \u2014 recreate it as a Web application.\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n  - alert: Google sign-in didn't finish. If the popup was blocked, allow popups for this page and press Continue with Google again.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-15-fill-existing-oauth-client-before.png",
+        "media/01-15-fill-existing-oauth-client-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Enter existing project OAuth client",
+      "expected": "Public client identifier accepted",
+      "observed": "Existing client from local config entered through UI. No application source changed.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-16",
+      "label": "save-existing-client",
+      "start_time": "2026-09-07T06:23:15.468Z",
+      "interaction_time": "2026-09-07T06:23:15.550Z",
+      "completion_time": "2026-09-07T06:23:15.829Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.279,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 43m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\"\n  - button \"Connect an existing sheet instead\"\n  - status: Client ID saved. Continue with Google below.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-16-save-existing-client-before.png",
+        "media/01-16-save-existing-client-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Save existing client",
+      "expected": "Ready to authenticate",
+      "observed": "Client ID saved. Continue with Google below. Button is above the message despite the word below; old error text persists in DOM, with visual exposure unverified.",
+      "verdict": "MISMATCH",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [],
+      "new_error_count": 0,
+      "new_warning_count": 0
+    },
+    {
+      "id": "01-17",
+      "label": "google-after-client-save",
+      "start_time": "2026-09-07T06:23:28.407Z",
+      "interaction_time": "2026-09-07T06:23:28.473Z",
+      "completion_time": "2026-09-07T06:23:28.763Z",
+      "user_s": null,
+      "wait_s": null,
+      "automation_action_s": 0.29,
+      "error": null,
+      "dom": "- region \"Today (v2)\":\n  - generic: TODAY\n  - heading \"What is waiting on you\" [level=2]\n  - list:\n    - article:\n      - paragraph: Nothing is waiting on you today.\n      - paragraph: No replies to answer, no interviews inside 48 hours, no follow-up past due.\n- region \"Materials drafting queue\":\n  - heading \"Materials queue\" [level=3]\n  - generic: 1 request\n  - list:\n    - listitem \"CSC Generation \u00b7 Director, Lifecycle Marketing & CRM\":\n      - generic: \"1\"\n      - generic: CSC Generation\n      - generic: LETTER\n      - generic: STALLED?\n      - generic: 97h 44m\n      - button \"Cancel CSC Generation Director, Lifecycle Marketing & CRM\": \u2715 Cancel\n- text: Generate or paste a draft to begin\u2026\n- dialog \"Set up JobBored\":\n  - heading \"Set up JobBored\" [level=2]\n  - button \"Close wizard\":\n    - generic: \u00d7\n    - generic: Close\n  - list \"Setup progress\":\n    - generic: \"1\"\n    - generic: Google\n    - generic: \"2\"\n    - generic: AI\n    - generic: \"3\"\n    - generic: Resume\n    - generic: \"4\"\n    - generic: Your fit\n    - generic: \"5\"\n    - generic: Discovery\n    - generic: \"6\"\n    - generic: Done\n  - paragraph: about 15 min left\n  - heading \"Your pipeline lives in a Google Sheet you own.\" [level=3]\n  - paragraph: Sign in and we'll create it for you. Nothing is stored on our side \u2014 there is no 'our side.'\n  - paragraph: \"We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.\"\n  - generic \"First time? You'll need a free Client ID\"\n  - button \"Continue with Google\" [disabled]\n  - button \"Connect an existing sheet instead\"\n  - list:\n    - generic: \u25cc\n    - generic: Waiting for Google sign-in\u2026\n    - generic: \u00b7\n    - generic: Creating your Pipeline sheet\u2026\n    - generic: \u00b7\n    - generic: Sheet ready \u2713\n  - status: Client ID saved. Continue with Google below.\n- generic: \u2717\n- generic: Google sign-in is not ready yet. Save your OAuth client and reload first.\n- button \"Dismiss\":\n- banner:\n  - generic: JobBored\n  - paragraph: Sample pipeline \u2014 this is what a set-up JobBored looks like.\n- heading \"Pipeline\" [level=2]\n- generic: 8 roles \u00b7 demo data\n- heading \"New 2\" [level=3]:\n  - generic: New\n  - generic: \"2\"\n- button \"DEMO Fit score 94 out of 100 Senior Product Designer, Design Systems Figma \u00b7 Remote \u2014 US Design-systems ownership is the exact work in your top strength, at the scale you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 94 out of 100\": 94% fit\n  - heading \"Senior Product Designer, Design Systems\" [level=4]\n  - paragraph: Figma \u00b7 Remote \u2014 US\n  - paragraph: Design-systems ownership is the exact work in your top strength, at the scale you asked for.\n- button \"DEMO Fit score 88 out of 100 Product Engineer, Growth Linear \u00b7 Remote \u2014 Americas Small team, product-led, and the salary band clears the floor you set.\":\n  - generic: DEMO\n  - generic \"Fit score 88 out of 100\": 88% fit\n  - heading \"Product Engineer, Growth\" [level=4]\n  - paragraph: Linear \u00b7 Remote \u2014 Americas\n  - paragraph: Small team, product-led, and the salary band clears the floor you set.\n- heading \"Researching 1\" [level=3]:\n  - generic: Researching\n  - generic: \"1\"\n- button \"DEMO Fit score 81 out of 100 Staff Software Engineer, Payments Platform Stripe \u00b7 Seattle, WA \u00b7 Hybrid Platform depth matches your last two roles; hybrid is the one compromise.\":\n  - generic: DEMO\n  - generic \"Fit score 81 out of 100\": 81% fit\n  - heading \"Staff Software Engineer, Payments Platform\" [level=4]\n  - paragraph: Stripe \u00b7 Seattle, WA \u00b7 Hybrid\n  - paragraph: Platform depth matches your last two roles; hybrid is the one compromise.\n- heading \"Applied 2\" [level=3]:\n  - generic: Applied\n  - generic: \"2\"\n- button \"DEMO Fit score 86 out of 100 Engineering Manager, Collaboration Notion \u00b7 Remote \u2014 US You've run a team this size before, and they want a builder-manager, not a pure people lead.\":\n  - generic: DEMO\n  - generic \"Fit score 86 out of 100\": 86% fit\n  - heading \"Engineering Manager, Collaboration\" [level=4]\n  - paragraph: Notion \u00b7 Remote \u2014 US\n  - paragraph: You've run a team this size before, and they want a builder-manager, not a pure people lead.\n- button \"DEMO Fit score 73 out of 100 Technical Program Manager, Model Deployment Anthropic \u00b7 San Francisco, CA Strong on the program-management side; the on-site requirement is the gap.\":\n  - generic: DEMO\n  - generic \"Fit score 73 out of 100\": 73% fit\n  - heading \"Technical Program Manager, Model Deployment\" [level=4]\n  - paragraph: Anthropic \u00b7 San Francisco, CA\n  - paragraph: Strong on the program-management side; the on-site requirement is the gap.\n- heading \"Phone Screen 1\" [level=3]:\n  - generic: Phone Screen\n  - generic: \"1\"\n- button \"DEMO Fit score 90 out of 100 Developer Experience Engineer Vercel \u00b7 Remote \u2014 Global Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\":\n  - generic: DEMO\n  - generic \"Fit score 90 out of 100\": 90% fit\n  - heading \"Developer Experience Engineer\" [level=4]\n  - paragraph: Vercel \u00b7 Remote \u2014 Global\n  - paragraph: Docs, DX tooling, and open source \u2014 three of your listed wants in one role.\n- heading \"Interviewing 1\" [level=3]:\n  - generic: Interviewing\n  - generic: \"1\"\n- button \"DEMO Fit score 79 out of 100 Senior Data Scientist, Learning Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid Experimentation-heavy and mission-aligned; relocation is the open question.\":\n  - generic: DEMO\n  - generic \"Fit score 79 out of 100\": 79% fit\n  - heading \"Senior Data Scientist, Learning\" [level=4]\n  - paragraph: Duolingo \u00b7 Pittsburgh, PA \u00b7 Hybrid\n  - paragraph: Experimentation-heavy and mission-aligned; relocation is the open question.\n- heading \"Offer 1\" [level=3]:\n  - generic: Offer\n  - generic: \"1\"\n- button \"DEMO Fit score 92 out of 100 Lead Product Manager, Merchant Tools Shopify \u00b7 Remote \u2014 North America Merchant tooling is your strongest narrative, and the level is the step up you asked for.\":\n  - generic: DEMO\n  - generic \"Fit score 92 out of 100\": 92% fit\n  - heading \"Lead Product Manager, Merchant Tools\" [level=4]\n  - paragraph: Shopify \u00b7 Remote \u2014 North America\n  - paragraph: Merchant tooling is your strongest narrative, and the level is the step up you asked for.\n- button \"Set up JobBored \u2014 15 min \u25b8\":\n  - generic: Set up JobBored \u2014 15 min \u25b8\n- alert: Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "logs": [
+        {
+          "level": "warn",
+          "message": "[dawn-data:p2] role-shape fail Object",
+          "timestamp": "2026-09-07T06:17:38.017Z",
+          "url": "http://localhost:8080/dawn-data.js"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored startup] window:error Object",
+          "timestamp": "2026-09-07T06:17:38.040Z",
+          "url": "http://localhost:8080/?greenfield=1"
+        },
+        {
+          "level": "error",
+          "message": "[JobBored] GIS error_callback: _.Cd",
+          "timestamp": "2026-09-07T06:23:16.646Z",
+          "url": "http://localhost:8080/auth-session.js?v=1"
+        }
+      ],
+      "screenshots": [
+        "media/01-17-google-after-client-save-before.png",
+        "media/01-17-google-after-client-save-after.png"
+      ],
+      "surface": "Beat 1 recovery",
+      "action": "Continue after client save",
+      "expected": "Google authentication popup",
+      "observed": "A Google Accounts sign-in tab appears. User-operated authentication requested; completion not verified.",
+      "verdict": "OK",
+      "execution_status": "executed",
+      "ttft_ms": null,
+      "network_ms": null,
+      "new_console_entries": [
+        {
+          "level": "error",
+          "message": "[JobBored] GIS error_callback: _.Cd",
+          "timestamp": "2026-09-07T06:23:16.646Z",
+          "url": "http://localhost:8080/auth-session.js?v=1"
+        }
+      ],
+      "new_error_count": 1,
+      "new_warning_count": 0
+    }
+  ],
+  "coverage_pending": [
+    {
+      "step_id": "1.1",
+      "surface": "S0 KPI pills, Make it mine primary CTA, true 390x844 S0",
+      "reason": "Sample roles/collapse observed. KPI summary absent from captured S0; primary CTA was not clicked separately. Mobile override did not yield required CSS size.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.2",
+      "surface": "Both authenticated Sheet connection branches",
+      "reason": "Google sign-in pending; empty-link validation and branch navigation observed. No template created or Sheet verified.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.3",
+      "surface": "Beat 2 provider choices, malformed and valid AI key checks",
+      "reason": "Blocked upstream at Beat 1.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.4",
+      "surface": "Beat 3 TXT/PDF upload, paste, extraction, interruption, IndexedDB persistence",
+      "reason": "Blocked upstream at Beat 1.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.5",
+      "surface": "Beat 4 fit field edits and required mobile audit",
+      "reason": "Blocked upstream at Beat 1.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.6",
+      "surface": "Beat 5 SerpApi, local/Tailscale/relay paths",
+      "reason": "Blocked upstream at Beat 1.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "1.7",
+      "surface": "Beat 6 celebration and discovery handoff",
+      "reason": "Blocked upstream at Beat 1.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "2",
+      "surface": "Dashboard KPIs, Daily Brief, Today Queue, filters, search, sorting, closed visibility, company expansion, expired review and cleanup",
+      "reason": "Authenticated dashboard not reached from greenfield path.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "3.1",
+      "surface": "Nine-stage pointer drag, capture, ghost, duplicates, frame timing and event dispatch",
+      "reason": "Real pipeline not reached; S0 is a separate demo surface.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "3.2",
+      "surface": "Applied confirmation, undo, delayed commit and Column N date",
+      "reason": "Real writable pipeline not reached. Source has a 10-second submission-flow constant; live route timing unverified.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "3.3",
+      "surface": "Keyboard stage menu, ARIA and focus traps",
+      "reason": "Not reached on real pipeline.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "3.4",
+      "surface": "Optimistic rollback with network failure",
+      "reason": "Not reached; network blocking capability unavailable through connected browser API.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "3.5",
+      "surface": "Column-collapse persistence and mobile Kanban",
+      "reason": "Not reached; required viewport/DPR remains unverified.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "4.1",
+      "surface": "Discovery connection, sources, context and automation tabs",
+      "reason": "Drawer not reached; worker health alone reports readiness.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "4.2",
+      "surface": "Preflight payload, POST webhook and x-discovery-secret",
+      "reason": "Not dispatched. No live payload/header evidence.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "4.3",
+      "surface": "Async ack, statusToken preservation, polling and phase progression",
+      "reason": "Not dispatched. Component test evidence only.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "4.4",
+      "surface": "Sheet append columns, second-run dedupe, edit lock Y and DiscoveryRuns",
+      "reason": "Not dispatched; no Sheet mutations or audit rows verified.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.1",
+      "surface": "Role dossier, posting text and provenance labels",
+      "reason": "Not reached from greenfield path.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.2",
+      "surface": "Cover-letter guidance, first token, completion and token use",
+      "reason": "Not generated.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.3",
+      "surface": "Quick tools, custom refinement and version history",
+      "reason": "Not generated.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.4",
+      "surface": "Resume tailoring, skills and gaps",
+      "reason": "Not generated.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.5",
+      "surface": "ATS scorecard, Address actions and 1.2-second debounce",
+      "reason": "Health reports configured Gemini; no scoring request made.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "5.6",
+      "surface": "Themes, clipboard and Print/PDF",
+      "reason": "Not reached. Source theme names differ from requested matrix.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    },
+    {
+      "step_id": "6",
+      "surface": "Unsafe remote HTTP URL, runtime token scrubbing and offline resilience",
+      "reason": "Source and selected component tests only; no live Settings or network fault injection.",
+      "execution_status": "not_reached",
+      "verdict": null,
+      "evidence": "media/01-17-google-after-client-save-after.png"
+    }
+  ],
+  "component_tests": {
+    "files": 8,
+    "tests": 72,
+    "passed": 72,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 64.479833,
+    "evidence": "media/component-checks.txt"
+  },
+  "network_calls": [
+    {
+      "start": "2026-09-07T06:16:59.452312Z",
+      "url": "http://localhost:8080/",
+      "status": 200,
+      "network_ms": 14.79,
+      "response_bytes": 207106
+    },
+    {
+      "start": "2026-09-07T06:16:59.467120Z",
+      "url": "http://127.0.0.1:3847/health",
+      "status": 200,
+      "network_ms": 1.15,
+      "response_bytes": 94,
+      "atsProvider": "gemini",
+      "atsConfigured": true
+    },
+    {
+      "start": "2026-09-07T06:16:59.468278Z",
+      "url": "http://127.0.0.1:8644/health",
+      "status": 200,
+      "network_ms": 141.36,
+      "response_bytes": 2197,
+      "ready": true
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+composite by fit: fit1=58.2 fit2=79.2 fit3=100 fit4=100 fit5=100 fit6=100 fit7=100 fit8=100 fit9=100 fit10=100
+roleFit range: 100 - 1000
+budget maxExploitSurfaces: 18
+selected (company:fit): f-co:3 g-co:3 h-co:4 i-co:4 j-co:4 k-co:5 l-co:5 m-co:5 n-co:6 o-co:6 p-co:6 q-co:7 r-co:7 s-co:7 t-co:8 u-co:8 v-co:9 w-co:9
+dropped  (company:fit): x-co:9 y-co:10 z-co:10 c-co:2 d-co:2 e-co:2 a-co:1 b-co:1
+null fitScore -> roleFit 5000 composite 100

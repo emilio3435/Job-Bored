@@ -60,14 +60,14 @@ describe("slice 2: letter QA reads the budget band", () => {
     const result = await auditLetter(`<html><body><article class="page"><p>${words(340)}</p></article></body></html>`);
     const tooLong = result.issues.find((i) => i.code === "cover_letter_too_long");
     assert.ok(tooLong, "cover_letter_too_long expected");
-    assert.match(tooLong.message, /340 words \(target 180–260\)/);
+    assert.match(tooLong.message, /340 words \(target 120–200\)/);
   });
 
   it("should name the budget band when a band-less letter is short", async () => {
     const result = await auditLetter(`<html><body><article class="page"><p>${words(100)}</p></article></body></html>`);
     const tooShort = result.issues.find((i) => i.code === "cover_letter_too_short");
     assert.ok(tooShort, "cover_letter_too_short expected");
-    assert.match(tooShort.message, /100 words \(target 180–260\)/);
+    assert.match(tooShort.message, /100 words \(target 120–200\)/);
   });
 });
 

@@ -1,0 +1,8 @@
+graph TD
+  A["EAB job + master resume"] --> B["Writer LLM<br/>rewrites for THIS job"]
+  B --> C["Composer Cheerio<br/>drops prose into branded HTML"]
+  C --> D["Critic code<br/>counts words, pages, keywords"]
+  D -->|pass| E["PDF + dossier READY"]
+  D -->|fail and tries left| F["Editor LLM<br/>rewrite against the scorecard"]
+  F --> C
+  D -->|fail and no tries left| G["Dossier REVIEW<br/>with QA report"]

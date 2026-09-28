@@ -63,8 +63,13 @@
   /**
    * GFX N-B3-2 / B3-9: the two stages that really happen, with no glyph
    * baked in — the shell draws ✓ from `state: "done"`.
+   * RESJ2-EXTRACT: named for what each one is. The first is the browser
+   * pulling text out of the file and saving it (instant, no AI) — the text
+   * box filling is this step. The second is the AI read; while it runs it
+   * names the provider and model, and when it finishes it says what it
+   * read (readingLabel / doneLabel below).
    */
-  const STAGE_LABELS = ["Reading your resume", "Drafting your profile"];
+  const STAGE_LABELS = ["Saving your resume in this browser", "Reading your resume with AI"];
 
   /**
    * GFX B3-4: the clock on a draft, ported from B2's CHECK_TIMINGS. Past
@@ -143,6 +148,13 @@
     // Body copy that a message-slot string can't carry: the start link
     // (B3-7) and the raw error behind "Technical detail" (B3-6).
     notice: null, // { link: boolean, technical: string }
+    // RESJ K1-B3: the server copy of the resume this ingest saved, a
+    // promise of { ok, reason } (user-content-store.js; never rejects).
+    serverSync: null,
+    // RESJ2-EXTRACT: stage 2's live label ("Reading your resume with
+    // OpenRouter (model)") and, once read, what was read.
+    readingLabel: "",
+    doneLabel: "",
   };
 
   const fields = { paste: null };
@@ -377,7 +389,8 @@
 
   /** Advance the normative stage list to `index` (everything before is done). */
   function setStage(ctx, index) {
-    state.stages = STAGE_LABELS.map((label, i) => ({
+    const labels = STAGE_LABELS.map((label, i) => (i === 1 && state.readingLabel ? state.readingLabel : label));
+    state.stages = labels.map((label, i) => ({
       label:
         i === index && i === 1 && state.draftSeconds != null
           ? `${label} — ${state.draftSeconds} s`
@@ -385,7 +398,10 @@
       state: i < index ? "done" : i === index ? "active" : "todo",
     }));
     if (index >= STAGE_LABELS.length) {
-      state.stages = STAGE_LABELS.map((label) => ({ label, state: "done" }));
+      state.stages = labels.map((label, i) => ({
+        label: i === 1 && state.doneLabel ? state.doneLabel : label,
+        state: "done",
+      }));
     }
     if (ctx && typeof ctx.setBusy === "function") {
       ctx.setBusy(ACTION_USE_TEXT, state.stages);
@@ -663,17 +679,22 @@
 
   async function writeToBrowserStore(text, source) {
     const uc = store();
-    if (!uc || typeof uc.setPrimaryResume !== "function") {
+    if (!uc || typeof uc.savePrimaryResumeChecked !== "function") {
       throw new Error(
         "The browser's resume store didn't load. Reload the page and try again.",
       );
     }
-    await uc.setPrimaryResume({
+    // RESJ K3: broken PDF text is saved only after the user confirms.
+    const saved = await uc.savePrimaryResumeChecked({
       source: source === "upload" ? "file" : "paste",
       rawMime: null,
       label: "My resume",
       extractedText: text,
     });
+    if (!saved) {
+      throw new Error("Resume not saved. Paste the text or upload the .docx instead.");
+    }
+    state.serverSync = saved.serverSync || null;
     state.writeOrder.push("indexeddb");
   }
 
@@ -763,7 +784,20 @@
           `The profile drafter failed (HTTP ${res ? res.status : "?"}).`,
       };
     }
-    return { ok: true, profile: data.profile };
+    return { ok: true, profile: data.profile, read: data.read || null };
+  }
+
+  /** The shared reader in profile-identity.js, when it loaded. */
+  function resumeReader() {
+    const reader = window.JobBoredResumeRead;
+    return reader && typeof reader.summaryLine === "function" ? reader : null;
+  }
+
+  /** "Reading your resume with OpenRouter (gpt-oss-120b)". */
+  function readingLabelFor(provider) {
+    const reader = resumeReader();
+    if (!reader || !provider) return "";
+    return `Reading your resume with ${reader.providerLabel(provider.provider, provider.model)}`;
   }
 
   /**
@@ -795,15 +829,27 @@
         text = await api.callConfiguredAi(
           shared.SYSTEM_PROMPT,
           shared.buildUserPrompt(resumeText),
-          { json: true, maxOutputTokens: 8192 },
+          { json: true },
         );
       } catch (err) {
         const message = String((err && err.message) || "").trim();
         return message ? { ok: false, message } : { ok: false };
       }
+      const raw = shared.parseJsonSafe(text);
+      // RESJ2-EXTRACT (Grok review, direct-no-counts): no server means no
+      // server read, so say what was read from the model's checked facts,
+      // named for the provider that answered.
+      const read =
+        typeof shared.readFromResumeFacts === "function" && typeof shared.resumeFactsOf === "function"
+          ? shared.readFromResumeFacts(resumeText, shared.resumeFactsOf(raw), {
+              provider: provider.provider,
+              model: provider.model || provider.provider,
+            })
+          : null;
       return {
         ok: true,
-        profile: shared.clampToUserProfile(shared.parseJsonSafe(text)),
+        profile: shared.clampToUserProfile(raw),
+        read,
       };
     } catch (_) {
       return { ok: false };
@@ -830,6 +876,8 @@
     state.providerLocked = false;
     state.notice = null;
     state.writeOrder = [];
+    state.readingLabel = readingLabelFor(verifiedProviderConfig());
+    state.doneLabel = "";
     saveDraft(context, "resumeText", clean);
     setStage(context, 0);
 
@@ -857,7 +905,7 @@
         // provider before giving up, on the same deadline.
         const direct = await Promise.race([draftDirectFromResume(clean), watch.deadline]);
         if (direct === TIMED_OUT) drafted = TIMED_OUT;
-        else if (direct.ok) drafted = { ok: true, profile: direct.profile };
+        else if (direct.ok) drafted = { ok: true, profile: direct.profile, read: direct.read || null };
         // GFX N-B3-1: the provider answered with a refusal — its words beat
         // a guess about the server.
         else if (direct.message) drafted = { ok: false, missing: false, message: direct.message };
@@ -889,11 +937,48 @@
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
     if (context && context.runtime) context.runtime.profileDraft = state.draft;
     saveDraft(context, "profileDraft", state.draft);
+    // RESJ2-EXTRACT: say what the AI read, in the stage list and in a toast
+    // that outlives the move to the next beat.
+    const reader = resumeReader();
+    const readLine = reader && drafted.read ? reader.summaryLine(drafted.read) : "";
+    state.doneLabel = readLine;
     setStage(context, STAGE_LABELS.length);
+    if (readLine) {
+      reader.announceRead(drafted.read);
+      const app = window.JobBoredApp;
+      const host = app && app.core && app.core.host;
+      if (host && typeof host.showToast === "function") host.showToast(readLine, "success");
+    }
+
+    // Outside the draft deadline: the PUT ran alongside the draft. A failed
+    // draft keeps the user here, and its retry saves (and reports) again.
+    await reportServerCopy(context);
+    if (run !== state.ingestRun) return;
 
     if (context && typeof context.completeBeat === "function") {
       await context.completeBeat({ source });
     }
+  }
+
+  /**
+   * RESJ K1-B3: say so when the server didn't get a copy of the resume
+   * (hosted page, offline, refused), as a note that survives the move to
+   * the next beat, like oneflow-beat-fit.js quietNote().
+   */
+  async function reportServerCopy(ctx) {
+    const pending = state.serverSync;
+    state.serverSync = null;
+    const uc = store();
+    if (!pending || !uc || typeof uc.describeResumeServerSync !== "function") return;
+    const line = uc.describeResumeServerSync(await pending);
+    if (!line) return;
+    const app = window.JobBoredApp;
+    const host = app && app.core && app.core.host;
+    if (host && typeof host.showToast === "function") {
+      host.showToast(line, "warning", true);
+      return;
+    }
+    repaint(ctx, line, "info");
   }
 
   async function ingestFile(file, ctx) {

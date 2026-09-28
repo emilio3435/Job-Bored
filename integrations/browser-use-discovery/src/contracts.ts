@@ -812,6 +812,16 @@ export type BrowserUseExtractionResult = {
   diagnostics?: ExtractionDiagnostic[];
 };
 
+/**
+ * Why the Pipeline writer skipped a lead: its URL is on the Blacklist tab or
+ * its row was dismissed (`blacklisted`), the Sheet already held the link
+ * (`duplicate`), or it collided with a different row's semantic identity and
+ * needs merge review (`identity_collision`).
+ */
+export type PipelineSkipReason = "blacklisted" | "duplicate" | "identity_collision";
+
+export type PipelineSkippedLink = { url: string; reason: PipelineSkipReason };
+
 export type PipelineWriteResult = {
   sheetId: string;
   appended: number;
@@ -820,14 +830,24 @@ export type PipelineWriteResult = {
   skippedBlacklist: number;
   warnings: string[];
   /**
+   * DISCAT C1: normalized links (normalizeLeadUrl) of leads appended or
+   * merged into an existing row. Absent from writers that do not report
+   * per-lead fate; consumers then fall back to the aggregate counts.
+   */
+  writtenLinks?: string[];
+  /** DISCAT C1: normalized links the writer did not write, with why. */
+  skippedLinks?: PipelineSkippedLink[];
+  /**
    * Present when a write error occurred. Indicates the phase where the error
    * happened (update or append) and the error details.
    */
   writeError?: {
-    phase: "update" | "append";
+    phase: "token" | "read" | "update" | "append";
     message: string;
     httpStatus?: number;
     detail?: string;
+    code?: string;
+    host?: string;
   };
 };
 
@@ -910,6 +930,27 @@ export type DiscoveryRunLifecycle = {
    * VAL-LOOP-OBS-004: Reason attribution differentiates dominant failure classes.
    */
   failureClass?: LoopFailureClass;
+  /**
+   * DISCAT D9: what the filters removed this run, out of listings seen.
+   * Absent on runs from before DISCAT.
+   */
+  filterStats?: DiscoveryRunFilterStats;
+};
+
+/**
+ * DISCAT D9: per-run filter attribution. A listing that matched several
+ * exclude keywords counts once toward each of them.
+ */
+export type DiscoveryRunFilterStats = {
+  listingsSeen: number;
+  listingsRejected: number;
+  /**
+   * Rejections by reason code, e.g. { remote_unknown: 1181 }. Codes are the
+   * LeadNormalizationRejectionReason union in normalize/lead-normalizer.ts.
+   */
+  byReason: Record<string, number>;
+  /** Top exclude keywords by listings removed, largest first (max 20). */
+  byExcludeKeyword: Array<{ keyword: string; count: number }>;
 };
 
 /**
@@ -1006,6 +1047,12 @@ export type LoopCounters = {
   duplicateSuppressions: number;
   /** Number of cross-lane duplicate collapses (same opportunity from ATS+browser). */
   crossLaneDuplicates: number;
+  /** DISCAT C2 (D7): boards not re-listed because this run already listed them. */
+  atsBoardDuplicatesSkipped?: number;
+  /** DISCAT C2 (D7): ATS targets folded into another target for the same company. */
+  atsTargetsMerged?: number;
+  /** DISCAT C2 (D6): ATS companies skipped this run by the zero-yield cooldown. */
+  atsCompaniesCooledDown?: number;
 };
 
 export type DiscoveryRunStatus =
@@ -1014,6 +1061,7 @@ export type DiscoveryRunStatus =
   | "completed"
   | "partial"
   | "empty"
+  | "write_failed"
   | "failed";
 
 export type DiscoveryRunStats = {
@@ -1067,6 +1115,8 @@ export type DiscoveryRunStatusPayload = {
   completedAt?: string;
   lifecycle?: DiscoveryRunLifecycle;
   writeResult?: PipelineWriteResult;
+  /** Private retry payload; never returned by the HTTP status route. */
+  selectedLeads?: NormalizedLead[];
   runStats?: DiscoveryRunStats;
   warnings: string[];
   sources: DiscoverySourceSummary[];
@@ -1454,6 +1504,8 @@ export type IntentCoverageRecord = {
   listingsWritten: number;
   startedAt: string;
   completedAt: string;
+  /** Listings that passed the filters in this run (planner snapshot only). */
+  listingsAccepted?: number;
 };
 
 export type DiscoveryExploitOutcomeWrite = {
@@ -1508,6 +1560,14 @@ export type DiscoveryRoleFamilyRecord = {
   lastConfirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type DiscoveryRoleFamilyNearMissInput = {
+  listings: Array<{
+    title: string;
+    companyKey: string;
+    sourceLane: DiscoverySourceLane | string;
+  }>;
 };
 
 export type DiscoveryRoleFamilyLearnInput = {
@@ -1602,6 +1662,113 @@ export type CompanyPlanner = {
     | PlannedCompanySelectionResult;
 };
 
+/**
+ * DISCAT D2: the fate of one unique listing a run saw. `written` and
+ * `promoted` are terminal; the others follow the latest observation.
+ */
+export const CANDIDATE_CATALOG_STATUSES = [
+  "rejected",
+  "duplicate",
+  "backlog",
+  "written",
+  "promoted",
+  "expired",
+] as const;
+
+export type CandidateCatalogStatus = (typeof CANDIDATE_CATALOG_STATUSES)[number];
+
+/** One catalog observation from a run, keyed on the listing fingerprint. */
+export type CandidateCatalogEntry = {
+  fingerprintKey: string;
+  companyKey: string;
+  title: string;
+  url: string;
+  sourceId: string;
+  status: CandidateCatalogStatus;
+  rejectReason: string;
+  rejectDetail: string;
+  fitScore: number | null;
+  matchScore: number | null;
+  /** The normalized lead, kept for `backlog` rows so a later run can write it. */
+  leadPayload: Record<string, unknown> | null;
+};
+
+export type CandidateCatalogRecord = CandidateCatalogEntry & {
+  sheetId: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  seenCount: number;
+  lastRunId: string;
+  /** The stable intent key of the run that last observed the row ('' before DISCAT fix-pass). */
+  intentKey?: string;
+};
+
+export type CandidateCatalogWrite = {
+  runId: string;
+  sheetId: string;
+  /** The run's stable intent key; backlog promotes only under the same key. */
+  intentKey?: string;
+  observedAt: string;
+  entries: CandidateCatalogEntry[];
+};
+
+export type CandidateBacklogQuery = {
+  sheetId: string;
+  /** Only rows with last_seen_at at or after this timestamp. */
+  seenSince: string;
+  /** When set, only rows recorded under this intent key. */
+  intentKey?: string;
+  excludeFingerprintKeys?: string[];
+  /**
+   * Only rows whose known fit score is at or above this; rows without a fit
+   * score stay eligible (and list after every scored row).
+   */
+  minFitScore?: number | null;
+  limit: number;
+};
+
+/** Fix-A: which of these listing fingerprints a sheet already wrote or promoted. */
+export type CandidateWrittenKeysQuery = {
+  sheetId: string;
+  fingerprintKeys: string[];
+};
+
+export type CandidatePromotion = {
+  sheetId: string;
+  runId: string;
+  promotedAt: string;
+  fingerprintKeys: string[];
+};
+
+export type CandidateCatalogPruneInput = {
+  now: string;
+  /** Rows unseen for longer than this are deleted (D4 default 90). */
+  maxAgeDays?: number;
+  /** Hard row cap, oldest last_seen first (D4 default 50,000). */
+  maxRows?: number;
+  /** Backlog rows unseen for longer than this become `expired` (D3 default 14). */
+  backlogMaxAgeDays?: number;
+};
+
+export type CandidateCatalogPruneResult = {
+  expired: number;
+  deleted: number;
+  /** listing_fingerprints rows unseen past the catalog's age limit. */
+  fingerprintsDeleted?: number;
+};
+
+export type CandidateCatalogListQuery = {
+  status?: CandidateCatalogStatus | null;
+  sheetId?: string | null;
+  limit?: number | null;
+};
+
+export type CandidateCatalogListResult = {
+  rows: CandidateCatalogRecord[];
+  counts: Partial<Record<CandidateCatalogStatus, number>>;
+  total: number;
+};
+
 export type DiscoveryMemoryStore = {
   loadSnapshot(input: {
     run: DiscoveryRun;
@@ -1657,6 +1824,28 @@ export type DiscoveryMemoryStore = {
     | Promise<DiscoveryRoleFamilyRecord | null>
     | DiscoveryRoleFamilyRecord
     | null;
+  /**
+   * DISCAT D8: add one near miss per role family for this run's near-miss
+   * titles. Does not record the rejected titles as role variants.
+   */
+  learnRoleFamilyNearMisses?(
+    input: DiscoveryRoleFamilyNearMissInput,
+  ): Promise<{ familiesIncremented: number }> | { familiesIncremented: number };
+  /** DISCAT C1: record every unique listing a run saw, in one transaction. */
+  recordCandidateCatalog?(
+    input: CandidateCatalogWrite,
+  ): Promise<{ recorded: number }> | { recorded: number };
+  listBacklogCandidates?(
+    query: CandidateBacklogQuery,
+  ): Promise<CandidateCatalogRecord[]> | CandidateCatalogRecord[];
+  /** Fix-A: the given keys this sheet already wrote or promoted. */
+  listWrittenCandidateKeys?(
+    query: CandidateWrittenKeysQuery,
+  ): Promise<string[]> | string[];
+  markCandidatesPromoted?(input: CandidatePromotion): Promise<void> | void;
+  pruneCandidateCatalog?(
+    input: CandidateCatalogPruneInput,
+  ): Promise<CandidateCatalogPruneResult> | CandidateCatalogPruneResult;
 };
 
 export type BrowserUseSessionRequest = {

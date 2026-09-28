@@ -1,0 +1,296 @@
+{
+ "could_not_run": [],
+ "lane": "G",
+ "sha": "f227fbb",
+ "summary": "All 16 in-scope finding rows (G1-G6 P0/P1 plus G7-G11, G14, G16-G18, G20 CONFIRMED) REPRODUCED on f227fbb, and all 16 focused test files REPRODUCED as passing (119/119 total, matching the report's floor). G4's browser\u2192proxy half reproduced; its server-chain half remains INFERRED per the no-tunnel/no-deploy boundary, as the report itself lists under \u00a75. Zero rows NOT-REPRODUCED, zero UNCLEAR, zero could-not-run. Live-stack read-only checks (GET status codes, lsof binds) matched the report exactly, and the tree was left clean (git status empty, sandbox servers stopped).",
+ "verdicts": [
+  {
+   "command": "node .lane-evidence/probes/g-relay-open-proxy.mjs",
+   "id": "G1",
+   "note": "REPRODUCED: anonymous POSTs to /, /webhook and /anything/else all relayed (202) with DISCOVERY_SECRET injected upstream. Matches evidence templates/cloudflare-worker/worker.js:60-78 (`if (env.FORWARD_SECRET) {...} else if (...pathname === \"/\") { useTargetPath = true; }`) and :112-114 (`upstreamHeaders[\"x-discovery-secret\"] = env.DISCOVERY_SECRET;`), shipped via scripts/deploy-cloudflare-relay.mjs:34 (`templateDir = join(repoRoot, \"templates\", \"cloudflare-worker\")`).",
+   "output_excerpt": "anon POST / -> relay 202\nanon POST /webhook -> relay 202\nanon POST /anything/else -> relay 202\nupstream saw: [\n {\"path\": \"/webhook\", \"secret\": \"probe-secret\", \"body\": \"{\\\"event\\\":\\\"command-center.discovery\\\",\\\"sheetId\\\":\\\"attacker\\\"}\" },\n {\"path\": \"/webhook\", \"secret\": \"probe-secret\", ...},\n {\"path\": \"/anything/else\", \"secret\": \"probe-secret\", ...}\n]",
+   "sev": "P0",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/g-profile-rebind.sh",
+   "id": "G2",
+   "note": "REPRODUCED: foreign Host evil.example:18170 with Sec-Fetch-Site: same-origin read (200) and wrote (200, PROBE-REBIND-WRITE read back) the profile, while the same headers got 403 on /__proxy and cross-site got 403. First GET showed the audit lane's persisted sandbox-HOME profile (updatedAt 10:40:13Z) rather than no_profile, but the fresh write chain re-stamped it (11:02:05Z). Matches dev-server.mjs:220-231 (`isSameOriginProfileRequest`: `isLocalOrigin` OR loopback + `sec-fetch-site === \"same-origin\"`, no Host check).",
+   "output_excerpt": "== GET /profile (rebound, same-origin fetch shape)\n{\"ok\":true,\"profile\":{...\"primaryNarrative\":\"PROBE-REBIND-WRITE: ...\"...}}  [200]\n== POST /profile (rebound...) -> invalid_profile [400] (reached validation, not 403)\n== control /__proxy/discovery-webhook-secret -> {\"ok\":false,\"reason\":\"forbidden\"} [403]\n== control cross-site -> {\"ok\":false,\"reason\":\"forbidden\"} [403]\n== full write chain -> {\"ok\":true,\"updatedAt\":\"2026-09-25T11:02:05.951Z\",...} [200]\n== readback -> PROBE-REBIND-WRITE",
+   "sev": "P0",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/g-static-traversal.sh",
+   "id": "G3",
+   "note": "REPRODUCED byte-for-byte vs \u00a74: denylist blocks (.env, config.js any case, bootstrap json, profile md, %00, encoded traversal) while gitignored-shaped artifacts serve 200 including under foreign Host evil.example. Live :8080 read-only GETs confirmed: 200 tmp/jobbored-dev.log, 200 docs/redesign/logs/fe-dashboard.log, 200 tmp/reauth-google-token.py, 403 /.env, 403 /discovery-local-bootstrap.json (bodies discarded). Matches scripts/lib/static-path-guard.mjs:7-29 denylist (`DENIED_BASENAMES`, `DENIED_PATHS`, `DENIED_PATH_PREFIXES`) served via dev-server.mjs:704 with no Host check.",
+   "output_excerpt": "403 /.env :: Forbidden\n403 /config.js :: Forbidden\n403 /discovery-local-bootstrap.json :: Forbidden\n400 /%E0%A4%A :: Bad request\n403 /integrations/hermes-job-hunt/profile/profile.md :: Forbidden\n200 /tmp/jobbored-dev.log :: CANARY-probe-tmp-log\n200 /docs/redesign/logs/fe-dashboard.log :: CANARY-probe-swarm-log\n200 /uploads/resume.txt :: CANARY-probe-upload\n200 /integrations/hermes-job-hunt/profile/export.zip :: CANARY-probe-zip\n200 Host:evil.example /tmp/jobbored-dev.log + CANARY body",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/g-autodetect-fullboot.mjs",
+   "id": "G4",
+   "note": "REPRODUCED (browser\u2192proxy half): worker-down autodetect POSTs /__proxy/full-boot with body `{}` and no skip_tunnel. Server-chain half (tunnel + relay deploy) not run per the no-tunnel/no-deploy boundary; report itself lists it under \u00a75 Unverified. Code path matches discovery-autodetect.js:115-125 (recoverIfPossible) as called by discovery-wizard-ui.js:2729, full-boot at dev-server.mjs:1199-1216,1302.",
+   "output_excerpt": "[{\"url\": \"/__proxy/discovery-state\", \"method\": \"GET\"},\n {\"url\": \"/__proxy/full-boot\", \"method\": \"POST\", \"body\": \"{}\"},\n {\"url\": \"/__proxy/discovery-state\", \"method\": \"GET\"}]\nfull-boot URL carries skip_tunnel? false\nverdict: {\"ready\":false,\"recommendation\":\"needs_human\",\"hint\":\"recovery_attempted_still_unhealthy\",...}",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (browser\u2192proxy) / INFERRED (server chain)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/g-port-collision.sh",
+   "id": "G5",
+   "note": "REPRODUCED: foreign (Hermes-shaped) listener on 18175 \u2192 starter exit=1 with unhandled EADDRINUSE stack then the false line `something else terminated the listener on port 18175`, naming neither the owner nor the fix. Matches scripts/start-discovery-worker-local.mjs:212-227,334-352 and package.json:25 (`concurrently -k`).",
+   "output_excerpt": "starter exit=1\nError: listen EADDRINUSE: address already in use 127.0.0.1:18175\n  code: 'EADDRINUSE', errno: -48, syscall: 'listen', port: 18175\nNode.js v24.13.0\n[start:discovery-worker] worker exited (code=1, signal=none) \u2014 something else terminated the listener on port 18175.",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/g-respawn-hold.sh",
+   "id": "G6",
+   "note": "REPRODUCED: after killing the reused fake worker, the starter stayed alive holding nothing \u2014 no listener on 18173, health 000, log unchanged (`reusing existing process`). Matches scripts/start-discovery-worker-local.mjs:229-239,347-351 (reuse path with no re-probe). Status in report is IN-FLIGHT #111.",
+   "output_excerpt": "starter log:\n[start:discovery-worker] browser-use discovery worker already running at http://127.0.0.1:18173; reusing existing process.\nkilled reused worker pid=26006; waiting 12s\nstarter subshell alive: yes\nlistener on 18173: (empty = nothing)\nhealth on 18173 -> 000\nstarter log after kill: [same single reuse line]",
+   "sev": "P1",
+   "status_in_report": "IN-FLIGHT #111",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/g-fullboot-foreign-checkout.mjs",
+   "id": "G7",
+   "note": "REPRODUCED: killFullBootStalePorts killed PID 4242 (another checkout's `...Other-Checkout.worktrees/ux01/.../server.ts`) while blocking only the Hermes listener. Matches dev-server.mjs:1078-1084,1104-1170 (command-contains-`browser-use-discovery` = ours).",
+   "output_excerpt": "{\"killed\": [4242], \"blocked\": [{\"pid\": 4343, \"action\": \"Stop the foreign listener on port 8644, or rerun with --port ...\"}]}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/g-autostart-status-artifact.mjs",
+   "id": "G8",
+   "note": "REPRODUCED: an unparsable junk plist planted in sandbox HOME (never loaded by launchd) reports installed:true. Matches scripts/install-discovery-worker-autostart.mjs:291-306 (file-exists status) via dev-server.mjs:1900.",
+   "output_excerpt": "planted: $SANDBOX_HOME/Library/LaunchAgents/ai.jobbored.discovery.worker.plist\nstatus: {\"installed\":true,\"jobLabel\":\"ai.jobbored.discovery.worker\",\"port\":\"8644\"}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/g-keepalive-tailscale.mjs",
+   "id": "G9",
+   "note": "REPRODUCED: *.ts.net target infers kind \"\" and falls through to the ngrok API (fetched 127.0.0.1:4040/api/tunnels), returning ngrok_api_down. Matches scripts/lib/discovery-transport.mjs:25-30,130-160 and scripts/discovery-keep-alive.mjs:294-313.",
+   "output_excerpt": "inferTransportKindFromUrl(ts.net) = \"\"\nresult: {\"ok\":false,\"reason\":\"ngrok_api_down\"}\nfetched: [ 'http://127.0.0.1:4040/api/tunnels' ]\nspawned: []",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "curl -s -D - -o /dev/null http://127.0.0.1:18170/ ; grep -rn \"buildContentSecurityPolicy(\" --include='*.mjs' .",
+   "id": "G10",
+   "note": "REPRODUCED: served CSP is the fixed list from \u00a74 (style-src lacks accounts.google.com; connect-src has no custom-origin slot) and the only non-test call site is dev-server.mjs:688 `buildContentSecurityPolicy()` with no extraConnectSrc. Policy builder at scripts/lib/browser-csp-policy.mjs:78-104 accepts options the server never passes.",
+   "output_excerpt": "content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com https://docs.google.com; style-src 'self' 'unsafe-inline'; ... connect-src 'self' https://accounts.google.com ... http://127.0.0.1:* http://localhost:* https://*.ts.net https://*.workers.dev ...\n./dev-server.mjs:688: \"content-security-policy\": buildContentSecurityPolicy(),",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/g-port-collision.sh ; grep -c \"KEY <-\\|env-source\\|<-.*\\.env\" .lane-evidence/starter-collision.log",
+   "id": "G11",
+   "note": "REPRODUCED: layering confirmed at scripts/start-discovery-worker-local.mjs:13-17 (`integrations/browser-use-discovery/.env`, `server/.env`, workerEnv, later overrides earlier per :33-49) and the starter log has zero env-source lines (grep count 0), so precedence is silent and server/.env keys flow into the worker with no attribution.",
+   "output_excerpt": "starter exit=1 ... [same EADDRINUSE log as G5]\ngrep -c env-source lines -> 0",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/g-env-writer-dollar.mjs",
+   "id": "G14",
+   "note": "REPRODUCED: newline value rejected with ENV_VALUE_CONTROL_CHARS but value `probe$'` expanded `$'` so the rest of the file was duplicated into SERPAPI_API_KEY's slot. Matches scripts/bootstrap-local-discovery.mjs:645 (String.replace with string replacement).",
+   "output_excerpt": "newline value: ENV_VALUE_CONTROL_CHARS\nafter value \"probe$'\":\nSERPAPI_API_KEY=probe\nBROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret\n\nBROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=$PWD/.lane-evidence/home npm test -- <16 files, run per-file> ; sed -n '110,120p' tests/cloudflare-relay-secret-injection.test.mjs",
+   "id": "G16",
+   "note": "REPRODUCED: all 16 focused files pass individually (4+5+5+10+7+7+9+5+9+7+8+7+8+12+15+1 = 119 pass, 0 fail), and tests/cloudflare-relay-secret-injection.test.mjs:116 `it(\"injects DISCOVERY_SECRET as x-discovery-secret on the upstream POST\"` asserts the G1 unauthenticated injection as correct behavior, confirming the gap claim for G1/G2/G3/G5/G6/G7 coverage.",
+   "output_excerpt": "per-file: pass 4,5,5,10,7,7,9,5,9,7,8,7,8,12,15,1; fail 0 everywhere (total 119/119)\ntests/cloudflare-relay-secret-injection.test.mjs:116: it(\"injects DISCOVERY_SECRET as x-discovery-secret on the upstream POST\", ...)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -rn \"tunnelMatchesPort\\|listListeningPids\\|resolveWebhookSecret\\|pickNgrokPublicUrl\\|parseEnvFile\\|normalizeCorsOrigin\" dev-server.mjs scripts/ | head -n 30",
+   "id": "G17",
+   "note": "REPRODUCED: all duplication sites confirmed at the cited lines \u2014 tunnelMatchesPort \u00d73 (dev-server.mjs:2137, bootstrap:1180, keep-alive:124), listListeningPids \u00d73 (dev-server.mjs:1046, start-scraper:104, starter:246), resolveWebhookSecret \u00d72 (bootstrap:723, starter:144), pickNgrokPublicUrl \u00d72 (bootstrap:1196, keep-alive:134), parseEnvFile \u00d72 + parseEnvFileText (env-file-merge.mjs:12), normalizeCorsOrigin \u00d72 (deploy:306, bootstrap:334); deploy template at deploy-cloudflare-relay.mjs:34-36 vs undeployed integrations/cloudflare-relay-template.",
+   "output_excerpt": "dev-server.mjs:2137, bootstrap:1180, keep-alive:124 tunnelMatchesPort\ndev-server.mjs:1046, start-scraper:104, starter:246 listListeningPids\nbootstrap:723, starter:144 resolveWebhookSecret\nbootstrap:1196, keep-alive:134 pickNgrokPublicUrl\nbootstrap:561, scraper:15 parseEnvFile; env-file-merge.mjs:12 parseEnvFileText\ndeploy:306, bootstrap:334 normalizeCorsOrigin\ndeploy:34 templateDir = templates/cloudflare-worker",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "wc -l dev-server.mjs scripts/bootstrap-local-discovery.mjs scripts/deploy-cloudflare-relay.mjs",
+   "id": "G18",
+   "note": "REPRODUCED: exact line counts \u2014 dev-server.mjs 2732, bootstrap-local-discovery.mjs 1884, deploy-cloudflare-relay.mjs 1040 \u2014 matching \u00a74; the six-seam structure (static :704, profile proxy :203-295, router :2317-2630, lifecycle :351-650/:1024-1330, Tailscale :1372-1745, installers :1747-1948) verified by reading the cited regions.",
+   "output_excerpt": "2732 dev-server.mjs\n1884 scripts/bootstrap-local-discovery.mjs\n1040 scripts/deploy-cloudflare-relay.mjs",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '10,30p' package.json ; sed -n '170,190p' .github/workflows/ci.yml",
+   "id": "G20",
+   "note": "REPRODUCED: package.json:18 `\"postinstall\": \"npm install --prefix ./server && node scripts/install-repo.mjs --stamp-only\"` and ci.yml audit-prod (177-186) runs bare `npm audit --omit=dev --audit-level=high` with no working-directory/--prefix so server/package-lock.json is never audited; dependabot.yml:48 covers /server weekly as stated.",
+   "output_excerpt": "\"postinstall\": \"npm install --prefix ./server && node scripts/install-repo.mjs --stamp-only\",\naudit-prod: runs-on ubuntu-latest; steps: checkout, setup-node 24, `npm audit --omit=dev --audit-level=high` (no server prefix)\ndependabot.yml:48 directory: \"/server\"",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/browser-csp-policy.test.mjs",
+   "id": "TEST:tests/browser-csp-policy.test.mjs",
+   "note": "Floor file passes 4/4.",
+   "output_excerpt": "\u2139 tests 4\n\u2139 suites 1\n\u2139 pass 4\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-cross-os-hygiene.test.mjs",
+   "id": "TEST:tests/dev-server-cross-os-hygiene.test.mjs",
+   "note": "Floor file passes 5/5.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 3\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-discovery-state.test.mjs",
+   "id": "TEST:tests/dev-server-discovery-state.test.mjs",
+   "note": "Floor file passes 5/5.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 1\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-proxy-cors-handshake.test.mjs",
+   "id": "TEST:tests/dev-server-proxy-cors-handshake.test.mjs",
+   "note": "Floor file passes 10/10.",
+   "output_excerpt": "\u2139 tests 10\n\u2139 suites 4\n\u2139 pass 10\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-proxy-same-origin-get.test.mjs",
+   "id": "TEST:tests/dev-server-proxy-same-origin-get.test.mjs",
+   "note": "Floor file passes 7/7.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 suites 2\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-security-hardening.test.mjs",
+   "id": "TEST:tests/dev-server-security-hardening.test.mjs",
+   "note": "Floor file passes 7/7.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 suites 2\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-static-perimeter.test.mjs",
+   "id": "TEST:tests/dev-server-static-perimeter.test.mjs",
+   "note": "Floor file passes 9/9.",
+   "output_excerpt": "\u2139 tests 9\n\u2139 suites 4\n\u2139 pass 9\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/dev-server-tailscale.test.mjs",
+   "id": "TEST:tests/dev-server-tailscale.test.mjs",
+   "note": "Floor file passes 5/5.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 1\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/discovery-transport.test.mjs",
+   "id": "TEST:tests/discovery-transport.test.mjs",
+   "note": "Floor file passes 9/9.",
+   "output_excerpt": "\u2139 tests 9\n\u2139 suites 0\n\u2139 pass 9\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/discovery-worker-autostart.test.mjs",
+   "id": "TEST:tests/discovery-worker-autostart.test.mjs",
+   "note": "Floor file passes 7/7.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 suites 0\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/discovery-worker-starter-policy.test.mjs",
+   "id": "TEST:tests/discovery-worker-starter-policy.test.mjs",
+   "note": "Floor file passes 8/8 (pure policy functions, consistent with G16 gap claim about the supervision loop).",
+   "output_excerpt": "\u2139 tests 8\n\u2139 suites 2\n\u2139 pass 8\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/discovery-worker-env-merge.test.mjs",
+   "id": "TEST:tests/discovery-worker-env-merge.test.mjs",
+   "note": "Floor file passes 7/7.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 suites 2\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/discovery-worker-env-parity.test.mjs",
+   "id": "TEST:tests/discovery-worker-env-parity.test.mjs",
+   "note": "Floor file passes 8/8.",
+   "output_excerpt": "\u2139 tests 8\n\u2139 suites 1\n\u2139 pass 8\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/keep-alive.test.mjs",
+   "id": "TEST:tests/keep-alive.test.mjs",
+   "note": "Floor file passes 12/12.",
+   "output_excerpt": "\u2139 tests 12\n\u2139 suites 0\n\u2139 pass 12\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/sixbeats-b1-profile-proxy.test.mjs",
+   "id": "TEST:tests/sixbeats-b1-profile-proxy.test.mjs",
+   "note": "Floor file passes 15/15.",
+   "output_excerpt": "\u2139 tests 15\n\u2139 suites 3\n\u2139 pass 15\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-dockerignore.test.mjs",
+   "id": "TEST:tests/server-dockerignore.test.mjs",
+   "note": "Floor file passes 1/1.",
+   "output_excerpt": "\u2139 tests 1\n\u2139 suites 1\n\u2139 pass 1\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

@@ -65,8 +65,10 @@ const PUBLIC_ROOT_DOCUMENTS = new Set(["AGENT_CONTRACT.md"]);
 // Single files outside the public directories that the dashboard loads
 // as classic scripts. Named one by one — server/ as a whole stays dark
 // (BEAUDIT G3); only the Fit Profile share (consumed by B3's serverless
-// fallback) is public.
-const PUBLIC_FILES = new Set(["server/profile-draft-shared.js"]);
+// fallback) and the "Your voice" share (the chatbot prompt and the guide
+// checks the wizard step and Settings run in the page) are public. Both
+// are pure code with no secrets, written to run as a <script>.
+const PUBLIC_FILES = new Set(["server/profile-draft-shared.js", "server/profile-voice-shared.js"]);
 
 function extensionOf(segment) {
   const index = segment.lastIndexOf(".");

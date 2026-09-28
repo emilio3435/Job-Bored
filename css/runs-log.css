@@ -1220,6 +1220,34 @@
   }
 }
 
+/* ------------------------------------------------------------------
+   DISCAT D9 — the filter hint: up to two factual lines under a finished
+   run's row, stating which filter removed at least a quarter of the
+   listings it saw. Scoped under #runsModal like the run story, so the
+   jb-v2 type ramp (body.jb-v2 p) never out-ranks it.
+   ------------------------------------------------------------------ */
+#runsModal .runs-table tbody tr.runs-filter-hint-row > td,
+#runsModal .runs-table tbody tr.runs-filter-hint-row:hover > td,
+#runsModal .runs-table tbody tr.runs-filter-hint-row:nth-child(even) > td {
+  padding-top: 0;
+  border-top: 0;
+  background: transparent;
+  white-space: normal;
+  text-align: left;
+}
+
+#runsModal .runs-table tbody tr.runs-row:has(+ .runs-filter-hint-row) > td {
+  border-bottom: 0;
+}
+
+#runsModal .runs-filter-hint {
+  margin: 0;
+  font-size: var(--jb-text-xs);
+  line-height: 1.4;
+  color: var(--jb-ink-3);
+  overflow-wrap: anywhere;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #runsModal .runs-story[data-reveal] :is(.runs-funnel__bar, .runs-timeline__bar, .runs-fit__bin) {
     animation: none;

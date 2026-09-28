@@ -25,7 +25,12 @@ and both checks are added to the branch-protection ruleset.
 
 1. Delete `continue-on-error: true` from both jobs.
 2. Add `e2e-smoke` and `e2e-journey` to the GitHub ruleset required checks
-   (alongside `contract-tests`, `test`, and `scan`).
-3. Keep `npx playwright install --with-deps chromium` in those jobs.
+   (alongside `contract-tests`, `test`, and `scan`). `e2e-journey` is a
+   Playwright `--shard` matrix whose checks are named `e2e-journey (1/3)` … `(3/3)`:
+   either require each shard name, or add an aggregate
+   job named `e2e-journey` that `needs:` the shards (as `test` does for
+   `test-shard`).
+3. Keep the Playwright browser install (cached `~/.cache/ms-playwright`,
+   `install --with-deps` on a miss, `install-deps` on a hit) in those jobs.
 
 Do not flip the switch while Gate A–D is still PENDING.

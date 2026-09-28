@@ -1,0 +1,12 @@
+== P1 critic on templates with a clean writer letter (F2) ==
+status: fail | issues: resume_page_count_high:fail, banned_filler:review
+banned phrase source: template line 34 (an HTML comment)
+== P2 resume source shadowing (F5) ==
+from-resume with body -> staged_request | cached to $HOME/.jobbored/resume.txt
+next stored-resume reader -> worker_config "OLD resume from worker-config"
+== P3 writingSamples cannot be saved, so the drafter's profile voice branch is dead (F10) ==
+validateProfile(+writingSamples).ok = false | must NOT have additional properties {"additionalProperty":"writingSamples"}
+== P4 profile write window + unbounded backups (F6) ==
+concurrent reads=727, reads that saw no_profile during saves=363
+backup files after 41 saves: 40
+done; sandbox .lane-evidence/home-pc-1790333088285 exists: true

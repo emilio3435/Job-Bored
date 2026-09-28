@@ -1,0 +1,93 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/verify-x/C-ssrf-session-wrapped.mjs (adapted from probes/C/C-ssrf-session.mjs, port 18130->19020)",
+      "excerpt": "session(no command) loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed code=SSRF_BLOCKED\"\nsession(no command) redirect -> \"BLOCKED: Local and private-network scrape targets are not allowed code=SSRF_BLOCKED\"\nsession(command fails -> fetch_fallback) -> \"BLOCKED: Local and private-network scrape targets are not allowed code=SSRF_BLOCKED\"\nsafeFetch loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nEXIT:0\n(orig defect: {\"mode\":\"fetch\",\"text\":\"PROBE-INTERNAL-SECRET...\"} for all three)",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",\"instruction\":\"x\",\"timeoutMs\":3000}' | HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home AGENT_BROWSER_PATH=/tmp/verify-x/fake-agent-browser.sh BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=/tmp/verify-x/sock node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs (adapted from probes/C/C-ssrf-browser-command.sh)",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed\nexit=1\n--- argv seen by agent-browser:\n(no argv file: browser never spawned)\n(orig: exit=0 with `open http://169.254.169.254/latest/meta-data/`)",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/verify-x/p14-cleanup-loopback-fetch.mjs (adapted from probes/D/p14-cleanup-loopback-fetch.mjs, port 18140->19021)",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url\nblocked\nEXIT:0\n(orig: hits [\"/internal-only\"] classification open + DEFECT CONFIRMED)",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-x/C-safefetch-redirect-headers.mjs (adapted from probes/C/C-safefetch-redirect-headers.mjs, import->bbuild-x)",
+      "excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false}\nEXIT:0\n(orig second hop: POST with apiKey + body)",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --test --test-name-pattern=\"C9 safeFetch streaming body cap\" tests/safe-fetch-egress.test.mjs (no hermetic probe in probes/; Lane C \u00a75 needs external https://speed.hetzner.de/100MB.bin, out of bounds)",
+      "excerpt": "\u2714 errors the body and cancels the source once maxBytes is passed\n\u2714 rejects up front when content-length is over maxBytes\n\u2714 passes bodies under the cap through untouched and keeps the final URL\n\u2714 tags blocked targets with code SSRF_BLOCKED\n\u2139 tests 4 / pass 4 / fail 0\nEXIT:0",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/verify-x/probe-e-ssrf.mjs (adapted from probes/E/probe-e-ssrf.mjs, import->bbuild-x)",
+      "excerpt": "blocked  literal  http://[64:ff9b::7f00:1]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[64:ff9b::a9fe:a9fe]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[2002:7f00:1::]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://198.18.0.1/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[fec0::1]/  (Local and private-network scrape targets are not allowed)\nblocked  dns->64:ff9b::7f00:1  https://a.example/job\nblocked  dns->2002:a9fe:a9fe::1  https://b.example/job\nblocked  dns->10.0.0.5  https://c.example/job\nEXIT:0\n(orig: ALLOWED for NAT64/6to4/198.18/fec0 literals and first two DNS cases)",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts (C16 test-gap has no \u00a74 probe; verified via added SSRF cases)",
+      "excerpt": "\u2714 session refuses a loopback page on the real transport and the server sees no hit\n\u2714 session refuses a loopback URL before calling fetch\n\u2714 session refuses a redirect to cloud metadata and never fetches the second hop\n\u2714 session refuses a hostname that resolves to loopback (127.0.0.1.nip.io)\n\u2714 session refuses a private URL before spawning the browser command, with no fetch fallback\n\u2714 session fetch fallback after a failed command is also guarded\n\u2714 session caps an endless page body instead of buffering it\n\u2714 session passes request.abortSignal through to the fetch path\n\u2714 session decodes a gzip page before reading its title\n\u2139 tests 9 / pass 9 / fail 0\nEXIT:0",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.ZDLJ0iPTs8\n> eslint . (clean)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.EZvp6WjxdS\n> tsc browser-use-discovery + server + node --check chain (no errors)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.Fidh0AGSVm\n\u2716 an unknown API route answers a JSON 404, not HTML # target behavior; fix owned by wave-1 lane L (todo)\n\u2716 the server scraper accepts a camelCase success response # target behavior; fix owned by wave-1 lane Q (todo)\n\u2716 the browser copy reads urlContextMetadata too # target behavior; fix owned by wave-1 lane Q (todo)\n\u2716 persists and can remove the canonical submission evidence record # blocked on canonical-ownership gate (todo)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.5F6emvG5fB\n\u2139 tests 759\n\u2139 pass 759\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.aYBbOeD2K4\nOK schema: examples/discovery-webhook-request.v1.json\nOK schema: examples/discovery-webhook-request.v1-with-profile.json\nOK schema: examples/discovery-webhook-request.v1-preview-parity.json\nOK discovery-payload.js covers schema properties\nOK discovery-readiness.js delegates to discovery-payload.js\nOK schema (ATS request)\nOK schema (ATS response)\nOK ats-scorecard.js request builder (full + sparse)\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "3c6cebae291be825018ff38d197325c028c525db",
+  "lane": "X",
+  "summary": "Lane X at 3c6cebae: all 5 floor gates pass with fresh HOME (exit 0); all 3 repair-round-2 safe-fetch deadline/guard tests pass; all 7 claims verify FIXED via adapted audit reproducers on 127.0.0.1:19020-19021 (C9/C16 have no hermetic \u00a74 probe, verified via promoted green tests). Tree left clean.",
+  "tests": [
+    {
+      "excerpt": "\u2714 keeps the deadline active for a 302 without Location whose body stalls (154.035917ms)\n\u2139 tests 1 / pass 1 / fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 keeps the deadline active for a manual-mode redirect whose body stalls (152.501625ms)\n\u2139 tests 1 / pass 1 / fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 still returns a completed manual-mode redirect with its status and Location (7.235708ms)\n\u2139 tests 1 / pass 1 / fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    }
+  ]
+}

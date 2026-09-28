@@ -1,0 +1,21 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "integrations/browser-use-discovery/src/webhook/boot-recovery.ts",
+      "line": 70,
+      "issue": "recoverAbandonedRuns increments historyWritten on any resolved promise from discoveryRunsLogger.append, but append resolves with { ok: false, reason } instead of rejecting on logging failures, counting unwritten rows as written."
+    },
+    {
+      "file": "integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts",
+      "line": 461,
+      "issue": "GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS applies a fixed 50-minute duration cap for runs using request-scoped Google access tokens without verifying the remaining token TTL, allowing an aged token to expire before the run completes."
+    },
+    {
+      "file": "schemas/discovery-webhook-request.v1.schema.json",
+      "line": 44,
+      "issue": "discoveryProfile in discovery-webhook-request.v1 schema allows sourcePreset alongside arbitrary additionalProperties without validating mutual exclusivity against legacy enabledSources at the schema level."
+    }
+  ],
+  "confidence": "high"
+}

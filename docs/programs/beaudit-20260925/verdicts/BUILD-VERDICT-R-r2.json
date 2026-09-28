@@ -1,0 +1,68 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/g1-relay-open-proxy-verify.mjs # adapted from beaudit-integration/docs/programs/beaudit-20260925/probes/G/g-relay-open-proxy.mjs (LANE-REPORT-G \u00a74 `node .lane-evidence/probes/g-relay-open-proxy.mjs`); import->bbuild-r/templates/cloudflare-worker/worker.js, port 18176->19010",
+      "excerpt": "anon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw: []\nEXIT=0\n(vs audit red: 202 x3, upstream 3 hits with probe-secret injected)",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --test tests/relay-g24-handshake.test.mjs",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.ShiRaaoVOe\n\u2714 1. deploy mints a fresh per-dashboard token, kept across a same-Worker redeploy\n\u2714 2. the token is stored in config, owner-only, and served by the guarded route\n\u2714 3-4. the dashboard sends the Bearer and the relay admits only it (anon 401, wrong 401, dashboard 202, secret injected, bearer stripped)\n\u2714 5a. setup wizard model says \"Relay locked\" once the dashboard holds the token\n\u2714 5b. deploy summary tells the user the relay is locked\n\u2139 tests 5 \u2139 pass 5 \u2139 fail 0 EXIT=0",
+      "id": "G24",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.LuwzmsM0eY\n> eslint . + lint:skills\nOK integrations/openclaw-command-center/SKILL.md\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.g1EJ6Ih9Aa\n> tsc browser-use-discovery + node --check x N + tsc server\n(no errors)\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.yQhYGc3XZC\n\u2139 tests 3163 \u2139 suites 754 \u2139 pass 3162 \u2139 fail 0 \u2139 cancelled 0 \u2139 skipped 0 \u2139 todo 1 \u2139 duration_ms 13571\nEXIT=0 (1 todo is submission-record-audit blocked-on-gate, exit 0)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.nMOQBW3uye\n\u2139 tests 741 \u2139 suites 2 \u2139 pass 741 \u2139 fail 0 \u2139 cancelled 0 \u2139 skipped 0 \u2139 todo 0\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.8z1c0D8n9g\nOK schema x3 + payload/ATS/pipeline/pipeline-update + lint:skills (12 OK lines, 0 FAIL)\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-smoke",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.GUJCZsXtWz (fresh) + PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright (fresh HOME hides browser cache)\nRunning 9 tests using 1 worker\n9 passed (14.0s)\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-journey",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.YLoKh85l09 (fresh) + PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright\nRunning 13 tests using 1 worker\n13 passed (19.5s)\nEXIT=0",
+      "passed": true
+    }
+  ],
+  "head": "d7892ac9987a93ffd1d560c563333644b7bac7d7",
+  "lane": "R",
+  "summary": "At d7892ac all 7 floors pass with fresh HOME (e2e with PLAYWRIGHT_BROWSERS_PATH to real cache), both R11 tests pass (verify-order 2/2, gha-retired 7/7), G1 FIXED (anon 401 x3, upstream empty vs audit 202 x3), G24 FIXED (handshake 5/5 exercising mint/store/send/admit/locked). Tree clean, unchanged.",
+  "tests": [
+    {
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.O4P4l30lqc\n\u2714 a first deploy verifies with the token it just uploaded\n\u2714 --rotate-token verifies with the new token, not before it is uploaded\n\u2139 tests 2 \u2139 pass 2 \u2139 fail 0 EXIT=0",
+      "file": "tests/relay-deploy-verify-order.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.g9f34Q7jRV\n\u2714 3 docs x (no-only-URL promise + 401/retired/Cron/--sheet-id/WEBHOOK_URL note) + secret-table row\n\u2139 tests 7 \u2139 pass 7 \u2139 fail 0 EXIT=0",
+      "file": "tests/relay-github-actions-retired.test.mjs",
+      "passed": true
+    }
+  ]
+}

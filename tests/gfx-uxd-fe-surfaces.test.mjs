@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /* GFX UXD-FE — the three homes of live run progress.
  *
  *   1. Runs modal: the live job-discovery row gains a progress row.
@@ -330,6 +331,7 @@ function loadDrawer(getState) {
   };
   const ctx = { window, document, console, setTimeout, clearTimeout, setInterval, clearInterval, URL };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(drawerJs, ctx, { filename: "discovery-drawer.js" });
   return { drawer: window.JobBoredDiscovery.drawer, head, getMount: () => mount };
 }

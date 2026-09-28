@@ -1,0 +1,31 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "integrations/hermes-job-hunt/scripts/universal_filler.py",
+      "line": 341,
+      "issue": "Confirmed, incomplete H4 fix: `if kind in {\"button\", \"submit\", \"hidden\"}: continue` skips required button-based comboboxes. A required, empty `<button role=\"combobox\">` produces `ok: true`, allowing submission with Country unanswered. The same probe passes incorrectly on base, so this is non-blocking."
+    },
+    {
+      "file": "integrations/hermes-job-hunt/scripts/jhos_submit.py",
+      "line": 106,
+      "issue": "Confirmed, incomplete H2 parity: `path = re.sub(r\"/+$\", \"\", parts.path) or \"/\"` omits WHATWG URL canonicalization. For `https://jobs.example.com/café`, Python preserves `café` while the worker returns `caf%C3%A9`; dot segments and internationalized hosts also differ. Gate 1 can miss the worker's canonical Link. These mismatches also exist on base."
+    },
+    {
+      "file": "integrations/hermes-job-hunt/scripts/apply-orchestrator.py",
+      "line": 347,
+      "issue": "Confirmed: `not s.get(\"ok\")` still marks successful Gate 1 and Gate 2 send steps as failures because they expose `approved` and `sent`, respectively. An all-success mocked run returns `success: false`. This patch fixes the Pipeline step's flag but leaves these two; base also returns false."
+    },
+    {
+      "file": "integrations/hermes-job-hunt/scripts/filler_profile.py",
+      "line": 23,
+      "issue": "Confirmed, incomplete H8 safeguard: `PLACEHOLDER_RE` rejects `you@example.com` but accepts the shipped `alex.candidate@example.com` template unchanged. Copying the example to filler-profile.json enables live filling with its fictional identity and personal answers. This remains non-blocking against the base's unconditional hardcoded identity."
+    },
+    {
+      "file": "integrations/hermes-job-hunt/tests/test_sheet_scripts.py",
+      "line": 90,
+      "issue": "Confirmed implementation-pinning test: the shim checks require a particular import spelling and `len(twin.splitlines()) < 30`. Removing the call to main would leave these assertions green, while harmless formatting can fail them. Exercise both CLI entrypoints with synthetic inputs and compare behavior instead."
+    }
+  ],
+  "confidence": "High for these findings; moderate overall. Confirmed clean fence and diff checks; lint and typecheck exited 0; contract checks returned 12 OK lines; selected Node tests passed 10/10. Full pytest, root/worker suites, and live integrations were not run under the read-only constraint. No files changed."
+}

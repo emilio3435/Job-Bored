@@ -106,6 +106,9 @@ export default [
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
       ".lane-evidence/**",
+      // Program records: archived specs, reports and one-off probe scripts
+      // kept as evidence, not shipped code.
+      "docs/programs/**",
       // GFX-X2: nested git worktrees and Muse lane state are other
       // checkouts, not this one — linting them fails lint:repo on code
       // this tree does not own.

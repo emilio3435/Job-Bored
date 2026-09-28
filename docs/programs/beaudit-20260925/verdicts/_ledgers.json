@@ -1,0 +1,493 @@
+{
+ "A": [
+  [
+   "SEC-05 (worker half)",
+   "PRIOR-OPEN \u2192 A1",
+   "0a17994 fixed `/runs/%E0%A4%A` (now a clean 400, run-status-auth.ts:88-99), but `//` still kills the process at server.ts:1021."
+  ],
+  [
+   "DISC-02",
+   "PRIOR-FIXED 0a17994",
+   "Parser preserves `mergedUserProfile` (handle-discovery-webhook.ts:950-958); ajv validation at run-discovery.ts:348. Stripping is shallow (A15)."
+  ],
+  [
+   "RUN-01",
+   "PRIOR-FIXED 0a17994",
+   "Store ignores writes after terminal (run-status-store.ts:188-196); test `F1B-RUN01-IMMUT` passes. Residual: memory-before-disk ordering (A2)."
+  ],
+  [
+   "RUN-02",
+   "PRIOR-FIXED 0a17994 (persist before dispatch, handle-discovery-webhook.ts:384-398) + IN-FLIGHT #102 (duplicate on retry, A6)",
+   "\u2014"
+  ],
+  [
+   "RUN-03 (server half)",
+   "PRIOR-FIXED 0a17994 (INFERRED)",
+   "Every `/runs/:id` body echoes `runId`, `updatedAt` and a monotonic `progress.sequence`, so clients can guard generations; snapshots survive restart. The client-side timeout and generation guard belong to the browser lane."
+  ],
+  [
+   "RUN-05",
+   "PRIOR-OPEN (partial) \u2192 A5, A9",
+   "Watchdog and catastrophic paths now finalize history (handle-discovery-webhook.ts:293-305, 360, 414, 485). Restart-abandon writes none (CONFIRMED); GIS-token expiry at minute 60 (INFERRED)."
+  ],
+  [
+   "P2-RUNTOKEN",
+   "PRIOR-FIXED 0a17994",
+   "`x-run-status-token` is in the CORS allow list (origin-guard.ts:35); nested and traversal IDs return 400 (probe: `/runs/a%2Fb`, `/runs/..%2F..`)."
+  ],
+  [
+   "P2-PIPEUPD",
+   "PRIOR-FIXED 0a17994",
+   "event, schemaVersion, sheetId, job, field allowlist and enums are validated before the patch (handle-pipeline-update.ts:43-102); schema and code enums match (probe)."
+  ],
+  [
+   "P2-MULTISHEET",
+   "PRIOR-FIXED 0a17994",
+   "`applySheetConfigMutation` keeps sibling sheets and top-level keys (effective-intent.ts:316-339; probe in \u00a74)."
+  ],
+  [
+   "TD-007",
+   "PRIOR-FIXED eca8aa6",
+   "`typecheck:browser-use-discovery` (strict) runs in CI through `typecheck:repo` (ci.yml:53). Residual: tests are outside `include` (A14)."
+  ],
+  [
+   "TD-008",
+   "PRIOR-OPEN \u2192 A7, A18",
+   "Validation is still hand-written and drifts from the schema; `SourceAdapter.normalize` is still unused."
+  ],
+  [
+   "Wishlist T1-8 Source-quality run drill-down",
+   "PRIOR-OPEN \u2192 A19",
+   "Per-run data is durable; there is no list or reopen endpoint. #102 adds only a read helper."
+  ]
+ ],
+ "B": [
+  [
+   "DISC-03",
+   "PRIOR-FIXED 0a17994",
+   "Worker guard and config use `buildEffectiveIntent` over searchPlan, profileSnapshot and mergedUserProfile (`effective-intent.ts:106-175`; `handle-discovery-webhook.ts:574,752`); tests F1C-DISC03 pass (\u00a74). Browser twin `discovery-effective-intent.js:146` belongs to lane A and was not re-verified."
+  ],
+  [
+   "DISC-04",
+   "PRIOR-FIXED 0a17994",
+   "Blocklist is subtracted from both pools (`effective-intent.ts:280-283`, `config.ts:979-987`, runtime ATS pool `run-discovery.ts:664-672`) and post-filtered on leads (`:1261-1282`). In unrestricted grounded runs it applies only after extraction: honored, but the extraction is still paid for."
+  ],
+  [
+   "DISC-05",
+   "PRIOR-FIXED 0a17994 (residual B11)",
+   "The opt-out removes grounded_web from effectiveSources (`effective-intent.ts:201`, `config.ts:1036-1041`), but the ATS host-search fallback still calls Gemini google_search."
+  ],
+  [
+   "DISC-06",
+   "PRIOR-FIXED 0a17994 (residual B13)",
+   "An unknown-only allowlist returns `blocked_unresolved` \u2192 400 (`handle-discovery-webhook.ts:549-560`), and broadening needs an explicit `allowUnrestrictedFallback`. A mixed allowlist drops unknowns silently. IN-FLIGHT #110 seeds ephemeral companies from an empty-catalog allowlist."
+  ],
+  [
+   "PIPE-03",
+   "PRIOR-OPEN (worker half) \u2192 B1",
+   "The worker frontier still saturates the 1\u201310 scale; reproducer `B-frontier-saturation`. The Lattice UI half belongs to UX01 / lane D."
+  ],
+  [
+   "RUN-06",
+   "PRIOR-FIXED 0a17994",
+   "`applyRetryBroadeningGate` sits in the outbound ladder (`grounded-search.ts:415`); F4B-RUN06-RETRY asserts Gemini call count equals focused queries (\u00a74)."
+  ],
+  [
+   "RUN-08",
+   "PRIOR-OPEN \u2192 B2, B3, B9",
+   "0a17994 fixed budget start and the grounded scout\u2192score\u2192exploit order, but ATS and SerpApi leads are fully extracted and LLM-scored before selection, and B3 lets rejected grounded companies be deep-extracted."
+  ],
+  [
+   "RUN-09",
+   "PRIOR-FIXED 0a17994 (residual B10)",
+   "The run uses `dedupeLeadsForProductionRun` (`run-discovery.ts:2397-2410`); F1D-RUN09-LOC passes (\u00a74). The provider key lacks the tenant."
+  ],
+  [
+   "Wishlist T0 Effective discovery preview",
+   "PRIOR-OPEN \u2192 B20",
+   "No preview route in the worker (grep finds only the cleanup `dryRun`)."
+  ],
+  [
+   "Wishlist T1-3 Saved searches",
+   "PRIOR-OPEN \u2192 B21",
+   "No saved-search store; intentKey is per run."
+  ],
+  [
+   "Wishlist T3 Experiment lab",
+   "PRIOR-OPEN \u2192 B22",
+   "The data exists (variationKey, exploit_outcomes) but has no reader."
+  ]
+ ],
+ "C": [
+  [
+   "SEC-04",
+   "PRIOR-OPEN (partly fixed)",
+   "The shared scraper, ATS fetchers and worker provider/grounded preflights now use DNS-pinned, per-hop `safeFetch` (F0C tests green). The worker **page-visit** path is still unguarded: raw `fetch` plus redirects (C1), and the browser command (C2). Repro: `C-ssrf-session.mjs`, `C-ssrf-browser-command.sh`. Rescore goes through the shared scraper (lane F confirms)."
+  ],
+  [
+   "RUN-07",
+   "PRIOR-OPEN",
+   "`run-discovery.ts:470` still hard-codes 3 ids. The \"fix\" is test-only (C3, C15). Repro: `C-run-ats-gating.mjs`."
+  ],
+  [
+   "RUN-10",
+   "PRIOR-OPEN",
+   "`collectListingsSettled` exists but `runDiscovery:747` uses `Promise.all` (C4). Repro: `C-run-ats-gating.mjs`."
+  ],
+  [
+   "RUN-11",
+   "PRIOR-OPEN (partly fixed)",
+   "The grounded lane and `safeFetch` now abort (`run-abort.ts`, F4B/F0C tests). The ATS lane drops the signal (C5). Repro: `C-run-ats-gating.mjs`."
+  ],
+  [
+   "INGEST-01",
+   "PRIOR-OPEN",
+   "Company and location are dropped, the label is wrong, and SerpApi is unreachable (C6). Repro: `C-ingest-lineage.mjs`."
+  ],
+  [
+   "INGEST-04",
+   "PRIOR-OPEN",
+   "The worker's `inferCompanyFromHost` still yields \"Careers\" and \"Jobs\". The shared `sanitizeInferredEmployer` fixes this on the server path only (C6). Repro: `C-ingest-lineage.mjs`."
+  ],
+  [
+   "Wishlist T1-1 Capture inbox",
+   "PRIOR-OPEN, extended",
+   "No preview or queue mode exists. The cheapest path is C19."
+  ],
+  [
+   "Wishlist T2 Field evidence ledger",
+   "PRIOR-OPEN, extended",
+   "`method` exists per scrape, not per field, and is not persisted. See C20."
+  ],
+  [
+   "Wishlist T3 Job-site capture companion",
+   "PRIOR-OPEN",
+   "Nothing is built. Depends on C19; see C21."
+  ]
+ ],
+ "D": [
+  [
+   "PIPE-04",
+   "PRIOR-FIXED 0a17994 (browser board) \u00b7 PRIOR-OPEN (worker)",
+   "The browser board moves via `pipeline-transitions.js` / `getStatusSideEffects` set N and P. The worker `/pipeline-update` Applied still writes only M (D7, repro p09)."
+  ],
+  [
+   "PIPE-05",
+   "PRIOR-FIXED 0a17994 \u00b7 residue PRIOR-OPEN",
+   "The patcher now writes narrow cells (`pipeline-patcher.ts:121-219`). Residue: the Notes RMW race (D8, p09) and stale row numbers (D2, p02)."
+  ],
+  [
+   "PIPE-06",
+   "PRIOR-OPEN",
+   "Four expiry writers diverge, and cleanup overwrites mid-run edits (D10, D3; p13, p03)."
+  ],
+  [
+   "PIPE-07",
+   "PRIOR-FIXED 0a17994 (alternate ATS URL / provider id, tests `F1D-PIPE07-ID`) \u00b7 PRIOR-OPEN (concurrency, merge review)",
+   "Concurrent appends duplicate (D1, p01); merge review is only a warning (D22)."
+  ],
+  [
+   "RUN-04",
+   "PRIOR-FIXED 0a17994 (10-col header, 9-cell parse in `runs-tab.js:103-135`, success Error blanked) \u00b7 IN-FLIGHT #107/#108/#109/#113 (partial blank Error)",
+   "Residue: the legacy-header rewrite misaligns old rows (D13). The \"Loading\" and local-terminal-outcome halves are browser work, left for lane A/UX."
+  ],
+  [
+   "INGEST-03",
+   "PRIOR-FIXED 0a17994",
+   "The manual JD goes to K with the \"User-provided job description\" label (`ingest-url-flow.js:176-187`) and Notes stay user-only. New residue: re-discovery overwrites K (D4)."
+  ],
+  [
+   "APPLY-01 (persistence)",
+   "PRIOR-OPEN",
+   "The confirmation UI exists but its evidence is dropped (D11, p13), and the worker path needs none (D7)."
+  ],
+  [
+   "TD-001",
+   "PRIOR-FIXED 50d9056",
+   "`npm run test:pipeline-contract` passes (\u00a74)."
+  ],
+  [
+   "TD-016",
+   "PRIOR-OPEN",
+   "Headers align today but the column map is duplicated in 9 places with no binding test (D18, D19)."
+  ],
+  [
+   "TD-021",
+   "PRIOR-OPEN (Sheets half) \u00b7 lane B (serial companies)",
+   "Discovery no longer reads Pipeline outside the writer, but the writer reads the full `A2:Y` on every write and every ingest (D17)."
+  ],
+  [
+   "Wishlist T0 Explicit submission confirmation",
+   "PRIOR-OPEN",
+   "UI shipped, persistence not (D11) \u2192 D24."
+  ],
+  [
+   "Wishlist T0 Closure and restore model",
+   "PRIOR-OPEN",
+   "The planner has dismiss and restore (`pipeline-transitions.js:155-186`), but the Sheet semantics are split across four writers (D10)."
+  ],
+  [
+   "Wishlist T1-2 Duplicate review",
+   "PRIOR-OPEN",
+   "\u2192 D22"
+  ],
+  [
+   "Wishlist T1-5 Decision facts feed",
+   "PRIOR-OPEN",
+   "\u2192 D23"
+  ],
+  [
+   "Wishlist T2 Event-sourced timeline",
+   "PRIOR-OPEN",
+   "\u2192 D23"
+  ],
+  [
+   "Wishlist T2 True outcome funnel",
+   "PRIOR-OPEN",
+   "\u2192 D23; needs reliable Applied Date (D7, D11)"
+  ],
+  [
+   "Wishlist T3 Search health dashboard",
+   "PRIOR-OPEN",
+   "\u2192 D25"
+  ]
+ ],
+ "E": [
+  [
+   "AUTH-03",
+   "PRIOR-OPEN",
+   "Server half fixed (7a7d23c/0a17994: 401/503 gate). The browser helper shipped with **0 call sites**, so packaged calls get 401. See E4, repro `probes/probe-e-hosted.sh`."
+  ],
+  [
+   "PRIV-01",
+   "PRIOR-OPEN (server half)",
+   "README.md:91 now names provider flow correctly. However the scraper's Gemini lane still sends job context to Google on the env key regardless of the chosen provider (E10, INFERRED). Token storage is the browser half (lanes F/G)."
+  ],
+  [
+   "DOSSIER-01 (server half)",
+   "PRIOR-OPEN",
+   "The scrape fallback returns a title/company-matched sibling posting with no match kind; there is no fetchedAt or TTL on /api/scrape-job. E3 CONFIRMED, E20."
+  ],
+  [
+   "DOSSIER-02 (server half)",
+   "PRIOR-OPEN (INFERRED)",
+   "Server scrape output is unstructured text; requirements come from line heuristics over model text (`guessRequirementsFromText`, job-scraper-core.mjs:1281-1320) with no schema validation of the Gemini URL-context output. Proving command in \u00a75."
+  ],
+  [
+   "SCRIBE-02",
+   "PRIOR-OPEN (server half answered)",
+   "`/api/ats-scorecard` is a real LLM scorecard: it needs a pin, docText of at least 20 chars (ats-request-payload.mjs:431-434), and scores are normalized, with a non-numeric score \u2192 0 (ats-scorecard.mjs:456-460). So the server cannot score an empty document; the nonzero demo heuristic is browser-side (UX01). The empty-doc 400 was not probed because a scored call needs a paid provider."
+  ],
+  [
+   "P2-DOCKER",
+   "PRIOR-FIXED 0a17994",
+   "server/.dockerignore excludes `.env` and `.env.*`, and the simulated context has 0 .env files (`probes/probe-e-docker-sim.sh`). New image defect: E5."
+  ],
+  [
+   "P2-REDACT",
+   "PRIOR-FIXED 0a17994 (redaction, timeouts) / PRIOR-OPEN (cancellation)",
+   "ATS 502 returns \"Upstream provider request failed\" with no body (tests/server-error-schema.test.mjs:117 green), and a 30 s timeout exists. Disconnect cancellation is missing (E11). The worker still embeds 200 chars of upstream body (chat-provider.ts:150-154, lane B)."
+  ],
+  [
+   "P2-OPENAI-KEY",
+   "PRIOR-FIXED 0a17994",
+   "ATS uses pin keys only (ats-scorecard.mjs:922-947). profile-from-resume openai_compatible excludes OPENAI_API_KEY (profile-from-resume.mjs:459-468). Rescore compat chains exclude it (profile-rescore-worker.mjs:147-153)."
+  ],
+  [
+   "P2-FWD-HDR",
+   "PRIOR-FIXED 0a17994",
+   "X-Forwarded-* are ignored (security-boundaries.mjs:31-57; probe 403). Malformed JSON \u2192 `{error, code:\"INVALID_JSON\"}` 400 (probe). Residual: Host header itself is trusted (E1)."
+  ],
+  [
+   "TD-010",
+   "PRIOR-OPEN (partial)",
+   "ATS provider errors now carry provider, upstreamStatus, retryable, errorClass and providerCode. Other routes lack code/nextStep/retryable (E7)."
+  ],
+  [
+   "TD-013",
+   "MOOT / partial",
+   "`cors({origin:true})` was replaced by an allowlist middleware (index.mjs:177-205), but the `cors` dep is left behind (E16). Scrape targets are SSRF-guarded (residual E8). `server/.env` has never been tracked (`git log -- server/.env` is empty; only server/.env.example is tracked)."
+  ],
+  [
+   "TD-018",
+   "PRIOR-FIXED",
+   "Server now has 13+ focused test files (86 tests run here, all pass, \u00a74). The gaps are in E17."
+  ],
+  [
+   "SEC-04 (server scrape half)",
+   "PRIOR-FIXED 0a17994 (DNS pin on every hop) / PRIOR-OPEN residual",
+   "Route preflight: index.mjs:245. Connect-time pin and per-hop revalidation: security-boundaries.mjs:313-348, :433-481; tests/safe-fetch-dns-pin.test.mjs green. Classifier gaps remain (E8, CONFIRMED)."
+  ],
+  [
+   "#121 dotenv 18",
+   "IN-FLIGHT #121 (no break expected)",
+   "The dotenv 18.0.1 `exports` map still has `./config` \u2192 dist/config.cjs, so `import \"dotenv/config\"` (index.mjs:6) resolves. Changes: the injection log moves to stderr, preloading (`-r`) and `.env.vault` are removed, and the `lib/*-options` subpaths are gone; the repo uses none of them. INFERRED until a boot test on the PR branch."
+  ],
+  [
+   "Other PRs",
+   "none fix E-rows",
+   "I checked the orchestrator copies in `prs/PR-<n>.diff`. Only #121 touches the fence (server/package*.json). #102 adds a hermetic browser e2e for `/api/scrape-job` (a test, no server change). #112 guards empty scribe drafts in resume-generation.js (browser SCRIBE-01/02 half; does not touch `/api/ats-scorecard`). #109 touches worker serpapi sources only. #105/#106 are root dependency bumps (ajv, root dotenv) with no fence impact."
+  ]
+ ],
+ "F": [
+  [
+   "PROFILE-02",
+   "PRIOR-FIXED d732bbb",
+   "from-resume takes body `resumeText` and caches it (profile-from-resume.mjs:243-258). Residue: F11 (worker-config shadows the cache; nothing else reads it)."
+  ],
+  [
+   "PRIV-01 (materials flow)",
+   "PRIOR-OPEN",
+   "Hosted providers receive the JD, the owner's full resume HTML and user notes (materials-writer.mjs:196-206); resume text (from-resume); profile and listing (rescore). Every profile save sends employer names to Clearbit and Google favicons (F7, logo_resolver.py:96-107). llm.json holds the plaintext apiKey (0600). Docs half: lane E."
+  ],
+  [
+   "DOSSIER-01 (materials half)",
+   "PRIOR-OPEN",
+   "job-description.md records `source`, `fetched_at` and `job_url` (materials-drafter.mjs:384-398), but a cached JD is reused forever with no TTL or freshness check (materials-jd-gate.mjs:49-51)."
+  ],
+  [
+   "DOSSIER-02 (materials half)",
+   "PRIOR-OPEN",
+   "Writer output is checked only for `letter`/`resume` objects (materials-writer.mjs:185). Slot types and lengths are not validated; non-strings are silently skipped by the composer (materials-composer.mjs:155). Only HTML-in-slot fails."
+  ],
+  [
+   "T0 Dossier evidence panel",
+   "PRIOR-OPEN",
+   "Provenance exists only as the JD file header. No field-level provenance is persisted for drafts or scores."
+  ],
+  [
+   "T0 Role-bound Scribe (server)",
+   "PRIOR-OPEN",
+   "Server drafts overwrite resume.html and cover-letter.html in place, with no versions (materials-drafter.mjs:631-651). #112 (IN-FLIGHT) guards empty drafts only on the browser side (resume-generation.js +15)."
+  ],
+  [
+   "T1-7 Materials review workspace",
+   "PRIOR-OPEN",
+   "qa-report.md exists. No versions, diff, or provider/model stamp on finished drafts (F22)."
+  ],
+  [
+   "T2 Canonical candidate context",
+   "PRIOR-OPEN",
+   "Five resume stores and none canonical (F11, F1). F21 proposes the ledger."
+  ],
+  [
+   "T3 Grounded interview prep packet",
+   "PRIOR-OPEN",
+   "No server code. The building blocks (JD file with provenance, profile) exist; it needs F21."
+  ],
+  [
+   "T3 Portable encrypted workspace",
+   "PRIOR-OPEN",
+   "No export or import route (F24)."
+  ]
+ ],
+ "G": [
+  [
+   "SEC-01",
+   "PRIOR-FIXED 0a17994 (residual \u2192 G3, G2)",
+   "`.env`, `%2eenv`, encoded/backslash traversal, symlink escape, bootstrap json, config.js (any case), profile md \u2192 403; bind 127.0.0.1 (live :8080/:3847/:8644 all 127.0.0.1). Residual: denylist serves other gitignored artifacts; no Host check."
+  ],
+  [
+   "SEC-02",
+   "PRIOR-FIXED 0a17994",
+   "All 20 `/__proxy` routes \u00d7 {no Origin, foreign Origin, cross-site, `Origin: null`, foreign preflight} \u2192 403; trusted Origin echoed, never `*`. Residual: `/profile` proxy gate \u2192 G2."
+  ],
+  [
+   "SEC-03",
+   "PRIOR-FIXED 0a17994 (residual \u2192 G14)",
+   "Newline/control chars rejected with ENV_VALUE_CONTROL_CHARS; `$'` expansion remains."
+  ],
+  [
+   "SEC-05 (dashboard)",
+   "PRIOR-FIXED 0a17994",
+   "`/%E0%A4%A`, `/%ff` \u2192 400, `/%00` \u2192 403, server stayed up."
+  ],
+  [
+   "AUTH-01 (served headers)",
+   "PRIOR-OPEN (partial) \u2192 G10",
+   "googleapis, script.googleapis, docs.google, Clearbit now allowed; configured custom origins still blocked."
+  ],
+  [
+   "AUTH-03 (proxy half)",
+   "PRIOR-OPEN",
+   "Proxy forwards only content-type/length/accept (dev-server.mjs:59) and targets loopback; an API started with JOBBORED_API_TOKEN behind the proxy gets 401; packaged hosted callers are lane E. INFERRED: `JOBBORED_API_TOKEN=probe LISTEN_HOST=0.0.0.0` API + proxy GET /profile \u2192 401."
+  ],
+  [
+   "SETUP-03 (probe half)",
+   "PRIOR-OPEN",
+   "`ready` = worker /health ok + CORS ok (dev-server.mjs:1993-2002); no secret round-trip, no checkout identity (G7), no credential check. \u2192 G21"
+  ],
+  [
+   "SETUP-04",
+   "PRIOR-FIXED for keep-alive (auth-session.js:1166 has no caller) / PRIOR-OPEN in stronger form \u2192 G4",
+   "Wizard-open still silently runs full-boot \u2192 tunnel + possible relay deploy."
+  ],
+  [
+   "SETUP-05",
+   "PRIOR-FIXED 0a17994 (cloudflare_quick branch, discovery-keep-alive.mjs:314) / residual \u2192 G9",
+   "Tailscale now mis-classified the same way."
+  ],
+  [
+   "SETUP-09",
+   "PRIOR-OPEN (worker autostart) \u2192 G8; keep-alive half fixed (install-keep-alive.mjs:294-311 checks launchctl/systemctl)"
+  ],
+  [
+   "DISC-01",
+   "PRIOR-FIXED f4dd231",
+   "dev-server proxies /profile to :3847 (dev-server.mjs:2369). Security residual \u2192 G2."
+  ],
+  [
+   "P2-WRITESCOPE",
+   "PRIOR-OPEN (server half) \u2192 G4",
+   "setup-doctor.js:789-800 previews writes for keep-alive; full-boot/fix-setup still mutate (kill, tunnel, deploy) with no dry-run and are auto-called."
+  ],
+  [
+   "P2-STATIC",
+   "PRIOR-OPEN (policy half) \u2192 G13",
+   "Partials assembled (pages.yml:30); no security policy; #102 adds only `--verify-site`."
+  ],
+  [
+   "TD-004",
+   "PRIOR-OPEN \u2192 G17"
+  ],
+  [
+   "TD-014",
+   "PRIOR-OPEN \u2192 G20"
+  ],
+  [
+   "TD-015",
+   "PRIOR-OPEN (partial) \u2192 G15",
+   "Root engines/CI/.nvmrc aligned on 24; Dockerfile and script messages lag."
+  ],
+  [
+   "TD-017",
+   "PRIOR-FIXED (ci.yml:3-7, 42-55: no path filters; npm test + worker suite + typecheck)",
+   "Residual: ubuntu-only (no macOS/Windows job for launchd/Windows branches), Hermes Python tests not in CI, server lock not audited (G20)."
+  ],
+  [
+   "Wishlist T0 Truthful setup state",
+   "PRIOR-OPEN \u2192 G21"
+  ],
+  [
+   "Wishlist T1-10 Setup and automation control center",
+   "PRIOR-OPEN \u2192 G22"
+  ]
+ ],
+ "H": [
+  [
+   "APPLY-02",
+   "PRIOR-FIXED 0a17994 (#75), residue open",
+   "The thread split (48 vs 314) and the Gate 1 definition are unified in approval-contract.v1.json, and send, poll and submit import it (tests/approval-contract.test.mjs passes). Residue: H22 (stale Gate 1 text, env chat override, interest step named gate1 posting to the Gate 2 thread, stale kanban doc); H12 (the fix never reaches installed runtimes); H1/H9 (Gate 2 poll correctness); H21 (the contract hardcodes the chat). The test pins source text, not behavior (H10)."
+  ],
+  [
+   "APPLY-01 (automation half)",
+   "PRIOR-OPEN APPLY-01",
+   "The Hermes path does record evidence plus Status/Applied Date/Notes, but the evidence has no confirmation screenshot (H18). \"Verified\" can be a false positive (H5), the submit classifier misses real submits (H4), and the write can wipe Notes or hit the wrong row (H3). The path is shelved and not installed here. Proposal: H24."
+  ],
+  [
+   "Wishlist T1-6 Recruiter activity and interview timeline",
+   "PRIOR-OPEN (not started)",
+   "There are no contact events, interview fields or stage-aware follow-up in the fence. The follow-up monitor handles Status=Applied only and ignores `lastHeardFrom`. Proposal: H25."
+  ]
+ ]
+}

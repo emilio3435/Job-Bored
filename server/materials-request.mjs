@@ -18,6 +18,8 @@ import {
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const FEATURES = new Set(["resume", "cover_letter", "both"]);
+/* Wave 3: optional pieces generated beside the letter. */
+export const EXTRAS = Object.freeze(["outreach"]);
 const MAX_NOTES_LEN = 4000;
 /* Plenty for a long posting with boilerplate; matches the resume cap. */
 const MAX_JD_LEN = 60_000;
@@ -41,6 +43,25 @@ const MAX_JD_LEN = 60_000;
  *   request (source "request")
  * @property {string} [preferredTemplate] the user's saved materialsTemplate
  *   preference (source "preference"); used when `template` is absent
+ * @property {MaterialsEnrichment} [enrichment] what JobBored already knows
+ *   about the role (C-4); the draft prompt carries it
+ * @property {"cover_letter"} [then] U-5 "Draft both": after a resume run
+ *   finishes, the drafter queues the cover letter as its own run
+ * @property {string[]} [thenExtras] the extras ("outreach") that chained
+ *   letter run asks for; a resume run itself never generates them
+ * @property {string[]} [extras] optional pieces beside the letter (Wave 3):
+ *   "outreach" = the LinkedIn note + email to the hiring manager
+ *   (outreach.json / outreach.txt). Needs a letter (feature cover_letter
+ *   or both); ignored for a resume-only request.
+ */
+
+/**
+ * @typedef {object} MaterialsEnrichment
+ * @property {string} [fitAngle]
+ * @property {string[]} [talkingPoints]
+ * @property {string[]} [mustHaves]
+ * @property {string} [contact]
+ * @property {number} [fitScore] 0..10
  */
 
 /**
@@ -58,6 +79,52 @@ function trimString(value, max) {
   const trimmed = value.replace(/\r/g, "").trim();
   if (max && trimmed.length > max) return trimmed.slice(0, max);
   return trimmed;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} maxItems
+ * @param {number} maxLen
+ * @returns {string[]}
+ */
+function stringList(value, maxItems, maxLen) {
+  const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\n|;\s*/) : [];
+  return list
+    .map((item) => trimString(typeof item === "string" ? item.replace(/^\s*(?:[-•*]|\d+[.)])\s+/, "") : "", maxLen))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+/**
+ * Enrichment and sheet fields (C-4): read from `body.enrichment` or the
+ * top-level fields of the same names. Absent → undefined.
+ * @param {Record<string, unknown> | null | undefined} body
+ * @returns {MaterialsEnrichment | undefined}
+ */
+export function normalizeEnrichment(body) {
+  if (!body || typeof body !== "object") return undefined;
+  const nested = body.enrichment && typeof body.enrichment === "object"
+    ? /** @type {Record<string, unknown>} */ (body.enrichment)
+    : {};
+  const field = (/** @type {string} */ key) => (nested[key] !== undefined ? nested[key] : body[key]);
+  /** @type {MaterialsEnrichment} */
+  const out = {};
+  const fitAngle = trimString(field("fitAngle"), 400);
+  if (fitAngle) out.fitAngle = fitAngle;
+  const talkingPoints = stringList(field("talkingPoints"), 6, 300);
+  if (talkingPoints.length) out.talkingPoints = talkingPoints;
+  const mustHaves = stringList(field("mustHaves"), 8, 200);
+  if (mustHaves.length) out.mustHaves = mustHaves;
+  const rawContact = field("contact");
+  const contact = trimString(
+    rawContact && typeof rawContact === "object" ? /** @type {{ name?: unknown }} */ (rawContact).name : rawContact,
+    120,
+  );
+  if (contact && !/^unknown$/i.test(contact)) out.contact = contact;
+  const rawScore = field("fitScore");
+  const score = typeof rawScore === "number" ? rawScore : typeof rawScore === "string" && rawScore.trim() ? Number(rawScore) : NaN;
+  if (Number.isFinite(score) && score >= 0 && score <= 10) out.fitScore = Math.round(score * 10) / 10;
+  return Object.keys(out).length ? out : undefined;
 }
 
 /**
@@ -133,7 +200,32 @@ export function normalizeRequestBody(body) {
   if (resumeFrom && !resume) payload.resumeFrom = resumeFrom;
   if (template) payload.template = template;
   if (preferredTemplate) payload.preferredTemplate = preferredTemplate;
+  const enrichment = normalizeEnrichment(body);
+  if (enrichment) payload.enrichment = enrichment;
+  /* U-5: only "resume, then the cover letter" chains; anything else is
+   * ignored rather than refused, so an older client never breaks. */
+  if (feature === "resume" && body && body.then === "cover_letter") {
+    payload.then = "cover_letter";
+    /* Wave 3 extras (extras: ["outreach"] or outreach: true) belong to the
+     * letter, so Draft both hands them to the chained letter run. */
+    const asked = Array.isArray(body.extras) && body.extras.some((x) => typeof x === "string" && x.trim() === "outreach");
+    if (asked || body.outreach === true) payload.thenExtras = ["outreach"];
+  }
+  const extras = normalizeExtras(body);
+  if (extras.length && feature !== "resume") payload.extras = extras;
   return payload;
+}
+
+/**
+ * `extras: ["outreach"]` (or `outreach: true`); unknown values are dropped.
+ * @param {Record<string, unknown> | null | undefined} body
+ * @returns {string[]}
+ */
+export function normalizeExtras(body) {
+  const raw = body && Array.isArray(body.extras) ? body.extras : [];
+  const out = raw.filter((x) => typeof x === "string" && EXTRAS.includes(x.trim())).map((x) => String(x).trim());
+  if (body && body.outreach === true) out.push("outreach");
+  return [...new Set(out)];
 }
 
 /** @type {((payload: MaterialsRequestPayload) => Promise<Record<string, unknown>>) | null} */

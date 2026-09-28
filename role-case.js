@@ -193,12 +193,74 @@
     if (v.next) parts.push(esc(v.next) + ".");
     if (v.note) parts.push(esc(v.note));
     var numbers = renderNumbers(m);
-    if (!parts.length && !numbers) return "";
+    var why = renderWhy(m);
+    if (!parts.length && !numbers && !why) return "";
     return '<section class="case__verdict" aria-labelledby="case-verdict-h">' +
       '<h3 class="case__vh" id="case-verdict-h">Where this stands</h3>' +
       (parts.length ? '<p class="case__verdict-line">' + parts.join(" ") + "</p>" : "") +
-      numbers +
+      numbers + why +
     "</section>";
+  }
+
+  /* CASEWHY (DOSSIER-RECS Phase A): the reason behind the fit number, read
+     off the Pipeline row the model already holds — column K parsed into its
+     band sentence, matches and concerns, and column U as a secondary figure.
+     Each part renders only when its cell has something in it (D5): no
+     placeholder number, no empty list. A K the model could not parse is
+     shown as the person's own text. Whether prose runs past four lines is
+     measured after paint (measureFitClamp), never guessed from a character
+     count: the paragraph ships unclamped with its button hidden, so a page
+     that cannot measure still shows every word. */
+  function fmtScore(n) { return String(Math.round(Number(n) * 10) / 10); }
+  function renderWhy(m) {
+    var f = m.fitAssessment, match = m.numbers && m.numbers.matchScore;
+    if (!f && !match) return "";
+    var id = "case-fitwhy-" + safeId(m.jobKey);
+    var fit = m.numbers && m.numbers.fit;
+    var html = '<div class="case__fitwhy" role="group" aria-labelledby="' + attr(id + "-h") + '">' +
+      '<div class="case__fitwhy-head"><h4 class="case__fitwhy-h" id="' + attr(id + "-h") + '">' +
+        esc(whyHeading(f, fit)) + "</h4>" +
+        '<span class="case__fitwhy-src">from your sheet</span></div>';
+    if (f) {
+      var prose = f.parsed ? f.rationale : f.raw;
+      var lead = f.parsed && f.band ? "<b>" + esc(f.band) + " fit.</b>" + (prose ? " " : "") : "";
+      if (lead || prose) {
+        html += '<p class="case__fitwhy-text" id="' + attr(id) + '">' + lead + esc(prose) + "</p>" +
+          '<button type="button" class="case__more-btn case__fitwhy-toggle" id="' + attr(id + "-toggle") + '" data-action="toggle-fit-reason" aria-expanded="false" aria-controls="' + attr(id) + '" hidden>Show all</button>';
+      }
+      if (f.matches.length || f.concerns.length) {
+        html += '<div class="case__fitwhy-lists">' +
+          whyList("Why it fits", "fits", f.matches, id) + whyList("Watch for", "watch", f.concerns, id) +
+        "</div>";
+      }
+    }
+    var foot = "";
+    if (match) foot += '<p class="case__fitwhy-match"><b>Match ' + esc(fmtScore(match.value)) + " / " + match.max + "</b> " +
+      "<span>how closely discovery matched this listing to your profile</span></p>";
+    if (f && f.application) foot += '<p class="case__fitwhy-apply">Applying: ' + esc(f.application) + "</p>";
+    if (foot) html += '<div class="case__fitwhy-foot">' + foot + "</div>";
+    return html + "</div><!--/case__fitwhy-->";
+  }
+  /* The heading names a score only when the reason was written for one. K is
+     filled once while H is overwritten by every run, so a reason written for
+     another score says so rather than explaining today's number. H is stored
+     as the worker's clamped integer (pipeline-writer.ts clampScore) while K
+     keeps the model's tenth, so the two are compared the way H was written:
+     7.4 in K and 7 in H is the same score, and the tile's number is shown. */
+  function sheetScore(n) { return Math.min(10, Math.max(1, Math.round(Number(n)))); }
+  function whyHeading(f, fit) {
+    if (!f || !f.parsed || f.score == null) return "Why this fit";
+    if (!fit) return "Why it scored " + fmtScore(f.score) + "/10";
+    return sheetScore(f.score) !== Number(fit.value)
+      ? "Why it first scored " + fmtScore(f.score) + "/10"
+      : "Why it scored " + fmtScore(fit.value) + "/" + fit.max;
+  }
+  function whyList(title, kind, list, id) {
+    if (!list.length) return "";
+    var hid = id + "-" + kind;
+    return '<div class="case__fitwhy-col"><p class="case__fitwhy-sub" id="' + attr(hid) + '">' + esc(title) + "</p>" +
+      '<ul class="case__fitwhy-list case__fitwhy-list--' + kind + '" aria-labelledby="' + attr(hid) + '">' +
+      list.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul></div>";
   }
 
   function renderStepper(m, stages) {
@@ -359,16 +421,62 @@
       button.textContent = "Show fewer";
     }
   }
+  /* CASEWHY: the fit reason is never hidden, only clamped — the toggle
+     flips the clamp, not [hidden]. */
+  function toggleClamp(button, text) {
+    var expanded = button.getAttribute("aria-expanded") === "true";
+    text.setAttribute("data-clamped", expanded ? "true" : "false");
+    button.setAttribute("aria-expanded", expanded ? "false" : "true");
+    button.textContent = expanded ? "Show all" : "Show less";
+  }
+  /* CW-3: clamp the fit reason only when four lines cannot hold it at the
+     width it actually has. Apply the clamp, compare scrollHeight with the
+     clamped box, then keep it (and show the button) or drop both. An expanded
+     reason is left alone. The measure runs after every render and again when
+     the paragraph's width changes (a 375px phone and a 1440px desk wrap the
+     same sentence very differently); height changes the clamp itself causes
+     are ignored, so the observer cannot loop. */
+  function measureFitClamp(text, button) {
+    if (!text || !button || typeof text.setAttribute !== "function" || button.getAttribute("aria-expanded") === "true") return;
+    text.setAttribute("data-clamped", "true");
+    if (Number(text.scrollHeight) > Number(text.clientHeight) + 1) {
+      button.removeAttribute("hidden");
+    } else {
+      text.removeAttribute("data-clamped");
+      button.setAttribute("hidden", "");
+    }
+  }
+  function bindFitClamp(mount, jobKey) {
+    if (mount.__fitClampObserver) { mount.__fitClampObserver.disconnect(); mount.__fitClampObserver = null; }
+    if (typeof mount.querySelector !== "function") return;
+    var id = "case-fitwhy-" + safeId(jobKey);
+    var text = mount.querySelector("#" + id), button = mount.querySelector("#" + id + "-toggle");
+    if (!text || !button) return;
+    measureFitClamp(text, button);
+    var RO = root.ResizeObserver;
+    if (typeof RO !== "function") return;
+    var lastWidth = -1;
+    var ro = new RO(function (entries) {
+      var w = entries && entries[0] && entries[0].contentRect ? Math.round(entries[0].contentRect.width) : -1;
+      if (w === lastWidth) return;
+      lastWidth = w;
+      var raf = root.requestAnimationFrame || function (fn) { return setTimeout(fn, 0); };
+      raf(function () { measureFitClamp(text, button); });
+    });
+    ro.observe(text);
+    mount.__fitClampObserver = ro;
+  }
   function onBoardClick(root, event) {
     var target = event && event.target;
     var button = target && typeof target.closest === "function"
-      ? target.closest('[data-action="toggle-requirements"], [data-action="toggle-stack"]')
+      ? target.closest('[data-action="toggle-requirements"], [data-action="toggle-stack"], [data-action="toggle-fit-reason"]')
       : null;
     if (!button) return;
     var id = typeof button.getAttribute === "function" ? button.getAttribute("aria-controls") : null;
     var panel = id && root && typeof root.querySelector === "function" ? root.querySelector("#" + id) : null;
     if (!panel || typeof panel.removeAttribute !== "function") return;
-    toggleDisclosure(button, panel);
+    if (button.getAttribute("data-action") === "toggle-fit-reason") toggleClamp(button, panel);
+    else toggleDisclosure(button, panel);
   }
   function bindBoardToggles(mountEl) {
     if (!mountEl || typeof mountEl.addEventListener !== "function" || mountEl.__caseBoardBound) return;
@@ -524,6 +632,9 @@
       renderRail(model) + notice + renderVerdict(model) + renderDocket(model, stages) +
       '<div class="case__body">' + canvas + ledger + "</div>" +
     "</div>";
+    /* The clamp is an enhancement: a host that cannot measure (or a DOM that
+       cannot resolve the id) keeps the unclamped text and the hidden button. */
+    try { bindFitClamp(mount, model.jobKey); } catch (e) { /* unmeasured: text stays whole */ }
   }
 
   root.JobBoredCase = root.JobBoredCase || {};

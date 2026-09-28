@@ -93,6 +93,31 @@ function buildAccepted(runId: string): DiscoveryRunStatusPayload {
   });
 }
 
+test("saved selected leads survive restart until an explicit write retry completes", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+  try {
+    const store = createDiscoveryRunStatusStore(runDirectory);
+    const running = buildRunningRunStatus(buildAccepted("run_retry"), "2026-08-30T12:00:02.000Z");
+    const selectedLeads = [{ url: "https://example.com/jobs/1", title: "Role" }] as never;
+    store.put({ ...running, selectedLeads });
+    store.put({ ...running, status: "write_failed", terminal: true, message: "Write failed", error: "ECONNRESET" });
+    store.close();
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    assert.deepEqual(restarted.get("run_retry")?.selectedLeads, selectedLeads);
+    const failed = restarted.get("run_retry");
+    assert.ok(failed);
+    restarted.put({ ...failed, status: "completed" });
+    assert.equal(restarted.get("run_retry")?.status, "write_failed", "ordinary terminal writes remain immutable");
+    restarted.finishWriteRetry({ ...failed, status: "completed", selectedLeads: undefined, error: undefined });
+    assert.equal(restarted.get("run_retry")?.status, "completed");
+    assert.equal(restarted.get("run_retry")?.selectedLeads, undefined);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("run status snapshots rehydrate complete phase and budget state in a fresh store", async () => {
   const { tempDirectory, runDirectory } = await makeRunDirectory();
 
@@ -169,6 +194,41 @@ test("RUNHIST list orders runs newest first, pages by opaque cursor, and survive
     assert.deepEqual(second?.runs.map((run) => run.runId), ["run_old"]);
     assert.equal(second?.nextBefore, null);
     assert.equal(restarted.list({ before: "invalid!" }), null);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("DISCAT D9 list summaries carry lifecycle.filterStats across a restart, and omit it when absent", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+  const filterStats = {
+    listingsSeen: 1994,
+    listingsRejected: 1665,
+    byReason: { remote_unknown: 1181, headline_mismatch: 484 },
+    byExcludeKeyword: [{ keyword: "sales engineer", count: 612 }],
+  };
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    for (const [runId, acceptedAt, stats] of [
+      ["run_before_discat", "2026-09-27T00:00:00.000Z", undefined],
+      ["run_with_stats", "2026-09-27T00:01:00.000Z", filterStats],
+    ] as const) {
+      const accepted = buildAcceptedRunStatus({
+        runId, trigger: "manual", acceptedAt,
+        request: { sheetId: "sheet_123", variationKey: "", requestedAt: acceptedAt },
+      });
+      writer.put({
+        ...accepted,
+        ...(stats ? { lifecycle: { ...(accepted.lifecycle || {}), filterStats: stats } } : {}),
+      } as DiscoveryRunStatusPayload);
+    }
+    writer.close();
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const page = restarted.list({ limit: 5 });
+    assert.deepEqual(page?.runs.map((run) => run.runId), ["run_with_stats", "run_before_discat"]);
+    assert.deepEqual(page?.runs[0].filterStats, filterStats);
+    assert.equal("filterStats" in (page?.runs[1] || {}), false);
     restarted.close();
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });

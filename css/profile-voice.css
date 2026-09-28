@@ -1,0 +1,489 @@
+/* ============================================
+   "Your voice" — the voice guide (profile-voice.js).
+
+   Two homes: the one-flow beat (.oneflow-voice, inside the shell) and
+   Settings → Fit Profile (.jb-voice-settings). The shared pieces (.jb-voice__*)
+   are always styled under one of those roots: body.jb-v2 h3/p carry
+   (0,1,1) and a lone class loses to them (the cascade trap, DESIGN.md).
+   Tokens only (npm run lint:tokens).
+   ============================================ */
+
+/* ---------- Shared pieces, under either root ---------- */
+
+.oneflow-voice .jb-voice__label,
+.jb-voice-settings .jb-voice__label {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--jb-ink, var(--text));
+}
+
+.oneflow-voice .jb-voice__prompt,
+.jb-voice-settings .jb-voice__prompt,
+.oneflow-voice .jb-voice__field,
+.jb-voice-settings .jb-voice__field {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+  min-width: 0;
+}
+
+.oneflow-voice .jb-voice__prompt-head,
+.jb-voice-settings .jb-voice__prompt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jb-space-2, 8px);
+}
+
+.oneflow-voice .jb-voice__prompt-text,
+.jb-voice-settings .jb-voice__prompt-text,
+.oneflow-voice .jb-voice__guide,
+.jb-voice-settings .jb-voice__guide {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: var(--jb-space-3, 12px);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+  font: inherit;
+  font-size: var(--jb-type-body, 0.9375rem);
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color var(--jb-transition-fast, 120ms);
+}
+
+.oneflow-voice .jb-voice__prompt-text,
+.jb-voice-settings .jb-voice__prompt-text {
+  background: var(--jb-paper-2, var(--surface));
+  color: var(--jb-ink-2, var(--text));
+  font-family: var(--jb-font-mono, monospace);
+  font-size: var(--jb-type-small, 0.8125rem);
+}
+
+.oneflow-voice .jb-voice__guide::placeholder,
+.jb-voice-settings .jb-voice__guide::placeholder {
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-voice .jb-voice__guide:hover,
+.jb-voice-settings .jb-voice__guide:hover {
+  border-color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-voice .jb-voice__prompt-text:focus-visible,
+.jb-voice-settings .jb-voice__prompt-text:focus-visible,
+.oneflow-voice .jb-voice__guide:focus-visible,
+.jb-voice-settings .jb-voice__guide:focus-visible,
+.oneflow-voice .jb-voice__btn:focus-visible,
+.oneflow-voice .oneflow-voice__tab:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
+.oneflow-voice .jb-voice__hint,
+.jb-voice-settings .jb-voice__hint,
+.oneflow-voice .jb-voice__prompt-status,
+.jb-voice-settings .jb-voice__prompt-status {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.4;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-voice .jb-voice__prompt-status[data-kind="ok"],
+.jb-voice-settings .jb-voice__prompt-status[data-kind="ok"] {
+  color: var(--jb-ok, var(--text));
+  font-weight: 600;
+}
+
+/* The live preview: word count, the headings found, gentle notes. */
+.oneflow-voice .jb-voice__preview,
+.jb-voice-settings .jb-voice__preview {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+  padding: var(--jb-space-3, 12px);
+  border: 1px dashed var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper-2, var(--surface));
+  min-width: 0;
+}
+
+.oneflow-voice .jb-voice__preview-empty,
+.jb-voice-settings .jb-voice__preview-empty,
+.oneflow-voice .jb-voice__count,
+.jb-voice-settings .jb-voice__count {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.4;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-voice .jb-voice__count,
+.jb-voice-settings .jb-voice__count {
+  font-family: var(--jb-font-mono, monospace);
+  color: var(--jb-ink-2, var(--text));
+}
+
+.oneflow-voice .jb-voice__headings,
+.jb-voice-settings .jb-voice__headings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-1, 4px) var(--jb-space-2, 8px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oneflow-voice .jb-voice__heading,
+.jb-voice-settings .jb-voice__heading {
+  max-width: 100%;
+  padding: 2px var(--jb-space-2, 8px);
+  overflow: hidden;
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-pill, 999px);
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink-2, var(--text));
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oneflow-voice .jb-voice__heading--key,
+.jb-voice-settings .jb-voice__heading--key {
+  border-color: var(--jb-mint-deep, var(--border));
+  background: var(--jb-mint-tint, var(--surface));
+  color: var(--jb-accent-ink, var(--text));
+  font-weight: 600;
+}
+
+.oneflow-voice .jb-voice__warn,
+.jb-voice-settings .jb-voice__warn {
+  margin: 0;
+  padding-left: var(--jb-space-3, 12px);
+  border-left: 3px solid var(--jb-amber, var(--border));
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-2, var(--text));
+}
+
+.oneflow-voice [hidden],
+.jb-voice-settings [hidden] {
+  display: none;
+}
+
+/* ---------- The beat ---------- */
+
+.oneflow-voice {
+  display: grid;
+  gap: var(--jb-space-5, 20px);
+  min-width: 0;
+  color: var(--jb-ink, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__saved {
+  margin: 0;
+  padding: var(--jb-space-3, 12px) var(--jb-space-4, 16px);
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-info-bg, var(--surface));
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-2, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__tabs {
+  display: flex;
+  gap: var(--jb-space-1, 4px);
+  min-width: 0;
+  padding: var(--jb-space-1, 4px);
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-lg, 14px);
+  background: var(--jb-paper-2, var(--surface));
+}
+
+.oneflow-voice .oneflow-voice__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--jb-space-2, 8px) var(--jb-space-3, 12px);
+  border: 1px solid transparent;
+  border-radius: var(--jb-radius-md, 10px);
+  background: transparent;
+  color: var(--jb-ink-2, var(--text));
+  font: inherit;
+  font-size: var(--jb-type-body, 0.9375rem);
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background-color var(--jb-transition-fast, 120ms), color var(--jb-transition-fast, 120ms);
+}
+
+.oneflow-voice .oneflow-voice__tab:hover {
+  color: var(--jb-ink, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__tab[aria-selected="true"] {
+  border-color: var(--jb-line, var(--border));
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  box-shadow: var(--jb-shadow-sm);
+}
+
+.oneflow-voice .oneflow-voice__panel {
+  display: grid;
+  gap: var(--jb-space-4, 16px);
+  min-width: 0;
+}
+
+.oneflow-voice .oneflow-voice__panel[hidden] {
+  display: none;
+}
+
+.oneflow-voice .oneflow-voice__steps {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+  margin: 0;
+  padding-left: var(--jb-space-5, 20px);
+  font-size: var(--jb-type-body, 0.9375rem);
+  line-height: 1.5;
+  color: var(--jb-ink, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__lede,
+.oneflow-voice .oneflow-voice__privacy,
+.oneflow-voice .oneflow-voice__upload-status {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-voice .oneflow-voice__lede {
+  font-size: var(--jb-type-body, 0.9375rem);
+  color: var(--jb-ink-2, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__upload-status[data-kind="ok"] {
+  color: var(--jb-ok, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__upload-status[data-kind="error"],
+.oneflow-voice .oneflow-voice__note[data-kind="error"] {
+  color: var(--jb-err, var(--text));
+}
+
+.oneflow-voice .oneflow-voice__upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jb-space-3, 12px);
+}
+
+.oneflow-voice .oneflow-voice__note {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-2, var(--text));
+}
+
+/* The beat's own buttons (Copy, Upload): the shell's look, not the legacy
+   .fp-btn palette. Two classes outrank .fp-btn and .fp-btn--primary. */
+.oneflow-voice .jb-voice__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--jb-space-4, 16px);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+  font: inherit;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 650;
+  cursor: pointer;
+  filter: none;
+}
+
+.oneflow-voice .jb-voice__btn:hover {
+  border-color: var(--jb-ink-3, var(--text-faint));
+  background: var(--jb-paper-2, var(--surface));
+}
+
+.oneflow-voice .jb-voice__btn--primary {
+  border-color: var(--jb-action, var(--border));
+  background: var(--jb-action, var(--accent));
+  color: var(--jb-on-action, var(--text));
+}
+
+.oneflow-voice .jb-voice__btn--primary:hover {
+  border-color: var(--jb-navy-soft, var(--border));
+  background: var(--jb-navy-soft, var(--accent));
+}
+
+/* ---------- Settings → Fit Profile ---------- */
+
+.jb-voice-settings {
+  display: grid;
+  gap: var(--jb-space-3, 12px);
+  margin: 0 0 var(--jb-space-5, 20px);
+  padding: var(--jb-space-4, 16px);
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-lg, 14px);
+  background: var(--jb-paper-2, var(--surface));
+  color: var(--jb-ink, var(--text));
+  min-width: 0;
+}
+
+.jb-voice-settings .jb-voice-settings__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jb-space-3, 12px);
+}
+
+.jb-voice-settings .jb-voice-settings__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--jb-space-2, 8px) var(--jb-space-3, 12px);
+}
+
+.jb-voice-settings .jb-voice-settings__title {
+  margin: 0;
+  font-size: var(--jb-type-heading, 1.125rem);
+  font-weight: 650;
+  color: var(--jb-navy, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__summary {
+  margin: 0;
+  font-family: var(--jb-font-mono, monospace);
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-2, var(--text));
+}
+
+.jb-voice-settings[data-voice="unset"] .jb-voice-settings__summary {
+  color: var(--jb-warn, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__lede,
+.jb-voice-settings .jb-voice-settings__steps {
+  margin: 0;
+  max-width: 64ch;
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-voice-settings .jb-voice-settings__tools,
+.jb-voice-settings .jb-voice-settings__editor-foot,
+.jb-voice-settings .jb-voice-settings__confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jb-space-2, 8px);
+}
+
+.jb-voice-settings .jb-voice-settings__editor-foot {
+  justify-content: flex-end;
+}
+
+.jb-voice-settings .fp-btn {
+  min-height: 40px;
+}
+
+.jb-voice-settings .jb-voice-settings__remove {
+  color: var(--jb-err, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__prompt {
+  display: grid;
+  gap: var(--jb-space-2, 8px);
+}
+
+.jb-voice-settings .jb-voice-settings__prompt[open] {
+  padding-bottom: var(--jb-space-1, 4px);
+}
+
+.jb-voice-settings .jb-voice-settings__prompt-summary {
+  width: fit-content;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 600;
+  color: var(--jb-action, var(--accent));
+  cursor: pointer;
+}
+
+.jb-voice-settings .jb-voice-settings__confirm {
+  display: grid;
+  gap: var(--jb-space-3, 12px);
+  padding: var(--jb-space-3, 12px) var(--jb-space-4, 16px);
+  border: 1px solid var(--jb-err-tint, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-err-bg, var(--surface));
+}
+
+.jb-voice-settings .jb-voice-settings__confirm[hidden] {
+  display: none;
+}
+
+.jb-voice-settings .jb-voice-settings__confirm-text {
+  margin: 0;
+  font-size: var(--jb-type-body, 0.9375rem);
+  line-height: 1.45;
+  color: var(--jb-ink, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__confirm-yes {
+  border-color: var(--jb-err, var(--border));
+  background: var(--jb-err, var(--accent));
+  color: var(--jb-paper, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__editor {
+  display: grid;
+  gap: var(--jb-space-3, 12px);
+  min-width: 0;
+}
+
+.jb-voice-settings .jb-voice-settings__editor[hidden] {
+  display: none;
+}
+
+.jb-voice-settings .jb-voice-settings__status {
+  margin: 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.jb-voice-settings .jb-voice-settings__status:empty {
+  display: none;
+}
+
+.jb-voice-settings .jb-voice-settings__status[data-kind="ok"] {
+  color: var(--jb-ok, var(--text));
+}
+
+.jb-voice-settings .jb-voice-settings__status[data-kind="error"] {
+  color: var(--jb-err, var(--text));
+}
+
+@media (max-width: 480px) {
+  .oneflow-voice .oneflow-voice__tab {
+    font-size: var(--jb-type-small, 0.8125rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oneflow-voice .oneflow-voice__tab,
+  .oneflow-voice .jb-voice__guide,
+  .jb-voice-settings .jb-voice__guide {
+    transition: none;
+  }
+}

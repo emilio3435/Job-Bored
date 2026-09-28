@@ -1,0 +1,11 @@
+{
+  "killed": [
+    4242
+  ],
+  "blocked": [
+    {
+      "pid": 4343,
+      "action": "Stop the foreign listener on port 8644, or rerun with --port to use another worker port."
+    }
+  ]
+}

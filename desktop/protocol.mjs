@@ -5,7 +5,7 @@
  * it. Exactly two shapes are accepted, compared as whole strings:
  *
  *   jobbored://open
- *   jobbored://open?beat=<google|ai|resume|fit|discovery|payoff>
+ *   jobbored://open?beat=<google|ai|resume|details|voice|fit|discovery|payoff>
  *
  * The target is rebuilt from constants, never from the input, and main.mjs
  * hands it only to shell.openExternal. `returnTo` is never accepted (R4), and
@@ -15,7 +15,7 @@
 export const DASHBOARD_URL = "http://localhost:8080/";
 
 /** The onboarding beats, in order (onboarding-flow.js BEAT_IDS). */
-export const BEAT_IDS = Object.freeze(["google", "ai", "resume", "fit", "discovery", "payoff"]);
+export const BEAT_IDS = Object.freeze(["google", "ai", "resume", "details", "voice", "fit", "discovery", "payoff"]);
 
 const BARE = "jobbored://open";
 const BEAT_PREFIX = "jobbored://open?beat=";

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
 import { resolveAccessToken } from "./pipeline-writer.ts";
+import { sendWithRetry } from "./sheets-client.ts";
 
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
@@ -129,8 +130,9 @@ function assertUsableOAuthToken(
 async function refreshOAuthAccessToken(
   tokenConfig: GoogleOAuthToken,
   fetchImpl: FetchLike,
+  retryBaseMs?: number,
 ): Promise<void> {
-  const response = await fetchImpl(tokenConfig.token_uri || GOOGLE_TOKEN_URI, {
+  const response = await sendWithRetry(fetchImpl, new URL(tokenConfig.token_uri || GOOGLE_TOKEN_URI), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -139,7 +141,7 @@ async function refreshOAuthAccessToken(
       client_id: tokenConfig.client_id,
       client_secret: tokenConfig.client_secret,
     }).toString(),
-  });
+  }, { retryBaseMs });
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -178,6 +180,7 @@ async function verifyActiveSheetsCredential(
     now: () => Date;
     fetchImpl: FetchLike;
     sheetId?: string;
+    retryBaseMs?: number;
   },
 ): Promise<{ active: true; sheetAccess?: "verified" }> {
   const token = await resolveAccessToken(
@@ -193,10 +196,10 @@ async function verifyActiveSheetsCredential(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`,
   );
   url.searchParams.set("fields", "spreadsheetId");
-  const response = await options.fetchImpl(url, {
+  const response = await sendWithRetry(options.fetchImpl, url, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }, { retryBaseMs: options.retryBaseMs });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(
@@ -249,6 +252,7 @@ type ReadinessOptions = {
   now?: () => Date;
   fetchImpl?: FetchLike;
   sheetId?: string;
+  retryBaseMs?: number;
   /**
    * Reuse a result for this long (BEAUDIT A8/D16). The key covers the
    * credential's content and the Sheet id, so a changed credential is a new
@@ -336,6 +340,7 @@ async function validateSheetsCredentialReadinessLive(
         now,
         fetchImpl,
         sheetId: options.sheetId,
+        retryBaseMs: options.retryBaseMs,
       });
       return {
         configured: true,
@@ -362,6 +367,7 @@ async function validateSheetsCredentialReadinessLive(
         now,
         fetchImpl,
         sheetId: options.sheetId,
+        retryBaseMs: options.retryBaseMs,
       });
       return {
         configured: true,
@@ -389,7 +395,7 @@ async function validateSheetsCredentialReadinessLive(
         !hasFreshOAuthAccessToken(tokenConfig, now) &&
         hasOAuthRefreshCredentials(tokenConfig)
       ) {
-        await refreshOAuthAccessToken(tokenConfig, fetchImpl);
+        await refreshOAuthAccessToken(tokenConfig, fetchImpl, options.retryBaseMs);
       }
       return {
         configured: true,
@@ -416,7 +422,7 @@ async function validateSheetsCredentialReadinessLive(
         !hasFreshOAuthAccessToken(tokenConfig, now) &&
         hasOAuthRefreshCredentials(tokenConfig)
       ) {
-        await refreshOAuthAccessToken(tokenConfig, fetchImpl);
+        await refreshOAuthAccessToken(tokenConfig, fetchImpl, options.retryBaseMs);
       }
       return {
         configured: true,

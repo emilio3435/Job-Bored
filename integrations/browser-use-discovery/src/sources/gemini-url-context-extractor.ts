@@ -20,6 +20,8 @@ import type { WorkerRuntimeConfig } from "../config.ts";
 import type { RawListing } from "../contracts.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { resolveGeminiFlashWireModel } from "../../../../server/model-family.mjs";
+// @ts-expect-error JS budget helper has no sibling declarations
+import { shortOutputBudget, geminiThinkingConfig } from "../../../../server/llm-output-budget.mjs";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -104,9 +106,8 @@ export async function extractJobWithGeminiUrlContext(
         tools: [{ url_context: {} }],
         generationConfig: {
           temperature: 0.1,
-          // Job descriptions often exceed 2k tokens once serialized as JSON;
-          // truncated output fails parse/confidence checks and falsely skips Gemini.
-          maxOutputTokens: 4096,
+          maxOutputTokens: shortOutputBudget("gemini", model, 16384),
+          thinkingConfig: geminiThinkingConfig(model),
         },
       },
     });
@@ -261,7 +262,7 @@ async function callGemini(request: {
   body: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<unknown> {
-  const response = await request.fetchImpl(request.endpoint, {
+  const send = () => request.fetchImpl(request.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -270,13 +271,25 @@ async function callGemini(request: {
     signal: request.signal,
     body: JSON.stringify(request.body),
   });
+  let response = await send();
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
     throw new Error(
       `Gemini HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
     );
   }
-  return response.json().catch(() => null);
+  let payload = await response.json().catch(() => null);
+  if (isPlainRecord(payload) && Array.isArray(payload.candidates) &&
+      isPlainRecord(payload.candidates[0]) && payload.candidates[0].finishReason === "MAX_TOKENS") {
+    response = await send();
+    if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
+    payload = await response.json().catch(() => null);
+    if (isPlainRecord(payload) && Array.isArray(payload.candidates) &&
+        isPlainRecord(payload.candidates[0]) && payload.candidates[0].finishReason === "MAX_TOKENS") {
+      throw new Error(`Gemini model ${decodeURIComponent(request.endpoint.split("/models/")[1]?.split(":")[0] || "unknown")} hit its maximum output limit after a retry.`);
+    }
+  }
+  return payload;
 }
 
 function extractGenerationText(payload: unknown): string {

@@ -1,0 +1,14 @@
+SCRIPTS_DIR under test: /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-H/.lane-evidence/home/.hermes/job-hunt/scripts exists= False
+FAIL test_compensation_field_is_hard_blocked_even_if_llm_tries_to_fill -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_execute_action_dry_run_records_without_mutating_page -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_extract_json_array_tolerates_markdown_fences -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_filler_profile_contains_required_candidate_and_skip_salary -> ModuleNotFoundError No module named 'filler_profile'
+FAIL test_live_universal_filler_requires_gate2_token -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_module_cli_help_is_available -> AssertionError 
+FAIL test_page_state_extractor_finds_labels_and_select_options -> AssertionError 
+FAIL test_required_file_input_blocks_safety_until_uploaded -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_universal_filler_exports_core_functions_and_classes -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_upload_file_is_allowlisted_and_cannot_escape_app_dir -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_validate_required_fields_detects_unfilled_required_fields -> ModuleNotFoundError No module named 'universal_filler'
+FAIL test_workday_url_detection -> ModuleNotFoundError No module named 'universal_filler'
+== 0 passed, 12 failed

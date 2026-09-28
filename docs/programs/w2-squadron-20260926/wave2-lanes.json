@@ -1,0 +1,212 @@
+[
+ {
+  "id": "D",
+  "wave": 2,
+  "name": "Discovery engine",
+  "deps": [
+   "Q",
+   "L",
+   "X"
+  ],
+  "gates": [
+   "pr113"
+  ],
+  "claims": [
+   "B1",
+   "B2",
+   "B3",
+   "B4",
+   "B6",
+   "B7",
+   "B8",
+   "B9",
+   "B10",
+   "B11",
+   "B12",
+   "B13",
+   "B18",
+   "C3",
+   "C4",
+   "C5",
+   "C6",
+   "C7",
+   "C10",
+   "C12",
+   "C13",
+   "C15",
+   "E3",
+   "C17",
+   "C18"
+  ],
+  "decisions": [
+   "0.8"
+  ],
+  "fence": [
+   "integrations/browser-use-discovery/src/run/** (not run-abort.ts)",
+   "integrations/browser-use-discovery/src/normalize/**",
+   "integrations/browser-use-discovery/src/match/**",
+   "integrations/browser-use-discovery/src/discovery/**",
+   "integrations/browser-use-discovery/src/grounding/**",
+   "integrations/browser-use-discovery/src/state/discovery-memory-store.ts, listing-score-cache.ts, run-discovery-memory-store.ts",
+   "integrations/browser-use-discovery/src/browser/providers/**, src/browser/source-adapters.ts",
+   "integrations/browser-use-discovery/src/sources/**",
+   "integrations/browser-use-discovery/src/webhook/handle-ingest-url.ts (C6 and C12 only)",
+   "server/shared/job-scraper-core.mjs, server/shared/ats-job-fetchers.mjs",
+   "tests for these claims"
+  ],
+  "probes": [
+   "B/B-frontier-saturation.mjs",
+   "B/B-e2e-exploit-cap.mjs",
+   "B/B-exploit-prose-bypass.mjs",
+   "B/B-hung-llm-outlives-run-cap.mjs",
+   "B/B-llm-calls-per-run.mjs",
+   "B/B-memory-write-only.mjs",
+   "B/B-provider-key-collision.mjs",
+   "B/B-zero-lead-partial-and-optout.mjs",
+   "B/B-allowlist-partial-unknown.mjs",
+   "C/C-run-ats-gating.mjs",
+   "C/C-ingest-lineage.mjs",
+   "C/C-jobboard-hint-only.mjs",
+   "E/probe-e-serp-sibling.mjs"
+  ],
+  "notes": "Memory is wired, not deleted (§0.8): a stable intent hash replaces run:<runId>, successful ATS detections write company and surface records, and exploit outcomes feed frontier priorAcceptedYield. Promote the probes to run-level tests with production-scale fixtures (C15, B19)."
+ },
+ {
+  "id": "M",
+  "wave": 2,
+  "name": "Materials and profile",
+  "deps": [
+   "Q",
+   "L"
+  ],
+  "gates": [
+   "pr120"
+  ],
+  "claims": [
+   "F1",
+   "F2",
+   "F3",
+   "F4",
+   "F5",
+   "F6",
+   "F7",
+   "F8",
+   "F9",
+   "F10",
+   "F11",
+   "F12",
+   "F13",
+   "F14",
+   "F16",
+   "F17",
+   "F18",
+   "F20",
+   "E13",
+   "F19",
+   "F21"
+  ],
+  "decisions": [
+   "0.3",
+   "0.2"
+  ],
+  "fence": [
+   "server/materials-*.mjs",
+   "server/application-materials.mjs",
+   "server/profile-*.mjs",
+   "server/user-profile.mjs",
+   "server/legacy-profile-migrator.mjs",
+   "server/brand-logos.mjs",
+   "server/index.mjs (/profile* and /api/applications/* routes only)",
+   "integrations/hermes-job-hunt/resume-template/**, cover-letter-template/**, scripts/materials_watcher/**, scripts/materials_request.py, scripts/materials-request.sh, scripts/logo_resolver.py",
+   "integrations/browser-use-discovery/src/profile/**, src/contracts/user-profile.*",
+   "schemas/materials-*.v1.schema.json (from #120)",
+   "tests for these claims"
+  ],
+  "probes": [
+   "F/F-materials-e2e.sh",
+   "F/F-profile-critic.mjs",
+   "F/F-rescore-overlap.mjs"
+  ],
+  "notes": "Build PR #120 claim-ledger design (§0.3): the master comes from the user resume and profile, 3 narrow calls, a cache key; neutral example templates (§0.2); template and logo roots under ~/.jobbored, never the repo (F7); rescore single-flight with a generation id and RAW or escaped writes (F4, F5)."
+ },
+ {
+  "id": "O",
+  "wave": 2,
+  "name": "Ops and hosted",
+  "deps": [
+   "L",
+   "P"
+  ],
+  "gates": [],
+  "claims": [
+   "G5",
+   "G6",
+   "G7",
+   "G8",
+   "G9",
+   "G11",
+   "H14",
+   "G12",
+   "G13",
+   "G14",
+   "G15",
+   "G16",
+   "G19",
+   "G20",
+   "E5",
+   "E6"
+  ],
+  "decisions": [
+   "0.4"
+  ],
+  "fence": [
+   "scripts/** (not setup.mjs)",
+   "dev-server.mjs (worker lifecycle, installers and Tailscale sections)",
+   "server/Dockerfile, server/.dockerignore, render.yaml",
+   "package.json (scripts), .github/workflows/ci.yml, .github/workflows/pages.yml",
+   "integrations/browser-use-discovery/src/server.ts (/health payload identity fields only)",
+   "README.md (platform matrix and hosted sections)",
+   "tests for these claims"
+  ],
+  "probes": [
+   "G/g-port-collision.sh",
+   "G/g-respawn-hold.sh",
+   "G/g-fullboot-foreign-checkout.mjs",
+   "G/g-autostart-status-artifact.mjs",
+   "G/g-keepalive-tailscale.mjs",
+   "G/g-env-writer-dollar.mjs",
+   "E/probe-e-docker-sim.sh",
+   "E/probe-e-hosted.sh"
+  ],
+  "notes": "Worker /health gains {repoRoot, version, envSources}; the starter names the port owner and holds instead of exiting; hosted mode works end to end (E5, E6) per §0.4."
+ },
+ {
+  "id": "B",
+  "wave": 2,
+  "name": "Browser surfaces",
+  "deps": [
+   "L",
+   "S"
+  ],
+  "gates": [],
+  "browser": true,
+  "claims": [
+   "E4",
+   "D11"
+  ],
+  "decisions": [
+   "0.4"
+  ],
+  "fence": [
+   "hosted-api-auth.js, app-config-core.js",
+   "the browser fetch sites that call the API (one apiFetch helper)",
+   "submission-flow.js, sheets-writeback.js, pipeline-transitions.js, flowing-writes.js",
+   "tests/ and tests/e2e-* for these claims"
+  ],
+  "probes": [
+   "E/probe-e-hosted.sh",
+   "D/p13-browser-writer-divergence.mjs"
+  ],
+  "notes": "Every API call goes through one apiFetch() that attaches the hosted token; the Applied flow writes its evidence through planTransition and pipeline-update v2."
+ }
+]

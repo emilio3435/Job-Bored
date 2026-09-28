@@ -2,32 +2,27 @@
 <article class="sheet page" data-page="1" {{sheetAttrs}}>
 
   <header class="band">
-    <div>
-      <h1 class="name">{{identity.name}}</h1>
+    <div class="band-id{{#if identity.nameFit.full}} band-id--full{{/if}}">
+      <div class="name-wrap" style="font-size:{{identity.nameFit.pt}}pt"><h1 class="name{{#if identity.nameDots}} name--dots{{/if}}">{{identity.name}}</h1>{{#each identity.nameDots}}<i class="nd nd--{{n}}" style="left:{{x}}em;top:{{y}}em" aria-hidden="true"></i>{{/each}}</div>
       <p class="target">{{identity.target}}</p>
     </div>
-    <p class="contact">
-      {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}
-    </p>
+    <div class="contact">
+      {{#each identity.contact.items}}{{#if link}}<a class="ct ct--{{kind}}" href="{{link}}">{{icon}}<span>{{text}}</span></a>{{else}}<span class="ct ct--{{kind}}">{{icon}}<span>{{text}}</span></span>{{/if}}
+      {{/each}}
+    </div>
   </header>
 
-  {{#if resume.readouts}}
-  <section class="readout" data-section="readouts" aria-label="{{resume.readouts.label}}" style="grid-template-columns:repeat({{resume.readouts.columns}}, 1fr)">
-    {{#each resume.readouts.groups}}
-    <div class="channel{{#if last}} channel--last{{/if}}" style="grid-column:{{start}} / span {{span}}">
-      <span class="src"><b>{{org}}</b>{{#if dates}}, {{dates}}{{/if}}</span>
-    </div>
-    {{/each}}
-    {{#each resume.readouts.items}}
-    <p class="reading{{#if first}} first-of-ch{{/if}}{{#if split}} ch-split{{/if}}" data-claim="{{claimId}}" style="grid-column:{{col}}"><span class="fig">{{n}}</span><span class="cap">{{caption}}</span></p>
+  {{#if resume.ticker}}
+  <section class="ticker" data-section="readouts" aria-label="{{resume.readouts.label}}">
+    {{#each resume.ticker}}<p class="tick" data-claim="{{claimId}}"><span class="fig">{{n}}</span> <span class="cap">{{caption}}</span></p>
     {{/each}}
   </section>
   {{/if}}
 
   <div class="body">
-    <section class="statement" data-section="summary">
+    {{#if resume.statement.show}}<section class="statement" data-section="summary">
       <p>{{resume.statement.html}}</p>
-    </section>
+    </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
 
     {{#if resume.experience}}
     <section data-section="experience">
@@ -35,10 +30,22 @@
       {{#each resume.experience.entries}}
       <article class="row entry" data-claim-group="{{employerId}}">
         <div class="gut">
+          {{#if logo}}<span class="socket socket--{{logo.shape}}"><img class="mark" src="{{logo.src}}" alt="{{logo.alt}}" /></span>{{/if}}
           <span class="when">{{dates}}{{#if place}}<br />{{place}}{{/if}}</span>
         </div>
         <div>
-          <div class="head">{{#if logo}}<img class="mark" src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}<h2 class="org company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}{{#if orgIsDuplicate}} {{/if}}</h2>{{#if hasSeat}}<span class="seat">{{seatHtml}}</span>{{/if}}</div>
+          <div class="head"><h2 class="org company-name">{{org}}</h2>{{#if hasSeat}}<span class="seat">{{seatHtml}}</span>{{/if}}</div>
+          {{#if hasRoles}}
+          {{#each roles}}
+          <div class="subrole"><span class="subrole-title">{{seatHtml}}</span>{{#if dates}}<span class="subrole-when">{{dates}}</span>{{/if}}</div>
+          {{#if hasBullets}}
+          <ul>
+            {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+            {{/each}}
+          </ul>
+          {{/if}}
+          {{/each}}
+          {{else}}
           {{#if hasBullets}}
           <ul>
             {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
@@ -46,6 +53,7 @@
           </ul>
           {{else}}
           {{#if line}}<p class="line" data-claim="{{claimId}}">{{line}}</p>{{/if}}
+          {{/if}}
           {{/if}}
         </div>
       </article>
@@ -58,7 +66,7 @@
       <div class="sec-label sec-label--gut"><h2>{{resume.earlier.label}}</h2></div>
       <div class="earlier">
         {{#each resume.earlier.entries}}
-        <p class="earlier-line" data-claim-group="{{employerId}}"><b class="company-name-inline">{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}<br /><span data-claim="{{claimId}}">{{line}}</span>{{/if}}</p>
+        <p class="earlier-line" data-claim-group="{{employerId}}">{{#if logo}}<img class="mark-inline" src="{{logo.src}}" alt="{{logo.alt}}" />{{/if}}{{#if showOrg}}<b class="company-name-inline">{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{else}}{{#if hasSeat}}<b class="company-name-inline">{{seatHtml}}</b>{{/if}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}{{#if hasHead}}<br />{{/if}}<span data-claim="{{claimId}}">{{line}}</span>{{/if}}</p>
         {{/each}}
       </div>
     </section>

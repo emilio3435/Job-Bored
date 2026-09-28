@@ -211,6 +211,13 @@ test("thin-result retry fires when the first pass returns fewer than 15 companie
     !logs.events.some(([event]) => event === "discovery.profile.companies_industry_fanout"),
   );
 
+  const searchBodies = requestBodies.filter((body) => Array.isArray(body.tools));
+  assert.ok(searchBodies.length > 0);
+  assert.ok(searchBodies.every((body) => (body.generationConfig as { maxOutputTokens?: number }).maxOutputTokens === 8192));
+  const structuredBodies = requestBodies.filter((body) => (body.generationConfig as { responseSchema?: unknown }).responseSchema);
+  assert.ok(structuredBodies.length > 0);
+  assert.ok(structuredBodies.every((body) => (body.generationConfig as { maxOutputTokens?: number }).maxOutputTokens === 65536));
+
   const firstUserPrompt = JSON.stringify(requestBodies[0]);
   assert.match(firstUserPrompt, /at least 20 companies and up to 30/i);
   assert.match(firstUserPrompt, /Do NOT stop at 5-10 companies/i);
@@ -327,7 +334,7 @@ test("profile extraction uses OpenRouter chat completions without a Gemini key",
   assert.equal(requestHeaders["x-goog-api-key"], undefined);
   assert.equal(requestBody.model, "openai/gpt-4.1-mini");
   assert.equal(requestBody.temperature, 0.1);
-  assert.equal(requestBody.max_tokens, 1024);
+  assert.equal(requestBody.max_tokens, 32768);
   assert.ok(Array.isArray(requestBody.messages));
   assert.deepEqual(profile.targetRoles, ["Growth Marketing Manager"]);
   assert.deepEqual(profile.skills, ["SEO", "AI automation"]);

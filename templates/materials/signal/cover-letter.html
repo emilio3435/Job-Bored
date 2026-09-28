@@ -2,21 +2,25 @@
 <article class="sheet page" data-page="1" {{sheetAttrs}}>
 
   <header class="band">
-    <div>
-      <h1 class="name">{{identity.name}}</h1>
+    <div class="band-id{{#if identity.nameFit.full}} band-id--full{{/if}}">
+      <div class="name-wrap" style="font-size:{{identity.nameFit.pt}}pt"><h1 class="name{{#if identity.nameDots}} name--dots{{/if}}">{{identity.name}}</h1>{{#each identity.nameDots}}<i class="nd nd--{{n}}" style="left:{{x}}em;top:{{y}}em" aria-hidden="true"></i>{{/each}}</div>
       <p class="target">{{identity.target}}</p>
     </div>
-    <p class="contact">
-      {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}
-    </p>
+    <div class="contact">
+      {{#each identity.contact.items}}{{#if link}}<a class="ct ct--{{kind}}" href="{{link}}">{{icon}}<span>{{text}}</span></a>{{else}}<span class="ct ct--{{kind}}">{{icon}}<span>{{text}}</span></span>{{/if}}
+      {{/each}}
+    </div>
   </header>
 
   <div class="main">
-    <dl class="meta">
-      {{#each letter.rail}}<dt>{{label}}</dt>
-      <dd>{{#each lines}}{{this}}{{#unless @last}}<br />{{/unless}}{{/each}}</dd>
-      {{/each}}
-    </dl>
+    <div class="rail">
+      {{#if target.logo}}<span class="addressee socket--{{target.logo.shape}}"><img class="mark" src="{{target.logo.src}}" alt="{{target.logo.alt}}" /></span>{{/if}}
+      <dl class="meta">
+        {{#each letter.rail}}<dt>{{label}}</dt>
+        <dd>{{#each lines}}{{this}}{{#unless @last}}<br />{{/unless}}{{/each}}</dd>
+        {{/each}}
+      </dl>
+    </div>
 
     <div class="prose">
       <p class="salute">{{letter.salutation}}</p>

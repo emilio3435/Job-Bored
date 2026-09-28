@@ -1,0 +1,3 @@
+# Raw Muse event streams (16 MB, echo file contents) stay local; the extracted verdicts are committed.
+verdicts/*.jsonl
+prs/*.diff

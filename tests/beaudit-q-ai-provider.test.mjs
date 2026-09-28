@@ -89,7 +89,7 @@ describe("E15 server/ai/provider.mjs", () => {
     assert.match(calls[0].url, /models\/gemini-test:generateContent$/);
     assert.equal(calls[0].init.headers["x-goog-api-key"], "g-secret");
     const body = JSON.parse(calls[0].init.body);
-    assert.equal(body.generationConfig.maxOutputTokens, 50);
+    assert.equal(Object.hasOwn(body.generationConfig, "maxOutputTokens"), false);
     assert.equal(body.generationConfig.responseMimeType, "application/json");
     assert.equal("additionalProperties" in body.generationConfig.responseSchema, false);
     assert.equal(result.text, "{\"a\":\"b\"}");

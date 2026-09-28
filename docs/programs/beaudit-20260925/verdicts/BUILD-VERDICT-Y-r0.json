@@ -1,0 +1,62 @@
+{
+  "claims": [
+    {
+      "command": "node --test tests/relay-github-actions-retired.test.mjs; node --test tests/relay-github-actions-refusal.test.mjs (each with fresh HOME=$(mktemp -d), PLAYWRIGHT_BROWSERS_PATH set, no network; refusal test runs workflow run: script under bash with fake curl/node on PATH)",
+      "excerpt": "retired: \u25b6 GitHub Actions to the Cloudflare relay is retired | \u2714 docs/SETTINGS-SCHEDULE.md says the relay rejects GitHub Actions and how to migrate | \u2714 templates/github-actions/README.md says the relay rejects GitHub Actions and how to migrate | \u2714 templates/cloudflare-worker/README.md says the relay rejects GitHub Actions and how to migrate | \u2714 the GitHub Actions secret table no longer offers the relay as a webhook URL | \u2139 tests 7 \u2139 pass 7 \u2139 fail 0 EXIT:0 || refusal: \u2714 the repo workflow is byte-identical to the template | \u2714 a workers.dev URL exits non-zero before any POST | \u2714 a workers.dev host in any case, with a path and port, is still a relay | \u2714 a custom-domain relay that answers the relay-auth 401 exits non-zero | \u2714 a relay with no RELAY_TOKEN (relay_token_not_configured) exits non-zero | \u2714 https://worker.example-tailnet.ts.net/webhook is posted once and the job succeeds on 2xx | \u2714 a worker's own 401 fails the job without claiming it is a relay | \u2139 tests 14 \u2139 pass 14 \u2139 fail 0 EXIT:0",
+      "id": "RGHA",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.4wPaJOnF5A\n> eslint .\nOK integrations/openclaw-command-center/SKILL.md\nlint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.Ybvl3S7T6a\n> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n(no errors)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.pOA2WmCx52\n\u2716 an unknown API route answers a JSON 404, not HTML # target behavior; fix owned by wave-1 lane L (E7: JSON 404)\n\u2716 persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store\n(EXIT 0: \u2716 lines are todo tests, not failures)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.zmES464lRz\n\u2139 tests 805\n\u2139 suites 2\n\u2139 pass 804\n\u2139 fail 1\n\u2716 VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grounded query (no placeholder company artifacts) (12004ms)\nAssertionError: grounded_web should have querySummary with modifier-driven search queries\nEXIT:1",
+      "passed": false
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.lPhWCnXDd5\nOK schema: examples/discovery-webhook-request.v1.json (+ 4 more)\nOK schema (ATS request/response) (+ builders)\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-smoke",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.re7KZZkXvG\nRunning 24 tests using 1 worker\n24 passed (34.0s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-journey",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.ztMqUEv2Ls\nRunning 33 tests using 1 worker\n33 passed (48.4s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-onboarding",
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.txMu7F2VdO\nRunning 7 tests using 1 worker\n7 passed (15.3s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "63fd4219",
+  "lane": "Y",
+  "summary": "Lane Y @63fd4219 verified, tree left clean (git status empty). Floor 7/8 pass with fresh HOME per command: lint, typecheck, npm test (exit 0; \u2716 are lane-L todos), contract:all (12 OK), e2e-smoke 24, e2e-journey 33, e2e-onboarding 7 pass; test:browser-use-discovery fails 804/805 on unrelated VAL-ROUTE-010 (grounded_web querySummary, lane reported 805/805). Added test tests/relay-github-actions-refusal.test.mjs green 14/14; lane red evidence confirmed (rgha-red.txt 10 tests 2 pass 8 fail with bash 3.2 SECRET_HEADER[@]: unbound variable; rgha-copy-red.txt 14 tests 10 pass 4 fail; rgha-copy-green.txt 14 pass). RGHA FIXED: retired 7/7 + refusal 14/14 pass and exercise relay refusal, non-relay still posts, byte-identical workflows, and Settings/wizard/docs copy.",
+  "tests": [
+    {
+      "excerpt": "HOME=/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/tmp.AhZgwKeAcw\n\u25b6 RGHA: the three discovery workflows are one workflow \u2714 byte-identical \u2714 Settings embeds verbatim\n\u25b6 RGHA: a relay webhook URL is refused \u2714 workers.dev exits non-zero before any POST \u2714 any-case host with path/port \u2714 custom-domain relay-auth 401 \u2714 relay_token_not_configured 401\n\u25b6 RGHA: a non-relay webhook URL still posts \u2714 worker tailnet posted once 2xx \u2714 Apps Script /exec posted once 2xx \u2714 workers.dev.example.com posted once 2xx \u2714 worker's own 401 fails without relay claim\n\u25b6 RGHA: Settings/wizard/docs \u2714 Tier 3 step refuses relay \u2714 wizard prompt step 6 \u2714 both docs say workflow stops on relay\n\u2139 tests 14 \u2139 suites 4 \u2139 pass 14 \u2139 fail 0\nEXIT:0\nLane evidence: rgha-red.txt \u2139 tests 10 \u2139 pass 2 \u2139 fail 8 (SECRET_HEADER[@]: unbound variable on bash 3.2.57); rgha-copy-red.txt \u2139 tests 14 \u2139 pass 10 \u2139 fail 4; rgha-copy-green.txt \u2139 tests 14 \u2139 pass 14 \u2139 fail 0",
+      "file": "tests/relay-github-actions-refusal.test.mjs",
+      "passed": true
+    }
+  ]
+}

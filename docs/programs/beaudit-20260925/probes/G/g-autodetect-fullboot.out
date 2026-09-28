@@ -1,0 +1,19 @@
+[
+ {
+  "url": "/__proxy/discovery-state",
+  "method": "GET",
+  "body": ""
+ },
+ {
+  "url": "/__proxy/full-boot",
+  "method": "POST",
+  "body": "{}"
+ },
+ {
+  "url": "/__proxy/discovery-state",
+  "method": "GET",
+  "body": ""
+ }
+]
+full-boot URL carries skip_tunnel? false
+verdict: {"ready":false,"recommendation":"needs_human","hint":"recovery_attempted_still_unhealthy","state":{"ok":true,"worker":{"up":false,"port":8644},"ngrok":{"up":fal

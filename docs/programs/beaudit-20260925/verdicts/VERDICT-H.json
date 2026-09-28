@@ -1,0 +1,211 @@
+{
+ "could_not_run": [
+  {
+   "id": "H9",
+   "reason": "Proving a second getUpdates consumer causes 409s and drops gateway updates needs live Telegram calls on the shared bot token, which the lane boundaries forbid (no Telegram/provider calls). Report \u00a75 lists the same live-only proof command."
+  }
+ ],
+ "lane": "H",
+ "sha": "f227fbb",
+ "summary": "Reproduced 22 of 22 runnable checks: 20 findings rows (H1-H8, H10-H13, H16-H23) plus both focused test files, with 0 NOT-REPRODUCED and 0 UNCLEAR. One row (H9, second Telegram poller 409 conflict) could not be run because live Telegram calls are boundary-forbidden. The INFERRED halves of H3 (row drift), H5 (end-to-end verify) and H16 (effect past row 500) need a live Sheet/browser and were confirmed by code structure only. Working tree left clean (git status empty).",
+ "verdicts": [
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H1",
+   "note": "integrations/hermes-job-hunt/scripts/gate2_telegram.py:227-229 `if text.startswith(\"YES SUBMIT\") and company.upper() in text:` (fuzzy, no sender check, blank company matches since `\"\" in text`); approval-guard-spec.md:74 \"Any other message or timeout cancels the pending submission\" \u2014 yet NO-then-YES confirms.",
+   "output_excerpt": "--- gate2_fuzzy\ngate2 [company='Meta', reply for another company] -> confirmed=True reason=\"Confirmed (fuzzy): received 'YES SUBMIT METABASE'\"\ngate2 [company='' (blank Sheet cell), any YES SUBMIT] -> confirmed=True reason=\"Confirmed (fuzzy): received 'YES SUBMIT ACME'\"\ngate2 [reply NO then YES (spec: any other reply cancels)] -> confirmed=True reason=\"Confirmed: received 'YES SUBMIT ACME' from user Emilio\"\ngate2 [any group member can approve (no sender check)] -> confirmed=True reason=\"Confirmed: received 'YES SUBMIT ACME' from user SomeoneElse\"",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H2",
+   "note": "integrations/hermes-job-hunt/scripts/jhos_submit.py:51-54 unanchored `r\"^(utm_|ref|...|si|...|ei)\"` strips sid/ref/si/ei prefixes and :82 `parsed.path.lower()`; vs integrations/browser-use-discovery/src/normalize/lead-normalizer.ts:25-26 anchored `/^(utm_.+|ref|...)$/i` with case-kept pathname. Docstring \"mirrors normalizeLeadUrl\" is false.",
+   "output_excerpt": "--- normalize_collision\nnormalize https://jobs.example.com/posting?sid=111 | https://jobs.example.com/posting?sid=222 -> same_key=True key=https://jobs.example.com/posting\nnormalize https://jobs.example.com/view?ref=REQ-1 | https://jobs.example.com/view?ref=REQ-2 -> same_key=True key=https://jobs.example.com/view\nnormalize https://careers.example.com/Job/AbC123 | https://careers.example.com/job/abc123 -> same_key=True key=https://careers.example.com/job/abc123\ngate1_check(target sid=222, NOT approved) -> {'approved': True, 'row_number': 2, 'title': 'Other Job', 'approvalStatus': 'Approved'}",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H3",
+   "note": "integrations/hermes-job-hunt/scripts/jhos_submit.py:337-340 Notes GET in try/except sets `existing = \"\"` on failure then overwrites O with append line alone; :349 `\"valueInputOption\": \"USER_ENTERED\"`. Row-drift half: apply-orchestrator.py:309 `row_num = g1_data.get(\"row_number\")` reuses the pre-Gate-2-wait row; live sort/insert proof needs a real Sheet (boundary-barred).",
+   "output_excerpt": "--- notes_wipe\nupdate_pipeline_applied success: True\n  write Pipeline!M7 = [['Applied']]\n  write Pipeline!N7 = [['2026-09-25']]\n  write Pipeline!O7 = [['Submitted via Hermes']]\n  valueInputOption: USER_ENTERED",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (notes wipe) / INFERRED (row drift)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H4",
+   "note": "integrations/hermes-job-hunt/scripts/universal_filler.py:61 `SUBMIT_TERMS = (\"submit\", ...)` lacks Send/Done/Confirm; :676-685 safety gate and `submit_attempted=True` run only when `is_submit_like_action`; jhos_submit.py:420 `telegram_msg=f\"\u274c Submit failed ... retry required\"` is then sent after a real submit.",
+   "output_excerpt": "--- submit_classifier\nis_submit_like_action(button text='Submit application') -> True\nis_submit_like_action(button text='Send') -> False\nis_submit_like_action(button text='Done') -> False\nis_submit_like_action(button text='Confirm') -> False\nis_submit_like_action(button text='Send my application') -> False\nis_submit_like_action(button text='Finish') -> True",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H5",
+   "note": "integrations/hermes-job-hunt/scripts/universal_filler.py:63 `CONFIRMATION_TERMS = (\"thank you\", ...)` and :726 `any(term in text for term in CONFIRMATION_TERMS)` marks verified on page-text substring; full end-to-end needs a real browser/form (boundary-barred).",
+   "output_excerpt": "confirmation-term hit on pre-submit form text: True",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (term hit) / INFERRED (end to end)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H6",
+   "note": "integrations/hermes-job-hunt/scripts/greenhouse_filler.py:360 `--dry-run` opt-in so default is live; :324 `submit_btn.click()` then :327 `results[\"submitted\"] = True` with no verification; grep shows no gate/approval references; docs-only callers (P6-synthesis/HANDOFFs), superseded per HANDOFF-2026-05-27-phase7-onwards.md:146.",
+   "output_excerpt": "## H-GATES: submit paths and their gates\n15:    python3 greenhouse_filler.py --url <greenhouse_url> --app-dir <path> [--dry-run] [--headless]\n324:                        submit_btn.click()\n327:                        results[\"submitted\"] = True\n360:    parser.add_argument(\"--dry-run\", action=\"store_true\", help=\"Fill form but don't submit\")\n(greenhouse_filler: no gate/approval references above = none)",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H7",
+   "note": "integrations/hermes-job-hunt/scripts/universal_filler.py:762 `--submit` plus :774 `os.environ.get(\"JHOS_GATE2_CONFIRMED\") == \"1\"` self-asserted flag, no gate1_check/lock_acquire in CLI path; integrations/hermes-job-hunt/.env.example:31 `Set to \"1\" to bypass the Gate 2 confirmation prompt`.",
+   "output_excerpt": "762:    parser.add_argument(\"--submit\", action=\"store_true\", help=\"Allow live actions; requires JHOS_GATE2_CONFIRMED=1\")\n774:    gate2_confirmed = os.environ.get(\"JHOS_GATE2_CONFIRMED\") == \"1\"",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H8",
+   "note": "integrations/hermes-job-hunt/scripts/filler_profile.py:18-23 and greenhouse_filler.py:35-36 hardcode email/phone/zip (values redacted by probe); universal_filler.py:395-399 fills answers from `filler_profile.CANDIDATE[...]`; repo is public so any assisted apply submits Emilio's identity.",
+   "output_excerpt": "## H-PII: personal identity hardcoded in a PUBLIC repo and used as the filler's answers\nintegrations/hermes-job-hunt/scripts/filler_profile.py:18:    \"email\": \"<redacted-real-value>\",\nintegrations/hermes-job-hunt/scripts/filler_profile.py:19:    \"phone\": \"<redacted-real-value>\",\nintegrations/hermes-job-hunt/scripts/filler_profile.py:23:    \"zip\": \"<redacted-real-value>\",\nintegrations/hermes-job-hunt/scripts/greenhouse_filler.py:35:    \"email\": \"<redacted-real-value>\",\nintegrations/hermes-job-hunt/scripts/greenhouse_filler.py:36:    \"phone\": \"<redacted-real-value>\",\n395:            value = filler_profile.CANDIDATE[\"first_name\"]",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" python3 .lane-evidence/probes/h_pytest_shim.py; HOME=\"$PWD/.lane-evidence/home-linked\" python3 .lane-evidence/probes/h_pytest_shim.py; python3 -c \"import pytest\"; grep -rn pytest .github/workflows/",
+   "id": "H10",
+   "note": "integrations/hermes-job-hunt/tests/test_phase7_universal_filler.py:8 `SCRIPTS_DIR = Path.home() / \".hermes\" / \"job-hunt\" / \"scripts\"` tests the runtime copy, not the repo; `import pytest`/`import httpx` fail (ModuleNotFoundError) and no file in .github/workflows/ mentions pytest or hermes (grep rc=1).",
+   "output_excerpt": "SCRIPTS_DIR under test: .../.lane-evidence/home/.hermes/job-hunt/scripts exists= False\nFAIL test_compensation_field_is_hard_blocked_even_if_llm_tries_to_fill -> ModuleNotFoundError No module named 'universal_filler'\n... (all 12 FAIL)\n== 0 passed, 12 failed\nSCRIPTS_DIR under test: .../.lane-evidence/home-linked/.hermes/job-hunt/scripts exists= True\n== 12 passed, 0 failed\nModuleNotFoundError: No module named 'pytest' (rc=1); workflow grep rc=1",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H11",
+   "note": "integrations/hermes-job-hunt/requirements.txt lists only google-api-python-client/google-auth/google-auth-oauthlib while universal_filler.py:34 `import httpx` and :35 `from playwright.sync_api import ...` sit at module top; failure surfaces at the browser step after Gate 2 confirm.",
+   "output_excerpt": "## H-DEPS: requirements.txt vs imports\ngoogle-api-python-client>=2,<3\ngoogle-auth>=2,<3\ngoogle-auth-oauthlib>=1,<2\n34:import httpx\n35:from playwright.sync_api import Page, sync_playwright",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/h_setup_cp_force.mjs",
+   "id": "H12",
+   "note": "scripts/setup.mjs:27 default `force: false` passed at :285 into `cp(HERMES_SOURCE_DIR, ..., {recursive, force, errorOnExist: false})`, so an installed runtime keeps stale scripts and repo fixes never arrive without --force.",
+   "output_excerpt": "runtime after setup-style cp: THREAD_ID = 314  # stale runtime copy",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "python3 .lane-evidence/probes/h_argv_canary.py",
+   "id": "H13",
+   "note": "Same argv shape as integrations/hermes-job-hunt/scripts/discovery-trigger.sh:188 `tok = '$ACCESS_TOKEN'` in `python -c` and :201 `-H \"x-discovery-secret: $WEBHOOK_SECRET\"`; ps-readable by any local user while the process runs.",
+   "output_excerpt": "ps shows canary in argv: True\nps line: .../Python -c tok = 'probe-canary-token-4242'\\",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (canary)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -rn \"A1:M500\\|A1:X500\" integrations/hermes-job-hunt/scripts/",
+   "id": "H16",
+   "note": "Report \u00a74 gives no probe command for H16 (\"from source\"), so this grep over the cited paths is the confirming command. followup_monitor.py:75, followup-monitor.py:75, gate1-approve.py:160, gate2-status-watcher.py:73, pipeline-status.py:138, discovery-trigger.sh:325 all cap reads at row 500; live >500-row effect needs the real Sheet (boundary-barred).",
+   "output_excerpt": "integrations/hermes-job-hunt/scripts/pipeline-status.py:138: range=\"Pipeline!A1:M500\"\nintegrations/hermes-job-hunt/scripts/followup_monitor.py:75: range=\"Pipeline!A1:X500\"\nintegrations/hermes-job-hunt/scripts/followup-monitor.py:75: range=\"Pipeline!A1:X500\"\nintegrations/hermes-job-hunt/scripts/discovery-trigger.sh:325: range='Pipeline!A1:M500'\nintegrations/hermes-job-hunt/scripts/gate1-approve.py:160: range=\"Pipeline!A1:M500\"\nintegrations/hermes-job-hunt/scripts/gate2-status-watcher.py:73: range=\"Pipeline!A1:M500\"",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static) / INFERRED (effect)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H17",
+   "note": "integrations/hermes-job-hunt/scripts/gate1-approve.py:179 `if target in company.lower() or company.lower() in target:` two-way substring; blank company matches everything since `\"\" in target`.",
+   "output_excerpt": "--- gate1_approve_fuzzy\ngate1-approve target='Meta' -> rows [(2, 'Metabase'), (3, ''), (4, 'Meta')]\ngate1-approve target='Acme' -> rows [(3, '')]\ngate1-approve target='a' -> rows [(2, 'Metabase'), (3, ''), (4, 'Meta')]",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H18",
+   "note": "apply-orchestrator.py:294 `js.write_evidence(job_url, company, title, task_id)` passes no screenshot though jhos_submit.py:270 accepts `screenshot_path`; :224 hardcodes `\"Greenhouse/Lever\"` as platform; filler screenshots go to universal_filler.py:567 `app_dir / \"evidence\" / (\"dry-run\"/\"live\")`, a different folder than `evidence/<slug>/metadata.json`.",
+   "output_excerpt": "## H-EVIDENCE: orchestrator never passes a screenshot to write_evidence\n294:                evidence_dir = js.write_evidence(job_url, company, title, task_id)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H19",
+   "note": "followup_monitor.py == followup-monitor.py byte-identical; triage_pipeline.py:16 `TODAY = datetime(2026, 5, 27)` frozen with import-time batchUpdate at :120; gate2_telegram.py send_cancellation/send_success have 0 callers (only materials_watcher's own send_success calls); greenhouse_filler docs-only; navigation_plan defined in 3 ats_adapters with no callers.",
+   "output_excerpt": "## H-DUP: follow-up monitor twin files\nfollowup_monitor.py == followup-monitor.py (byte-identical)\n## H-TRIAGE: frozen date + import-time bulk write\n16:TODAY = datetime(2026, 5, 27)\n120:    resp = sheets.values().batchUpdate(",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -n \"sendMessage\" integrations/hermes-job-hunt/scripts/gate2_telegram.py integrations/hermes-job-hunt/scripts/gate2-status-watcher.py integrations/hermes-job-hunt/scripts/apply-orchestrator.py; grep -n \"BRIEF_STALE_APPLIED_DAYS\" daily-brief.js",
+   "id": "H20",
+   "note": "Report gives no single probe for H20 (\"paths as cited\"); confirming via cited-path greps: Telegram send \u00d73 (gate2_telegram.py:113 POST, gate2-status-watcher.py:58 GET, apply-orchestrator.py:104), .env parsers \u00d74 (gate2_telegram.py:49, universal_filler.py:71, gate1-approve.py:55 read_worker_env, pipeline-status.py:52), daily-brief.js:31 `BRIEF_STALE_APPLIED_DAYS = 14` vs followup_monitor.py:118-119 7-14/14-21, Sheets auth in 6 scripts, normalizer pair (H2), identity \u00d73 (H8).",
+   "output_excerpt": "integrations/hermes-job-hunt/scripts/gate2_telegram.py:113: result = _api_call(\"sendMessage\", {\nintegrations/hermes-job-hunt/scripts/gate2-status-watcher.py:58: f\"/sendMessage?chat_id=...\" (GET, no ~/.hermes/.env fallback)\nintegrations/hermes-job-hunt/scripts/apply-orchestrator.py:104: g2._api_call(\"sendMessage\", {\nconst BRIEF_STALE_APPLIED_DAYS = 14;",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H21",
+   "note": "Real Pipeline sheet ID hardcoded in followup_monitor.py:25, followup-monitor.py:25, gate2-status-watcher.py:22, triage_pipeline.py:12 and chatId in approval-contract.v1.json:20 in this public repo (values truncated in excerpt); pipeline-status.py correctly reads worker-config instead.",
+   "output_excerpt": "## H-IDS: real Pipeline sheet ID and Telegram chat ID committed\nintegrations/hermes-job-hunt/scripts/followup_monitor.py:25:SHEET_ID = \"<redacted-sheet-id>...\" (full value confirmed, truncated here)\nintegrations/hermes-job-hunt/scripts/followup-monitor.py:25:SHEET_ID = \"<redacted-sheet-id>...\" (same)\nintegrations/hermes-job-hunt/scripts/gate2-status-watcher.py:22:SHEET_ID = \"<redacted-sheet-id>...\" (same)\nintegrations/hermes-job-hunt/scripts/triage_pipeline.py:12:SHEET_ID = '<redacted-sheet-id>...' (same)\n20:    \"chatId\": <redacted-chat-id>,",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py",
+   "id": "H22",
+   "note": "jhos_submit.py:394 `reason=f\"Pipeline Status is '{status}' \u2014 needs to be beyond 'New'...\"` describes the retired Status rule; gate2-status-watcher.py:26 `TELEGRAM_HOME_CHANNEL` overrides contract chat; kanban-task-conventions.md shows \"A\u2013T schema\", `Followed Up` status and \"past `Approved`\".",
+   "output_excerpt": "--- stale_gate1_text\nfail_gate1 reason: Pipeline Status is '' \u2014 needs to be beyond 'New' (e.g. 'Researching') to proceed",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/h_static.sh",
+   "id": "H23",
+   "note": "Fixed `timedelta(hours=-5)` labelled CT in 7 files (e.g. gate2-status-watcher.py:28 `CT = timezone(timedelta(hours=-5))`), off by an hour during CST (UTC-6).",
+   "output_excerpt": "## H-TZ: fixed UTC-5 offsets\nintegrations/hermes-job-hunt/scripts/apply-orchestrator.py:2\nintegrations/hermes-job-hunt/scripts/followup_monitor.py:1\nintegrations/hermes-job-hunt/scripts/followup-monitor.py:1\nintegrations/hermes-job-hunt/scripts/gate2-status-watcher.py:1\nintegrations/hermes-job-hunt/scripts/greenhouse_filler.py:2\nintegrations/hermes-job-hunt/scripts/jhos_submit.py:2\nintegrations/hermes-job-hunt/scripts/universal_filler.py:2",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED (static)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/approval-contract.test.mjs",
+   "id": "TEST:tests/approval-contract.test.mjs",
+   "note": "Focused root test from \u00a74 passes standalone (2/2): Gate 2 thread-id agreement and Gate 1 schema-marker checks.",
+   "output_excerpt": "\u2714 docs, runtime, send, and poll agree on Gate 2 thread id (no 48 vs 314 split)\n\u2714 Gate 1 is the schema Approval Status marker, not a second competing rule\n\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "N/A \u2014 focused test (\u00a74: pass)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/hermes-discovery-trigger.test.mjs",
+   "id": "TEST:tests/hermes-discovery-trigger.test.mjs",
+   "note": "Focused root test from \u00a74 passes standalone (4/4): valid bash, secret self-heal, watchdog size, checkout path. Combined run also 6/6 as reported.",
+   "output_excerpt": "\u2714 Hermes discovery trigger remains valid bash\n\u2714 Hermes discovery trigger self-heals stale webhook secrets once\n\u2714 Hermes discovery trigger stays under Dobby's script watchdog\n\u2714 Hermes discovery trigger supports Dobby's GitHub checkout path\n\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "N/A \u2014 focused test (\u00a74: pass)",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

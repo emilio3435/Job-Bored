@@ -6,6 +6,60 @@
   "type": "object",
   "required": ["contract", "runId", "slug", "feature", "requestedAt", "executor", "template", "stages"],
   "additionalProperties": false,
+  "$defs": {
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "promptTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "thoughtsTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stageCall": {
+      "description": "One model stage's call record (P-7): what the provider said, how many attempts it took, and why the stage degraded when it did. Never carries credentials.",
+      "type": "object",
+      "required": ["provider", "model", "attempts", "trace"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "finishReason": { "type": "string" },
+        "usage": { "$ref": "#/$defs/usage" },
+        "errorCode": { "type": "string" },
+        "degradedReason": { "type": "string" },
+        "fallback": {
+          "description": "Present when the stage switched to its llm.json fallback model after the primary failed twice.",
+          "type": "object",
+          "required": ["provider", "model", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "type": "string" },
+            "model": { "type": "string" },
+            "reason": { "type": "string" }
+          }
+        },
+        "trace": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["budget"],
+            "additionalProperties": false,
+            "properties": {
+              "budget": { "type": ["integer", "null"], "minimum": 0 },
+              "thinkingBudget": { "type": "integer", "minimum": 0 },
+              "finishReason": { "type": "string" },
+              "usage": { "$ref": "#/$defs/usage" },
+              "errorCode": { "type": "string" },
+              "errorDetail": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
   "properties": {
     "contract": { "const": "materials.run.v1" },
     "runId": { "type": "string", "minLength": 1 },
@@ -15,7 +69,7 @@
     "finishedAt": { "type": "string", "format": "date-time" },
     "executor": { "enum": ["local-inprocess", "hermes-cli", "webhook"] },
     "cacheKey": {
-      "description": "jdHash|ledgerHash|<family>@<version>|promptVersion|budgetVersion|feature. A repeat request with an unchanged key returns the published package without an LLM call.",
+      "description": "jdHash|ledgerHash|<family>@<version>|promptVersion|budgetVersion|feature|provider:model. A repeat request with an unchanged key returns the published package without an LLM call. Absent when the run degraded or failed QA: such a run is never served from cache.",
       "type": "string"
     },
     "template": {
@@ -98,8 +152,11 @@
               "claims.score",
               "claims.select",
               "outline",
+              "intel",
               "draft",
+              "outreach",
               "delint",
+              "support",
               "tag-metrics",
               "fit",
               "render",
@@ -112,7 +169,8 @@
           "llm": { "type": "boolean" },
           "tokensOut": { "type": "integer", "minimum": 0 },
           "out": { "type": "array", "items": { "type": "string" } },
-          "detail": { "type": "string" }
+          "detail": { "type": "string" },
+          "call": { "$ref": "#/$defs/stageCall" }
         }
       }
     },
@@ -127,6 +185,66 @@
           "code": { "type": "string" },
           "reenteredAt": { "type": "string" },
           "detail": { "type": "string" }
+        }
+      }
+    },
+    "resume": {
+      "description": "Which resume the draft used and why: the request's copy or the saved resume. Garbled text and an older copy are never used; degraded names the fallback.",
+      "type": "object",
+      "required": ["used", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string" },
+        "filename": { "type": "string" },
+        "addedAt": { "type": "string" },
+        "used": { "enum": ["request", "saved"] },
+        "reason": { "enum": ["current", "pinned", "saved_newer", "request_newer", "request_garbled", "saved_garbled", "request_only", "saved_only"] },
+        "message": { "type": "string" },
+        "degraded": {
+          "type": "object",
+          "required": ["code", "message"],
+          "additionalProperties": false,
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "description": "Fingerprints of what the run drafted from (resume text, claim ledger, posting), so a thin package can be traced to a thin input.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resume": {
+          "type": "object",
+          "required": ["hash", "chars"],
+          "additionalProperties": false,
+          "properties": {
+            "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+            "chars": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "ledger": {
+          "type": "object",
+          "required": ["hash", "claims", "employers"],
+          "additionalProperties": false,
+          "properties": {
+            "hash": { "type": "string" },
+            "claims": { "type": "integer", "minimum": 0 },
+            "employers": { "type": "integer", "minimum": 0 },
+            "builderVersion": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "jd": {
+          "type": "object",
+          "required": ["hash", "words", "source"],
+          "additionalProperties": false,
+          "properties": {
+            "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+            "words": { "type": "integer", "minimum": 0 },
+            "source": { "type": "string" }
+          }
         }
       }
     },

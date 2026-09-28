@@ -46,6 +46,8 @@
     "google",
     "ai",
     "resume",
+    "details",
+    "voice",
     "fit",
     "discovery",
     "payoff",

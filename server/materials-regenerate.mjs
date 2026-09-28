@@ -18,12 +18,16 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
+import { loadEmployerMarks, readTargetMark } from "./brand-logos.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
+import { targetCompanyOf } from "./materials-monogram.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
-import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
+import { employersWithoutMarks, newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
+import { buildQaRecord, combinedStatus, formatDocumentQaReport, issueDocument, qaFileName, readDocumentQa } from "./materials-qa.mjs";
 import { retargetModel, validateRenderModel } from "./materials-render.mjs";
-import { readResumeSnapshot } from "./materials-resume-source.mjs";
+import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-model-adapter.mjs";
+import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
 import { resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -84,14 +88,44 @@ export async function withPackagePublishClaim(dir, expectedRunId, publish, optio
  * @param {{ code?: string, message?: string, severity?: string }[]} args.issues
  * @param {string[]} args.notes
  */
-function qaReport({ status, issues, notes }) {
-  const lines = ["# QA report", "", `Status: ${status}`, "", ...notes, "", "## Issues", ""];
-  if (!issues.length) lines.push("None.");
-  for (const issue of issues) {
-    lines.push(`- \`${issue.code || "unknown"}\`${issue.severity ? ` (${issue.severity})` : ""}: ${issue.message || ""}`.trimEnd());
+/**
+ * @param {{ dir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, runId: string,
+ *   issues: { code?: string, message?: string, severity?: string }[], notes: string[], pdfReady: boolean }} input
+ */
+export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady }) {
+  const prior = await readDocumentQa(dir);
+  const records = [];
+  for (const [document, html] of [["resume", rendered.resumeHtml], ["letter", rendered.letterHtml]]) {
+    if (typeof html !== "string") continue;
+    const docIssues = issues
+      .filter((issue) => issueDocument(issue) === "both" || issueDocument(issue) === document)
+      .map((issue) => ({ code: String(issue.code || "version_issue"), message: String(issue.message || "Version QA issue"), severity: issue.severity === "fail" ? /** @type {const} */ ("fail") : /** @type {const} */ ("review") }));
+    const documentPdfReady = pdfReady && Boolean(document === "resume" ? rendered.pdf?.resume : rendered.pdf?.coverLetter);
+    docIssues.push(documentPdfReady
+      ? { code: "version_qa_unscored", message: "This version was rendered from a stored model; draft evidence was not rescored.", severity: "review" }
+      : { code: "pdf_unrendered", message: "PDF was not rendered for this version.", severity: "fail" });
+    const record = buildQaRecord({
+      document: /** @type {"resume" | "letter"} */ (document), runId, issues: docIssues,
+      rubric: { rows: [{ id: "version_recheck", score: 0, max: 1, note: "Draft evidence was not rescored." }], total: 0, max: 1, threshold: 1 },
+    });
+    prior[record.document] = record;
+    records.push(record);
+    await writeFile(join(dir, qaFileName(record.document)), `${JSON.stringify(record, null, 2)}\n`, "utf8");
   }
-  lines.push("");
-  return lines.join("\n");
+  const status = combinedStatus(records);
+  await writeFile(join(dir, "qa.json"), `${JSON.stringify({
+    contract: "materials.qa.v1", runId, status,
+    disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW",
+    ...(status === "pass" ? {} : { dispositionReason: records.find((record) => record.dispositionReason)?.dispositionReason || "" }),
+    degraded: [], measurements: {},
+    rubric: {
+      score: 0, max: records.length, threshold: records.length,
+      rows: records.flatMap((record) => record.rubric.rows.map((row) => ({ ...row, document: record.document }))),
+    },
+    checks: records.flatMap((record) => record.checks),
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(dir, "qa-report.md"), formatDocumentQaReport({ records: [prior.resume, prior.letter].filter((record) => record !== undefined), notes }), "utf8");
+  return status;
 }
 
 /**
@@ -101,10 +135,25 @@ function qaReport({ status, issues, notes }) {
  * @property {() => Date} [now]
  * @property {(input: Record<string, unknown>) => Promise<{ status?: string, issues?: { code?: string, message?: string, severity?: string }[] }>} [critic]
  * @property {() => Promise<void>} [assertBase]
+ * @property {(companies: string[]) => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [employerLogoLoader]
+ *   Marks for employers the stored model has none for (defaults to
+ *   loadEmployerMarks: cache, then a bounded lookup per company)
+ * @property {(company: string) => Promise<import("./materials-render.mjs").Logo | null>} [targetLogoLoader]
+ *   The addressed company's mark; defaults to the offline cache
+ *   (readTargetMark), so a regenerate never waits on the network
+ * @property {() => Promise<unknown>} [profileIdentityLoader]
+ *   The saved profile's `identity`. Its confirmed name, headline and
+ *   contact ("Your details") replace the stored model's, so a package
+ *   drafted before the user confirmed them picks them up on regenerate.
+ *   The route passes it; without one the stored identity stands.
+ * @property {() => Promise<import("./materials-resume-source.mjs").ResumeSource | null>} [readSavedResume]
+ *   The user's saved resume (defaults to resume.txt beside profile.json)
  */
 
 /**
- * @param {{ slug: string, template: unknown, from?: string }} input
+ * @param {{ slug: string, template: unknown, from?: string, header?: string }} input
+ *   `header` picks a header variant the family lists (family.json
+ *   `headers`); default: the family's `defaultHeader`
  *   `from` names a runId under runs/ to regenerate from; default: the
  *   published package
  * @param {RegenerateDeps} [deps]
@@ -132,24 +181,68 @@ export async function regeneratePackage(input, deps = {}) {
     );
   }
   const regeneratedFrom = storedRun.runId;
-  const feature = typeof storedRun.feature === "string" ? storedRun.feature : "both";
-  const model = retargetModel(/** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (storedModel)), family);
+  let feature = typeof storedRun.feature === "string" ? storedRun.feature : "both";
+  /* The resume this package speaks for: the user's current one (never a
+     garbled or older snapshot). Identity, split figures and readouts in the
+     stored model are refreshed from it; no model is called. */
+  const snapshot = await readResumeSnapshot(dir);
+  const savedResume = await (deps.readSavedResume || (() => readCanonicalResume()))().catch(() => null);
+  /** @type {{ resume: import("./materials-resume-source.mjs").ResumeSource, choice: import("./materials-resume-source.mjs").ResumeChoice } | null} */
+  let chosen = null;
+  if (snapshot || savedResume) {
+    try {
+      chosen = chooseResumeSource({ requested: snapshot, saved: savedResume });
+    } catch {
+      chosen = null;
+    }
+  }
+  const model = retargetModel(
+    refreshStoredModel(/** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (storedModel)), chosen ? chosen.resume.text : ""),
+    family,
+  );
+  if (typeof deps.profileIdentityLoader === "function") {
+    /* Confirmed "Your details" win over whatever the resume text says. */
+    let profileIdentity = null;
+    try {
+      profileIdentity = await deps.profileIdentityLoader();
+    } catch {
+      profileIdentity = null;
+    }
+    model.identity = overlayProfileIdentity(model.identity, profileIdentity);
+  }
+  /* A resume-only package can store an empty letter shell (no paragraphs).
+     Regenerate never renders it, so it must not fail validation on it. */
+  const letterStored = model.documents.coverLetter;
+  if (letterStored && !(letterStored.paragraphs || []).length) {
+    /* A degraded draft can publish an empty letter (QA failed it). There is
+       nothing to re-render: regenerate the resume alone. */
+    delete model.documents.coverLetter;
+    if (feature !== "resume") feature = "resume";
+  }
   const validation = validateRenderModel(model);
   if (!validation.ok) {
     throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
   }
 
   return withPackagePublishClaim(dir, String(currentRun?.runId || ""), (assertBase) =>
-    commitModelAsRun({ dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom }, { ...deps, assertBase }));
+    commitModelAsRun({
+      dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom,
+      header: input.header,
+      resume: chosen ? runResumeBlock(chosen.resume, chosen.choice) : storedRun.resume,
+      inputs: storedRun.inputs,
+      resumeNote: chosen?.choice.degraded
+        ? `degraded: ${chosen.choice.degraded.code}: ${chosen.choice.degraded.message}`
+        : chosen?.choice.message,
+    }, { ...deps, assertBase }));
 }
 
 /**
  * Render, audit and publish a validated model as an immutable package run.
  * The optional deps preserve regenerate's injectable browser, clock and critic.
- * @param {{dir:string, model:import('./materials-render.mjs').RenderModel, feature:string, source:'regenerate'|'edit'|'manual'|'restore', parentRunId?:string, edit?:{prompt:string,proposalId?:string,accepted:string[],rejected:string[],ops:object[]}}} input
+ * @param {{dir:string, model:import('./materials-render.mjs').RenderModel, feature:string, source:'regenerate'|'edit'|'manual'|'restore', parentRunId?:string, edit?:{prompt:string,proposalId?:string,accepted:string[],rejected:string[],ops:object[]}, header?:string, resume?:unknown, inputs?:unknown, resumeNote?:string}} input
  * @param {RegenerateDeps} [deps]
  */
-export async function commitModelAsRun({ dir, model, feature, source, parentRunId, edit }, deps = {}) {
+export async function commitModelAsRun({ dir, model, feature, source, parentRunId, edit, header, resume, inputs, resumeNote }, deps = {}) {
   const validation = validateRenderModel(model);
   if (!validation.ok) throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
   const slug = basename(dir);
@@ -160,6 +253,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
   const regeneratedFrom = source === "regenerate" ? parentRunId : undefined;
   const nowIso = (deps.now ? deps.now() : new Date()).toISOString();
   const runId = newRunId(slug, nowIso);
+  const inheritedRun = await readJson(parentRunId ? join(dir, RUNS_DIR, parentRunId, "run.json") : join(dir, "run.json")) || await readJson(join(dir, "run.json"));
   /* No browser, no regenerate: the fit cannot be measured and no PDF can be
      printed, and a package whose HTML and PDF disagree is worse than the
      original. Refuse before anything on disk changes. */
@@ -180,7 +274,12 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     /** @type {Awaited<ReturnType<typeof renderPackage>>} */
     let rendered;
     try {
-      rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath } });
+      const company = targetCompanyOf(model);
+      const loadTarget = deps.targetLogoLoader || ((/** @type {string} */ name) => readTargetMark(name));
+      const targetMark = company ? await loadTarget(company).catch(() => null) : null;
+      const loadEmployers = deps.employerLogoLoader || ((/** @type {string[]} */ names) => loadEmployerMarks(names));
+      const employerMarks = source === "regenerate" ? await loadEmployers(employersWithoutMarks(model)).catch(() => []) : [];
+      rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath }, targetMark, employerMarks, header });
     } finally {
       await session.close();
     }
@@ -223,11 +322,10 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
       }
     }
     issues.push(...rendered.issues);
-    const status = issues.some((i) => i.severity === "fail") ? "fail" : issues.length ? "review" : "pass";
     const notes = [source === "regenerate"
       ? `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`
-      : `${source} in ${family.label} (${family.id}@${family.version}) from run ${parentRunId || "unknown"}; no model was called.`, ...rendered.notes];
-    const report = qaReport({ status: status === "pass" ? "READY" : "REVIEW", issues, notes });
+      : `${source} in ${family.label} (${family.id}@${family.version}) from run ${parentRunId || "unknown"}; no model was called.`,
+      ...(resumeNote ? [resumeNote] : []), ...rendered.notes];
 
     /** @type {Record<string, number>} */
     const pages = {};
@@ -244,7 +342,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
     if (rendered.pdf.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));
     if (rendered.pdf.coverLetter) await copyFile(coverLetterPdfPath, join(dir, "cover-letter.pdf"));
-    await writeFile(join(dir, "qa-report.md"), report, "utf8");
+    const status = await writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady: true });
     const { record } = await writePackageRecords({
       dir,
       rendered,
@@ -258,6 +356,8 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         finishedAt: (deps.now ? deps.now() : new Date()).toISOString(),
         source,
         regeneratedFrom,
+        resume: /** @type {Parameters<typeof writePackageRecords>[0]["run"]["resume"]} */ (resume || inheritedRun?.resume),
+        inputs: /** @type {Parameters<typeof writePackageRecords>[0]["run"]["inputs"]} */ (inputs || inheritedRun?.inputs),
         ...(source === "restore" && parentRunId ? { restoredFrom: parentRunId } : {}),
         ...((source === "edit" || source === "manual") && edit ? { edit } : {}),
         stages: [

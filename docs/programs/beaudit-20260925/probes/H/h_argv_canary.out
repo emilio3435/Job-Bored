@@ -1,0 +1,2 @@
+ps shows canary in argv: True
+ps line: /opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python -c tok = 'probe-canary-token-4242'\

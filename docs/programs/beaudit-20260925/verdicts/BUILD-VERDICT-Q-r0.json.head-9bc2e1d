@@ -1,0 +1,95 @@
+{
+  "claims": [
+    {
+      "command": "node /tmp/probe-e15.mjs",
+      "excerpt": "PROVIDERS=[\"anthropic\",\"gemini\",\"openai\",\"openai_compatible\",\"openrouter\"]\nnormalize local=openai_compatible ollama=openai_compatible alias local=local\nresolve local -> {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"configured\":true,\"endpoint\":\"http://127.0.0.1:11434/v1/chat/completions\"}\ngemini url has key=false header=g-secret\nredact err=ProviderApiError leaks=false class=rate_limit\nworker re-export same=true norm=openai_compatible\nEXIT:0",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-e-local-pin.sh (P=19041, HOME=.lane-evidence/home)",
+      "excerpt": "[api :19041 up pid 77089]\nPOST {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false}\nGET /health {\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}\nPOST /api/ats-scorecard [HTTP 200] overallScore:0 model:gemma4:e2b (pre-fix: 503 Missing API key)\n[api :19041 stopped]\nEXIT:0",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/probe-e9.mjs",
+      "excerpt": "server camelCase success -> HIT:About the role: Acme hiring Staff Backen\nserver camelCase failure -> NULL(ok)\nserver snake_case failure -> NULL(ok)\nbrowser reads camelCase=true snake=true\nbrowser camelCase success -> HIT\nbrowser camelCase failure -> NULL(ok)\nEXIT:0",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/probe-e10.mjs",
+      "excerpt": "local pin -> result=null googleCalls=0 (want null/0)\nno pin -> result=null googleCalls=0 (want null/0)\ngemini pin -> url=https://generativelanguage.googleapis.com/v1beta/models/gemini-pin-model:generateContent header=pin-key hasKeyInUrl=false\nEXIT:0",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-q-keep-key.sh (P=19042); node /tmp/probe-e12b.mjs",
+      "excerpt": "save gemini keyPresent:true; omitted -> keyPresent:true; repoint attacker -> keyPresent:false; evil -> 400 llm_invalid; file mode 600\nemptied \"\" -> keyPresent=false stored=''; null -> keyPresent=false; file:// -> 400 llm_invalid\nEXIT:0",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/probe-e14.mjs",
+      "excerpt": "atomic swap apiKey=k mode=600 files=[\"llm.json\"]\nmodels.list resolved=gemini-3.9-flash callsFor2Resolves=1 hasKeyInUrl=false header=k1\nats generateContent hasKeyInUrl=false header=g-secret\nEXIT:0",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/probe-e18.mjs; node /tmp/probe-e18b.mjs",
+      "excerpt": "trim len=59 hasGo=true hasRockets=false hasSnacks=false\nabout-role keeps clearance=true keepsGround=true dropsPing=true dropsSnacks=true\nworst-case prompt len=40173 hasRockets=false under42000=true postingLen=27624\n2 resolves -> fetch calls=1 (want 1, pre-fix 2)\n(note: direct 2x-ATS stub errored on response shape; cache proven via resolveActivePin + E14)",
+      "id": "E18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "git grep -l generativelanguage.googleapis.com -- *.js *.mjs *.ts; scan for [?&]key=${ + header count",
+      "excerpt": "files naming host: discovery-drawer.js, job-posting-insights.js, model-catalog.js, resume-generate.js, server/ai/provider.mjs, server/materials-writer.mjs, server/profile-from-resume.mjs, worker chat-provider/grounded-search/config, ...\n?key= offenders (tests excluded): none; scan-done\ndirect ?key=${ scan in 10 known sites: none; direct-scan-done\nx-goog-api-key sites: 15\nEXIT:0",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/probe-e11.mjs; node /tmp/probe-e11b.mjs",
+      "excerpt": "ATS abort -> rejected=true ms=22 aborted=true\nGemini lane abort -> result=null ms=22 aborted=true\ndeadline init=false after-close=true; 20ms deadline=true; Infinity no-deadline=false after-close=true\n/api/scrape-job=true /api/ats-scorecard=true /profile/from-resume=true /profile/rescore=true /api/applications/:slug/scrape-job-description=true\nEXIT:0",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "> eslint . (clean)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit worker + server, no errors; node --check x N files\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "todo-marked only: E7 envelope/JSON-404 \u2716 x3 + submission-record \u2716 (other lanes)\nEXIT:0 (counts not captured: tail cut summary; exit 0 observed, cf. lane log 3302/3294/0/8 pattern)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 771\n\u2139 suites 2\n\u2139 pass 771\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "OK discovery x5; OK ATS x4; OK pipeline-row; OK pipeline-update; OK SKILL.md (12 OK)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "9bc2e1d864bb1ccead16d0782446bd77c79c4954",
+  "lane": "Q",
+  "summary": "Floor 5/5 green with fresh HOME (lint, typecheck, npm test exit 0 with only other-lane todos, bud 771/771, contract 12 OK). Added test tests/beaudit-q-repair2.test.mjs 21/21 pass. All 9 claims FIXED by rerun reproducers on 127.0.0.1 ports 19041-19042/HOME=.lane-evidence/home or hermetic stubs. Tree clean at 9bc2e1d8, no servers left.",
+  "tests": [
+    {
+      "excerpt": "\u2714 shared chat() 10/10 (gemini/anthropic/openai/openrouter/compat x 0,0.2)\n\u2714 worker callWorkerChatProvider 5/5 (0.1+0.2 each)\n\u2714 ATS trim 6/6 (TS/SCI kept, About us/company/Acme dropped)\n\u2139 tests 21 \u2139 pass 21 \u2139 fail 0\nEXIT:0",
+      "file": "tests/beaudit-q-repair2.test.mjs",
+      "passed": true
+    }
+  ]
+}

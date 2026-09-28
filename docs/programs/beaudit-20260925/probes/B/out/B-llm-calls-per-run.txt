@@ -1,0 +1,3 @@
+rejections: [["greenhouse",25,25,null,null],["grounded_web",0,0,null,null]]
+run 1: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true
+run 2: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true

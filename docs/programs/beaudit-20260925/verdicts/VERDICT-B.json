@@ -1,0 +1,260 @@
+{
+ "could_not_run": [],
+ "lane": "B",
+ "sha": "f227fbb",
+ "summary": "Reproduced all 14 in-scope finding rows (B1-B13, B19) with 0 NOT-REPRODUCED and 0 UNCLEAR, and all 14 focused \u00a74 test files re-ran green (28 REPRODUCED total, 0 NOT-REPRODUCED, 0 UNCLEAR). Every probe output matched the report's pasted output line-for-line, except a node SQLite ExperimentalWarning prefix on B7. B19's test-gap claim was corroborated by reads showing 0-1 fixtures vs 1-10 production and a test-injected listingScoreCache never assigned in src. Floor totals match exactly: 179 tests, 0 failures; could_not_run is empty and the worktree is untouched at f227fbb.",
+ "verdicts": [
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-frontier-saturation.mjs",
+   "id": "B1",
+   "note": "Fit>=3 all saturate at composite 100; fit-10 y-co/z-co dropped while fit-3 f-co/g-co kept (alphabetical fallback); null fit -> roleFit 5000. Matches report \u00a74 line-for-line. Evidence files: integrations/browser-use-discovery/src/run/frontier-scorer.ts:375-376,279,233-235.",
+   "output_excerpt": "composite by fit: fit1=58.2 fit2=79.2 fit3=100 fit4=100 fit5=100 fit6=100 fit7=100 fit8=100 fit9=100 fit10=100\nroleFit range: 100 - 1000\nbudget maxExploitSurfaces: 18\nselected (company:fit): f-co:3 g-co:3 h-co:4 i-co:4 j-co:4 k-co:5 l-co:5 m-co:5 n-co:6 o-co:6 p-co:6 q-co:7 r-co:7 s-co:7 t-co:8 u-co:8 v-co:9 w-co:9\ndropped  (company:fit): x-co:9 y-co:10 z-co:10 c-co:2 d-co:2 e-co:2 a-co:1 b-co:1\nnull fitScore -> roleFit 5000 composite 100",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-e2e-exploit-cap.mjs",
+   "id": "B2",
+   "note": "25 accepted ATS leads -> 18 written, 7 suppressed with no warning, state completed, maxLeadsPerRun=50 ignored (maxLeadCapApplied:false).",
+   "output_excerpt": "discovery.run.exploit_selection_completed {\"runId\":\"run_probe\",\"totalCandidates\":50,\"atsCandidates\":25,\"browserCandidates\":25,\"selectedCount\":18,\"budgetRejectedCount\":32,\"qualityRejectedCount\":0,\"deterministic\":true,\"finalBudgetUsage\":{\"scoutSurfacesVisited\":0,\"exploitSurfacesSelected\":18,\"scoutListingsCollected\":0}}\ndiscovery.run.frontier_filtering {\"runId\":\"run_probe\",\"originalLeadCount\":25,\"selectedLeadCount\":18,\"suppressedCount\":7}\ndiscovery.run.write_started {\"runId\":\"run_probe\",\"sheetId\":\"sheet_probe\",\"normalizedLeadCount\":18,\"dedupedLeadCount\":18,\"leadsToWriteCount\":18,\"maxLeadsPerRun\":50,\"maxLeadCapApplied\":false}\ncompanies: 25 | grounded scout searches: 25 | deep-extract calls: 0\nleads written: 18 | maxLeadsPerRun: 50 | state: completed",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-exploit-prose-bypass.mjs",
+   "id": "B3",
+   "note": "25 rejected companies deep-extracted anyway: 50 Gemini calls + 50 preflights + 50 Browser Use runs for 0 grounded_web accepted; prose_recovery_used in diagnostics.",
+   "output_excerpt": "selection: {\"selected\":18,\"browserCandidates\":25,\"budgetRejected\":32}\nscout searches=25 | Gemini calls during exploit (prose recovery + structuring)=50 | preflight fetches=50 | deep extractions=50\ndeep-extracted URLs (sample): https://recovered2.example/careers/jobs/backend-2 https://recovered1.example/careers/jobs/backend-1 https://recovered4.example/careers/jobs/backend-4\ngrounded_web accepted: 0 | diagnostics codes: prose_recovery_used,structured_extraction_used,canonical_surface_extracted,low_content_spa,zero_results",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-hung-llm-outlives-run-cap.mjs",
+   "id": "B4",
+   "note": "Run with 1.5s cap still running at 8s; hung provider fetch received no AbortSignal, so the duration cap does not bound LLM work.",
+   "output_excerpt": "maxRunDurationMs=1500 | after 8002ms: STILL RUNNING | LLM fetch received an AbortSignal: false",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "PROBE_BUCKET=unset HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-llm-calls-per-run.mjs",
+   "id": "B5",
+   "note": "All 25 listings rejected (\"Profile requires remote_only; listing remoteBucket=unknown.\"), written=0, state=partial zero-lead run.",
+   "output_excerpt": "rejections: [[\"greenhouse\",25,0,{\"excluded_keyword\":25},\"Profile requires remote_only; listing remoteBucket=unknown.\"],[\"grounded_web\",0,0,null,null]]\nrun 1: listings=25 chatCalls=12 requestBodyChars=15866 (~3967 input tokens) written=0 state=partial profileUsed=true\nrun 2: listings=25 chatCalls=12 requestBodyChars=15866 (~3967 input tokens) written=0 state=partial profileUsed=true",
+   "sev": "P1",
+   "status_in_report": "IN-FLIGHT #113",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-zero-lead-partial-and-optout.mjs",
+   "id": "B6",
+   "note": "Case A: a single informational preset-exclusion warning on a zero-lead run yields state partial with blank DiscoveryRuns Error.",
+   "output_excerpt": "A state: partial | reasonCode: weak_ats_seed_quality | leads: 0\nA warnings: [\"Source grounded_web was excluded by preset 'ats_only' and did not execute.\"]\nA DiscoveryRuns row: {\"status\":\"partial\",\"companiesSeen\":1,\"error\":\"\"}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-memory-write-only.mjs",
+   "id": "B7",
+   "note": "Run 2 snapshot reads 0 companies/0 surfaces despite run 1 writes; intentKey is per-run (run:run_1/run:run_2); companyRegistry and careerSurfaces stay 0 while exploitOutcomes grows unread. Output also prefixed by a node SQLite ExperimentalWarning (environment noise).",
+   "output_excerpt": "run 1: state=completed leads=1 snapshotReadAtStart={\"intentKey\":\"run:run_1\",\"companies\":0,\"surfaces\":0,\"intentCoverage\":0,\"roleFamilies\":0}\n   memory counts after run 1: {\"companyRegistry\":0,\"careerSurfaces\":0,\"hostSuppressions\":0,\"deadLinkCache\":0,\"listingFingerprints\":0,\"intentCoverage\":0,\"scoutObservations\":0,\"exploitOutcomes\":1,\"roleFamilies\":1}\nrun 2: state=completed leads=1 snapshotReadAtStart={\"intentKey\":\"run:run_2\",\"companies\":0,\"surfaces\":0,\"intentCoverage\":0,\"roleFamilies\":1}\n   memory counts after run 2: {\"companyRegistry\":0,\"careerSurfaces\":0,\"hostSuppressions\":0,\"deadLinkCache\":0,\"listingFingerprints\":0,\"intentCoverage\":0,\"scoutObservations\":0,\"exploitOutcomes\":2,\"roleFamilies\":1}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-llm-calls-per-run.mjs",
+   "id": "B8",
+   "note": "Run 2 repeats run 1 exactly (37 chat calls, 70881 chars): no cross-run caching, every listing re-scored.",
+   "output_excerpt": "rejections: [[\"greenhouse\",25,25,null,null],[\"grounded_web\",0,0,null,null]]\nrun 1: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true\nrun 2: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-llm-calls-per-run.mjs",
+   "id": "B9",
+   "note": "Default: 37 calls (12 matcher + 25 profile) then 7 of 25 scored leads discarded (written=18). Unset variant (PROBE_BUCKET=unset + same command): 12 matcher calls spent before the pre-filter rejects all 25. Both orderings shown.",
+   "output_excerpt": "[default] run 1: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true\n[default] run 2: listings=25 chatCalls=37 requestBodyChars=70881 (~17720 input tokens) written=18 state=completed profileUsed=true\n[PROBE_BUCKET=unset] rejections: [[\"greenhouse\",25,0,{\"excluded_keyword\":25},\"Profile requires remote_only; listing remoteBucket=unknown.\"],[\"grounded_web\",0,0,null,null]]\n[PROBE_BUCKET=unset] run 1: listings=25 chatCalls=12 requestBodyChars=15866 (~3967 input tokens) written=0 state=partial profileUsed=true",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-provider-key-collision.mjs",
+   "id": "B10",
+   "note": "Distinct-employer pairs collapse to 1 for all four providers, including tenant-scoped workday R-100 keys.",
+   "output_excerpt": "greenhouse       keyA= provider:greenhouse:1 keyB= provider:greenhouse:1 | unique after dedupe: 1 COLLAPSED (distinct employers)\nworkday          keyA= provider:workday:r-100 keyB= provider:workday:r-100 | unique after dedupe: 1 COLLAPSED (distinct employers)\nsmartrecruiters  keyA= provider:smartrecruiters:100-backend-engineer keyB= provider:smartrecruiters:100-backend-engineer | unique after dedupe: 1 COLLAPSED (distinct employers)\nworkable         keyA= provider:workable:abc123 keyB= provider:workable:abc123 | unique after dedupe: 1 COLLAPSED (distinct employers)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-zero-lead-partial-and-optout.mjs",
+   "id": "B11",
+   "note": "Case B: with grounded web opted out, 0 search() calls but 1 searchAtsHosts Gemini call still spent via the ATS fallback.",
+   "output_excerpt": "B effectiveSources: [\"greenhouse\"] | grounded search() calls: 0 | searchAtsHosts() Gemini calls: 1\nB state: partial | DiscoveryRuns: {\"status\":\"partial\",\"companiesSeen\":0,\"error\":\"\"}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-e2e-exploit-cap.mjs",
+   "id": "B12",
+   "note": "25 configured companies -> 25 scout searches: one Gemini google_search per company, unbounded.",
+   "output_excerpt": "companies: 25 | grounded scout searches: 25 | deep-extract calls: 0\nleads written: 18 | maxLeadsPerRun: 50 | state: completed",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/B-allowlist-partial-unknown.mjs",
+   "id": "B13",
+   "note": "Mixed allowlist drops Globexx with 0 warnings mentioning it; all-unknown allowlist correctly blocked_unresolved.",
+   "output_excerpt": "allowlist=[\"Acme\",\"Globexx\"] -> mode=restricted unknown=[\"Globexx\"] companies=[\"Acme\"] effectiveSources=[\"greenhouse\"]\n   run warnings/logs mentioning the dropped entry: 0 (warnings=[\"Source grounded_web was excluded by preset 'ats_only' and did not execute.\"])\nallowlist=[\"Globexx\"] -> mode=blocked_unresolved unknown=[\"Globexx\"] companies=[] effectiveSources=[]",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/run/frontier-scorer.test.ts",
+   "id": "B19",
+   "note": "Floor green (21/21) on the same code the B1 probe fails. Reads confirm: fixtures use 0-1 scale (\"fitScore: overrides.fitScore ?? 0.75\" :64, \"fitScore: 0.82\" :141, \"fitScore: 0.75\" :185) vs production 1-10; llm-trust test injects \"listingScoreCache: makeCannedCache(cannedScore)\" :64 while src never assigns it (only contracts.ts:1144 decl + lead-normalizer.ts:275 read). All probes B1-B7 reproduced above; full floor in TEST rows.",
+   "output_excerpt": "\u2139 tests 21\n\u2139 pass 21\n\u2139 fail 0",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/run/frontier-scorer.test.ts 2>&1 | tail -15",
+   "id": "TEST:tests/run/frontier-scorer.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 21\n\u2139 pass 21\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 21 pass 21 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/run/retry-broadening.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/run/retry-broadening.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 3 pass 3 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/run/f4b-named-claims.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/run/f4b-named-claims.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 3 pass 3 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/run/budget-tracker.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/run/budget-tracker.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 2 pass 2 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/discovery/effective-intent.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/discovery/effective-intent.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 10\n\u2139 pass 10\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 10 pass 10 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/discovery/listing-fingerprint.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/discovery/listing-fingerprint.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 11\n\u2139 pass 11\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 11 pass 11 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/sheets/intake-identity.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/sheets/intake-identity.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 4 pass 4 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/state/discovery-memory-store.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/state/discovery-memory-store.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 10\n\u2139 pass 10\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 10 pass 10 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/browser/frontier-memory.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/browser/frontier-memory.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 2 pass 2 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/webhook/run-discovery.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/run-discovery.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 44\n\u2139 pass 44\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 44 pass 44 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/browser/grounded-search.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/browser/grounded-search.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 52\n\u2139 pass 52\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 52 pass 52 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/sheets/job-matcher.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/sheets/job-matcher.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 7 pass 7 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/sheets/lead-normalizer-llm-trust.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/sheets/lead-normalizer-llm-trust.test.ts",
+   "note": "Counts match \u00a74 exactly; run from integrations/browser-use-discovery.",
+   "output_excerpt": "\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 4 pass 4 fail 0",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-B/.lane-evidence/home\" node --experimental-strip-types --test tests/sheets/lead-normalizer-fingerprint.test.ts 2>&1 | tail -12",
+   "id": "TEST:tests/sheets/lead-normalizer-fingerprint.test.ts",
+   "note": "Counts match \u00a74 exactly (incl. F1D-RUN09-LOC); run from integrations/browser-use-discovery. Note: .lane-evidence/B-floor.txt omits this file but \u00a74 lists it, so it was re-run per the task.",
+   "output_excerpt": "\u2714 F1D-RUN09-LOC production run identity keeps distinct locations\n\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-GREEN: tests 6 pass 6 fail 0",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

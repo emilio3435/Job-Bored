@@ -110,6 +110,28 @@ describe("Cloudflare relay caller authentication (G1)", () => {
     assert.equal(calls[0].init.headers.Authorization, undefined);
   });
 
+  it("forwards only the write-retry run POST with the dashboard secret", async () => {
+    const worker = await loadWorker();
+    const request = (path, token = "relay-token-123") => new Request(
+      "https://relay.example.workers.dev" + path,
+      { method: "POST", headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: '{"googleAccessToken":"fresh-token"}' },
+    );
+    assert.equal((await worker.fetch(request("/runs/run-1/retry-write", "wrong"), ENV)).status, 401);
+    assert.equal(calls.length, 0);
+    for (const path of ["/runs/run-1/cancel", "/runs/run-1/retry-write/extra", "/runs//retry-write"]) {
+      assert.notEqual((await worker.fetch(request(path), ENV)).status, 202, path);
+    }
+    assert.equal(calls.length, 0);
+    const res = await worker.fetch(request("/runs/run-1/retry-write?source=runs"), ENV);
+    assert.equal(res.status, 202);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://upstream.example/runs/run-1/retry-write?source=runs");
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal(calls[0].init.body, '{"googleAccessToken":"fresh-token"}');
+    assert.equal(calls[0].init.headers["x-discovery-secret"], "probe-secret");
+  });
+
   it("accepts the token as X-Relay-Token and forwards GET /runs/<id>", async () => {
     const worker = await loadWorker();
     const res = await worker.fetch(

@@ -1,0 +1,1447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Verified JobBored repair closeout and product roadmap, updated after the August 2026 reconciliation program."
+    />
+    <title>JobBored — Repair &amp; Product Roadmap</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f4f0e7;
+        --paper-raised: #fbf8f1;
+        --paper-muted: #e9e2d5;
+        --ink: #17262b;
+        --ink-soft: #526167;
+        --navy: #003851;
+        --navy-light: #dceaf0;
+        --rule: #cfc5b5;
+        --red: #a6302f;
+        --red-soft: #f3dcda;
+        --amber: #9a5a0a;
+        --amber-soft: #f6e7cb;
+        --green: #246c52;
+        --green-soft: #dcece4;
+        --violet: #5d4a82;
+        --violet-soft: #e7e0f0;
+        --shadow: 0 16px 50px rgba(23, 38, 43, 0.09);
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        --serif: Iowan Old Style, Baskerville, "Times New Roman", serif;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(rgba(0, 56, 81, 0.035) 1px, transparent 1px),
+          var(--paper);
+        background-size: 100% 28px;
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.55;
+      }
+
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      a {
+        color: var(--navy);
+        text-underline-offset: 0.18em;
+      }
+
+      button:focus-visible,
+      a:focus-visible {
+        outline: 3px solid #3c90b7;
+        outline-offset: 3px;
+      }
+
+      .shell {
+        width: min(1440px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 34px 0 72px;
+      }
+
+      .masthead {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: end;
+        padding: 0 0 24px;
+        border-bottom: 4px double var(--ink);
+      }
+
+      .eyebrow,
+      .kicker,
+      .lane-id,
+      .meta-label,
+      .gate-label {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--navy);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 920px;
+        margin-bottom: 10px;
+        font-family: var(--serif);
+        font-size: clamp(2.45rem, 6vw, 5.8rem);
+        font-weight: 500;
+        letter-spacing: -0.055em;
+        line-height: 0.92;
+      }
+
+      .dek {
+        max-width: 820px;
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-family: var(--serif);
+        font-size: clamp(1.05rem, 2vw, 1.35rem);
+      }
+
+      .masthead-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .button {
+        min-height: 42px;
+        padding: 10px 14px;
+        border: 1px solid var(--ink);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+        font: 700 0.75rem/1 var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .button:hover {
+        background: var(--ink);
+        color: var(--paper-raised);
+      }
+
+      .snapshot {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1px;
+        margin: 18px 0;
+        overflow: hidden;
+        border: 1px solid var(--rule);
+        border-radius: 14px;
+        background: var(--rule);
+      }
+
+      .snapshot article {
+        min-height: 104px;
+        padding: 18px;
+        background: rgba(251, 248, 241, 0.86);
+      }
+
+      .snapshot strong {
+        display: block;
+        margin-bottom: 4px;
+        font-family: var(--serif);
+        font-size: 2rem;
+        font-weight: 500;
+        line-height: 1;
+      }
+
+      .snapshot span {
+        color: var(--ink-soft);
+        font-size: 0.82rem;
+      }
+
+      .warning {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 14px;
+        align-items: start;
+        margin: 0 0 20px;
+        padding: 14px 16px;
+        border: 1px solid #d5a4a0;
+        border-left: 6px solid var(--red);
+        border-radius: 8px;
+        background: var(--red-soft);
+      }
+
+      .warning strong {
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .warning p {
+        margin: 0;
+        font-size: 0.9rem;
+      }
+
+      .warning--accepted {
+        border-color: #9bc5b2;
+        border-left-color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .tabs {
+        position: sticky;
+        z-index: 10;
+        top: 0;
+        display: flex;
+        gap: 6px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--rule);
+        background: color-mix(in srgb, var(--paper) 93%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      [role="tab"] {
+        min-height: 48px;
+        padding: 11px 18px;
+        border: 1px solid var(--rule);
+        border-radius: 9px 9px 0 0;
+        background: var(--paper-muted);
+        color: var(--ink-soft);
+        cursor: pointer;
+        font: 700 0.82rem/1 var(--mono);
+        letter-spacing: 0.045em;
+        text-transform: uppercase;
+      }
+
+      [role="tab"][aria-selected="true"] {
+        border-color: var(--navy);
+        background: var(--navy);
+        color: white;
+      }
+
+      [role="tabpanel"] {
+        padding-top: 26px;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .panel-intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+        gap: 28px;
+        align-items: start;
+        margin-bottom: 28px;
+      }
+
+      .panel-intro h2 {
+        margin-bottom: 8px;
+        font-family: var(--serif);
+        font-size: clamp(2rem, 4vw, 3.6rem);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+        line-height: 1;
+      }
+
+      .panel-intro > div > p {
+        max-width: 780px;
+        color: var(--ink-soft);
+        font-size: 1rem;
+      }
+
+      .rulebook {
+        margin: 0;
+        padding: 16px 18px 16px 36px;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: var(--paper-raised);
+        box-shadow: var(--shadow);
+        font-size: 0.82rem;
+      }
+
+      .rulebook li + li {
+        margin-top: 6px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0 0 32px;
+      }
+
+      .flow--features {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .flow-step {
+        position: relative;
+        min-height: 118px;
+        padding: 15px 16px;
+        border: 1px solid var(--rule);
+        border-radius: 9px;
+        background: var(--paper-raised);
+      }
+
+      .flow-step:not(:last-child)::after {
+        position: absolute;
+        z-index: 2;
+        top: 46px;
+        right: -12px;
+        width: 15px;
+        height: 15px;
+        border-top: 2px solid var(--navy);
+        border-right: 2px solid var(--navy);
+        background: var(--paper-raised);
+        content: "";
+        transform: rotate(45deg);
+      }
+
+      .flow-step strong {
+        display: block;
+        margin: 5px 0 4px;
+        font-family: var(--serif);
+        font-size: 1.1rem;
+      }
+
+      .flow-step p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 0.76rem;
+        line-height: 1.4;
+      }
+
+      .wave {
+        margin: 0 0 34px;
+        scroll-margin-top: 76px;
+      }
+
+      .wave-heading {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .wave-number {
+        display: grid;
+        width: 45px;
+        height: 45px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--ink);
+        color: white;
+        font: 700 0.84rem/1 var(--mono);
+      }
+
+      .wave-heading h3 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: clamp(1.5rem, 3vw, 2.25rem);
+        font-weight: 500;
+        letter-spacing: -0.025em;
+      }
+
+      .wave-summary {
+        margin: 2px 0 0;
+        color: var(--ink-soft);
+        font-size: 0.82rem;
+      }
+
+      .start-badge,
+      .priority {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font: 700 0.68rem/1 var(--mono);
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+
+      .start-badge {
+        border: 1px solid var(--rule);
+        background: var(--paper-muted);
+      }
+
+      .lane-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .lane {
+        display: flex;
+        min-height: 100%;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: rgba(251, 248, 241, 0.94);
+        box-shadow: 0 5px 20px rgba(23, 38, 43, 0.05);
+      }
+
+      .lane-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule);
+        background: rgba(233, 226, 213, 0.6);
+      }
+
+      .priority--p0 {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .priority--p1,
+      .priority--now {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .priority--next {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .priority--later,
+      .priority--explore {
+        background: var(--violet-soft);
+        color: var(--violet);
+      }
+
+      .priority--done {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .priority--followup {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .priority--local {
+        background: var(--navy-light);
+        color: var(--navy);
+      }
+
+      .lane-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        padding: 14px;
+      }
+
+      .lane h4 {
+        margin: 0 0 7px;
+        font-family: var(--serif);
+        font-size: 1.22rem;
+        font-weight: 600;
+        line-height: 1.14;
+      }
+
+      .lane-desc {
+        margin-bottom: 13px;
+        color: var(--ink-soft);
+        font-size: 0.82rem;
+      }
+
+      .meta {
+        display: grid;
+        gap: 9px;
+        margin: auto 0 0;
+      }
+
+      .meta-row {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 8px;
+        padding-top: 8px;
+        border-top: 1px dotted var(--rule);
+        font-size: 0.74rem;
+      }
+
+      .meta-label {
+        color: var(--ink-soft);
+        font-size: 0.62rem;
+      }
+
+      .gate {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        margin-top: 11px;
+        padding: 13px 15px;
+        border: 1px solid #9bb6a9;
+        border-radius: 8px;
+        background: var(--green-soft);
+      }
+
+      .gate-label {
+        color: var(--green);
+        white-space: nowrap;
+      }
+
+      .gate p {
+        margin: 0;
+        font-size: 0.8rem;
+      }
+
+      .matrix {
+        overflow-x: auto;
+        margin: 28px 0 34px;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: var(--paper-raised);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+      }
+
+      caption {
+        padding: 14px 16px;
+        text-align: left;
+        font-family: var(--serif);
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+
+      th,
+      td {
+        padding: 11px 13px;
+        border-top: 1px solid var(--rule);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--ink-soft);
+        font-family: var(--mono);
+        font-size: 0.66rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      td:first-child {
+        font-family: var(--mono);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .sources {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        align-items: center;
+        margin-top: 44px;
+        padding-top: 18px;
+        border-top: 4px double var(--ink);
+        color: var(--ink-soft);
+        font-size: 0.76rem;
+      }
+
+      .sources strong {
+        color: var(--ink);
+      }
+
+      @media (max-width: 1120px) {
+        .lane-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .flow--features {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow-step::after {
+          display: none;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          width: min(100% - 20px, 700px);
+          padding-top: 20px;
+        }
+
+        .masthead,
+        .panel-intro {
+          grid-template-columns: 1fr;
+        }
+
+        .masthead-actions {
+          display: none;
+        }
+
+        .snapshot {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .tabs {
+          overflow-x: auto;
+        }
+
+        [role="tab"] {
+          flex: 1 0 max-content;
+        }
+
+        .flow,
+        .flow--features,
+        .lane-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .wave-heading {
+          grid-template-columns: auto minmax(0, 1fr);
+        }
+
+        .start-badge {
+          grid-column: 2;
+          justify-self: start;
+        }
+
+        .gate {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+
+        .gate-label {
+          white-space: normal;
+        }
+      }
+
+      @media print {
+        body {
+          background: white;
+          font-size: 9pt;
+        }
+
+        .shell {
+          width: 100%;
+          padding: 0;
+        }
+
+        .tabs,
+        .masthead-actions {
+          display: none;
+        }
+
+        [role="tabpanel"][hidden] {
+          display: block !important;
+        }
+
+        [role="tabpanel"] {
+          break-before: page;
+        }
+
+        .lane-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .lane,
+        .gate,
+        .flow-step {
+          break-inside: avoid;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">JobBored / verified closeout + roadmap / 31 Aug 2026</p>
+          <h1>The foundation is repaired. Now compound it.</h1>
+          <p class="dek">
+            The 20 repair lanes are integrated on a local reconciliation branch and
+            independently accepted. This document now separates shipped repairs,
+            bounded follow-ups, and the still-unstarted product wishlist.
+          </p>
+        </div>
+        <div class="masthead-actions">
+          <button class="button" type="button" id="printRoadmap">Print / save PDF</button>
+        </div>
+      </header>
+
+      <section class="snapshot" aria-label="Audit snapshot">
+        <article><strong>20/20</strong><span>repair lanes integrated locally</span></article>
+        <article><strong>2,341</strong><span>dashboard tests passed; 1 intentional TODO</span></article>
+        <article><strong>713/713</strong><span>discovery-worker tests passed</span></article>
+        <article><strong>13/13</strong><span>smoke checks independently verified</span></article>
+      </section>
+
+      <aside class="warning warning--accepted" aria-label="Local reconciliation status">
+        <strong>Accepted locally</strong>
+        <p>
+          Grok 4.6 high independently accepted local head <code>7d0d31d</code>. Nothing
+          was pushed or deployed. Rotate the discovery webhook secret and run approved
+          real OAuth, Sheets, provider, tunnel, and production canaries before exposure.
+        </p>
+      </aside>
+
+      <nav class="tabs" role="tablist" aria-label="Roadmap purpose">
+        <button
+          id="tab-fixes"
+          role="tab"
+          type="button"
+          aria-selected="true"
+          aria-controls="panel-fixes"
+        >
+          01 — Prioritized fixes
+        </button>
+        <button
+          id="tab-features"
+          role="tab"
+          type="button"
+          aria-selected="false"
+          aria-controls="panel-features"
+          tabindex="-1"
+        >
+          02 — Feature recommendations
+        </button>
+      </nav>
+
+      <section
+        id="panel-fixes"
+        role="tabpanel"
+        aria-labelledby="tab-fixes"
+        tabindex="0"
+      >
+        <div class="panel-intro">
+          <div>
+            <p class="kicker">Repair closeout</p>
+            <h2>Five waves integrated; bounded follow-ups remain.</h2>
+            <p>
+              Repair remains the security, write-authority, transition, validation,
+              discovery-execution, and persistence foundation. The reconciled product
+              keeps the stronger visible T0 surfaces with one live implementation per
+              capability.
+            </p>
+          </div>
+          <ol class="rulebook">
+            <li>All 20 repair lanes are present at local head <code>7d0d31d</code>.</li>
+            <li>Independent verification reran every required floor command.</li>
+            <li>Green badges are integrated; amber badges name remaining follow-ups.</li>
+            <li>The submission-evidence test remains an executable TODO, not a hidden skip.</li>
+            <li>Authenticated, paid, user-data, and deployment proof remains approval-gated.</li>
+          </ol>
+        </div>
+
+        <div class="flow" aria-label="Repair dependency flow">
+          <div class="flow-step">
+            <span class="lane-id">Wave 0</span><strong>Contain</strong>
+            <p>Close host, secret, local-control, and outbound-network boundaries.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Wave 1</span><strong>Make writes true</strong>
+            <p>Stabilize lifecycle, state transitions, intent, identity, and dedupe.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Wave 2</span><strong>Choose owners</strong>
+            <p>One Pipeline, profile, setup path, and authorization model.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Wave 3</span><strong>Restore trust</strong>
+            <p>Evidence, materials, daily work, accessibility, and confirmation.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Wave 4</span><strong>Scale safely</strong>
+            <p>Source parity, budgets, operations, reporting, and release gates.</p>
+          </div>
+        </div>
+
+        <section class="wave" id="fix-wave-0">
+          <div class="wave-heading">
+            <span class="wave-number">W0</span>
+            <div>
+              <h3>Containment and trust boundaries</h3>
+              <p class="wave-summary">All four lanes start now; land before remote exposure or feature delivery.</p>
+            </div>
+            <span class="start-badge">Start together</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F0-A</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Static server perimeter</h4>
+                <p class="lane-desc">Contain decoded paths, deny private artifacts, catch malformed URIs, and bind loopback by default.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>SEC-01, SEC-05</span></div>
+                  <div class="meta-row"><span class="meta-label">Owns</span><span><code>dev-server.mjs</code> + traversal probes</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F0-B, F0-C, F0-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Encoded, dotfile, symlink, and malformed-path tests fail closed.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F0-B</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Local control-plane authorization</h4>
+                <p class="lane-desc">Replace wildcard CORS/TCP-peer trust with exact origins, a local handshake, and structured env writes.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>SEC-02, SEC-03</span></div>
+                  <div class="meta-row"><span class="meta-label">Owns</span><span><code>/__proxy/*</code>, installers, env-key writer</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F0-A, F0-C, F0-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Untrusted origins cannot read secrets or mutate local services.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F0-C</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Outbound request firewall</h4>
+                <p class="lane-desc">Create one DNS-pinned, redirect-aware, abortable URL fetch primitive for worker, scraper, and rescore.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>SEC-04, RUN-11</span></div>
+                  <div class="meta-row"><span class="meta-label">Owns</span><span>URL validation, DNS resolution, redirects, AbortSignal</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F0-A, F0-B, F0-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Private/rebound/redirect targets stay blocked at connection time.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F0-D</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Secret and provider isolation</h4>
+                <p class="lane-desc">Keep env files out of images, redact upstream bodies, bound provider calls, and never forward ambient keys.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>C10-F05/F06/F07/F10/F11/F12</span></div>
+                  <div class="meta-row"><span class="meta-label">Owns</span><span>Server provider boundary, Docker context, error schema</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F0-A, F0-B, F0-C</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Image/history/error/log inspections contain no secrets.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Rotate the local discovery webhook secret; real provider proof is approval-gated.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Gate A — closed locally</span><p>Independent probes passed for loopback-only serving, rooted paths, authenticated local mutations, DNS-safe outbound calls, and secret-free artifacts. Secret rotation remains a human action.</p></div>
+        </section>
+
+        <section class="wave" id="fix-wave-1">
+          <div class="wave-heading">
+            <span class="wave-number">W1</span>
+            <div>
+              <h3>Data integrity and lifecycle truth</h3>
+              <p class="wave-summary">May begin during W0 in isolated worktrees; merge only after Gate A.</p>
+            </div>
+            <span class="start-badge">4 parallel lanes</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F1-A</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Atomic opportunity transitions</h4>
+                <p class="lane-desc">One stage registry and narrow transition writer for status, dates, follow-up, audit notes, closure, restore, and undo.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>PIPE-02, PIPE-04/05/06, APPLY-01</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>Gate A to merge</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Canonical Pipeline, Today, CRM, timeline</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Concurrent edits survive; every transition is atomic and reversible.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Move <code>unexpire</code> into the planner; current shim writes Researching through the canonical status writer.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F1-B</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Run lifecycle and history</h4>
+                <p class="lane-desc">Make terminal states immutable, persist before dispatch, finalize once, and make polling abortable and generation-safe.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>RUN-01 through RUN-05</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F1-A, F1-C, F1-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Runs drill-down, schedules, trustworthy reporting</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Every accepted run has exactly one durable terminal result.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Abort stale status-handoff polling and return 400 for nested run-ID mismatch.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F1-C</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Effective discovery intent</h4>
+                <p class="lane-desc">Preserve merged profile data; honor blocklists and source opt-outs; reject silent broadening; version the request contract.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>DISC-02 through DISC-06</span></div>
+                  <div class="meta-row"><span class="meta-label">Owns</span><span>Schema, fixtures, payload parser, effective query</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Discovery preview, saved searches, scheduled plans</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Preview, request, and executed plan are byte-for-byte explainable.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F1-D</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Intake identity and provenance</h4>
+                <p class="lane-desc">Preserve structured fields/source lineage and dedupe by canonical, provider, semantic, and location-aware identity.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>PIPE-07, INGEST-01–04, RUN-09/10</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F1-A, F1-B, F1-C</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Capture inbox, merge center, source analytics</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Alternate sources merge safely; distinct locations remain distinct.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Prefer authoritative scraper company/location over weak parsed title or host fallbacks.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Gate B — closed in the verified floor</span><p>Versioned contracts pass; writes use the canonical narrow planner; terminal runs, accepted intent, and source identity are causally covered. The three named lifecycle/identity follow-ups stay visible above.</p></div>
+        </section>
+
+        <section class="wave" id="fix-wave-2">
+          <div class="wave-heading">
+            <span class="wave-number">W2</span>
+            <div>
+              <h3>Canonical product ownership</h3>
+              <p class="wave-summary">Four lanes proceed together after shared state contracts stabilize.</p>
+            </div>
+            <span class="start-badge">After Gate B</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F2-A</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>One Pipeline and boot contract</h4>
+                <p class="lane-desc">Choose one v2 renderer, remove the class race, normalize fit units, and route all movement through F1-A.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>PIPE-01, PIPE-03, SCRIBE-01 boot race</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-A transition contract</span></div>
+                  <div class="meta-row"><span class="meta-label">Hotspot</span><span><code>index.html</code>, app bootstrap, Pipeline/Lattice</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>One board DOM, count, toolbar, stage model, and write path.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F2-B</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>One profile and context model</h4>
+                <p class="lane-desc">Fix API origin, edit saved profiles in place, preserve tie breakers, and define browser/server context handoff.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>DISC-01, PROFILE-01/02</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-C intent contract</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F2-A, F2-C, F2-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Every field declares storage, consumers, scope, and override rules.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F2-C</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>One setup and readiness path</h4>
+                <p class="lane-desc">Preserve settings, wire current controls, verify Sheets/services, retain transport kind, and require install consent.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>SETUP-01 through SETUP-09</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F0-B local authorization</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F2-A, F2-B, F2-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Saved, installed, active, reachable, verified, and recent are distinct.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F2-D</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Google capability and browser policy</h4>
+                <p class="lane-desc">Align CSP, scopes, read/write capability, hosted auth, fallback behavior, and privacy disclosures.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>AUTH-01 through AUTH-03, PRIV-01</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F0 security handshake design</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F2-A, F2-B, F2-C</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Missing Sheets scope is read-only; supported calls pass CSP/auth.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Consume <code>canWriteSheet()</code> in Pipeline UI and adopt hosted-auth at every packaged fetch site.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Gate C — closed hermetically</span><p>One Pipeline, stage registry, profile/intent source, setup flow, and browser/server capability model pass the disposable authenticated journey. Real OAuth and Sheets capabilities remain an external canary.</p></div>
+        </section>
+
+        <section class="wave" id="fix-wave-3">
+          <div class="wave-heading">
+            <span class="wave-number">W3</span>
+            <div>
+              <h3>User trust and primary workflow</h3>
+              <p class="wave-summary">Build in parallel on canonical foundations; integrate through one browser owner.</p>
+            </div>
+            <span class="start-badge">After Gate C</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F3-A</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Evidence-aware Dossier</h4>
+                <p class="lane-desc">Validate model output and expose field provenance, freshness, confidence, source, profile revision, and unknown state.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>DOSSIER-01/02</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-D provenance + F2-B context</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Decision rail, comparison, interview packet</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>No inferred claim is labeled posting-grounded.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F3-B</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Role-bound materials</h4>
+                <p class="lane-desc">Connect Scribe to role/draft state; replace demo scoring; await refine; flush edits before save, Done, and Print.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>SCRIBE-01 through SCRIBE-03</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F2-A boot + F2-B context</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>F3-A, F3-C, F3-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Role, version, score evidence, save state, and export agree.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Restore gap-callout <code>flashAnchor</code> deep links without reviving the deleted duplicate state owner.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F3-C</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Today, apply, and follow-up</h4>
+                <p class="lane-desc">Restore the attention queue and add explicit human submission confirmation with date, source, follow-up, receipt, and undo.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>UX-01/02, APPLY-01/02</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-A transitions + F2-A Pipeline</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>CRM, timeline, outcome funnel</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Due work is actionable; Applied requires explicit evidence.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Choose a durable submission-evidence owner and route the legacy Applied dropdown through the confirmation gate.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F3-D</span><span class="priority priority--followup">Follow-up</span></div>
+              <div class="lane-body">
+                <h4>Accessible responsive primitives</h4>
+                <p class="lane-desc">Shared dialogs, drawers, tabs, live regions, focus restore, labels, 44px targets, and explicit stage movement.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>A11Y-01/02, MOBILE-01</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>Canonical surfaces from Gate C</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>Component-first; one UI integrator</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Keyboard, screen reader, touch, and phone geometry pass.</span></div>
+                  <div class="meta-row"><span class="meta-label">Remaining</span><span>Repair demo-file selector drift and make the standalone fit-profile spec immune to local :3847 noise.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Gate D — closed with named product follow-ups</span><p>The hermetic workflow covers triage, evidence, materials, confirmation, follow-up, keyboard, touch, and assistive primitives. Durable submission evidence and the legacy Applied bypass remain open and explicit.</p></div>
+        </section>
+
+        <section class="wave" id="fix-wave-4">
+          <div class="wave-heading">
+            <span class="wave-number">W4</span>
+            <div>
+              <h3>Scale, operability, and release confidence</h3>
+              <p class="wave-summary">Performance and reporting lanes begin earlier, but become authoritative only after Gates B–D.</p>
+            </div>
+            <span class="start-badge">4 parallel lanes</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F4-A</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Discovery source parity</h4>
+                <p class="lane-desc">Derive ATS execution from the 14-provider registry or surface explicit unsupported state and attributed failures.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>RUN-07, RUN-10, C12-P01/P02</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-B lifecycle + F1-D identity</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Each selected source attempts, succeeds, or explains failure.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F4-B</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Budgeted discovery execution</h4>
+                <p class="lane-desc">Honor retry flags, score before deep extraction, start budgets at run entry, and cancel underlying work.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>RUN-06, RUN-08, RUN-11</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F0-C fetch + F1-B lifecycle</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Costs, time, and pages stay inside declared run budgets.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F4-C</span><span class="priority priority--done">Integrated</span></div>
+              <div class="lane-body">
+                <h4>Operator and reporting truth</h4>
+                <p class="lane-desc">Repair Runs schema/filtering, distinguish zero/unavailable/partial, and make metrics genuinely date-windowed.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>RUN-04, UX-02, Runs/metrics P2 backlog</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>F1-B terminal history</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Every metric exposes source, window, denominator, and availability.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">F4-D</span><span class="priority priority--local">Local green</span></div>
+              <div class="lane-body">
+                <h4>Hermetic browser release gate</h4>
+                <p class="lane-desc">Make browser fixtures self-contained, cover authenticated disposable data, and remove advisory CI status after stability.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Covers</span><span>C14 browser/test gaps + contract/docs drift</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>Build harness during W0–W3</span></div>
+                  <div class="meta-row"><span class="meta-label">Waits for</span><span>Gates A–D before required CI</span></div>
+                  <div class="meta-row"><span class="meta-label">Exit</span><span>Desktop/tablet/phone suites block regressions without external state.</span></div>
+                  <div class="meta-row"><span class="meta-label">Boundary</span><span>Required local browser gates pass; CI, production, and real-user canaries were not run.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Gate E — accepted locally, not deployed</span><p>Lint, types, contracts, 2,341 dashboard tests, 713 worker tests, 13 smoke checks, and both browser suites pass independently. The one submission-storage TODO remains executable; production claims await real canaries.</p></div>
+        </section>
+
+        <div class="matrix">
+          <table>
+            <caption>Remaining repair closeout queue</caption>
+            <thead><tr><th>Priority</th><th>Remaining work</th><th>Owner</th><th>Done when</th></tr></thead>
+            <tbody>
+              <tr><td>P1</td><td>Durable submission evidence + legacy Applied-dropdown confirmation</td><td>F3-C / product</td><td>The TODO-red becomes a real persistence test and every Applied path uses the same human gate.</td></tr>
+              <tr><td>P1</td><td>Sheet write-capability UI + hosted-auth fetch adoption</td><td>F2-D</td><td>Read-only sessions cannot enter write flows and every packaged API call uses the hosted-auth policy.</td></tr>
+              <tr><td>P2</td><td>Status-handoff abort + nested run-ID validation</td><td>F1-B</td><td>Superseded polling stops and mismatched nested IDs return the documented 400.</td></tr>
+              <tr><td>P2</td><td>Planner-native unexpire</td><td>F1-A</td><td>Restore no longer needs the integration shim's direct Researching status write.</td></tr>
+              <tr><td>P2</td><td>Authoritative ingest field precedence</td><td>F1-D</td><td>Scraper company/location outrank weak title/host fallbacks without erasing provenance.</td></tr>
+              <tr><td>P2</td><td>Scribe deep links + demo/standalone a11y cleanup</td><td>F3-B / F3-D</td><td>Deep links return without duplicate state, demo selectors match production, and the standalone spec is environment-stable.</td></tr>
+              <tr><td>Human gate</td><td>Webhook-secret rotation and real service canaries</td><td>Emilio / release</td><td>The secret is rotated and approved OAuth, Sheets, provider, tunnel, and production checks pass.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="matrix">
+          <table>
+            <caption>Shared-file collision map</caption>
+            <thead><tr><th>Hotspot</th><th>Single integration owner</th><th>Lane inputs</th><th>Merge order</th></tr></thead>
+            <tbody>
+              <tr><td>Browser composition</td><td>Frontend integration</td><td>F2-A, F2-C, F2-D, F3-D</td><td>Boot contract → setup/auth → primitives</td></tr>
+              <tr><td>Pipeline writes</td><td>Sheet/state integration</td><td>F1-A, F1-D, F2-A, F3-C</td><td>Schema → writer → renderer → workflow</td></tr>
+              <tr><td>Discovery contract</td><td>Worker contract integration</td><td>F1-B, F1-C, F4-A, F4-B</td><td>Lifecycle → intent → providers → budgets</td></tr>
+              <tr><td>Profile/context</td><td>Profile integration</td><td>F1-C, F2-B, F3-A, F3-B</td><td>Intent → context → evidence/materials</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section
+        id="panel-features"
+        role="tabpanel"
+        aria-labelledby="tab-features"
+        tabindex="0"
+        hidden
+      >
+        <div class="panel-intro">
+          <div>
+            <p class="kicker">Product plan</p>
+            <h2>Finish promises before adding surface area.</h2>
+            <p>
+              Feature lanes are sequenced by the repair gates they consume. Discovery,
+              materials, and CRM work can then expand in parallel because they share
+              stable event, evidence, and context contracts rather than competing state.
+            </p>
+          </div>
+          <ol class="rulebook">
+            <li>“Now” completes functionality already visible or implied.</li>
+            <li>“Next” adds direct weekly job-hunter leverage.</li>
+            <li>“Later” establishes durable data needed for truthful learning.</li>
+            <li>“Explore” stays behind evidence, privacy, and human-action boundaries.</li>
+            <li>Prototype UI early; land data mutations only after their fix gate.</li>
+          </ol>
+        </div>
+
+        <div class="flow flow--features" aria-label="Feature dependency flow">
+          <div class="flow-step">
+            <span class="lane-id">Feature 0</span><strong>Finish the promise</strong>
+            <p>Canonical work surface, setup truth, evidence, materials, and CRM.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Feature 1</span><strong>Increase leverage</strong>
+            <p>Capture, compare, schedule, follow up, and work effectively on phone.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Feature 2</span><strong>Build memory</strong>
+            <p>Events, evidence, candidate context, cohorts, and learning.</p>
+          </div>
+          <div class="flow-step">
+            <span class="lane-id">Feature 3</span><strong>Compound insight</strong>
+            <p>Experiments, health, interview prep, portability, and capture.</p>
+          </div>
+        </div>
+
+        <section class="wave" id="feature-wave-0">
+          <div class="wave-heading">
+            <span class="wave-number">T0</span>
+            <div>
+              <h3>Finish what JobBored already promises</h3>
+              <p class="wave-summary">Six product lanes; designs can start now, implementation follows the named repair gate.</p>
+            </div>
+            <span class="start-badge">Priority: now</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-A</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Canonical Pipeline + Today</h4>
+                <p class="lane-desc">One board, one closure model, and a default queue ranked by reply, follow-up, interview, staleness, and fit.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F1-A, F2-A, F3-C</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>P0-B through P0-F</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>Every item has one next action and preserves board position.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-B</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Truthful setup + run preview</h4>
+                <p class="lane-desc">Show verified readiness and the exact roles, locations, companies, exclusions, sources, provider use, and profile version.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F1-C, F2-C, F2-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Saved searches and automation center</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>Preview equals the versioned request and executed plan.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-C</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Dossier evidence panel</h4>
+                <p class="lane-desc">Make every claim posting-grounded, user-provided, inferred, or unknown, with source and fetched time.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F1-D, F3-A</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Comparison and interview preparation</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>Provenance survives reload and user overrides.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-D</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Submission + recruiter strip</h4>
+                <p class="lane-desc">Explicitly mark submitted, then expose contact, last contact, reply state, follow-up, receipt, undo, and next action.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F1-A, F3-C</span></div>
+                  <div class="meta-row"><span class="meta-label">Unblocks</span><span>Activity timeline and outcome funnel</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>Applied is always a human-confirmed, auditable fact.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-E</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Role-bound Scribe</h4>
+                <p class="lane-desc">Visible role/document binding, autosave, named versions, real scoring evidence, async truth, review, and export states.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F2-B, F3-B</span></div>
+                  <div class="meta-row"><span class="meta-label">Parallel</span><span>P0-A–D and P0-F</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>No draft, edit, score, or export can point at stale state.</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P0-F</span><span class="priority priority--now">Now</span></div>
+              <div class="lane-body">
+                <h4>Accessible app primitives</h4>
+                <p class="lane-desc">Shared dialog, drawer, live region, tabs, labels, focus restoration, touch targets, and Move action.</p>
+                <div class="meta">
+                  <div class="meta-row"><span class="meta-label">Depends</span><span>F3-D</span></div>
+                  <div class="meta-row"><span class="meta-label">Enables</span><span>All later feature surfaces</span></div>
+                  <div class="meta-row"><span class="meta-label">Signal</span><span>Keyboard, screen reader, touch, and phone tests are required.</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Product gate 0</span><p>A user can connect truthfully, discover intentionally, decide from evidence, prepare materials, confirm submission, and work the next action accessibly.</p></div>
+        </section>
+
+        <section class="wave" id="feature-wave-1">
+          <div class="wave-heading">
+            <span class="wave-number">T1</span>
+            <div>
+              <h3>High-leverage job-hunter tools</h3>
+              <p class="wave-summary">Eight independent feature lanes consume stable foundations from Product Gate 0.</p>
+            </div>
+            <span class="start-badge">Priority: next</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-A</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Capture inbox + merge center</h4><p class="lane-desc">Queue URLs, preview extraction, preserve partial fields, and resolve canonical/provider/semantic duplicates before Sheet writes.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>F1-D identity/provenance</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Twenty URLs can be reviewed and committed individually.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-B</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Saved and scheduled searches</h4><p class="lane-desc">Named, versioned search plans with effective-query preview, budgets, provider policy, pause, diff, and reproducible manual run.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>F1-B/F1-C, P0-B</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Every scheduled run cites the exact plan version used.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-C</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Compare + decision rail</h4><p class="lane-desc">Compare two to five roles and show stage, evidence age, deadline, source, contact, materials, and one next action in Dossier.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>P0-A, P0-C</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Unknown remains unknown; decisions use canonical transitions.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-D</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Recruiter + interview timeline</h4><p class="lane-desc">Append-only contacts, outcomes, next actions, rounds, participants, timezone, format, meeting link, and prep status.</p><div class="meta"><div class="meta-row"><span class="meta-label">Sequence</span><span>Prototype after P0-D; land after P2-A event contract</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Awaiting reply and each interview state are distinct.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-E</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Materials review workspace</h4><p class="lane-desc">Add before/after diff, source-claim audit, ATS evidence, QA artifacts, completeness, and explicit Prepare → Export states.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>P0-E role-bound Scribe</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Every version exposes origin, changes, evidence, and artifacts.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-F</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Source-quality run drill-down</h4><p class="lane-desc">Per-source attempted, seen, accepted, rejected, duplicate, written, updated, failure, and rejection-reason telemetry.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>F1-B, F4-A, F4-C</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Every terminal run explains output and degradation after reload.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-G</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Phone-first role workflow</h4><p class="lane-desc">Today first, dossier bottom sheet/route, sticky actions, explicit Move, visible scroll cues, and keyboard-aware editing.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>P0-A, P0-F</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>320/375/393px flows need no hover or native drag.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P1-H</span><span class="priority priority--next">Next</span></div>
+              <div class="lane-body"><h4>Automation control center</h4><p class="lane-desc">Transport ownership, worker/tunnel/relay/credential health, consented actions, recent/next runs, logs, and bounded repairs.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>F0-B, F2-C, P0-B</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Intent, artifact, active job, reachability, and success stay distinct.</span></div></div></div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Product gate 1</span><p>The weekly loop—from capture through comparison, materials, submission, follow-up, run diagnosis, and mobile triage—is coherent without requiring Sheet or service internals.</p></div>
+        </section>
+
+        <section class="wave" id="feature-wave-2">
+          <div class="wave-heading">
+            <span class="wave-number">T2</span>
+            <div>
+              <h3>Strategic data foundation</h3>
+              <p class="wave-summary">Four schema lanes can be designed together; event and evidence contracts land before analytics.</p>
+            </div>
+            <span class="start-badge">Priority: later</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P2-A</span><span class="priority priority--later">Later</span></div>
+              <div class="lane-body"><h4>Opportunity event timeline</h4><p class="lane-desc">Append-only discovery, review, stage, application, contact, interview, outcome, closure, restore, and material events.</p><div class="meta"><div class="meta-row"><span class="meta-label">First</span><span>Land before P2-B and full P1-D</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Current Pipeline state can be reconstructed from events.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P2-B</span><span class="priority priority--later">Later</span></div>
+              <div class="lane-body"><h4>True funnel and cohorts</h4><p class="lane-desc">Discovery-to-outcome conversion by cohort, source, role family, and variation, with denominator, unknowns, and date window.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>P2-A event timeline</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>No snapshot metric is presented as historical conversion.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P2-C</span><span class="priority priority--later">Later</span></div>
+              <div class="lane-body"><h4>Field evidence ledger</h4><p class="lane-desc">Per-field value, source/artifact, extraction method, timestamp, confidence, freshness, and user override.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>P0-C evidence panel</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Core job facts explain provenance across reload and browsers.</span></div></div></div>
+            </article>
+            <article class="lane">
+              <div class="lane-top"><span class="lane-id">P2-D</span><span class="priority priority--later">Later</span></div>
+              <div class="lane-body"><h4>Canonical candidate context</h4><p class="lane-desc">Unify Fit Profile, browser materials, discovery overrides, and draft context while retaining explicit storage and scope.</p><div class="meta"><div class="meta-row"><span class="meta-label">Depends</span><span>F2-B profile ownership</span></div><div class="meta-row"><span class="meta-label">Signal</span><span>Every field states Saved in, Used by, and Applies when.</span></div></div></div>
+            </article>
+          </div>
+          <div class="gate"><span class="gate-label">Product gate 2</span><p>Events, evidence, candidate context, and cohorts remain user-owned, reconstructable, exportable, and explicit about missing attribution.</p></div>
+        </section>
+
+        <section class="wave" id="feature-wave-3">
+          <div class="wave-heading">
+            <span class="wave-number">T3</span>
+            <div>
+              <h3>Ambitious, evidence-gated bets</h3>
+              <p class="wave-summary">Prototype independently after Product Gate 2; promote only with user evidence.</p>
+            </div>
+            <span class="start-badge">Priority: explore</span>
+          </div>
+          <div class="lane-grid">
+            <article class="lane"><div class="lane-top"><span class="lane-id">P3-A</span><span class="priority priority--explore">Explore</span></div><div class="lane-body"><h4>Experiment lab</h4><p class="lane-desc">Named hypotheses for sources, searches, profiles, and materials, always showing sample size, timebox, unknown attribution, and causal limits.</p></div></article>
+            <article class="lane"><div class="lane-top"><span class="lane-id">P3-B</span><span class="priority priority--explore">Explore</span></div><div class="lane-body"><h4>Search health + pacing</h4><p class="lane-desc">Traceable weekly quality/response/follow-up signals plus Active, Casual, and Coasting workload modes that never worship volume.</p></div></article>
+            <article class="lane"><div class="lane-top"><span class="lane-id">P3-C</span><span class="priority priority--explore">Explore</span></div><div class="lane-body"><h4>Grounded interview packet</h4><p class="lane-desc">Posting evidence, company research, recruiter timeline, round details, candidate examples, questions, timestamps, and uncertainty.</p></div></article>
+            <article class="lane"><div class="lane-top"><span class="lane-id">P3-D</span><span class="priority priority--explore">Explore</span></div><div class="lane-body"><h4>Portable workspace + capture</h4><p class="lane-desc">Encrypted export/import and preview-only browser capture, excluding secrets by default and structurally incapable of auto-submit.</p></div></article>
+          </div>
+          <div class="gate"><span class="gate-label">Product gate 3</span><p>Promote a bet only when it improves a measured job-hunter outcome without weakening privacy, provenance, human confirmation, or user ownership.</p></div>
+        </section>
+
+        <div class="matrix">
+          <table>
+            <caption>Feature parallelization map</caption>
+            <thead><tr><th>Squad</th><th>Owns</th><th>May prototype</th><th>May land after</th></tr></thead>
+            <tbody>
+              <tr><td>Work surface</td><td>P0-A, P1-C, P1-G</td><td>Immediately with fixtures</td><td>Repair Gate C</td></tr>
+              <tr><td>Discovery operations</td><td>P0-B, P1-B, P1-F, P1-H</td><td>After intent contract draft</td><td>Repair Gates B/C</td></tr>
+              <tr><td>Evidence + materials</td><td>P0-C, P0-E, P1-E, P2-C</td><td>Immediately with provenance fixtures</td><td>Repair Gate D</td></tr>
+              <tr><td>Application CRM</td><td>P0-D, P1-D, P2-A</td><td>After transition event draft</td><td>Repair Gate B</td></tr>
+              <tr><td>Learning</td><td>P2-B, P3-A, P3-B</td><td>Only on synthetic cohorts</td><td>Product Gate 2</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="sources">
+        <strong>Source set</strong>
+        <a href="CRITICAL-AUDIT.md">Critical audit</a>
+        <a href="JOB-HUNTER-UX-AUDIT.md">Job-hunter UX audit</a>
+        <a href="FEATURE-WISHLIST.md">Full feature wishlist</a>
+        <span>Audited base <code>707a59995e89afcc4ca0842a602c3bfae3aaca2e</code> · reconciled local head <code>7d0d31d7f45899eff16ed9b3d2f25467354ef2f4</code></span>
+      </footer>
+    </main>
+
+    <script>
+      (() => {
+        const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+        const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+        function activate(tab, options = {}) {
+          tabs.forEach((candidate) => {
+            const selected = candidate === tab;
+            candidate.setAttribute("aria-selected", String(selected));
+            candidate.tabIndex = selected ? 0 : -1;
+          });
+
+          panels.forEach((panel) => {
+            panel.hidden = panel.id !== tab.getAttribute("aria-controls");
+          });
+
+          const hash = tab.id === "tab-features" ? "#features" : "#fixes";
+          if (window.location.hash !== hash) history.replaceState(null, "", hash);
+          if (options.focus) tab.focus();
+        }
+
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => activate(tab));
+          tab.addEventListener("keydown", (event) => {
+            let nextIndex = null;
+            if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+            if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = tabs.length - 1;
+            if (nextIndex === null) return;
+            event.preventDefault();
+            activate(tabs[nextIndex], { focus: true });
+          });
+        });
+
+        document.getElementById("printRoadmap").addEventListener("click", () => window.print());
+        activate(window.location.hash === "#features" ? tabs[1] : tabs[0]);
+      })();
+    </script>
+  </body>
+</html>

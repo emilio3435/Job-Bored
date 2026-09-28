@@ -1,0 +1,455 @@
+{
+  "contract": "materials.claim-ledger.v1",
+  "ledgerHash": "sha256:1eadbeef0f1ea5e0",
+  "builtAt": "2026-09-27T00:00:00.000Z",
+  "note": "Golden fixture (L3): synthetic employer-bound claims, frozen so tailoring tests do not depend on the ledger builder.",
+  "sources": [
+    {
+      "id": "resume",
+      "kind": "resume"
+    }
+  ],
+  "employers": [
+    {
+      "id": "Contoso",
+      "name": "Contoso",
+      "title": "Digital Sales Manager",
+      "location": "Austin, CO",
+      "start": "2021",
+      "end": "2026"
+    },
+    {
+      "id": "Fabrikam-kam",
+      "name": "Fabrikam",
+      "title": "Strategic Account Lead → Senior Strategic Account Lead",
+      "location": "Austin, CO",
+      "start": "2019",
+      "end": "2021"
+    },
+    {
+      "id": "Fabrikam-dcm",
+      "name": "Fabrikam",
+      "title": "Digital Campaign Manager",
+      "location": "Austin, CO",
+      "start": "2017",
+      "end": "2019"
+    },
+    {
+      "id": "meridian-suite",
+      "name": "Meridian Insights Group",
+      "title": "Founder & AI Engineer",
+      "location": "Austin, CO",
+      "start": "2024",
+      "end": null
+    }
+  ],
+  "claims": [
+    {
+      "id": "contoso-book",
+      "employerId": "Contoso",
+      "kind": "achievement",
+      "text": "Led digital media strategy for a $12M+ annual digital book, directly advising 240+ clients throughout home services, financial services, practical healthcare, dental, hospitality, retail, plus automotive — experience joining online campaigns with broadcast planning.",
+      "metrics": [
+        {
+          "token": "$12M+"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-rank",
+      "employerId": "Contoso",
+      "kind": "achievement",
+      "text": "Drove Austin to a consistent top-4 ranking in Digital Marketing Solutions revenue across Contoso's national footprint although Austin ranked #17 by population; met the digital revenue target each quarter and year.",
+      "metrics": [
+        {
+          "token": "top-4"
+        },
+        {
+          "token": "#17"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-transform",
+      "employerId": "Contoso",
+      "kind": "achievement",
+      "text": "Shifted a broadcast-led market toward digital products until those offers made up roughly 60% of revenue; at the outset, advertisers were only testing small online campaigns.",
+      "metrics": [
+        {
+          "token": "60%"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-enable",
+      "employerId": "Contoso",
+      "kind": "operations",
+      "text": "Supported 12 AE desks through a digital-first motion: 24+ tracked pitches/month via SampleCRM, practical 1:1 coaching, open office hours, plus monthly seller workshops covering connected TV, search, display, measurement, and changes to AI search. — education plus enablement are a personal strong suit.",
+      "metrics": [
+        {
+          "token": "12"
+        },
+        {
+          "token": "24+"
+        }
+      ],
+      "tools": [
+        "OTT",
+        "SEM",
+        "Programmatic"
+      ],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-team",
+      "employerId": "Contoso",
+      "kind": "operations",
+      "text": "Directly managed a rotating team of around to 3 Digital Campaign Managers plus worked alongside media specialists, agency creatives, and platform vendors to launch plus optimize programs tied toward client outcomes such as lead volume, acquisition cost, return on spend, and sales.",
+      "metrics": [
+        {
+          "token": "3"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-pitch",
+      "employerId": "Contoso",
+      "kind": "achievement",
+      "text": "Served as the lead presenter for major client plans, quarterly reviews, and renewal meetings; a regional finance client saw paid-search conversions rise 125% year over year and new users increase 16%.",
+      "metrics": [
+        {
+          "token": "125%"
+        },
+        {
+          "token": "16%"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "contoso-attrib",
+      "employerId": "Contoso",
+      "kind": "achievement",
+      "text": "Advised advertisers on measurement, AI-driven changes to search results, and site content organization; compared AI Overviews and GEO/AIO approaches with hub-and-spoke pages and shadow sites.",
+      "metrics": [],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "kam-accounts",
+      "employerId": "Fabrikam-kam",
+      "kind": "achievement",
+      "text": "For a portfolio of Austin advertisers, served as the digital specialist alongside account executives; protected and expanded budgets for search, social, connected TV, and streaming audio.",
+      "metrics": [],
+      "tools": [
+        "SEM",
+        "Paid Social",
+        "OTT/CTV",
+        "Streaming Audio"
+      ],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "kam-promo",
+      "employerId": "Fabrikam-kam",
+      "kind": "achievement",
+      "text": "Advanced to Senior Strategic Account Lead after strong renewals and online revenue results, then took a Digital Sales Manager role when Contoso adopted its new name in 2022.",
+      "metrics": [],
+      "tools": [],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "dcm-campaigns",
+      "employerId": "Fabrikam-dcm",
+      "kind": "operations",
+      "text": "Owned end-to-end digital practical campaign setup, trafficking, optimization, plus results reporting for search, social, connected TV, and display for local plus regional advertisers — this hands-on platform foundation which informs my sales leadership today.",
+      "metrics": [],
+      "tools": [
+        "SEM",
+        "Paid Social",
+        "OTT/CTV",
+        "Programmatic Display"
+      ],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "meridian-platform",
+      "employerId": "meridian-suite",
+      "kind": "system",
+      "text": "Designed, built, and deployed one production multi-model AI platform on Cloud Run, choosing models by response time, task, and cost from Llama, Grok, Gemini, GPT, and Claude; backed via Vertex AI Search RAG pipelines plus Google Chirp 3 HD text-to-speech.",
+      "metrics": [],
+      "tools": [
+        "Cloud Run",
+        "Claude",
+        "GPT",
+        "Gemini",
+        "Vertex AI Search"
+      ],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    },
+    {
+      "id": "meridian-forecast",
+      "employerId": "meridian-suite",
+      "kind": "system",
+      "text": "Shipped an SEM Revenue Forecast tool using Gemini with live Google Search grounding, running 24+ forecasts against real $3.1M pipeline data for pitches and planning cycles.",
+      "metrics": [
+        {
+          "token": "24+"
+        },
+        {
+          "token": "$3.1M"
+        }
+      ],
+      "tools": [
+        "SEM",
+        "Gemini"
+      ],
+      "sourceRefs": [
+        "resume"
+      ],
+      "verified": true
+    }
+  ],
+  "toolInventory": [
+    {
+      "tool": "SEM",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "OTT/CTV",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Amazon DSP",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Paid Social",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Streaming Audio",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Programmatic Display",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "GA4",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "seller enablement",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "consultative selling",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "pitch cadence",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "QBRs",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "team management",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "SampleCRM",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Python",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "React",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "GCP Cloud Run",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "RAG",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Vertex AI",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Claude API",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "agentic workflows",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "AI Overviews",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "GEO",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "attribution modeling",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "SEO",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Google Tag Manager",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Looker Studio",
+      "level": "owned",
+      "evidence": "profile keyword",
+      "transferFrom": []
+    },
+    {
+      "tool": "Cloud Run",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "Claude",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "GPT",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "Gemini",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "Vertex AI Search",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "OTT",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    },
+    {
+      "tool": "Programmatic",
+      "level": "adjacent",
+      "evidence": "resume mention",
+      "transferFrom": []
+    }
+  ]
+}

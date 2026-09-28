@@ -123,7 +123,15 @@ function factCheckFetch(fetchImpl, pin, signal) {
       // The shared stage requests an object for OpenAI; this check's wire shape is an array.
       if (request.response_format) { delete request.response_format; body = JSON.stringify(request); }
     }
-    const response = await fetchImpl(url, { ...init, body, signal: AbortSignal.any([signal, ...(init.signal ? [init.signal] : [])]) });
+    let response;
+    try {
+      response = await fetchImpl(url, { ...init, body, signal: AbortSignal.any([signal, ...(init.signal ? [init.signal] : [])]) });
+    } catch (error) {
+      if (/timeout|abort/i.test(error instanceof Error ? error.message : "")) {
+        throw Object.assign(new Error("fact-check timeout"), { name: "TimeoutError" });
+      }
+      throw error;
+    }
     if (!response?.ok) return response;
     const data = /** @type {any} */ (await response.json?.());
     const provider = String(pin.provider || "openai").toLowerCase();
@@ -187,21 +195,11 @@ async function checkFactsWithModel({ ops, model, nodes, profile, ledger, jdExtra
     timeout = setTimeout(() => { controller.abort(); reject(new Error("fact-check timeout")); }, 20_000);
   });
   try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const result = await Promise.race([deadline, callJsonStage({
-          pin, systemPrompt: FACT_CHECK_PROMPT, userText, maxOutputTokens: 1024,
-          fetchImpl: factCheckFetch(fetchImpl, pin, controller.signal), timeoutMs: 20_000,
-        })]);
-        return validateFactCheck(result, ops);
-      } catch (error) {
-        const status = (error instanceof Error ? error.message : "").match(/HTTP (\d{3})/);
-        const transient = status ? status[1] === "429" || Number(status[1]) >= 500 : /timeout|abort/i.test(error instanceof Error ? error.message : "");
-        if (!transient || attempt === 2) throw error;
-        await Promise.race([deadline, new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt))]);
-      }
-    }
-    throw new Error("fact-check retry limit reached");
+    const result = await Promise.race([deadline, callJsonStage({
+      pin, stage: "draft", systemPrompt: FACT_CHECK_PROMPT, userText,
+      fetchImpl: factCheckFetch(fetchImpl, pin, controller.signal), timeoutMs: 20_000,
+    })]);
+    return validateFactCheck(result, ops);
   } finally { clearTimeout(timeout); controller.abort(); }
 }
 
@@ -300,7 +298,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   ].join("\n");
   let response;
   try {
-    response = await callJsonStage({ pin, systemPrompt: EDIT_SYSTEM_PROMPT, userText, maxOutputTokens: 4096, fetchImpl });
+    response = await callJsonStage({ pin, stage: "draft", systemPrompt: EDIT_SYSTEM_PROMPT, userText, fetchImpl });
   } catch (error) {
     if (!(error instanceof WriterJsonError)) throw error;
     return { ops: [], blocked: [{ reason: "invalid_model", detail: error.message }], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };

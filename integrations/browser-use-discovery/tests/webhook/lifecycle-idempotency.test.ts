@@ -336,6 +336,9 @@ test("LIFECYCLE-1: a duplicate of a finished run returns its terminal outcome, n
   const harness = makeHarness();
 
   const first = await deliver(harness.dependencies);
+  const stored = harness.runStatusStore!.get(first.ack.runId);
+  stored.selectedLeads = [{ title: "private candidate" }];
+  harness.runStatusStore!.states.push(stored);
   const second = await deliver(harness.dependencies);
 
   assert.equal(second.response.status, 200);
@@ -343,6 +346,7 @@ test("LIFECYCLE-1: a duplicate of a finished run returns its terminal outcome, n
   assert.equal(second.ack.outcome.runId, first.ack.runId);
   assert.equal(second.ack.outcome.terminal, true);
   assert.equal(second.ack.outcome.status, "completed");
+  assert.equal("selectedLeads" in second.ack.outcome, false);
   assert.equal(harness.runIds.length, 1);
 });
 

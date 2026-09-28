@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -49,6 +50,7 @@ function loadSharedProvider({ config, fetchImpl }) {
     fetch: fetchStub,
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return {
     provider: ctx.window.CommandCenterBrowserAiProvider,
@@ -74,6 +76,7 @@ function loadRouter({ genConfig, fetchImpl }) {
     fetch: fetchStub,
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(drawerJs, ctx, { filename: "discovery-drawer.js" });
   const drawer = ctx.window.JobBoredDiscovery.drawer;
   return { drawer, calls };
@@ -168,10 +171,8 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
     );
     const parsedBody = JSON.parse(calls[1].init.body);
     assert.equal(parsedBody.model, "openai/gpt-oss-120b:free");
-    assert.ok(
-      parsedBody.max_tokens >= 4096,
-      "parseJson should request a JSON-friendly output budget",
-    );
+    assert.ok(!("max_tokens" in parsedBody));
+    assert.ok(!("max_completion_tokens" in parsedBody));
   });
 
   it("drawer callConfiguredAi delegates to the shared browser provider when it is loaded", async () => {
@@ -217,10 +218,8 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
       { role: "system", content: "sys" },
       { role: "user", content: "user" },
     ]);
-    assert.ok(
-      Number.isFinite(body.max_tokens),
-      "openrouter must send a max_tokens field",
-    );
+    assert.ok(!("max_tokens" in body));
+    assert.ok(!("max_completion_tokens" in body));
   });
 
   it("openrouter defaults the model to openai/gpt-oss-120b:free when none is set", async () => {
@@ -454,7 +453,7 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
     assert.equal(calls.length, 1);
   });
 
-  it("opts.json bumps the output token cap for OpenAI-compatible providers", async () => {
+  it("opts.json leaves an undocumented OpenRouter model's ceiling to its provider", async () => {
     const fetchImpl = async () => okJson("ok");
     const { drawer, calls } = loadRouter({
       genConfig: { ...BASE_CONFIG, provider: "openrouter" },
@@ -462,9 +461,7 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
     });
     await drawer.callConfiguredAi("sys", "user", { json: true });
     const body = JSON.parse(calls[0].init.body);
-    assert.ok(
-      body.max_tokens >= 4096,
-      "json:true must raise the max_tokens cap (>= 4096) so longer JSON responses aren't truncated",
-    );
+    assert.ok(!("max_tokens" in body));
+    assert.ok(!("max_completion_tokens" in body));
   });
 });

@@ -1,5 +1,9 @@
 /* measureInPage, the fonts wait and rasterize run inside the Playwright page. */
 /* global document, NodeFilter, Image */
+import { existsSync } from "node:fs";
+import { homedir, userInfo } from "node:os";
+import { join } from "node:path";
+
 const PDF_TIMEOUT_MS = 30_000;
 
 /**
@@ -82,10 +86,20 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
 /**
  * @typedef {object} PdfSession
  * @property {(html: string, opts?: { bottomMarginIn?: number }) => Promise<LayoutMeasurement>} measure
- * @property {(html: string, outPath: string) => Promise<{ path: string, pages: number, blockedRequests: number }>} pdf
+ * @property {(html: string, outPath: string) => Promise<{ path: string, pages: number, blockedRequests: number, type3Fonts?: number }>} pdf
  * @property {(src: string) => Promise<string>} rasterize an SVG data: URI as a PNG data: URI
  * @property {() => Promise<void>} close
  */
+
+/**
+ * Count Type3 fonts in PDF bytes. Chromium falls back to Type3 for a font it
+ * cannot embed (every variable font), and Type3 text extracts with words
+ * split apart, so a materials PDF should have none.
+ * @param {Buffer} bytes
+ */
+export function pdfType3FontCount(bytes) {
+  return (bytes.toString("latin1").match(/\/Subtype\s*\/Type3\b/g) || []).length;
+}
 
 /** Count /Type /Page objects in PDF bytes. */
 /** @param {Buffer} bytes */
@@ -123,6 +137,33 @@ function measureInPage(bottomMarginPx) {
 }
 
 /**
+ * Playwright keeps its browsers under the user's home cache. A process
+ * that runs with HOME pointed elsewhere (a sandboxed or copied profile)
+ * would look in the wrong place and find no browser. When HOME is not the
+ * account's real home and PLAYWRIGHT_BROWSERS_PATH is unset, point it at
+ * the real cache if one exists.
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function ensureBrowsersPath(env = process.env) {
+  if (env.PLAYWRIGHT_BROWSERS_PATH) return env.PLAYWRIGHT_BROWSERS_PATH;
+  let realHome = "";
+  try {
+    realHome = userInfo().homedir;
+  } catch {
+    return "";
+  }
+  if (!realHome || realHome === homedir()) return "";
+  const candidates = [
+    join(realHome, "Library", "Caches", "ms-playwright"),
+    join(realHome, ".cache", "ms-playwright"),
+    join(realHome, "AppData", "Local", "ms-playwright"),
+  ];
+  const found = candidates.find((path) => existsSync(path));
+  if (found) env.PLAYWRIGHT_BROWSERS_PATH = found;
+  return found || "";
+}
+
+/**
  * One headless browser for a whole fit → render pass, so the fit loop can
  * measure, trim and re-measure without relaunching. Every request that is
  * not a data: or about: URL is aborted and counted: a render never touches
@@ -133,6 +174,7 @@ function measureInPage(bottomMarginPx) {
  * @returns {Promise<PdfSession | null>}
  */
 export async function openPdfSession(options = {}) {
+  ensureBrowsersPath();
   const load = options.playwrightImport || (() => import("playwright"));
   const timeoutMs =
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
@@ -196,8 +238,8 @@ export async function openPdfSession(options = {}) {
           await page.close();
         }
         const { readFile } = await import("node:fs/promises");
-        const pages = pdfPageCount(await readFile(outPath));
-        return { path: outPath, pages, blockedRequests: blocked.count };
+        const bytes = await readFile(outPath);
+        return { path: outPath, pages: pdfPageCount(bytes), blockedRequests: blocked.count, type3Fonts: pdfType3FontCount(bytes) };
       })(), timeoutMs);
     },
     /* Chrome prints an SVG <img> as vectors, <text> included, so a

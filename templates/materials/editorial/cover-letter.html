@@ -1,9 +1,9 @@
 {{! editorial.letter — slot-only template over materials.render-model.v1. No facts live here. }}
 <article class="sheet page" data-page="1" {{sheetAttrs}}>
 
-  <header class="masthead">
+  <header class="masthead{{#if identity.nameFit.full}} masthead--full{{/if}}">
     <div>
-      <h1>{{identity.name}}</h1>
+      <h1 style="font-size:{{identity.nameFit.pt}}pt">{{identity.name}}</h1>
       <p class="deck">{{identity.target}}</p>
     </div>
     <p class="contact-r">

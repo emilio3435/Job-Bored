@@ -1,0 +1,197 @@
+{
+  "claims": [
+    {
+      "command": "node --experimental-strip-types /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/A/lifecycle.mts (adapted as /tmp/lifecycle-L.mts) + /tmp/a2-fb2.mts single-failure fallback",
+      "excerpt": "orig [stuck] running late_failure_ignored; now [stuck] run_b1808de5 status=running terminal=false events=terminal_write_failed x3 (timer stays armed, no late_failure_ignored); fallback: RES 202 A2-fallback status=failed terminal=true error=The run finished as \"completed\" but that status could not be saved: EIO",
+      "id": "A2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/A/ingest-order.mts (adapted as /tmp/ingest-order-L.mts)",
+      "excerpt": "orig status=-1 HANDLER THREW greenhouse:1 gemini:1; now status=409 {ok:false,reason:sheets_credential_missing} extraction {greenhouse:0,gemini:0,browserUse:0,scrape:0} outbound 0",
+      "id": "A3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "same ingest-order probe + /tmp/a4-L.mts rejected Sheet write; grep return await writeLeadAndRespond",
+      "excerpt": "no HANDLER THREW; rejected write returns status=500 {ok:false,reason:worker_error,message:Sheets write boom}; grep finds return await at handle-ingest-url.ts:321 and :503 (both sites)",
+      "id": "A4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node .../probes/A/lifecycle.mts [restart] + /tmp/a5-L.mts recoverAbandonedRuns; grep server.ts boot wiring",
+      "excerpt": "orig [restart] historyRowsWritten=0; literal markNonTerminalRunsAbandoned still 0 (bypasses new path); new path: before running -> abandoned=1 status=failed terminal=true historyWritten=1 rows=1; server.ts:285 calls recoverAbandonedRuns, :278 prunes",
+      "id": "A5",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types .../probes/A/schema-drift.mts (adapted as .lane-evidence/verify-tmp/schema-drift-L.mts, cwd=bbuild-l)",
+      "excerpt": "orig 8 DRIFT discovery; now 12 same (baseline, sheetId empty/short, variationKey, schemaVersion, requestedAt, tuning, allow/block, token, profile) +1 DRIFT blank intent (documented parser-only); pipeline sheetId short still DRIFT (lane did not claim pipeline fix)",
+      "id": "A7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "LANE-REPORT-A \u00a75 unit probe adapted as /tmp/a9-L.mts + /tmp/a9b-L.mts (handleDiscoveryWebhook cap)",
+      "excerpt": "SAFE_MS=3000000 <3600000=true; with request googleAccessToken maxRunMs=3000000; worker-cred run keeps 3600000; handle-discovery-webhook.ts:115,460 caps",
+      "id": "A9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep runAsyncLifecycle both handlers + /tmp/a12-L.mts computeSafetyDelayMs; grep stale comment",
+      "excerpt": "handle-discovery-webhook.ts:2 refs + handle-ingest-url.ts:2 refs share runAsyncLifecycle; stale 'no run-wide AbortSignal' gone (grep RC=1); grace 3600000->3630000 (+30s cap) 200->210",
+      "id": "A12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "ls worker-router.ts + node --test worker-router.test.ts + live GET // on 19050 (HOME lane-evidence/home)",
+      "excerpt": "worker-router.ts 16181B route table + dispatch; 9/9 pass (// 400, 404 JSON, aliases, 405/401, 413, 500, envelope, runs, cancel); live // 400 {code:malformed_url} health still 200, /nope 404 JSON",
+      "id": "A14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "LANE-REPORT-A \u00a73 A15 adapted as /tmp/a15-L.mts nested mergedUserProfile",
+      "excerpt": "seen={\"identity\":{\"name\":\"Ada\"},\"resume\":{}} leaks sk-nested=false resumeText=false (orig leaked sk-nested, resume.text, password, secret)",
+      "id": "A15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "LANE-REPORT-A \u00a75: node --experimental-strip-types -e concurrent upsertStoredWorkerConfig (adapted as /tmp/a16-L.mts)",
+      "excerpt": "two overlapping upserts different fields: has Staff=true has dist=true docLen=1792 (orig one key missing); test 2/2 pass (4 overlapping + 2 concurrent)",
+      "id": "A16",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "/tmp/a17b-L.mts pruneRunStatusSnapshots via real store puts; grep server.ts:278 boot prune",
+      "excerpt": "before=7 pruned=3 after=4 live=running (1 aged >30d +2 beyond keep 3, live never pruned); server.ts:278 prunes at boot",
+      "id": "A17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "ls schemas/examples + grep SourceAdapter normalize + grep AGENT_CONTRACT.md",
+      "excerpt": "6 schemas present (run-status, ingest-url req/res, cleanup req/res, api-error) +6 examples; SourceAdapter.normalize gone (only A18 comment + lead-normalizer); AGENT_CONTRACT.md has run-status/cancel/ingest-url/cleanup sections",
+      "id": "A18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "/tmp/a20-L.mts double POST same idempotencyKey different requestedAt (adapted lifecycle [retry] intent)",
+      "excerpt": "first=run_f92da42e second=same same=true calls=1 despite different requestedAt (orig same=false calls=2); schema has idempotencyKey + v1.1 example",
+      "id": "A20",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "live worker 19050 (HOME lane-evidence/home) POST /runs/:id/cancel + worker-router.test.ts cancel case",
+      "excerpt": "no secret 401 {code:unauthorized,auth:missing_secret_header}; unknown 404 {code:run_not_found}; router test live cancel aborts signal + failed Cancelled by user +1 history row; worker-router.ts:77,448 + server.ts:976 registry",
+      "id": "A21",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .../probes/E/probe-e-errshape.sh adapted to API 19051 HOME lane-evidence/home (curls) + 413/origin probes",
+      "excerpt": "scrape missing 400 {code:BAD_REQUEST,retryable:false}; malformed INVALID_JSON+retryable; ats 503 SERVICE_UNAVAILABLE+retryable; /nope 404 JSON NOT_FOUND; 413 {code:PAYLOAD_TOO_LARGE,error:Request body is too large.} no ATS; brand-logos BAD_REQUEST; origin 403 FORBIDDEN; residual llm_unconfigured lowercase but envelope present",
+      "id": "E7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "live worker 19050 (HOME lane-evidence/home) envelope probes: /nope, //, pipeline 401, webhook 401, runs 404",
+      "excerpt": "/nope 404 {code:not_found,error,retryable:false}; // 400 malformed_url; pipeline-update 401 now has auth:{category:missing_secret_header}+code:unauthorized+retryable (was omitted); all errors have code+retryable; ingest 200 ok:false carries code=reason",
+      "id": "A13",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "eslint OK; lint:skills OK integrations/openclaw-command-center/SKILL.md; lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "typecheck:browser-use-discovery (tsc strict) + typecheck:server + ~80 node --check; RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "tests 3741 suites 912 pass 3733 fail 0 todo 8 duration 14731ms; 3 todo-expected failures shown but fail 0; RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "tests 867 suites 2 pass 867 fail 0 duration 12193ms; RC=0 (VAL-ROUTE-010/016 passed this run; lane noted flaky 12s timeout in runDiscovery)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "12 OK lines (contract 5 + ats 4 + pipeline 1 + pipeline-update 1 + skills 1); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Running 24 tests using 1 worker; 24 passed (34.5s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "Running 33 tests using 1 worker; 33 passed (52.5s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-onboarding",
+      "excerpt": "Running 7 tests using 1 worker; 7 passed (16.4s); RC=0",
+      "passed": true
+    }
+  ],
+  "head": "173f8d3faca0261c750124c6e92adfaab0efeec6",
+  "lane": "L",
+  "summary": "Lane L at 173f8d3f: all 8 floor commands green with fresh HOME (browser-use-discovery 867/867 this run, lane's VAL-ROUTE-010 flake did not reproduce); all 10 new tests green (7+1+5+3+3+28+2+9+4+6); all 16 claims FIXED via adapted audit reproducers on 127.0.0.1:19050-19051. Residuals: A7 pipeline sheetId short still drifts (lane scoped to discovery) + blank-intent documented parser-only; E7 llm_* codes still lowercase but now enveloped; A2/A5 literal old probes need new-path adaptation (timer stays armed, recoverAbandonedRuns writes history). Repo left clean (git status empty, lane HOME restored).",
+  "tests": [
+    {
+      "excerpt": "tests 7 pass 7 fail 0 (A2 fallback failed, A2 retry stays armed, A2 ingest, A12 grace + real outcome, A21 cancel + registry leave)",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 1 pass 1 fail 0 (failed disk write leaves memory unchanged, retry lands)",
+      "file": "integrations/browser-use-discovery/tests/state/run-status-store-write-order.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 5 pass 5 fail 0 (A3 409 sync, A3 409 async, A3 token satisfies, A4 reason x2)",
+      "file": "integrations/browser-use-discovery/tests/webhook/ingest-url-order.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 3 pass 3 fail 0 (A5 historyWritten 1, A5 logger fail never blocks, A17 prune 3 keeps live)",
+      "file": "integrations/browser-use-discovery/tests/webhook/boot-recovery.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 3 pass 3 fail 0 (A9 token capped 3000000, A9 worker cred 3600000, A15 nested stripped)",
+      "file": "integrations/browser-use-discovery/tests/webhook/request-hardening.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 28 pass 28 fail 0 (A7 parity baseline/sheetId/variation/schemaVersion/tuning/lists/intent/token/profile/idempotency/examples + A20 runId + dedupe)",
+      "file": "integrations/browser-use-discovery/tests/webhook/webhook-schema-parity.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 2 pass 2 fail 0 (4 overlapping keep all fields, 2 concurrent keep both)",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-config-write-lock.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 9 pass 9 fail 0 (// 400 survives, 404 JSON, aliases, 405/401, 413 neutral, 500 survives, legacy envelope, runs 404, cancel auth+live+refuse)",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-router.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 4 pass 4 fail 0 (examples validate, run-status helpers validate, ingest req/res validate, cleanup req/res validate)",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-contract-schemas.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "tests 6 pass 6 fail 0 (validation envelope, INVALID_JSON+retryable, JSON 404, 413 neutral no ATS, origin envelope, success untouched)",
+      "file": "tests/api-error-envelope.test.mjs",
+      "passed": true
+    }
+  ]
+}

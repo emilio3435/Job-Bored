@@ -1,0 +1,2 @@
+planted: $SANDBOX_HOME/Library/LaunchAgents/ai.jobbored.discovery.worker.plist
+status: {"installed":true,"jobLabel":"ai.jobbored.discovery.worker","port":"8644"}

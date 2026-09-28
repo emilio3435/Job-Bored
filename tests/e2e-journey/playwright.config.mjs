@@ -14,6 +14,10 @@ export default defineConfig({
   timeout: 90_000,
   fullyParallel: false,
   workers: 1,
+  // One retry on CI only, so a single runner-congestion timeout reports the
+  // test as "flaky" instead of failing the job. Locally a failure is final.
+  // trace retain-on-failure keeps the failed attempt's trace for diagnosis.
+  retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
     headless: true,

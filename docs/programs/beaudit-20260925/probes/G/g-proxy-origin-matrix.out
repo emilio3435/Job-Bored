@@ -1,0 +1,28 @@
+METHOD   ROUTE                                           none foreign  xsite null-origin preflight
+GET      /__proxy/local-health                            403    403    403    403    403
+GET      /__proxy/ngrok-tunnels                           403    403    403    403    403
+GET      /__proxy/discovery-webhook-secret                403    403    403    403    403
+GET      /__proxy/discovery-health                        403    403    403    403    403
+GET      /__proxy/tailscale-state                         403    403    403    403    403
+GET      /__proxy/install-keep-alive/status               403    403    403    403    403
+GET      /__proxy/install-worker-autostart/status         403    403    403    403    403
+GET      /__proxy/discovery-state                         403    403    403    403    403
+POST     /__proxy/fix-setup                               403    403    403    403    403
+POST     /__proxy/start-discovery-worker                  403    403    403    403    403
+POST     /__proxy/kill-stale                              403    403    403    403    403
+POST     /__proxy/full-boot                               403    403    403    403    403
+POST     /__proxy/install-doctor                          403    403    403    403    403
+POST     /__proxy/discovery-env-key                       403    403    403    403    403
+POST     /__proxy/serpapi-check                           403    403    403    403    403
+POST     /__proxy/tailscale-serve                         403    403    403    403    403
+POST     /__proxy/install-keep-alive                      403    403    403    403    403
+DELETE   /__proxy/install-keep-alive                      403    403    403    403    403
+POST     /__proxy/install-worker-autostart                403    403    403    403    403
+DELETE   /__proxy/install-worker-autostart                403    403    403    403    403
+--- trusted Origin, read-only GETs ---
+HTTP/1.1 200 OK
+access-control-allow-origin: http://127.0.0.1:18170
+HTTP/1.1 200 OK
+access-control-allow-origin: http://127.0.0.1:18170
+HTTP/1.1 200 OK
+access-control-allow-origin: http://127.0.0.1:18170

@@ -35,7 +35,14 @@ const ROLE_TOKEN_STOPWORDS = new Set([
 const SENIORITY_TOKEN_PATTERN =
   /^(senior|sr|staff|principal|lead|junior|jr|associate)$/i;
 
-const ROLE_FAMILY_RULES = [
+type RoleFamilyRule = {
+  id: string;
+  /** Matched against titles and target roles only (see inferRoleFamilies). */
+  titleOnly?: boolean;
+  patterns: string[];
+};
+
+const ROLE_FAMILY_RULES: RoleFamilyRule[] = [
   {
     id: "growth_marketing",
     patterns: [
@@ -114,6 +121,106 @@ const ROLE_FAMILY_RULES = [
       "ios engineer",
     ],
   },
+  // DISCAT Fix-B: sales and revenue families. Multi-word phrases only, so a
+  // description that merely mentions "sales" does not join a family. They
+  // are titleOnly: they join on job titles and target roles, never on
+  // description text or include keywords.
+  {
+    id: "digital_media_sales",
+    titleOnly: true,
+    patterns: [
+      "digital sales",
+      "digital media sales",
+      "media sales",
+      "advertising sales",
+      "ad sales",
+      "ads sales",
+      "programmatic sales",
+      "sponsorship sales",
+      "digital advertising",
+    ],
+  },
+  {
+    id: "sales_leadership",
+    titleOnly: true,
+    patterns: [
+      "head of sales",
+      "director of sales",
+      "sales director",
+      "vp of sales",
+      "vp sales",
+      "vp, sales",
+      "vice president of sales",
+      "vice president, sales",
+      "chief revenue officer",
+      "sales leader",
+      "enterprise sales",
+    ],
+  },
+  {
+    id: "account_management",
+    titleOnly: true,
+    patterns: [
+      "account executive",
+      "account manager",
+      "account management",
+      "account director",
+      "key account",
+      "strategic accounts",
+      "client partner",
+    ],
+  },
+  {
+    id: "partnerships_business_development",
+    titleOnly: true,
+    patterns: [
+      "business development",
+      "partnerships",
+      "partner manager",
+      "strategic alliances",
+      "channel sales",
+    ],
+  },
+  {
+    id: "revenue_operations",
+    titleOnly: true,
+    patterns: [
+      "revenue operations",
+      "revops",
+      "sales operations",
+      "sales ops",
+      "gtm operations",
+      "go-to-market operations",
+      "sales strategy",
+      "deal desk",
+    ],
+  },
+  {
+    id: "digital_strategy",
+    titleOnly: true,
+    patterns: [
+      "digital strategy",
+      "digital transformation",
+      "digital innovation",
+      "ecommerce strategy",
+      "omnichannel strategy",
+    ],
+  },
+  {
+    id: "ai_solutions_consulting",
+    titleOnly: true,
+    patterns: [
+      "ai solutions",
+      "ai solution",
+      "solutions consulting",
+      "solutions consultant",
+      "solution consultant",
+      "solutions engineer",
+      "solutions architect",
+      "presales",
+      "pre-sales",
+    ],
+  },
 ];
 
 export type MatchDecision = {
@@ -129,6 +236,12 @@ export type MatchDecision = {
   };
   reasons: string[];
   hardRejectReason: string;
+  /**
+   * DISCAT D9: the configured exclude keywords this listing matched (title
+   * matches first, else description-only matches). Deterministic matcher
+   * only; lets filter stats name the keyword that removed a listing.
+   */
+  excludeKeywordMatches?: string[];
   modelVersion: string;
   promptVersion: string;
 };
@@ -269,6 +382,9 @@ export function scoreListingMatch(
     },
     reasons,
     hardRejectReason,
+    excludeKeywordMatches: titleExcludeMatches.length
+      ? titleExcludeMatches
+      : detailExcludeMatches,
     modelVersion: "deterministic-structured-v1",
     promptVersion: AI_MATCH_PROMPT_VERSION,
   };
@@ -305,7 +421,6 @@ export function createWorkerChatMatchClient(
           fetchImpl,
           signal,
           temperature: 0.1,
-          maxTokens: 1024,
           messages: [
             {
               role: "system",
@@ -371,6 +486,7 @@ function buildTargetProfile(run: DiscoveryRun): TargetProfile {
         ...run.config.includeKeywords,
         ...companyKeywords,
       ].join(" "),
+      { titleText: run.config.targetRoles.join(" ") },
     ),
   };
 }
@@ -397,6 +513,7 @@ function buildJobProfile(rawListing: RawListing): JobProfile {
     detailHaystack: descriptionText.toLowerCase(),
     roleFamilies: inferRoleFamilies(
       [canonicalTitle, ...(rawListing.tags || []), descriptionText].join(" "),
+      { titleText: canonicalTitle },
     ),
     remoteMode: inferRemoteMode([location, title, descriptionText].join(" ")),
   };
@@ -664,11 +781,25 @@ function scoreSeniorityAlignment(seniority: string, job: JobProfile): number {
   return haystack.includes(wanted) ? 1 : 0.55;
 }
 
-function inferRoleFamilies(input: string): string[] {
+/**
+ * Role families named in `input`. With `titleText`, titleOnly families match
+ * against it alone (a job title or the target roles) while the other
+ * families keep matching the full `input`; without it, `input` is itself a
+ * title and every family matches it.
+ */
+export function inferRoleFamilies(
+  input: string,
+  options: { titleText?: string } = {},
+): string[] {
   const haystack = cleanText(input).toLowerCase();
+  const titleHaystack =
+    typeof options.titleText === "string"
+      ? cleanText(options.titleText).toLowerCase()
+      : haystack;
   const out: string[] = [];
   for (const rule of ROLE_FAMILY_RULES) {
-    if (rule.patterns.some((pattern) => haystack.includes(pattern))) {
+    const text = rule.titleOnly ? titleHaystack : haystack;
+    if (rule.patterns.some((pattern) => text.includes(pattern))) {
       out.push(rule.id);
     }
   }

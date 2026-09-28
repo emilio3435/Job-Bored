@@ -3,6 +3,7 @@ import {
   DEFAULT_BLACKLIST_SHEET_NAME,
   PIPELINE_HEADER_ROW,
   type NormalizedLead,
+  type PipelineSkippedLink,
   type PipelineWriteResult,
 } from "../contracts.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
@@ -19,6 +20,7 @@ import {
   DEFAULT_TOKEN_SCOPE,
   PIPELINE_COL,
   PIPELINE_LAST_COLUMN_LETTER,
+  GoogleTransportError,
   SheetsHttpError,
   appendSheetValues,
   batchGetSheetValues,
@@ -65,8 +67,9 @@ export class SheetWriteError extends Error {
     detail?: string;
     partialResult?: PipelineWriteResult;
     uncertain?: boolean;
+    cause?: unknown;
   }) {
-    super(params.message);
+    super(params.message, { cause: params.cause });
     this.name = "SheetWriteError";
     this.phase = params.phase;
     this.sheetId = params.sheetId;
@@ -86,6 +89,8 @@ type PipelineWriterOptions = {
   retries?: number;
   /** First retry delay in ms; doubles per attempt (default 400). */
   retryBaseMs?: number;
+  /** The token came from this dashboard request, not worker configuration. */
+  requestScopedGoogleAccessToken?: boolean;
 };
 
 export type PipelineWriter = {
@@ -295,6 +300,8 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
 function dedupeIncomingLeads(leads: NormalizedLead[]): {
   leads: NormalizedLead[];
   skippedDuplicates: number;
+  /** Normalized links of in-batch duplicates folded into a kept twin. */
+  droppedLinks: string[];
 } {
   const cleaned = leads
     .map((lead) => {
@@ -303,10 +310,19 @@ function dedupeIncomingLeads(leads: NormalizedLead[]): {
     })
     .filter((lead): lead is NormalizedLead => !!lead);
   const deduped = dedupeFingerprintListings(cleaned);
+  const kept = new Set(deduped.uniqueItems);
+  const keptLinks = new Set(deduped.uniqueItems.map((lead) => lead.url));
   return {
     leads: deduped.uniqueItems,
     skippedDuplicates:
       deduped.duplicateCount + Math.max(0, leads.length - cleaned.length),
+    droppedLinks: [
+      ...new Set(
+        cleaned
+          .filter((lead) => !kept.has(lead) && !keptLinks.has(lead.url))
+          .map((lead) => lead.url),
+      ),
+    ],
   };
 }
 
@@ -371,7 +387,7 @@ export function createPipelineWriter(
   const sheetName = options.sheetName || DEFAULT_SHEET_NAME;
   const tokenScope = options.tokenScope || DEFAULT_TOKEN_SCOPE;
   const retry: RetryOptions = {
-    retries: options.retries ?? 3,
+    retries: options.retries ?? 2,
     retryBaseMs: options.retryBaseMs ?? 400,
   };
 
@@ -480,6 +496,13 @@ export function createPipelineWriter(
     const pendingByRow = new Map<number, PendingUpdate>();
     const appends: string[][] = [];
     const skippedBlacklist: Array<{ url: string; title: string }> = [];
+    // DISCAT C1: per-lead fate, by normalized link.
+    const skippedLinks: PipelineSkippedLink[] = deduped.droppedLinks.map((url) => ({
+      url,
+      reason: "duplicate",
+    }));
+    let updatedLinks: string[] = [];
+    let appendedLinks: string[] = [];
     let skippedDuplicates = deduped.skippedDuplicates;
     const warnings: string[] = existingDuplicateCount
       ? [
@@ -501,10 +524,12 @@ export function createPipelineWriter(
         const match = identityHit.match;
         if (match.row[PIPELINE_COL.dismissedAt]) {
           skippedBlacklist.push({ url: link, title: lead.title || "" });
+          skippedLinks.push({ url: link, reason: "blacklisted" });
           continue;
         }
         if (identityHit.decision.action === "review") {
           skippedDuplicates += 1;
+          skippedLinks.push({ url: link, reason: "identity_collision" });
           warnings.push(
             `Merge review: semantic identity collision for ${link} with Pipeline row ${match.rowNumber}.`,
           );
@@ -527,6 +552,7 @@ export function createPipelineWriter(
       }
       if (blacklistedUrls.has(link)) {
         skippedBlacklist.push({ url: link, title: lead.title || "" });
+        skippedLinks.push({ url: link, reason: "blacklisted" });
         continue;
       }
       appends.push(leadRow);
@@ -558,6 +584,7 @@ export function createPipelineWriter(
         });
         const data: Array<{ range: string; values: string[][] }> = [];
         let matched = 0;
+        const matchedLinks: string[] = [];
         resolved.forEach((result, index) => {
           const entry = pending[index];
           if (result.status !== "found") {
@@ -570,12 +597,16 @@ export function createPipelineWriter(
           }
           if (result.row[PIPELINE_COL.dismissedAt]) {
             skippedBlacklist.push({ url: entry.link, title: result.row[PIPELINE_COL.title] || "" });
+            for (const leadRow of entry.leadRows) {
+              skippedLinks.push({ url: leadRow[PIPELINE_COL.link], reason: "blacklisted" });
+            }
             return;
           }
           let merged = result.row;
           for (const leadRow of entry.leadRows) merged = mergeExistingRow(merged, leadRow);
           data.push(...changedCellRanges(sheetName, result.rowNumber, result.row, merged));
           matched += entry.leadRows.length;
+          for (const leadRow of entry.leadRows) matchedLinks.push(leadRow[PIPELINE_COL.link]);
         });
         if (data.length) {
           const response = await batchUpdateSheetValues(
@@ -597,6 +628,7 @@ export function createPipelineWriter(
           }
         }
         updated = matched;
+        updatedLinks = matchedLinks;
       } catch (error) {
         updateError =
           error instanceof SheetWriteError
@@ -607,6 +639,7 @@ export function createPipelineWriter(
                 sheetId,
                 httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
                 uncertain: !(error instanceof SheetsHttpError),
+                cause: error,
               });
       }
     }
@@ -614,7 +647,7 @@ export function createPipelineWriter(
     // Append phase runs even when the update phase failed: the two are
     // independent, and new leads must not wait on a transient update error.
     if (appends.length) {
-      const attempts = (retry.retries ?? 3) + 1;
+      const attempts = (retry.retries ?? 2) + 1;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const partial = (): PipelineWriteResult => ({
           sheetId,
@@ -623,6 +656,8 @@ export function createPipelineWriter(
           skippedDuplicates: skippedDuplicates + existingDuplicateCount,
           skippedBlacklist: skippedBlacklist.length,
           warnings: [...warnings],
+          writtenLinks: [...updatedLinks],
+          skippedLinks: [...skippedLinks],
         });
         let present: Set<string>;
         try {
@@ -642,10 +677,16 @@ export function createPipelineWriter(
             sheetId,
             httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
             partialResult: partial(),
+            cause: error,
           });
         }
         const fresh = appends.filter((row) => !present.has(row[PIPELINE_COL.link]));
         const already = appends.length - fresh.length;
+        for (const row of appends) {
+          if (present.has(row[PIPELINE_COL.link])) {
+            skippedLinks.push({ url: row[PIPELINE_COL.link], reason: "duplicate" });
+          }
+        }
         if (already) {
           skippedDuplicates += already;
           warnings.push(
@@ -667,16 +708,23 @@ export function createPipelineWriter(
           );
         } catch (error) {
           // The request may have reached Google: the rows may be in the Sheet.
+          // Re-read links before retrying, so an applied append is not repeated.
+          if (error instanceof GoogleTransportError && attempt < attempts - 1) {
+            await sleep((retry.retryBaseMs ?? 400) * 2 ** attempt);
+            continue;
+          }
           throw new SheetWriteError({
             phase: "append",
             message: `Sheet write failed during append phase: ${formatError(error)}`,
             sheetId,
             uncertain: true,
+            cause: error,
             partialResult: partial(),
           });
         }
         if (response.ok) {
           appended = appends.length;
+          appendedLinks = appends.map((row) => row[PIPELINE_COL.link]);
           break;
         }
         const body = await response.text().catch(() => "");
@@ -702,6 +750,8 @@ export function createPipelineWriter(
       skippedDuplicates: skippedDuplicates + existingDuplicateCount,
       skippedBlacklist: skippedBlacklist.length,
       warnings,
+      writtenLinks: [...updatedLinks, ...appendedLinks],
+      skippedLinks,
     };
     if (updateError) {
       throw new SheetWriteError({
@@ -712,6 +762,7 @@ export function createPipelineWriter(
         detail: updateError.detail,
         uncertain: updateError.uncertain,
         partialResult: { ...result, updated: 0 },
+        cause: updateError,
       });
     }
     return result;
@@ -727,7 +778,17 @@ export function createPipelineWriter(
       now,
       tokenScope,
     );
-    return withSheetLock(sheetId, () => writeLocked(sheetId, leads, accessToken));
+    try {
+      return await withSheetLock(sheetId, () => writeLocked(sheetId, leads, accessToken));
+    } catch (error) {
+      const status = error instanceof SheetsHttpError ? error.status
+        : error instanceof SheetWriteError ? error.httpStatus : undefined;
+      if (options.requestScopedGoogleAccessToken && runtimeConfig.googleAccessToken &&
+          (status === 401 || status === 403)) {
+        throw new Error("The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.");
+      }
+      throw error;
+    }
   }
 
   return { write };
