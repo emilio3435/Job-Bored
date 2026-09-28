@@ -439,7 +439,7 @@ jb-scribe.scribe .scribe__mm-acts,
 jb-scribe.scribe .scribe__mm-done { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 jb-scribe.scribe .scribe__mm-done { color: var(--jb-ink-2); }
 jb-scribe.scribe .scribe__mm[data-state="accepted"] .scribe__mm-done { color: var(--jb-accent-ink); font-weight: 600; }
-jb-scribe.scribe .scribe__mm-done .scribe__btn { min-height: 28px; padding: 0 6px; font-weight: 500; color: var(--jb-ink); }
+jb-scribe.scribe .scribe__mm-done .scribe__btn { min-height: 32px; padding: 0 6px; font-weight: 500; color: var(--jb-ink); }
 jb-scribe.scribe .scribe__ok,
 jb-scribe.scribe .scribe__no { min-width: 32px; padding: 0 var(--jb-space-2); font-weight: 600; }
 jb-scribe.scribe .scribe__ok:hover { background: var(--jb-mint); border-color: var(--jb-mint); color: var(--jb-on-accent); }

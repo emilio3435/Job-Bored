@@ -66,7 +66,7 @@ function frames(ops, extra = []) {
   ];
 }
 
-function scriptedApi({ ops = OPS, extra = [], holdStream = false } = {}) {
+function scriptedApi({ ops = OPS, extra = [], holdStream = false, stopOps = [] } = {}) {
   const calls = [];
   let release = null;
   const api = {
@@ -81,7 +81,13 @@ function scriptedApi({ ops = OPS, extra = [], holdStream = false } = {}) {
       list.slice(0, 2 + ops.length).forEach((f) => handlers.onEvent(plain(f)));
       return new Promise((resolve) => { release = () => resolve("partial"); });
     },
-    stopEdit: (id) => { calls.push(["stopEdit", id]); if (release) release(); return Promise.resolve({ status: "partial", ops: [] }); },
+    /* The server answers Stop a beat after the stream closes, with every
+       op it validated, including ones the stream never delivered. */
+    stopEdit: (id) => {
+      calls.push(["stopEdit", id]);
+      if (release) release();
+      return new Promise((resolve) => setImmediate(() => resolve({ status: "partial", ops: plain(stopOps) })));
+    },
     acceptEdit: (id, body) => { calls.push(["acceptEdit", id, plain(body)]); return Promise.resolve({ run: { runId: "r5", n: 5, pages: 1, pdf: "ready" } }); },
     rejectEdit: (id) => { calls.push(["rejectEdit", id]); return Promise.resolve(null); },
     star: () => Promise.resolve({ ok: true }),
@@ -354,5 +360,65 @@ describe("Stop", () => {
     press(env, "j");
     press(env, "a");
     assert.equal(state(env, "o2"), "accepted", "the partial proposal is reviewable");
+  });
+
+  it("should keep the ops the server validated when Stop lands before any op arrived (Grok F2-STOP)", async () => {
+    const env = await openWithProposal({ holdStream: true, ops: [], stopOps: OPS.slice(0, 2) });
+    assert.equal(rail(env).length, 0, "nothing streamed yet: Scribe is still checking facts");
+    click(env.host.querySelector('[data-scribe="stop"]'));
+    await settle();
+    const p = env.ctl.state.proposal;
+    assert.ok(p, "the proposal is kept");
+    assert.equal(p.status, "partial");
+    assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped early/);
+    assert.doesNotMatch(env.host.querySelector(".scribe__log").textContent, /No changes were proposed/);
+    assert.match(bar(env).textContent, /Save as v5/);
+  });
+
+  it("should still say so when Stop comes back with nothing", async () => {
+    const env = await openWithProposal({ holdStream: true, ops: [], stopOps: [] });
+    click(env.host.querySelector('[data-scribe="stop"]'));
+    await settle();
+    assert.equal(env.ctl.state.proposal, null);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. No changes were proposed\./);
+  });
+});
+
+describe("Review keys from inside the preview (Grok F2-KEYS)", () => {
+  /* A click in the page puts focus in the srcdoc frame's own document. */
+  it("should take j, a, r, Shift+A and D pressed inside the page", async () => {
+    const env = await openWithProposal();
+    const body = env.inner.body;
+    press(env, "j", { target: body });
+    assert.equal(focusedBlock(env), block(env, "o2"));
+    press(env, "a", { target: body });
+    press(env, "j", { target: body });
+    press(env, "r", { target: body });
+    press(env, "k", { target: body });
+    assert.deepEqual([state(env, "o2"), state(env, "o1")], ["accepted", "rejected"]);
+    assert.equal(focusedBlock(env), block(env, "o2"), "k from the page walks back");
+    press(env, "A", { target: body, shiftKey: true });
+    assert.equal(state(env, "o4"), "accepted");
+    press(env, "D", { target: body });
+    assert.ok(env.inner.documentElement.classList.contains("scribe-clean"));
+  });
+
+  it("should leave Cmd/Ctrl combinations and other keys in the page alone", async () => {
+    const env = await openWithProposal();
+    const ev = press(env, "a", { target: env.inner.body, metaKey: true });
+    assert.notEqual(ev.defaultPrevented, true);
+    press(env, "x", { target: env.inner.body });
+    assert.deepEqual(plain(Object.values(env.ctl.state.proposal.decisions)), ["pending", "pending", "pending", "pending"]);
+  });
+});
+
+describe("Targets (SPEC §4, Grok F2-HIT)", () => {
+  it("should give every rail and card control at least 32px on desktop", () => {
+    const css = read("scribe-v2.css");
+    const block = css.slice(css.indexOf("Proposal marks and review (lane F2)"));
+    const desktop = block.slice(0, block.indexOf("@media"));
+    const small = [...desktop.matchAll(/min-height:\s*(\d+)px/g)].map((m) => Number(m[1])).filter((n) => n < 32);
+    assert.deepEqual(small, [], "no desktop control under 32px");
   });
 });

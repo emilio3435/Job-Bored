@@ -707,6 +707,10 @@
         onEvent: function (frame) { onStreamEvent(ctl, frame); },
       });
     }).then(function () {
+      /* After Stop, the server's reply may hold ops the stream never
+         delivered: merge them before the run is judged empty. */
+      return st.proposal && st.proposal.stopReply;
+    }).then(function () {
       if (ctl.closed) return;
       ctl.refs.docscroll.setAttribute("aria-busy", "false");
       finishRun(ctl);
@@ -735,12 +739,13 @@
       if (!p.summary && p.changes && p.changes.length) p.summary = reviewSummary(ctl);
     }
     if (p && p.id) {
-      ctl.api.stopEdit(p.id).then(function (res) {
+      p.stopReply = ctl.api.stopEdit(p.id).then(function (res) {
         if (ctl.closed || ctl.state.proposal !== p) return;
         var known = {};
         p.ops.forEach(function (op) { known[op.opId] = true; });
         var late = ((res && res.ops) || []).filter(function (op) { return op && !known[op.opId]; });
         late.forEach(function (op) { p.ops.push(op); markOp(ctl, op); });
+        if (late.length && !p.summary) p.summary = reviewSummary(ctl);
         if (late.length && !ctl.state.busy) renderAll(ctl);
       }).catch(function () { /* the abort below still ends the run */ });
     }
@@ -767,6 +772,7 @@
      review bar. Nothing reaches disk until Save (SPEC §2). */
 
   var AUTO_SAVE_MS = 3000;
+  var FRAME_REVIEW_KEYS = { j: 1, k: 1, a: 1, r: 1, A: 1, d: 1, D: 1 };
   var LOSS_BANNER_PCT = 20;
   var KIND_NAME = { stmt: "summary", intro: "intro", seat: "role title", line: "earlier role", cred: "education", sal: "greeting" };
   var DEFAULT_NOTE = { replace: "rewrite", insert: "new line", remove: "removal" };
@@ -1535,7 +1541,9 @@
     var r = this.refs;
     r.host.setAttribute("data-doc", this.state.doc);
     this.onKey = function (e) { onKeydown(self, e); };
-    this.onFrameKey = function (e) { if (e.key === "Escape" || e.key === "Tab") onKeydown(self, e); };
+    /* Review keys (lane F2) work from inside the page too; c stays with
+       compare's own frames. */
+    this.onFrameKey = function (e) { if (e.key === "Escape" || e.key === "Tab" || FRAME_REVIEW_KEYS[e.key]) onKeydown(self, e); };
     this.onViewport = function () { fitViewport(self); };
     this.onHostClick = function (e) { onClick(self, e); };
     this.onSubmit = function (e) { e.preventDefault(); send(self); };

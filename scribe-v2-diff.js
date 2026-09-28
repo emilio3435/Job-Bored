@@ -318,18 +318,28 @@
   }
 
   /* A new block, made from a copy of its neighbour (so it sits in the
-     template's own structure, such as Dossier's marker + text grid):
-     the copy's first run of text becomes the insertion, and its other
-     text goes. Returns 1. */
+     template's own structure, such as Dossier's kicker + text grid):
+     the copy's longest run of text, its content, becomes the insertion,
+     and its other text goes. A metric kicker such as Dossier's
+     <span class="k">38%</span> is a shorter run, so it is emptied, not
+     written into. Returns 1. */
   function markInserted(el, text) {
     var doc = el.ownerDocument;
     var placed = false;
+    var content = null;
+    (function find(node) {
+      kidsOf(node).forEach(function (kid) {
+        if (!isText(kid)) { find(kid); return; }
+        var len = nodeText(kid).trim().length;
+        if (len && (!content || len > nodeText(content).trim().length)) content = kid;
+      });
+    })(el);
     function fill(node) {
       var out = [];
       kidsOf(node).forEach(function (kid) {
         if (!isText(kid)) { fill(kid); out.push(kid); return; }
         if (!nodeText(kid).trim()) { out.push(kid); return; }
-        if (!placed) { out.push(markTag(doc, "ins", text)); placed = true; }
+        if (kid === content) { out.push(markTag(doc, "ins", text)); placed = true; }
       });
       while (node.firstChild) node.removeChild(node.firstChild);
       out.forEach(function (child) { node.appendChild(child); });

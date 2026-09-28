@@ -218,6 +218,23 @@ describe("markElement: marks written into the template's own markup", () => {
     assert.ok(!li.textContent.includes("Old neighbour"), "the copy's own text is gone");
   });
 
+  it("should write a new bullet into the content, not a metric kicker (Grok F2-LEAD)", () => {
+    /* Dossier's metric lead: <li><span class="k">38%</span><span>text</span></li> */
+    const doc = makeEnv().document;
+    const li = doc.createElement("li");
+    const kicker = doc.createElement("span");
+    kicker.className = "k";
+    kicker.appendChild(doc.createTextNode("38%"));
+    const content = doc.createElement("span");
+    content.appendChild(doc.createTextNode(" fewer fulfillment delays after a weekly carrier dashboard."));
+    li.appendChild(kicker);
+    li.appendChild(content);
+    D.markInserted(li, "Mentored 4 coordinators.");
+    assert.deepEqual(plain(marks(content, "ins")), ["Mentored 4 coordinators."], "the text lands in the content column");
+    assert.equal(kicker.querySelectorAll("ins").length, 0, "nothing in the kicker");
+    assert.equal(kicker.textContent, "", "and the neighbour's metric is not carried over");
+  });
+
   it("should put a block back exactly as it was", () => {
     const doc = makeEnv().document;
     const el = block(doc, ["Operations analyst who reduced delays ", { n: "38%" }, "."]);
