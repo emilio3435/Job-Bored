@@ -189,6 +189,8 @@
   const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const INVALID_RESUME_FILE_MESSAGE =
     "That file doesn't match a supported PDF or DOCX. Choose a valid file or paste the text instead.";
+  const LEGACY_DOC_FILE_MESSAGE =
+    "Word .doc files aren't supported. Save as .docx or paste the text instead.";
   // Compatibility for the older Settings profile tab: this cache is populated
   // only after bytes were sniffed, so metadata never chooses a document type.
   const sniffedMimeByFile = new WeakMap();
@@ -340,8 +342,16 @@
     return /\.pdf$|\.docx?$/.test(name) || /pdf|wordprocessingml|msword/.test(type);
   }
 
+  function invalidDocumentMessage(file) {
+    const name = String(file && file.name || "").toLowerCase();
+    const type = String(file && file.type || "").toLowerCase();
+    return /\.doc$/.test(name) || type === "application/msword"
+      ? LEGACY_DOC_FILE_MESSAGE
+      : INVALID_RESUME_FILE_MESSAGE;
+  }
+
   function decodePlainText(file, buffer) {
-    if (metadataClaimsDocument(file)) throw new Error(INVALID_RESUME_FILE_MESSAGE);
+    if (metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
     let text;
     try {
       text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
@@ -381,7 +391,7 @@
       if (mime) sniffedMimeByFile.set(file, mime);
       else sniffedMimeByFile.delete(file);
     }
-    if (!mime && metadataClaimsDocument(file)) throw new Error(INVALID_RESUME_FILE_MESSAGE);
+    if (!mime && metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
     // Pull pdf.js + mammoth on demand only after size and signature checks.
     // After the first call they're cached; subsequent uploads pay nothing here.
     if (mime) await loadResumeReaders();
@@ -426,7 +436,7 @@
       else sniffedMimeByFile.delete(file);
     }
     if (!mimeType) {
-      if (metadataClaimsDocument(file)) throw new Error(INVALID_RESUME_FILE_MESSAGE);
+      if (metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
       return null;
     }
     const bytes = new Uint8Array(buffer);

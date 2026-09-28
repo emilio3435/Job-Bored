@@ -17,11 +17,12 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { modelReplyFixture } from "./fixtures/materials-model-structure.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const moduleUrl = pathToFileURL(join(repoRoot, "server/profile-from-resume.mjs")).href;
 
-const RESUME = "Emilio N. — Staff engineer. Ten years shipping infrastructure.";
+const RESUME = "Jordan Rivera\nNorthwind — Manager, 2021-2026\n- Grew revenue 30% on a $2M book.\n";
 
 /** The env a machine with only a (stale) Gemini setup would present. */
 const GEMINI_ONLY_ENV = {
@@ -59,9 +60,10 @@ async function loadModule() {
   return import(`${moduleUrl}?t=${Date.now()}-${Math.random()}`);
 }
 
-/** Records every request and answers with one canned provider payload. */
+/** Records each model stage and answers with its provider-shaped fixture. */
 function recordingFetch(payload, { ok = true, status = 200 } = {}) {
   const calls = [];
+  const payloads = Array.isArray(payload) ? payload : [payload];
   globalThis.fetch = async (url, options = {}) => {
     const call = { url: String(url), options, body: null };
     if (options && typeof options.body === "string") {
@@ -72,11 +74,12 @@ function recordingFetch(payload, { ok = true, status = 200 } = {}) {
       }
     }
     calls.push(call);
+    const reply = payloads[Math.min(calls.length - 1, payloads.length - 1)];
     return {
       ok,
       status,
-      json: async () => payload,
-      text: async () => JSON.stringify(payload),
+      json: async () => reply,
+      text: async () => JSON.stringify(reply),
     };
   };
   return calls;
@@ -96,6 +99,11 @@ const PROFILE_JSON = JSON.stringify({
 
 const CHAT_PAYLOAD = { choices: [{ message: { content: PROFILE_JSON } }] };
 const ANTHROPIC_PAYLOAD = { content: [{ type: "text", text: PROFILE_JSON }] };
+const STRUCTURE_JSON = JSON.stringify(modelReplyFixture(RESUME));
+const CHAT_STRUCTURE_PAYLOAD = { choices: [{ message: { content: STRUCTURE_JSON } }] };
+const ANTHROPIC_STRUCTURE_PAYLOAD = { content: [{ type: "text", text: STRUCTURE_JSON }] };
+const GEMINI_PROFILE_PAYLOAD = { candidates: [{ content: { parts: [{ text: PROFILE_JSON }] } }] };
+const GEMINI_STRUCTURE_PAYLOAD = { candidates: [{ content: { parts: [{ text: STRUCTURE_JSON }] } }] };
 
 describe("SIXBEATS-2 NEW-2 — the request body carries the verified provider", () => {
   it("reads {provider, apiKey, model, baseUrl} off the body", async () => {
@@ -148,7 +156,7 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
   it("drafts through OpenRouter's OpenAI-compatible path", async () => {
     setEnv(GEMINI_ONLY_ENV);
     const mod = await loadModule();
-    const calls = recordingFetch(CHAT_PAYLOAD);
+    const calls = recordingFetch([CHAT_PAYLOAD, CHAT_STRUCTURE_PAYLOAD]);
     const profile = await mod.analyzeResumeToProfile(RESUME, {
       config: mod.parseProfileProviderConfigFromBody({
         provider: "openrouter",
@@ -157,10 +165,12 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
       }),
     });
     assert.equal(profile.identity.targetRoles[0], "Staff Engineer");
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
-    assert.equal(calls[0].options.headers.Authorization, "Bearer sk-or-body-key");
-    assert.equal(calls[0].body.model, "openai/gpt-oss-120b:free");
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
+      assert.equal(new Headers(call.options.headers).get("authorization"), "Bearer sk-or-body-key");
+      assert.equal(call.body.model, "openai/gpt-oss-120b:free");
+    }
     assert.equal(
       /generativelanguage\.googleapis\.com/.test(calls.map((c) => c.url).join(" ")),
       false,
@@ -171,7 +181,7 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
   it("drafts through OpenAI", async () => {
     setEnv(GEMINI_ONLY_ENV);
     const mod = await loadModule();
-    const calls = recordingFetch(CHAT_PAYLOAD);
+    const calls = recordingFetch([CHAT_PAYLOAD, CHAT_STRUCTURE_PAYLOAD]);
     await mod.analyzeResumeToProfile(RESUME, {
       config: mod.parseProfileProviderConfigFromBody({
         provider: "openai",
@@ -179,14 +189,18 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
         model: "gpt-5.6-terra",
       }),
     });
-    assert.equal(calls[0].url, "https://api.openai.com/v1/chat/completions");
-    assert.equal(calls[0].options.headers.Authorization, "Bearer sk-openai-body-key");
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, "https://api.openai.com/v1/chat/completions");
+      assert.equal(new Headers(call.options.headers).get("authorization"), "Bearer sk-openai-body-key");
+      assert.equal(call.body.model, "gpt-5.6-terra");
+    }
   });
 
   it("drafts through a local OpenAI-compatible server with no key", async () => {
     setEnv(GEMINI_ONLY_ENV);
     const mod = await loadModule();
-    const calls = recordingFetch(CHAT_PAYLOAD);
+    const calls = recordingFetch([CHAT_PAYLOAD, CHAT_STRUCTURE_PAYLOAD]);
     await mod.analyzeResumeToProfile(RESUME, {
       config: mod.parseProfileProviderConfigFromBody({
         provider: "local",
@@ -195,18 +209,22 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
         baseUrl: "http://127.0.0.1:11434/v1",
       }),
     });
-    assert.equal(calls[0].url, "http://127.0.0.1:11434/v1/chat/completions");
-    assert.equal(
-      "Authorization" in calls[0].options.headers,
-      false,
-      "an ambient key must never be forwarded to an arbitrary local endpoint",
-    );
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, "http://127.0.0.1:11434/v1/chat/completions");
+      assert.equal(
+        new Headers(call.options.headers).has("authorization"),
+        false,
+        "an ambient key must never be forwarded to an arbitrary local endpoint",
+      );
+      assert.equal(call.body.model, "gemma4:e2b");
+    }
   });
 
   it("drafts through Anthropic's messages API", async () => {
     setEnv(GEMINI_ONLY_ENV);
     const mod = await loadModule();
-    const calls = recordingFetch(ANTHROPIC_PAYLOAD);
+    const calls = recordingFetch([ANTHROPIC_PAYLOAD, ANTHROPIC_STRUCTURE_PAYLOAD]);
     const profile = await mod.analyzeResumeToProfile(RESUME, {
       config: mod.parseProfileProviderConfigFromBody({
         provider: "anthropic",
@@ -215,9 +233,12 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
       }),
     });
     assert.equal(profile.identity.targetSeniority, "ic_staff");
-    assert.equal(calls[0].url, "https://api.anthropic.com/v1/messages");
-    assert.equal(calls[0].options.headers["x-api-key"], "sk-ant-body-key");
-    assert.equal(calls[0].body.model, "claude-sonnet-5");
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, "https://api.anthropic.com/v1/messages");
+      assert.equal(call.options.headers["x-api-key"], "sk-ant-body-key");
+      assert.equal(call.body.model, "claude-sonnet-5");
+    }
     assert.equal(
       /generativelanguage\.googleapis\.com/.test(calls.map((c) => c.url).join(" ")),
       false,
@@ -227,9 +248,7 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
 
   it("still drafts through Gemini when Gemini is what the body carries", async () => {
     const mod = await loadModule();
-    const calls = recordingFetch({
-      candidates: [{ content: { parts: [{ text: PROFILE_JSON }] } }],
-    });
+    const calls = recordingFetch([GEMINI_PROFILE_PAYLOAD, GEMINI_STRUCTURE_PAYLOAD]);
     await mod.analyzeResumeToProfile(RESUME, {
       config: mod.parseProfileProviderConfigFromBody({
         provider: "gemini",
@@ -237,10 +256,13 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
         model: "gemini-3.5-flash",
       }),
     });
-    assert.match(calls[0].url, /models\/gemini-3\.5-flash:generateContent/);
-    // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
-    assert.doesNotMatch(calls[0].url, /[?&]key=/);
-    assert.equal(new Headers(calls[0].options.headers).get("x-goog-api-key"), "AIza-body-key");
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.match(call.url, /models\/gemini-3\.5-flash:generateContent/);
+      // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
+      assert.doesNotMatch(call.url, /[?&]key=/);
+      assert.equal(new Headers(call.options.headers).get("x-goog-api-key"), "AIza-body-key");
+    }
   });
 });
 

@@ -13,8 +13,9 @@
  *     panel, with every list and the numbers each achievement claims.
  *
  * Hermetic: the fence answers every host path; /profile/from-resume and
- * /profile/resume/read are stubbed per test with a read built by the real
- * server reader from a fictional resume. No live AI call.
+ * /profile/resume/read are stubbed per test. The profile response's read is
+ * built from a hand-written structure-stage model reply, passed through the
+ * real validator and reader. No live AI call.
  */
 import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -27,7 +28,10 @@ import {
   startHermeticApp,
 } from "../e2e-fixtures/hermetic-harness.mjs";
 import { buildResumeRead } from "../../server/resume-read.mjs";
-import { validateModelStructure } from "../../server/materials-resume-structure-model.mjs";
+import {
+  RESUME_STRUCTURE_STAGE,
+  structureResumeWithModel,
+} from "../../server/materials-resume-structure-model.mjs";
 
 const RESUME = readFileSync(new URL("../fixtures/resumes/nested-roles-caps.txt", import.meta.url), "utf8");
 const MODEL = "example/model-1";
@@ -64,20 +68,20 @@ const FACTS = {
     { text: "English", sourceQuote: "English" },
   ],
 };
-const STRUCTURE = validateModelStructure({
+const MODEL_STRUCTURE_REPLY = {
   employers: [{
     name: "Contoso Health (formerly Litware Clinics)",
     sourceQuote: "Contoso Health (formerly Litware Clinics) — Tucson, AZ Mar 2015 – Present",
-    start: "Mar 2015", startSourceQuote: "Mar 2015", end: "Present", endSourceQuote: "Present",
+    start: "Mar 2015", startSourceQuote: "Tucson, AZ Mar 2015 – Present", end: "Present", endSourceQuote: "Tucson, AZ Mar 2015 – Present",
     roles: [
-      { title: "Vice President, Operations", sourceQuote: "Vice President, Operations Jan 2022 – Present", start: "Jan 2022", startSourceQuote: "Jan 2022", end: "Present", endSourceQuote: "Present", claims: [
+      { title: "Vice President, Operations", sourceQuote: "Vice President, Operations Jan 2022 – Present", start: "Jan 2022", startSourceQuote: "Vice President, Operations Jan 2022 – Present", end: "Present", endSourceQuote: "Vice President, Operations Jan 2022 – Present", claims: [
         { text: "Grew clinic throughput 31% across 12 sites by redesigning scheduling and intake.", sourceQuote: "Grew clinic throughput 31% across 12 sites by redesigning scheduling and intake." },
         { text: "Built a go-to-market plan for two new service lines that added $4.2M in first-year revenue.", sourceQuote: "Built a go-to-market plan for two new service lines that added $4.2M in first-year revenue." },
       ] },
-      { title: "Director of Operations", sourceQuote: "Director of Operations Jun 2018 – Dec 2021", start: "Jun 2018", startSourceQuote: "Jun 2018", end: "Dec 2021", endSourceQuote: "Dec 2021", claims: [
+      { title: "Director of Operations", sourceQuote: "Director of Operations Jun 2018 – Dec 2021", start: "Jun 2018", startSourceQuote: "Director of Operations Jun 2018 – Dec 2021", end: "Dec 2021", endSourceQuote: "Director of Operations Jun 2018 – Dec 2021", claims: [
         { text: "Cut patient wait times from 42 to 18 minutes with a new triage workflow.", sourceQuote: "Cut patient wait times from 42 to 18 minutes with a new triage workflow." },
       ] },
-      { title: "Operations Manager, Litware Clinics", sourceQuote: "Operations Manager, Litware Clinics Mar 2015 – May 2018", start: "Mar 2015", startSourceQuote: "Mar 2015", end: "May 2018", endSourceQuote: "May 2018", claims: [
+      { title: "Operations Manager, Litware Clinics", sourceQuote: "Operations Manager, Litware Clinics Mar 2015 – May 2018", start: "Mar 2015", startSourceQuote: "Operations Manager, Litware Clinics Mar 2015 – May 2018", end: "May 2018", endSourceQuote: "Operations Manager, Litware Clinics Mar 2015 – May 2018", claims: [
         { text: "Hired and trained 25 front-desk staff and wrote the onboarding handbook still in use.", sourceQuote: "Hired and trained 25 front-desk staff and wrote the onboarding handbook still in use." },
       ] },
     ],
@@ -89,7 +93,16 @@ const STRUCTURE = validateModelStructure({
     { text: "Lean Six Sigma Green Belt", sourceQuote: "Lean Six Sigma Green Belt" },
     { text: "PMP", sourceQuote: "PMP" },
   ],
-}, RESUME).structure;
+};
+const MODEL_INTERPRETATION = await structureResumeWithModel({
+  resumeText: RESUME,
+  pin: { provider: "openrouter", model: MODEL },
+  callStage: async ({ stage }) => {
+    if (stage !== RESUME_STRUCTURE_STAGE) throw new Error(`Unexpected model stage: ${stage}`);
+    return MODEL_STRUCTURE_REPLY;
+  },
+});
+const STRUCTURE = MODEL_INTERPRETATION.structure;
 const READ = buildResumeRead(RESUME, { facts: FACTS, structure: STRUCTURE, by: { provider: "openrouter", model: MODEL } });
 const DONE_LINE =
   `Read by ${MODEL}: 3 roles across 1 employer, 4 achievements with numbers, 7 skills, ` +
@@ -179,6 +192,13 @@ async function openPortfolio(page) {
 
 test.describe("Portfolio → Resume: the AI read is visible", () => {
   test("should name the model while reading, say why it failed, and show what it read after Try again", async ({ page }, testInfo) => {
+    expect(MODEL_INTERPRETATION.ingest.status).toBe("ready");
+    expect(MODEL_INTERPRETATION.structure.source).toBe("model");
+    expect(READ.employers.flatMap((employer) => employer.roles.map((role) => `${role.title}, ${role.start} – ${role.present ? "Present" : role.end}`))).toEqual([
+      "Vice President, Operations, Jan 2022 – Present",
+      "Director of Operations, Jun 2018 – Dec 2021",
+      "Operations Manager, Litware Clinics, Mar 2015 – May 2018",
+    ]);
     await page.setViewportSize({ width: 1440, height: 900 });
     let release = () => {};
     const hold = new Promise((resolve) => {
@@ -223,8 +243,12 @@ test.describe("Portfolio → Resume: the AI read is visible", () => {
     const panel = page.locator("#profileResumeRead .jb-resume-read");
     await expect(panel).toBeVisible();
     await panel.locator("summary").click();
-    await expect(panel.getByText("Vice President, Operations, Jan 2022 – Present")).toBeVisible();
-    await expect(panel.locator(".jb-resume-read__metric", { hasText: "$4.2M" })).toBeVisible();
+    const currentRole = panel.getByText("Vice President, Operations, Jan 2022 – Present");
+    await currentRole.scrollIntoViewIfNeeded();
+    await expect(currentRole).toBeVisible();
+    const revenueMetric = panel.locator(".jb-resume-read__metric", { hasText: "$4.2M" });
+    await revenueMetric.scrollIntoViewIfNeeded();
+    await expect(revenueMetric).toBeVisible();
     await panel.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(shotsDir(testInfo), "portfolio-resume-read-1440.png") });
   });
@@ -271,16 +295,22 @@ test.describe("Settings → Your details: What JobBored read from your resume", 
 
     await panel.locator("summary").click();
     for (const line of [
-      "Alex Martinez-Quinn",
+      "ALEX 'SANDY' MARTINEZ-QUINN",
       "Contoso Health (formerly Litware Clinics)",
       "Director of Operations, Jun 2018 – Dec 2021",
       "Lean Six Sigma Green Belt",
       "Tucson Business Journal 40 Under 40, 2021",
     ]) {
-      await expect(panel.getByText(line, { exact: true })).toBeVisible();
+      const item = panel.getByText(line, { exact: true });
+      await item.scrollIntoViewIfNeeded();
+      await expect(item).toBeVisible();
     }
-    await expect(panel.locator(".jb-resume-read__chip", { hasText: "Negotiation" })).toBeVisible();
-    await expect(panel.locator(".jb-resume-read__foot")).toContainText("Not found on your resume: projects.");
+    const skill = panel.locator(".jb-resume-read__chip", { hasText: "Negotiation" });
+    await skill.scrollIntoViewIfNeeded();
+    await expect(skill).toBeVisible();
+    const missing = panel.locator(".jb-resume-read__foot");
+    await missing.scrollIntoViewIfNeeded();
+    await expect(missing).toContainText("Not found on your resume: projects.");
     await panel.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(shotsDir(testInfo), "settings-resume-read-1440.png") });
 

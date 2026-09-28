@@ -72,11 +72,19 @@ class FakeElement {
     child.parentNode = null;
     return child;
   }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parentNode = null;
+    this.children = [];
+    for (const child of children) this.appendChild(child);
+  }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
   }
   getAttribute(name) {
     return name in this.attributes ? this.attributes[name] : null;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
   }
   addEventListener(type, fn) {
     (this.listeners[type] ||= []).push(fn);
