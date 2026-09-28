@@ -140,6 +140,22 @@ describe("Dawn lead-story carousel (ATS-scored)", () => {
     assert.equal(byLabel.SALARY, "$180k");
   });
 
+  it("tones the FIT fact with the pipeline card's zones: 8+ high, 5-7 mid, below 5 low", () => {
+    const toneFor = (fit) => {
+      const doc = makeDoc([makeCard({ key: "t" + fit, index: 1, stage: "applied", title: "Role", company: "Contoso", fit, foundAt: "2026-05-10" })]);
+      const api = loadDawnData(doc);
+      const vm = api.getDawnViewModel({ doc, now: new Date("2026-05-20T12:00:00Z") });
+      const fact = Array.from(vm.leads[0].facts).find((f) => f.label === "FIT");
+      return fact && fact.tone;
+    };
+    assert.equal(toneFor(10), "fit-high");
+    assert.equal(toneFor(8), "fit-high");
+    assert.equal(toneFor(7), "fit-mid");
+    assert.equal(toneFor(5), "fit-mid");
+    assert.equal(toneFor(4), "fit-low");
+    assert.equal(toneFor(1), "fit-low");
+  });
+
   it("renders an empty leads array when there are no active roles", () => {
     const cards = [
       makeCard({ key: "o1", index: 1, stage: "offer", title: "X", company: "Y", fit: 9 }),

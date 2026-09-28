@@ -182,6 +182,9 @@ body.jb-v2 [data-region="dawn"] .brief-lead__fact-value {
 
 body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--mint  { color: var(--jb-mint-deep); }
 body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--amber { color: var(--jb-amber); }
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--fit-high { color: var(--jb-fit-high); }
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--fit-mid  { color: var(--jb-fit-mid); }
+body.jb-v2 [data-region="dawn"] .brief-lead__fact-value--fit-low  { color: var(--jb-fit-low); }
 
 body.jb-v2 [data-region="dawn"] .brief-lead__body {
   color: var(--jb-ink-2);
