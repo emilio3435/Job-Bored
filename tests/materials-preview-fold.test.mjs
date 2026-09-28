@@ -220,8 +220,6 @@ describe("slice 7: the preview uses the registry family and accent/density knobs
   const generateModal = readRoot("partials/resume-generation-modals.html");
   const feature = readRoot("materials-feature.js");
   const profileMaterials = readRoot("profile-materials.js");
-  const scribe = readRoot("scribe.js");
-  const fixture = readRoot("tests/fixtures/scribe/scribe-dom.mjs");
 
   it("should drive the generate-modal preview from materialsTemplate + accent + density", () => {
     assert.match(generation, /getElementById\("resumeGenerateTemplate"\)/);
@@ -259,9 +257,13 @@ describe("slice 7: the preview uses the registry family and accent/density knobs
     assert.doesNotMatch(generateModal, /resumeGenerateVisualTheme/);
   });
 
-  it("should mirror the renamed select in Scribe and its fixture", () => {
-    assert.match(scribe, /getElementById\("resumeGenerateTemplate"\)/);
-    assert.doesNotMatch(scribe, /resumeGenerateVisualTheme/);
-    assert.match(fixture, /legacySel\.id = "resumeGenerateTemplate"/);
+  it("should leave the generate modal as the one reader of the template select", () => {
+    // The old Scribe mirrored this select into its Appearance menu; EDITOR X1
+    // deleted it, and Scribe v2 takes the family from the package run.
+    const readers = readdirSync(repoRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+      .map((entry) => entry.name)
+      .filter((f) => /getElementById\("resumeGenerateTemplate"\)/.test(readRoot(f)));
+    assert.deepEqual(readers, ["resume-generation.js"]);
   });
 });
