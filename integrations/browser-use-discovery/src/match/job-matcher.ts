@@ -624,7 +624,7 @@ function decideMatch(input: {
   // Hybrid gate — only hard garbage rejects. Anything plausible becomes either
   // "accept" (high-confidence good match) or "uncertain" (marginal but worth
   // surfacing). The downstream pipeline writes both to the sheet with the
-  // overallScore in a "Match Score" column so the user can sort/filter in-
+  // overallScore in a "Search Match" column so the user can sort/filter in-
   // sheet instead of having the matcher silently discard borderline jobs.
   if (input.hardRejectReason) return "reject";
   // Extreme-negative content (explicit excluded keywords matched heavily)

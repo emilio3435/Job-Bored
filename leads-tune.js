@@ -102,7 +102,7 @@
      agent contract uses. */
   var VIEW_FIELDS = [
     { key: "fitMin", label: "Fit at least", kind: "num", minValue: 0, maxValue: 10, aliases: ["fit"] },
-    { key: "matchMin", label: "Match score at least", kind: "num", minValue: 0, maxValue: 100, aliases: ["match"] },
+    { key: "matchMin", label: "Search Match at least", kind: "num", minValue: 0, maxValue: 10, aliases: ["match"] },
     { key: "salaryMin", label: "Salary at least (this view)", kind: "num", minValue: 0, maxValue: 2000000, aliases: ["salary"] },
     { key: "foundWithinDays", label: "Found within", kind: "num", minValue: 0, maxValue: 365, aliases: ["found", "age"] },
     { key: "sources", label: "Source boards", kind: "vlist", aliases: ["source"] },

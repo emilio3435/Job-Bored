@@ -2750,7 +2750,7 @@ async function finalizeMatchDecision(
   abortSignal?: AbortSignal,
 ): Promise<Awaited<ReturnType<typeof normalizeLeadWithDiagnostics>> & { matchUsedAi: boolean }> {
   // Hybrid matcher gate: only "reject" drops the listing. "uncertain" flows
-  // through to the sheet — the Match Score column lets the user sort and
+  // through to the sheet — the Search Match column lets the user sort and
   // triage marginal matches instead of the matcher silently discarding them.
   if (decision.decision === "reject") {
     return {
@@ -2777,7 +2777,7 @@ async function finalizeMatchDecision(
     };
   }
 
-  // Inject the matcher's overallScore (0–1) as a 0–10 Match Score so the
+  // Inject the matcher's overallScore (0–1) as a 0–10 Search Match so the
   // sheet writer can surface it in its new column. Keeps the deterministic
   // fitScore untouched. Guarded by the `if (!normalized.lead)` check above so
   // we never spread a null lead into a truthy placeholder.

@@ -336,7 +336,6 @@ export async function normalizeLeadWithDiagnostics(
   let effectiveFitScore: number;
   let fitAssessment: string;
   let talkingPoints: string;
-  let matchScoreFromLlm: number | null = null;
 
   const userProfile = run.config.userProfile;
   const profileRuntimeConfig = run.config.runtimeConfig;
@@ -354,7 +353,6 @@ export async function normalizeLeadWithDiagnostics(
       // scores for off-target listings. Keyword `fitScore` stays available via
       // `priority` / `tags` for debugging.
       effectiveFitScore = outcome.score.fitScore;
-      matchScoreFromLlm = outcome.score.fitScore;
       fitAssessment = buildLlmFitAssessment(
         outcome.score,
         scoreApplicationComplexityLabel(rawListing),
@@ -452,11 +450,8 @@ export async function normalizeLeadWithDiagnostics(
       url,
       compensationText,
       fitScore: effectiveFitScore,
-      // matchScore is populated later by finalizeMatchDecision in
-      // run-discovery.ts when the AI job-matcher produced a decision. The
-      // profile-aware LLM scorer also writes here when it ran, so the
-      // pipeline always carries the freshest signal we have.
-      matchScore: matchScoreFromLlm,
+      // Only finalizeMatchDecision in run-discovery.ts can supply Search Match.
+      matchScore: null,
       favorite,
       dismissedAt,
       priority,

@@ -533,9 +533,12 @@ describe("SetupDoctor pipeline tab repair", () => {
 
     const out = await api.autoHeal({});
     assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
-    assert.deepEqual(writes.map((write) => write.range), ["Pipeline!A1:Y1", "Pipeline!Z1"]);
-    assert.deepEqual(writes[0].values, [pipelineSchema.headerRow.slice(0, 25)]);
-    assert.deepEqual(writes[1].values, [["Work Mode"]]);
+    assert.deepEqual(writes.map((write) => write.range), ["Pipeline!A1:Y1", "Pipeline!U1", "Pipeline!Z1"]);
+    const expectedCore = pipelineSchema.headerRow.slice(0, 25);
+    expectedCore[20] = "";
+    assert.deepEqual(writes[0].values, [expectedCore]);
+    assert.deepEqual(writes[1].values, [["Search Match"]]);
+    assert.deepEqual(writes[2].values, [["Work Mode"]]);
   });
 
   it("repairs only empty Z and leaves an occupied Z alone", async () => {
@@ -563,6 +566,33 @@ describe("SetupDoctor pipeline tab repair", () => {
       });
       const diagnosis = await api.diagnose({});
       assert.equal(diagnosis.issues.some((issue) => issue.id === "pipeline_headers_wrong"), expectFinding);
+      await api.autoHeal({});
+      assert.deepEqual(writes.map((write) => write.range), expectedWrites);
+    }
+  });
+
+  it("migrates U1 alone and leaves a custom U header alone", async () => {
+    for (const [uHeader, expectedWrites] of [
+      ["Match Score", ["Pipeline!U1"]],
+      ["", ["Pipeline!U1"]],
+      ["Custom Match", []],
+    ]) {
+      const writes = [];
+      const headers = [...pipelineSchema.headerRow];
+      headers[20] = uHeader;
+      const { api } = loadDoctor({
+        accessToken: "tok", getSheetId: () => "SHEET",
+        fetch: async (url, init = {}) => {
+          if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] }) };
+          if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+          if (init.method === "PUT") {
+            writes.push(JSON.parse(init.body));
+            return { ok: true, json: async () => ({}) };
+          }
+          return { ok: false, status: 404, json: async () => ({}) };
+        },
+      });
       await api.autoHeal({});
       assert.deepEqual(writes.map((write) => write.range), expectedWrites);
     }
