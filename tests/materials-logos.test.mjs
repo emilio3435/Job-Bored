@@ -303,10 +303,9 @@ describe("materials logo resolution", () => {
     profile.experiences = [
       { slug: "northwind", company: "Northwind", title: "Operations Analyst" },
     ];
-    const ledger = buildLedger({
-      profile,
-      resumeText: "Jordan Rivera\n\nEXPERIENCE\nNorthwind — Operations Analyst, 2021–2026\n- Built a route report for 20 dispatch leads.",
-    });
+    // MREV-7: resume text now needs a quote-grounded model structure, so this
+    // non-blocking-refresh check builds its ledger from the profile alone.
+    const ledger = buildLedger({ profile });
     ledger.employers[0].name = "Northwind (northwind.example)";
     try {
       await writeLedgerAtomic(ledger);
