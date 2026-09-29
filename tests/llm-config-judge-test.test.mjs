@@ -85,6 +85,18 @@ describe("POST /api/llm-config/judge-test", () => {
     }
   });
 
+  it("J-BE1b: accepts a schema-shaped grade and reports structured with elapsed milliseconds", async () => {
+    const fetchImpl = providerStub({ payload: { choices: [{ message: { content: '{"grade":3}' } }] } });
+    const res = mockRes();
+    await handleJudgeTest(
+      { body: { provider: "openai_compatible", model: "grok-example", apiKey: "example-key", baseUrl: "https://api.x.ai/v1" } },
+      res, env, { fetchImpl },
+    );
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.structured, true);
+    assert.ok(Number.isFinite(res.body.ms) && res.body.ms >= 0);
+  });
+
   it("400s a malformed body and never calls the provider", async () => {
     for (const body of [
       null,
