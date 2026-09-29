@@ -873,7 +873,6 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         if (!claim) continue;
         const claimLine = claim.lines[0];
         if (claimLine < employer.lines[0] || claim.lines[1] > spanEnd) {
-          reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "inferred", lines: claim.lines, reason: "misattributed_out_of_span" });
           notes.push({ kind: "claim", reason: "out_of_span", lines: claim.lines });
           const target = ordered.find((candidate, index) => {
             if (candidate === employer) return false;
@@ -882,8 +881,14 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
             const end = Math.min(nextCandidate?.lines[0] ? nextCandidate.lines[0] - 1 : sourceLines.length, candidateSection?.lines[1] ?? sourceLines.length);
             return claim.lines[0] >= candidate.lines[0] && claim.lines[1] <= end;
           });
-          if (target && !/** @type {any[]} */ (target.claims).some((item) => item.text === claim.text && item.lines[0] === claim.lines[0] && item.lines[1] === claim.lines[1])) {
-            target.claims.push({ text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: null, roleAttribution: "inferred", attribution: "inferred", quarantined: true });
+          if (target) {
+            reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "inferred", lines: claim.lines, reason: "misattributed_out_of_span" });
+            if (!/** @type {any[]} */ (target.claims).some((item) => item.text === claim.text && item.lines[0] === claim.lines[0] && item.lines[1] === claim.lines[1])) {
+              target.claims.push({ text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: null, roleAttribution: "inferred", attribution: "inferred", quarantined: true });
+            }
+          } else if (!/** @type {any[]} */ (employer.claims).some((item) => item.text === claim.text && item.lines[0] === claim.lines[0] && item.lines[1] === claim.lines[1])) {
+            employer.claims.push({ text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: employer.roles.length ? employer.roles.length - 1 : null, roleAttribution: "inferred" });
+            reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "check_role", lines: claim.lines, reason: "role_span_missing" });
           }
           continue;
         }

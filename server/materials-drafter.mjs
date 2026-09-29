@@ -841,9 +841,13 @@ export function createMaterialsDrafter(deps = {}) {
       ? ledgerSources.find((source) => source.kind === "resume")
       : null;
     if (ledger.ingest?.status !== "ready" || ledger.ingest.sourceHash !== currentHash || ledgerResume?.hash !== currentHash) {
+      const hasSavedResume = Array.isArray(ledger.sources) && ledger.sources.some((source) => source.kind === "resume");
+      const ingestFailed = !hasSavedResume && ["ingest_needs_model", "model_error", "invalid_structure", "ingest_incomplete"].includes(ledger.ingest?.code);
       await failJob(job, {
-        code: "resume_source_review",
-        message: "We couldn't verify this resume's employers and claims. Review or re-add the resume in Settings → Profile, then retry.",
+        code: ingestFailed ? "resume_ingest_failed" : "resume_source_review",
+        message: ingestFailed
+          ? "The resume could not be interpreted. Connect an AI provider or add grounded employment details, then retry."
+          : "We couldn't verify this resume's employers and claims. Review or re-add the resume in Settings → Profile, then retry.",
       });
       return;
     }

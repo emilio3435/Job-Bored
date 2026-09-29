@@ -63,11 +63,11 @@ it("T-K5-08 in-employer claim outside all role spans uses latest role with check
 it("R2 keeps sidebar-orphaned employer bullets but quarantines a different employer's claim", async () => {
   const bullets = Array.from({ length: 11 }, (_, index) => `- Improved fictional local campaign ${index + 1} with weekly planning and reporting.`);
   const source = [
-    "Jordan Rivera", "", "EXPERIENCE", "Contoso Media", "Research Lead • Jan 2022 — Present",
+    "Jordan Rivera", "jordan@example.com", "EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead",
     "", "", "", "", "", "", "", "", "", "", "",
-    "— Jordan Rivera • Research Lead", "Jordan Rivera", "Research Lead for local teams", "jordan@example.com",
+    "Jordan Rivera", "jordan@example.com", "Jordan Rivera", "jordan@example.com",
     "P O R T F O L I O", ...bullets.slice(0, 10), "", bullets[10], "",
-    "Northwind Trading", "Analyst • Jan 2020 — Dec 2021",
+    "Northwind Trading — northwind.example", "Jan 2020 — Dec 2021 • Analyst",
     "- Built a fictional weekly inventory report for regional planners and store leads.",
   ].join("\n");
   assert.equal(source.split("\n").indexOf(bullets[0]) + 1, 22);

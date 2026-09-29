@@ -97,7 +97,8 @@ function datedLineRemainder(line, rawDate, employer, head, headerLine, sourceAli
 export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantinedClaims = [], withheld = new Set() }) {
   const lines = String(lsrc).split(/\r?\n/u);
   const chrome = pageChromeLines(lines, census);
-  const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header");
+  const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header" && !employers.some((employer) =>
+    /** @type {any[]} */ (employer.roles || []).some((role) => anchor.lines[0] > employer.lines[0] && overlap(role.lines, anchor.lines) && folded(role.title).startsWith(folded(anchor.text)))));
   const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education");
   /** @type {any[]} */ const unaccounted = [];
   /** @type {any[]} */ const setAside = [];
@@ -147,7 +148,9 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
       continue;
     }
     let closed = false;
-    if (anchor.kind === "employer_header") closed = associated.some(({ head }) => head?.id === anchor.id);
+    if (anchor.kind === "employer_header") closed = associated.some(({ employer, head }) => head?.id === anchor.id ||
+      /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines) && folded(role.title).startsWith(folded(anchor.text)) &&
+        (!anchor.dateRange || (role.start === anchor.dateRange.start && role.end === anchor.dateRange.end))));
     if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => {
       if (head?.lines[0] !== number || typeof employer.aliasClause !== "string" || !employer.aliasClause) return false;
       const clause = folded(employer.aliasClause).trim().replace(/^\(+|\)+$/gu, "");
@@ -177,6 +180,8 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
         const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer) && !/[\p{L}\p{N}]/u.test(datedLineRemainder(lines[number - 1], date.raw, employer, head, lines[head.lines[0] - 1], sourceAliases)));
         if (umbrellas.length === 1) { closed = true; usedEmployerDates.add(umbrellas[0].employer); }
       }
+      if (!closed) closed = associated.some(({ employer }) => /** @type {any[]} */ (employer.claims || []).some((claim) => !claim.quarantined && overlap(claim.lines, anchor.lines))) ||
+        quarantinedClaims.some((claim) => overlap(claim.lines, anchor.lines));
     }
     if (closed) markRange(anchor.lines);
     else unaccounted.push(visible(anchor, "unaccounted_anchor"));
