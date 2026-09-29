@@ -27,6 +27,7 @@ class FakeElement {
     this.disabled = false;
     this.hidden = false;
     this.open = false;
+    this.style = {};
     this._text = "";
   }
   get firstChild() { return this.children[0] || null; }
@@ -162,7 +163,7 @@ function loadSettings(respond) {
   vm.createContext(ctx);
   vm.runInContext(judgePickerJs, ctx, { filename: "judge-picker.js" });
   vm.runInContext(settingsModalJs, ctx, { filename: "settings-modal.js" });
-  return { settings: window.JobBoredApp.settings, document, calls, toasts, activeTabs };
+  return { settings: window.JobBoredApp.settings, window, document, calls, toasts, activeTabs };
 }
 
 const el = (document, id) => document.getElementById(id);
@@ -405,5 +406,33 @@ describe("J-FE2 · saved generic and local judges fill verbatim (P1, P2 kept)", 
     await settings.refreshLlmStatus();
     assert.match(text(el(document, "settingsJudgeError")), /Can.t reach the JobBored server/);
     assert.doesNotMatch(text(el(document, "settingsJudgeGroup")), /judge/i);
+  });
+});
+
+describe("J-FE4 · the scorecard's grading links open Settings → AI", () => {
+  it("a click on [data-action=settings-open-grading] opens the AI tab and focuses Change", async () => {
+    const { settings, window, document } = loadSettings(storingServer());
+    // Any host call the modal makes on open is a no-op here.
+    const core = window.JobBoredApp.core;
+    core.host = new Proxy(core.host, { get: (t, k) => (k in t ? t[k] : () => false) });
+    const tabs = [];
+    window.JobBoredSettingsTabSchema = { DEFAULT_TAB: "sheet" };
+    window.JobBoredSettingsTabs.initSettingsTabs = (_modal, options) => tabs.push(options.defaultTab);
+    const listeners = [];
+    document.addEventListener = (type, fn) => listeners.push({ type, fn });
+    const modal = document.body.appendChild(document.createElement("div"));
+    modal.id = "settingsModal";
+    await settings.refreshLlmStatus();
+    settings.initCommandCenterSettings();
+    const link = document.createElement("button");
+    link.closest = (selector) => (selector === '[data-action="settings-open-grading"]' ? link : null);
+    const clicks = listeners.filter((l) => l.type === "click");
+    assert.ok(clicks.length > 0, "Settings listens for the scorecard's link");
+    let prevented = false;
+    for (const l of clicks) l.fn({ target: link, preventDefault() { prevented = true; } });
+    await settle();
+    assert.equal(prevented, true);
+    assert.deepEqual(tabs, ["ai"]);
+    assert.equal(document.activeElement, el(document, "settingsJudgeChange"));
   });
 });
