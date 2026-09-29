@@ -60,6 +60,31 @@ describe("POST /api/llm-config/judge-test", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("J-BE1a: rejects free text and sends only a one-field grade schema with both 60-second limits", async () => {
+    const timeouts = [];
+    const originalTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = (ms) => {
+      timeouts.push(ms);
+      return originalTimeout.call(AbortSignal, ms);
+    };
+    try {
+      const fetchImpl = providerStub({ payload: { choices: [{ message: { content: "ok" } }] } });
+      const res = mockRes();
+      await handleJudgeTest(
+        { body: { provider: "openai_compatible", model: "grok-example", apiKey: "example-key", baseUrl: "https://api.x.ai/v1" } },
+        res, env, { fetchImpl },
+      );
+      assert.equal(res.body.ok, false);
+      assert.equal(res.body.structured, false);
+      assert.equal(res.body.code, "judge_no_structured_output");
+      assert.deepEqual(fetchImpl.calls[0].body.response_format.json_schema.schema.required, ["grade"]);
+      assert.deepEqual(Object.keys(fetchImpl.calls[0].body.response_format.json_schema.schema.properties), ["grade"]);
+      assert.ok(timeouts.filter((ms) => ms === 60_000).length >= 2, JSON.stringify(timeouts));
+    } finally {
+      AbortSignal.timeout = originalTimeout;
+    }
+  });
+
   it("400s a malformed body and never calls the provider", async () => {
     for (const body of [
       null,
