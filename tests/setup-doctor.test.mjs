@@ -504,7 +504,7 @@ describe("SetupDoctor pipeline tab repair", () => {
             ok: true,
             status: 200,
             async json() {
-              return { sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] };
+              return { sheets: [{ properties: { title: "Pipeline", sheetId: 0, gridProperties: { columnCount: 26 } } }] };
             },
           };
         }
@@ -552,7 +552,7 @@ describe("SetupDoctor pipeline tab repair", () => {
         accessToken: "tok", getSheetId: () => "SHEET",
         fetch: async (url, init = {}) => {
           if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
-          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] }) };
+          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0, gridProperties: { columnCount: 26 } } }] }) };
           if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
           if (init.method === "PUT") {
             writes.push(JSON.parse(init.body));
@@ -566,6 +566,68 @@ describe("SetupDoctor pipeline tab repair", () => {
       await api.autoHeal({});
       assert.deepEqual(writes.map((write) => write.range), expectedWrites);
     }
+  });
+
+  it("grows a narrow grid before the Z1 repair", async () => {
+    const order = [];
+    const headers = [...pipelineSchema.headerRow.slice(0, 25), ""];
+    const { api } = loadDoctor({
+      accessToken: "tok", getSheetId: () => "SHEET",
+      fetch: async (url, init = {}) => {
+        if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+        if (String(url).includes("?fields=")) {
+          return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 7, gridProperties: { columnCount: 25 } } }] }) };
+        }
+        if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+        if (init.method === "POST" && String(url).includes(":batchUpdate")) {
+          order.push("grow");
+          const body = JSON.parse(init.body);
+          assert.deepEqual(body.requests[0].updateSheetProperties, {
+            properties: { sheetId: 7, gridProperties: { columnCount: pipelineSchema.headerRow.length } },
+            fields: "gridProperties.columnCount",
+          });
+          return { ok: true, json: async () => ({}) };
+        }
+        if (init.method === "PUT") {
+          order.push(JSON.parse(init.body).range);
+          return { ok: true, json: async () => ({}) };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      },
+    });
+    const out = await api.autoHeal({});
+    assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
+    assert.deepEqual(order, ["grow", "Pipeline!Z1"]);
+  });
+
+  it("surfaces Google's grid-grow error on the Z1 repair", async () => {
+    const headers = [...pipelineSchema.headerRow.slice(0, 25), ""];
+    let puts = 0;
+    const { api } = loadDoctor({
+      accessToken: "tok", getSheetId: () => "SHEET",
+      fetch: async (url, init = {}) => {
+        if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+        if (String(url).includes("?fields=")) {
+          return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 7, gridProperties: { columnCount: 25 } } }] }) };
+        }
+        if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+        if (init.method === "POST" && String(url).includes(":batchUpdate")) {
+          return { ok: false, status: 400, json: async () => ({ error: { message: "GRID_GROW_BOOM" } }) };
+        }
+        if (init.method === "PUT") {
+          puts += 1;
+          return { ok: true, json: async () => ({}) };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      },
+    });
+    const diagnosis = await api.diagnose({});
+    const finding = diagnosis.issues.find((issue) => issue.id === "pipeline_headers_wrong");
+    assert.ok(finding);
+    const result = await finding.fix();
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /GRID_GROW_BOOM/);
+    assert.equal(puts, 0);
   });
 });
 

@@ -575,6 +575,91 @@ export async function batchUpdateSheetValues(
   );
 }
 
+/**
+ * Grow a tab's grid to at least `minColumns` columns. Sheets rejects a write
+ * to a column past the tab's grid (e.g. Z1 on a 25-column grid) with HTTP
+ * 400, so header upgrades call this before writing their widest column.
+ * Only grows, never shrinks. Failures throw SheetsHttpError with the
+ * response status and body.
+ */
+export async function ensureSheetGridColumns(params: {
+  sheetId: string;
+  sheetName: string;
+  token: string;
+  fetchImpl: FetchLike;
+  minColumns: number;
+  retry?: RetryOptions;
+}): Promise<void> {
+  const { sheetId, sheetName, token, fetchImpl, minColumns, retry } = params;
+  const url = new URL(`${SHEETS_API}/${encodeURIComponent(sheetId)}`);
+  url.searchParams.set(
+    "fields",
+    "sheets.properties.title,sheets.properties.sheetId,sheets.properties.gridProperties.columnCount",
+  );
+  const response = await sendWithRetry(
+    fetchImpl,
+    url,
+    { headers: authHeaders(token, false) },
+    retry,
+  );
+  const body = await response.text().catch(() => "");
+  if (!response.ok) {
+    throw new SheetsHttpError(
+      `Failed to read grid properties for ${sheetName}: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      response.status,
+      body,
+    );
+  }
+  let sheets: Array<{
+    properties?: { title?: string; sheetId?: number; gridProperties?: { columnCount?: number } };
+  }> = [];
+  try {
+    const data = JSON.parse(body || "{}") as { sheets?: typeof sheets };
+    sheets = Array.isArray(data.sheets) ? data.sheets : [];
+  } catch {
+    sheets = [];
+  }
+  const match = sheets.find((entry) => entry?.properties?.title === sheetName);
+  const tabId = match?.properties?.sheetId;
+  if (typeof tabId !== "number") {
+    throw new SheetsHttpError(
+      `Tab "${sheetName}" not found while ensuring grid width: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      response.status,
+      body,
+    );
+  }
+  const columnCount = Number(match?.properties?.gridProperties?.columnCount) || 0;
+  if (columnCount >= minColumns) return;
+  const updateUrl = new URL(`${SHEETS_API}/${encodeURIComponent(sheetId)}:batchUpdate`);
+  const updateResponse = await sendWithRetry(
+    fetchImpl,
+    updateUrl,
+    {
+      method: "POST",
+      headers: authHeaders(token, true),
+      body: JSON.stringify({
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: { sheetId: tabId, gridProperties: { columnCount: minColumns } },
+              fields: "gridProperties.columnCount",
+            },
+          },
+        ],
+      }),
+    },
+    retry,
+  );
+  if (!updateResponse.ok) {
+    const updateBody = await updateResponse.text().catch(() => "");
+    throw new SheetsHttpError(
+      `Failed to grow ${sheetName} grid to ${minColumns} columns: HTTP ${updateResponse.status}${updateBody ? ` - ${updateBody}` : ""}`,
+      updateResponse.status,
+      updateBody,
+    );
+  }
+}
+
 /** values:append (INSERT_ROWS, USER_ENTERED); every text cell is formula-escaped. */
 export async function appendSheetValues(
   sheetId: string,
