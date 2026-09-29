@@ -8,6 +8,8 @@ const C03 = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", impo
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/ingest-corpus/C03/stage-replies/${name}.json`, import.meta.url), "utf8"));
 const simple = ["EXPERIENCE", "Contoso Media — contoso.example", "Research Lead • Jan 2022 — Present", "Built a planning tool for local teams and their weekly goals."].join("\n");
 const reply = () => ({ employers: [{ name: "Contoso Media", site: "contoso.example", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams and their weekly goals.", lines: [4, 4] }] }] });
+const OPENROUTER_PIN = { provider: "openrouter", model: "openai/fictional-mini", apiKey: "fictional", baseUrl: "https://openrouter.ai/api/v1" };
+const chatReply = (value) => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(value) } }] }) });
 async function run(lsrc, replies, pin = PIN) {
   const calls = [];
   const result = await model.structureResume?.({ lsrc, pin, callStage: async (request) => { calls.push(request); return replies[Math.min(calls.length - 1, replies.length - 1)]; } });
@@ -31,6 +33,70 @@ it("R2-A2 source alias variants share their census employer block", async () => 
   assert.equal(result.employers[1].roles.length, 1);
   assert.equal(result.status, "ready");
   assert.deepEqual(result.missingEmployers, []);
+});
+
+it("R3-01 built-in chat retries two connect timeouts inside one read", async () => {
+  let requests = 0;
+  const delays = [];
+  const fetchImpl = async () => {
+    requests += 1;
+    if (requests <= 2) throw new TypeError("fetch failed", { cause: Object.assign(new Error("connect timeout"), { code: "UND_ERR_CONNECT_TIMEOUT" }) });
+    return chatReply(reply());
+  };
+  const result = await model.structureResume({ lsrc: simple, pin: OPENROUTER_PIN, fetchImpl, sleep: async (ms) => { delays.push(ms); } });
+  assert.equal(result.status, "ready");
+  assert.equal(result.reads, 1, "transport retries do not spend the second D7 read");
+  assert.equal(requests, 3);
+  assert.equal(delays.length, 2);
+  assert.ok(delays[0] >= 800 && delays[0] <= 1200);
+  assert.ok(delays[1] >= 2400 && delays[1] <= 3600);
+});
+
+it("R3-02 built-in chat honors Retry-After and stops on auth or cancellation", async () => {
+  let requests = 0;
+  const delays = [];
+  const fetchImpl = async () => {
+    requests += 1;
+    if (requests === 1) return { ok: false, status: 429, headers: new Headers({ "retry-after": "2" }), json: async () => ({ error: { code: "rate_limit" } }) };
+    if (requests === 2) return { ok: false, status: 503, headers: new Headers(), json: async () => ({ error: { code: "unavailable" } }) };
+    return chatReply(reply());
+  };
+  const recovered = await model.structureResume({ lsrc: simple, pin: OPENROUTER_PIN, fetchImpl, sleep: async (ms) => { delays.push(ms); } });
+  assert.equal(recovered.status, "ready");
+  assert.equal(recovered.reads, 1);
+  assert.equal(requests, 3);
+  assert.ok(delays[0] >= 2000, "Retry-After takes precedence over the first backoff");
+  assert.ok(delays[1] >= 2400 && delays[1] <= 3600);
+
+  let deniedRequests = 0;
+  const denied = await model.structureResume({ lsrc: simple, pin: OPENROUTER_PIN, fetchImpl: async () => {
+    deniedRequests += 1;
+    return { ok: false, status: 401, headers: new Headers(), json: async () => ({ error: { code: "invalid_key" } }) };
+  }, sleep: async () => { throw new Error("auth errors must not back off"); } });
+  assert.equal(denied.status, "failed");
+  assert.equal(deniedRequests, 2, "only the two D7 reads run; neither is retried");
+
+  const controller = new AbortController();
+  let cancelledRequests = 0;
+  const cancelled = await model.structureResume({ lsrc: simple, pin: OPENROUTER_PIN, signal: controller.signal,
+    fetchImpl: async () => { cancelledRequests += 1; throw new TypeError("fetch failed"); },
+    sleep: async () => { controller.abort(); },
+  });
+  assert.equal(cancelled.status, "failed");
+  assert.equal(cancelledRequests, 1, "aborting during backoff prevents another request");
+});
+
+it("R3-03 strips a source descriptor before deduping model employer aliases", async () => {
+  const source = ["EXPERIENCE", "Contoso Media (formerly Litware Radio) — Springfield Market Sep 2017 – 2026", "Research Lead • Sep 2017 – 2026"].join("\n");
+  const raw = { employers: [
+    { name: "Contoso Media (formerly Litware Radio) — Springfield Market", lines: [2, 2], roles: [{ title: "Research Lead", lines: [3, 3], start: "Sep 2017", end: "2026" }], claims: [] },
+    { name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", lines: [3, 3], start: "Sep 2017", end: "2026" }], claims: [] },
+  ] };
+  const { result } = await run(source, [raw]);
+  assert.equal(result.employers.length, 1);
+  assert.equal(result.employers[0].name, "Contoso Media");
+  assert.ok(result.employers[0].aliases.includes("litware radio"));
+  assert.equal(result.employers[0].roles.length, 1);
 });
 
 it("T-K5-02 prompts numbered source lines and withholds instruction lines", async () => {
