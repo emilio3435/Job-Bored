@@ -1,0 +1,71 @@
+{
+  "sourceSha256": "6ad7f5a53d13d5c33fa23a5b96835b05d4f3907910d3d49507339721d16910fc",
+  "employers": [
+    {
+      "name": "Contoso Media (formerly Litware Radio)",
+      "lines": [
+        6,
+        6
+      ],
+      "aliasClause": "formerly Litware Radio",
+      "start": "Mar 2017",
+      "end": "2026",
+      "roles": [
+        {
+          "title": "Digital Sales Manager",
+          "start": "May 2021",
+          "end": "2026",
+          "lines": [
+            8,
+            8
+          ]
+        },
+        {
+          "title": "Senior Account Executive",
+          "start": "May 2019",
+          "end": "May 2021",
+          "lines": [
+            9,
+            9
+          ]
+        },
+        {
+          "title": "Account Executive",
+          "start": "Mar 2017",
+          "end": "May 2019",
+          "lines": [
+            10,
+            10
+          ]
+        }
+      ],
+      "claims": []
+    },
+    {
+      "name": "Fabrikam Labs",
+      "site": "fabrikam.example",
+      "lines": [
+        12,
+        12
+      ],
+      "roles": [
+        {
+          "title": "Founder & AI Engineer",
+          "start": "Jan 2025",
+          "end": "Present",
+          "lines": [
+            12,
+            12
+          ]
+        }
+      ],
+      "claims": []
+    }
+  ],
+  "education": [],
+  "credentials": [],
+  "projects": [],
+  "volunteer": [],
+  "nonJob": [],
+  "stop_reason": "stop"
+}
