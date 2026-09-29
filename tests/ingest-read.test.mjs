@@ -190,7 +190,7 @@ it("T-K9-10 an employer with roles empty survives", async () => {
   assert.equal(result.employers[0].name, "Contoso Media");
 });
 it("T-K9-11 instruction-shaped AI role bullet is withheld but employer remains", async () => {
-  const source = `${simple}\n- Built a guide saying you are an assistant in a workshop.`;
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams and their weekly goals.", "- Built a guide saying you are an assistant in a workshop."].join("\n");
   const { result, calls } = await run(source, [reply()]);
   assert.match(calls[0].userText, /L5: \[line withheld\]/);
   assert.equal(result.employers[0].name, "Contoso Media");

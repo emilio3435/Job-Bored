@@ -1,14 +1,13 @@
 import { aliasesFor } from "./materials-resume-structure.mjs";
 import { foldForMatch } from "./resume-text-fold.mjs";
 
+/** @param {string} name */
+const withoutSite = (name) => String(name || "").replace(/\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$).*$/iu, "").replace(/\s+\([\w.-]+\.[a-z]{2,}\)\s*$/iu, "").trim();
 /** Strip a source-site suffix before comparing either census or model names. @param {string} name */
-export function employerAliases(name) {
-  const bare = String(name || "").replace(/\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$).*$/iu, "").replace(/\s+\([\w.-]+\.[a-z]{2,}\)\s*$/iu, "").trim();
-  return aliasesFor(bare);
-}
+export const employerAliases = (name) => aliasesFor(withoutSite(name));
 
 /** The source header, not the model, supplies an employer's alias key. @param {string} name */
-export const employerKey = (name) => employerAliases(name)[0] || "";
+export const employerKey = (name) => aliasesFor(withoutSite(name).replace(/\s*\((?:formerly|previously|now|fka|f\/k\/a|aka|a\.k\.a\.|acquired by|part of)\s+[^)]+\)/giu, " "))[0] || "";
 
 /** @param {unknown} value */
 export function normalizeReadDate(value) {
@@ -36,6 +35,7 @@ const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/giu;
 const PHONE = /(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/gu;
 const URL = /(?:https?:\/\/|www\.)[^\s•|]+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?/giu;
 const PERSON_NAME = /^[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){1,3}$/u;
+const ROLE_TITLE = /\b(?:Co-founder|Founder|Chief|Director|Manager|Executive|Engineer|Designer|Analyst|Specialist|President|Officer|Consultant|Developer|Lead)\b/iu;
 /** @param {string} line */
 function pureContact(line) {
   const hasEmailOrPhone = /[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/iu.test(line);
@@ -67,6 +67,7 @@ function pageChromeLines(lines, census) {
     if (taglineWords.length < 2 || taglineWords.filter((word) => runningWords.has(word)).length < Math.ceil(taglineWords.length / 2)) continue;
     for (let offset = 0; offset < 4; offset += 1) chrome.add(number + offset);
   }
+  for (const anchor of census.anchors) for (let n = anchor.lines[0]; n <= anchor.lines[1]; n += 1) chrome.delete(n);
   return chrome;
 }
 
@@ -77,7 +78,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
   const lines = String(lsrc).split(/\r?\n/u);
   const chrome = pageChromeLines(lines, census);
   const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header");
-  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education" && !chrome.has(anchor.lines[0]));
+  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education");
   /** @type {any[]} */ const unaccounted = [];
   /** @type {any[]} */ const setAside = [];
   /** @type {any[]} */ const residual = [];
@@ -91,7 +92,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
   /** @param {import('./resume-ingest-census.mjs').CensusAnchor} anchor @param {string} reason */
   const visible = (anchor, reason) => ({ id: anchor.id, kind: anchor.kind, lines: anchor.lines, ck: anchor.ck, excerpt: lines[anchor.lines[0] - 1]?.trim() || anchor.text, ...(anchor.kind === "employer_header" ? { aliasKey: employerKey(anchor.text) } : {}), reason });
   const associated = employers.map((employer) => {
-    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && employerAliases(anchor.text).some((alias) => employerAliases(employer.name).includes(alias)));
+    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && employerKey(anchor.text) && employerKey(anchor.text) === employerKey(employer.name));
     return { employer, head };
   });
   for (const { employer, head } of associated) {
@@ -100,39 +101,50 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     for (const claim of employer.claims || []) if (Array.isArray(claim.lines)) markRange(claim.lines);
   }
   for (const claim of quarantinedClaims) if (Array.isArray(claim.lines)) markRange(claim.lines);
+  const usedRoleDates = new Set();
+  const usedEmployerDates = new Set();
   for (const anchor of relevant) {
     const number = anchor.lines[0];
     if (withheld.has(number)) { unaccounted.push(visible(anchor, "looks_like_instructions")); continue; }
     const modelNonJob = nonJob.find((item) => Array.isArray(item.lines) && overlap(item.lines, anchor.lines));
-    if (modelNonJob && ["experience", "unknown"].includes(anchor.sectionGuess)) {
-      setAside.push({ ...visible(anchor, "model_non_job"), disposition: "non_job", nonJobReason: modelNonJob.reason });
+    const groundedRole = dated(anchor) && associated.some(({ employer, head }) => head && /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines) && (!anchor.dateRange || (role.start === anchor.dateRange.start && role.end === anchor.dateRange.end))));
+    if (modelNonJob && !groundedRole && ["experience", "unknown"].includes(anchor.sectionGuess)) {
+      setAside.push({ ...visible(anchor, "model_non_job"), disposition: "non_job", nonJobReason: modelNonJob.reason, reviewLevel: dated(anchor) && ROLE_TITLE.test(lines[number - 1]) ? "role" : "claim" });
       continue;
     }
     let closed = false;
     if (anchor.kind === "employer_header") closed = associated.some(({ head }) => head?.id === anchor.id);
     if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => {
       if (head?.lines[0] !== number || typeof employer.aliasClause !== "string" || !employer.aliasClause) return false;
-      const clause = folded(employer.aliasClause);
-      const anchorClause = folded(anchor.text);
-      return clause.includes(anchorClause) || anchorClause.includes(clause);
+      const clause = folded(employer.aliasClause).trim().replace(/^\(+|\)+$/gu, "");
+      return clause === folded(anchor.text).trim();
     });
     if (dated(anchor)) {
       const date = anchor.dateRange;
-      if (date) closed = associated.some(({ employer, head }) => {
+      const inBlock = associated.filter(({ head }) => {
         if (!head) return false;
         const next = headers.find((candidate) => candidate.lines[0] > head.lines[0]);
         const section = sectionFor(head.lines[0]);
         const end = Math.min(next?.lines[0] ? next.lines[0] - 1 : lines.length, section?.lines[1] ?? lines.length);
-        if (number < head.lines[0] || number > end) return false;
-        const candidates = [employer, ...(employer.roles || [])];
-        return candidates.some((item) => item.start === date.start && item.end === date.end && (item === employer || overlap(item.lines, anchor.lines)));
+        return number >= head.lines[0] && number <= end;
       });
-      else closed = associated.some(({ employer, head }) => head && /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines)));
+      const roles = inBlock.flatMap(({ employer }) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))));
+      if (roles.length === 1 && !usedRoleDates.has(roles[0])) { closed = true; usedRoleDates.add(roles[0]); }
+      if (!closed && date && !roles.length) {
+        const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer));
+        if (umbrellas.length === 1) { closed = true; usedEmployerDates.add(umbrellas[0].employer); }
+      }
     }
     if (closed) markRange(anchor.lines);
     else unaccounted.push(visible(anchor, "unaccounted_anchor"));
   }
   const experienceSections = census.sections.filter((section) => section.kind === "experience" || section.kind === "unknown");
+  const disposed = new Set([...unaccounted, ...setAside].flatMap((item) => Array.from({ length: item.lines[1] - item.lines[0] + 1 }, (_, index) => item.lines[0] + index)));
+  for (const item of nonJob) if (Array.isArray(item.lines)) for (let n = item.lines[0]; n <= item.lines[1]; n += 1) {
+    if (!experienceSections.some((section) => n > section.lines[0] && n <= section.lines[1]) || !lines[n - 1]?.trim() || chrome.has(n) || attributed.has(n) || disposed.has(n)) continue;
+    setAside.push({ id: `non-job-${n}`, kind: "claim", lines: [n, n], excerpt: lines[n - 1].trim(), reason: "model_non_job", disposition: "non_job", nonJobReason: item.reason });
+    disposed.add(n);
+  }
   for (const section of experienceSections) {
     let run = [];
     /** @param {number[]} current */
@@ -142,17 +154,20 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
       if (current.length >= 2 || size >= 80) residual.push({ id: `residual-${current[0]}`, kind: "residual", lines: [current[0], current.at(-1)], excerpt: lines[current[0] - 1].trim(), reason: "residual" });
     };
     for (let n = section.lines[0] + 1; n <= section.lines[1]; n += 1) {
-      if (!lines[n - 1]?.trim() || attributed.has(n) || withheld.has(n) || chrome.has(n)) { flush(run); run = []; }
+      if (chrome.has(n)) continue;
+      if (!lines[n - 1]?.trim() || attributed.has(n) || withheld.has(n)) { flush(run); run = []; }
       else run.push(n);
     }
     flush(run);
   }
-  const experienceLines = experienceSections.flatMap((section) => Array.from({ length: section.lines[1] - section.lines[0] }, (_, i) => section.lines[0] + i + 1)).filter((n) => lines[n - 1]?.trim() && !chrome.has(n));
+  const experienceLines = experienceSections.flatMap((section) => Array.from({ length: section.lines[1] - section.lines[0] }, (_, i) => section.lines[0] + i + 1)).filter((n) => lines[n - 1]?.trim() && !chrome.has(n) && !withheld.has(n));
   const accountedAnchors = relevant.length - unaccounted.length - setAside.length;
   const datedAnchors = relevant.filter(dated);
   const coveredDates = datedAnchors.filter((anchor) => !unaccounted.some((item) => item.id === anchor.id) && !setAside.some((item) => item.id === anchor.id));
   const coverage = { linesAttributed: experienceLines.filter((n) => attributed.has(n)).length, linesNonBlank: experienceLines.length, anchorsAccounted: accountedAnchors, anchorsTotal: relevant.length, datedAnchorsAccounted: coveredDates.length, datedAnchorsTotal: datedAnchors.length };
   const failures = [];
-  if (experienceLines.some((n) => !attributed.has(n)) && !unaccounted.length && !residual.length && !setAside.length) failures.push("reconciliation_failed");
+  const explained = new Set(attributed);
+  for (const item of [...unaccounted, ...residual, ...setAside]) for (let n = item.lines[0]; n <= item.lines[1]; n += 1) explained.add(n);
+  if (experienceLines.some((n) => !explained.has(n))) failures.push("reconciliation_failed");
   return { unaccounted, setAside, residual, censusEmployerShortfall: headers.filter((anchor) => unaccounted.some((item) => item.id === anchor.id)).length, coverage, reconciliation: { ok: !failures.length, failures } };
 }

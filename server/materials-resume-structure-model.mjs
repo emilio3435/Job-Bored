@@ -772,7 +772,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (kind === "employer" && range[1] - range[0] + 1 > 3) {
       const included = headers.filter((anchor) => anchor.lines[0] >= range[0] && anchor.lines[0] <= range[1]);
       const anchored = included.length === 1 && included[0].lines[0] === range[0] &&
-        employerAliases(included[0].text).some((alias) => employerAliases(String(raw.name || "")).includes(alias));
+        employerKey(included[0].text) && employerKey(included[0].text) === employerKey(String(raw.name || ""));
       if (!anchored) { reject(kind, raw?.name, range, included.length > 1 ? "pointer_crosses_employer_header" : "pointer_too_wide"); return null; }
       return included[0].lines;
     }
@@ -825,7 +825,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         if (Array.isArray(rawEmployer.lines) && /^\s*[-•*]/u.test(sourceLines[rawEmployer.lines[0] - 1] || "")) reject("employer", rawEmployer.name, rawEmployer.lines, "needs_confirmation");
         continue;
       }
-      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && employerAliases(anchor.text).some((alias) => employerAliases(found.text).includes(alias)));
+      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && employerKey(anchor.text) && employerKey(anchor.text) === employerKey(found.text));
       const nearDate = census.anchors.some((anchor) => anchor.kind === "date_range" && Math.abs(anchor.lines[0] - found.lines[0]) <= 2);
       if (!matchingHeader && (!nearDate || /^\s*[-•*]/u.test(sourceLines[found.lines[0] - 1]))) { reject("employer", rawEmployer.name, found.lines, "needs_confirmation"); continue; }
       /** @type {any} */
@@ -844,8 +844,25 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       }
       incoming.push({ employer, rawEmployer });
     }
+    for (const item of incoming) {
+      const fresh = item.employer;
+      const prior = employers.find((candidate) => candidate.lines[0] === fresh.lines[0] && employerKey(candidate.name) === employerKey(fresh.name));
+      if (!prior) { employers.push(fresh); continue; }
+      for (const field of ["site", "location", "aliasClause", "start", "end"]) if (!prior[field] && fresh[field]) prior[field] = fresh[field];
+      prior.aliases = [...new Set([...prior.aliases, ...fresh.aliases])];
+      for (const role of fresh.roles) {
+        const existing = /** @type {any[]} */ (prior.roles).find((candidate) => candidate.title === role.title && candidate.lines[0] === role.lines[0] && candidate.lines[1] === role.lines[1]);
+        if (!existing) prior.roles.push(role);
+        else { if (!existing.start) existing.start = role.start; if (!existing.end) existing.end = role.end; }
+      }
+      for (const claim of prior.claims) {
+        const roleIndex = /** @type {any[]} */ (prior.roles).findIndex((role) => claim.lines[0] >= role.lines[0] && claim.lines[1] <= role.lines[1]);
+        if (roleIndex >= 0) { claim.roleIndex = roleIndex; claim.roleAttribution = "grounded"; }
+      }
+      item.employer = prior;
+    }
     for (const { employer, rawEmployer } of incoming) {
-      const ordered = [...employers, ...incoming.map((item) => item.employer)].sort((a, b) => a.lines[0] - b.lines[0]);
+      const ordered = [...employers].sort((a, b) => a.lines[0] - b.lines[0]);
       const position = ordered.indexOf(employer);
       const next = ordered[position + 1];
       const section = census.sections.find((item) => item.lines[0] <= employer.lines[0] && item.lines[1] >= employer.lines[0]);
@@ -855,19 +872,31 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         const claim = ground(rawClaim.text, rawClaim, "claim");
         if (!claim) continue;
         const claimLine = claim.lines[0];
-        if (claimLine < employer.lines[0] || claimLine > spanEnd) {
+        if (claimLine < employer.lines[0] || claim.lines[1] > spanEnd) {
           reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "inferred", lines: claim.lines, reason: "misattributed_out_of_span" });
           notes.push({ kind: "claim", reason: "out_of_span", lines: claim.lines });
+          const target = ordered.find((candidate, index) => {
+            if (candidate === employer) return false;
+            const nextCandidate = ordered[index + 1];
+            const candidateSection = census.sections.find((part) => part.lines[0] <= candidate.lines[0] && part.lines[1] >= candidate.lines[0]);
+            const end = Math.min(nextCandidate?.lines[0] ? nextCandidate.lines[0] - 1 : sourceLines.length, candidateSection?.lines[1] ?? sourceLines.length);
+            return claim.lines[0] >= candidate.lines[0] && claim.lines[1] <= end;
+          });
+          if (target && !/** @type {any[]} */ (target.claims).some((item) => item.text === claim.text && item.lines[0] === claim.lines[0] && item.lines[1] === claim.lines[1])) {
+            target.claims.push({ text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: null, roleAttribution: "inferred", attribution: "inferred", quarantined: true });
+          }
           continue;
         }
         const roleIndex = /** @type {any[]} */ (employer.roles).findIndex((role) => claim.lines[0] >= role.lines[0] && claim.lines[1] <= role.lines[1]);
         const chosen = roleIndex >= 0 ? roleIndex : employer.roles.length - 1;
         const placement = roleIndex >= 0 ? "grounded" : "inferred";
-        employer.claims.push({ text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: chosen >= 0 ? chosen : null, roleAttribution: placement });
+        const stored = { text: claim.text, lines: claim.lines, tier: claim.tier, roleIndex: chosen >= 0 ? chosen : null, roleAttribution: placement };
+        const existing = /** @type {any[]} */ (employer.claims).find((item) => item.text === stored.text && item.lines[0] === stored.lines[0] && item.lines[1] === stored.lines[1]);
+        if (!existing) employer.claims.push(stored);
+        else if (placement === "grounded") { existing.roleIndex = roleIndex; existing.roleAttribution = "grounded"; }
         if (chosen >= 0 && placement === "inferred") reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "check_role", lines: claim.lines, reason: "role_span_missing" });
       }
     }
-    for (const { employer } of incoming) if (!employers.some((prior) => prior.lines[0] === employer.lines[0] && employerKey(prior.name) === employerKey(employer.name))) employers.push(employer);
     nonJob.push(...readList(rawReply.nonJob));
   };
   const initialResult = () => reconcileRead({ lsrc: source, census, employers, nonJob, quarantinedClaims: reviewClaims.filter((item) => item.kind === "inferred"), withheld });
@@ -894,7 +923,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const allLines = sourceLines.map((_, index) => index + 1);
   if (pin) await call(allLines, false);
   let reconciled = initialResult();
-  let blockingSetAside = reconciled.setAside.filter((item) => item.kind === "employer_header" || item.kind === "formerly_clause");
+  /** @param {any} item */
+  const blocksRead = (item) => item.kind === "employer_header" || item.kind === "formerly_clause" || item.reviewLevel === "role";
+  let blockingSetAside = reconciled.setAside.filter(blocksRead);
   if (pin && (reconciled.unaccounted.length || reconciled.residual.length || blockingSetAside.length || rejected.length || !parseable)) {
     const target = new Set();
     const missingHeaders = [...reconciled.unaccounted, ...blockingSetAside].filter((item) => item.kind === "employer_header");
@@ -911,20 +942,25 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (!target.size && !parseable) for (const number of allLines) target.add(number);
     if (target.size) await call([...target].sort((a, b) => a - b), true);
     reconciled = initialResult();
-    blockingSetAside = reconciled.setAside.filter((item) => item.kind === "employer_header" || item.kind === "formerly_clause");
+    blockingSetAside = reconciled.setAside.filter(blocksRead);
   }
   const unread = [...reconciled.unaccounted, ...blockingSetAside, ...reconciled.residual];
   for (const number of withheld) if (!unread.some((item) => item.lines?.[0] === number)) {
     const section = census.sections.find((item) => item.lines[0] <= number && item.lines[1] >= number);
-    if (section && ["experience", "unknown"].includes(section.kind)) unread.push({ id: `withheld-${number}`, kind: "employer_header", lines: [number, number], excerpt: sourceLines[number - 1].trim(), aliasKey: employerKey(sourceLines[number - 1]), reason: "looks_like_instructions" });
+    if (!section || !["experience", "unknown"].includes(section.kind)) continue;
+    const looksLikeHeader = !/^\s*[-•*]/u.test(sourceLines[number - 1]) && census.anchors.some((anchor) => anchor.kind === "date_range" && anchor.lines[0] > number && anchor.lines[0] <= number + 2);
+    if (looksLikeHeader) unread.push({ id: `withheld-${number}`, kind: "employer_header", lines: [number, number], excerpt: sourceLines[number - 1].trim(), aliasKey: employerKey(sourceLines[number - 1]), reason: "looks_like_instructions" });
+    else reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "rejected", lines: [number, number], reason: "looks_like_instructions" });
   }
   if (!pin) for (const item of unread) item.reason = "needs_model";
   else if (reads === 2) for (const item of unread) if (item.reason === "unaccounted_anchor") item.reason = "ingest_budget_exceeded";
   for (const item of rejected.filter((entry) => entry.kind === "employer" && entry.reason === "needs_confirmation")) unread.push({ id: `unread-${unread.length + 1}`, kind: "employer", lines: item.lines, excerpt: item.valuePreview, aliasKey: employerKey(item.valuePreview), reason: "needs_confirmation" });
   const missingEmployers = unread.filter((item) => item.kind === "employer_header" || item.kind === "employer").map((item) => ({ aliasKey: item.aliasKey || employerKey(item.excerpt), displayName: sourceLines[item.lines[0] - 1]?.trim() || item.excerpt, lines: item.lines }));
   if (source.trim() && !census.anchors.length) reconciled.reconciliation.failures.push("census_empty");
+  for (const item of reconciled.setAside) if (item.kind !== "employer_header" && item.kind !== "formerly_clause") reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "set_aside", lines: item.lines, reason: item.reason });
   const uniqueRejected = [...new Map(rejected.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview}`, item])).values()];
-  const uniqueReview = [...new Map(reviewClaims.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview || ""}`, item])).values()];
+  const activeReview = reviewClaims.filter((item) => item.kind !== "check_role" || employers.some((employer) => /** @type {any[]} */ (employer.claims).some((claim) => claim.lines[0] === item.lines[0] && claim.lines[1] === item.lines[1] && claim.roleAttribution === "inferred")));
+  const uniqueReview = [...new Map(activeReview.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview || ""}`, item])).values()];
   const partial = unread.length > 0 || reconciled.reconciliation.failures.length > 0;
   const status = !pin ? "needs_model" : !parseable ? "failed" : partial ? "ready_with_review" : "ready";
   return { schema: "ingest-result/1", status, sourceMode: "text", originalSha256: sha256, textSha256: sha256, model: { provider: pin?.provider || "", id: pin?.resolvedModel || pin?.model || "" }, reads, stopReasons, chunks: 1, anchors: census.anchors.length, employers, structure: { source: "model", employers, education: [], credentials: [], looseClaims: [] }, coverage: reconciled.coverage, reconciliation: reconciled.reconciliation, unread, setAside: reconciled.setAside, review: { claims: uniqueReview }, rejected: uniqueRejected, carried: [], missingEmployers, resolutions: [], notes };
