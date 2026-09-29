@@ -340,13 +340,13 @@ describe("MREV JUDGEUX · xAI grading model setup", () => {
     await other.dispatch("toggle");
     el(document, "settingsJudgeProvider").value = "openrouter";
     await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(el(document, "settingsJudgeBaseUrl").value, "https://openrouter.ai/api/v1");
     el(document, "settingsJudgeModel").value = "fictional/grok-reviewer";
-    el(document, "settingsJudgeBaseUrl").value = "https://openrouter.example/v1";
     el(document, "settingsJudgeOtherApiKey").value = "fictional-provider-key";
     assert.equal(await settings.saveJudgeModel(), true);
     const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
     assert.deepEqual(post.body.judge, {
-      provider: "openrouter", model: "fictional/grok-reviewer", baseUrl: "https://openrouter.example/v1", apiKey: "fictional-provider-key",
+      provider: "openrouter", model: "fictional/grok-reviewer", baseUrl: "https://openrouter.ai/api/v1", apiKey: "fictional-provider-key",
     });
   });
 
@@ -391,5 +391,164 @@ describe("MREV JUDGEUX · xAI grading model setup", () => {
     assert.equal(text(el(document, "settingsJudgeError")), "Couldn't reach xAI: try again.");
     assert.match(model.getAttribute("aria-describedby"), /settingsJudgeError/);
     assert.equal(el(document, "settingsJudgeError").getAttribute("role"), "alert");
+  });
+});
+
+describe("MREV JUDGEUX · generic live model list (shared with onboarding)", () => {
+  const OPENROUTER_ROWS = {
+    models: [
+      { id: "openai/gpt-4o-mini", label: "OpenAI: GPT 4o Mini" },
+      { id: "x-ai/grok-4", label: "xAI: Grok 4" },
+    ],
+    recommended: "openai/gpt-4o-mini",
+  };
+
+  async function openGeneric(document, provider) {
+    const other = el(document, "settingsJudgeOtherProviders");
+    other.open = true;
+    await other.dispatch("toggle");
+    el(document, "settingsJudgeProvider").value = provider;
+    await el(document, "settingsJudgeProvider").dispatch("change");
+  }
+
+  it("fills each provider's fixed endpoint and locks it, except local and custom", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+
+    await openGeneric(document, "openrouter");
+    assert.equal(el(document, "settingsJudgeBaseUrl").value, "https://openrouter.ai/api/v1");
+    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
+
+    el(document, "settingsJudgeProvider").value = "anthropic";
+    await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(el(document, "settingsJudgeBaseUrl").value, "");
+    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
+
+    el(document, "settingsJudgeProvider").value = "local";
+    await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(el(document, "settingsJudgeBaseUrl").value, "http://127.0.0.1:11434/v1");
+    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, false);
+
+    el(document, "settingsJudgeProvider").value = "openai_compatible";
+    await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, false);
+  });
+
+  it("offers the provider's live models in the model field and prefills its pick", async () => {
+    const { settings, document, calls } = loadSettings((url, method, body) => url.endsWith("/judge-models")
+      ? { body: OPENROUTER_ROWS }
+      : defaultRespond(url, method, body));
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openrouter");
+
+    const request = calls.find((call) => call.url.endsWith("/api/llm-config/judge-models"));
+    assert.deepEqual(request.body, { provider: "openrouter" });
+    const list = el(document, "settingsJudgeModelList");
+    assert.equal(list.tagName, "DATALIST");
+    assert.deepEqual(list.options.map((option) => option.value), ["openai/gpt-4o-mini", "x-ai/grok-4"]);
+    assert.equal(el(document, "settingsJudgeModel").value, "openai/gpt-4o-mini");
+    assert.match(text(el(document, "settingsJudgeGenericModelsHint")), /Loaded 2 models from OpenRouter/);
+  });
+
+  it("loads a keyed provider's list once its key is entered", async () => {
+    const { settings, document, calls } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "anthropic");
+    assert.equal(calls.filter((call) => call.url.endsWith("/judge-models")).length, 0);
+
+    const otherKey = el(document, "settingsJudgeOtherApiKey");
+    otherKey.value = "fictional-anthropic-key";
+    await otherKey.dispatch("change");
+    const request = calls.find((call) => call.url.endsWith("/api/llm-config/judge-models"));
+    assert.deepEqual(request.body, { provider: "anthropic", apiKey: "fictional-anthropic-key" });
+    assert.ok(el(document, "settingsJudgeModelList").options.length > 0);
+  });
+
+  it("keeps a typed model and editable URL for a self-hosted compatible endpoint", async () => {
+    const { settings, document, calls } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openai_compatible");
+    el(document, "settingsJudgeModel").value = "fictional/self-hosted";
+    el(document, "settingsJudgeBaseUrl").value = "https://self-hosted.example/v1";
+    el(document, "settingsJudgeOtherApiKey").value = "fictional-self-key";
+    await el(document, "settingsJudgeOtherApiKey").dispatch("change");
+
+    assert.equal(calls.filter((call) => call.url.endsWith("/judge-models")).length, 0);
+    assert.equal(await settings.saveJudgeModel(), true);
+    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
+    assert.deepEqual(post.body.judge, {
+      provider: "openai_compatible",
+      model: "fictional/self-hosted",
+      baseUrl: "https://self-hosted.example/v1",
+      apiKey: "fictional-self-key",
+    });
+  });
+
+  it("names a failed generic list in the hint without blocking a typed save", async () => {
+    const { settings, document, calls } = loadSettings((url, method, body) => url.endsWith("/judge-models")
+      ? { status: 401, body: { error: "That key didn't work: check it on OpenAI." } }
+      : defaultRespond(url, method, body));
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openai");
+    const otherKey = el(document, "settingsJudgeOtherApiKey");
+    otherKey.value = "fictional-rejected-key";
+    await otherKey.dispatch("change");
+
+    assert.equal(text(el(document, "settingsJudgeGenericModelsHint")), "That key didn't work: check it on OpenAI.");
+    el(document, "settingsJudgeModel").value = "gpt-4o-mini";
+    assert.equal(await settings.saveJudgeModel(), true);
+    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
+    assert.equal(post.body.judge.model, "gpt-4o-mini");
+  });
+});
+
+describe("MREV JUDGEUX · generic key guide (shared with onboarding)", () => {
+  async function openGeneric(document, provider) {
+    const other = el(document, "settingsJudgeOtherProviders");
+    other.open = true;
+    await other.dispatch("toggle");
+    el(document, "settingsJudgeProvider").value = provider;
+    await el(document, "settingsJudgeProvider").dispatch("change");
+  }
+
+  it("shows the selected provider's key link and cost note", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openrouter");
+    const link = el(document, "settingsJudgeKeyGuideLink");
+    assert.equal(link.getAttribute("href"), "https://openrouter.ai/keys");
+    assert.match(text(link), /Create an OpenRouter key/);
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Pay-as-you-go/);
+  });
+
+  it("updates the guide when the provider changes", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openrouter");
+    el(document, "settingsJudgeProvider").value = "gemini";
+    await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(
+      el(document, "settingsJudgeKeyGuideLink").getAttribute("href"),
+      "https://aistudio.google.com/app/apikey",
+    );
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Free tier/);
+  });
+
+  it("tells local users no key is needed, with an Ollama link", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "local");
+    assert.equal(el(document, "settingsJudgeKeyGuideLink").getAttribute("href"), "https://ollama.com");
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /usually need no key/);
+  });
+
+  it("lives inside the Other disclosure, so it hides with it", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    const other = el(document, "settingsJudgeOtherProviders");
+    const ids = [];
+    other.walk((node) => ids.push(node.id));
+    assert.ok(ids.includes("settingsJudgeKeyGuideLink"));
+    assert.ok(ids.includes("settingsJudgeKeyGuideNote"));
   });
 });
