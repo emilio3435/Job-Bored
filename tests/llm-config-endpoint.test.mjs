@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -41,6 +41,16 @@ describe("/api/llm-config", () => {
 
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it("J-BE3a: saves a judge-only body without a writer pin", async () => {
+    const res = mockRes();
+    await handlePostLlmConfig({ body: { judge: {
+      provider: "openai_compatible", model: "grok-example", apiKey: "example-judge-key", baseUrl: "https://api.x.ai/v1",
+    } } }, res, env);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.judge.keyPresent, true);
+    assert.equal(JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8")).judge.apiKey, "example-judge-key");
   });
 
   it("GET returns 404 llm_unconfigured when the pin file is missing", async () => {
