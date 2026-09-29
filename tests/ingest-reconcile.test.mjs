@@ -4,6 +4,7 @@ import { it } from "node:test";
 
 const read = await import("../server/materials-resume-structure-model.mjs");
 const reconcile = await import("../server/resume-ingest-reconcile.mjs").catch(() => ({}));
+const { censusResume } = await import("../server/resume-ingest-census.mjs");
 const PIN = { provider: "gemini", model: "fictional", resolvedModel: "fictional", apiKey: "fictional" };
 const SOURCE = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", import.meta.url), "utf8");
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/ingest-corpus/C03/stage-replies/${name}.json`, import.meta.url), "utf8"));
@@ -55,6 +56,31 @@ it("T-K7-09 a two-line residual block is visible and partial", async () => {
   const { result } = await run(SOURCE, [reply, reply]);
   assert.equal(result.status, "ready_with_review");
   assert.ok(result.unread.some((item) => item.kind === "residual"));
+
+  const prefix = [
+    "Jordan Rivera",
+    "Audience analytics and operations leader",
+    "Springfield, IL • 555-010-2345 • jordan@example.com • jordan.example",
+    "SUMMARY",
+    "Experienced research leader.",
+    "EXPERIENCE",
+    "Contoso Media — contoso.example",
+    "Jan 2020 – Present • Research Lead",
+    "Built audience research systems for local teams.",
+    "— Jordan Rivera • Audience operations • jordan.example",
+    "Jordan Rivera",
+    "Audience analytics and operations leader",
+    "Springfield, IL • 555-010-2345 • jordan@example.com • jordan.example",
+  ];
+  const employer = { name: "Contoso Media", lines: [7, 7], roles: [{ title: "Research Lead", start: "2020-01", end: "present", lines: [8, 8] }], claims: [{ text: prefix[8], lines: [9, 9] }] };
+  const withoutBullet = prefix.join("\n");
+  const chromeOnly = reconcile.reconcileRead({ lsrc: withoutBullet, census: censusResume(withoutBullet), employers: [employer] });
+  assert.deepEqual(chromeOnly.residual, [], "repeated page identity and contact lines are chrome");
+  assert.equal(chromeOnly.reconciliation.ok, true);
+
+  const withBullet = [...prefix, "Led account reviews in Springfield for three neighborhood teams.", "Prepared buyer notes for the next field meeting."].join("\n");
+  const withRealWork = reconcile.reconcileRead({ lsrc: withBullet, census: censusResume(withBullet), employers: [employer] });
+  assert.deepEqual(withRealWork.residual.map((item) => item.lines), [[14, 15]], "city mentions in real experience stay visible");
 });
 it("T-K7-10 model non_job on a dated experience anchor is set aside and partial", async () => {
   const reply = fixture("read-full"); reply.nonJob = [{ lines: [34, 34], reason: "user_asserted" }]; reply.employers.pop();
