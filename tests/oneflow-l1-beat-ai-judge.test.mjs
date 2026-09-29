@@ -4,7 +4,6 @@ import {
   actionButton,
   loadArrival,
   makeFetchDouble,
-  stepEvents,
 } from "./oneflow-l1-harness.mjs";
 
 /* ============================================================
