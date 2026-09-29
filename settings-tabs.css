@@ -576,11 +576,11 @@
   font-size: 13px;
 }
 
-/* MREV JUDGEUX · independent grading model setup. */
+/* JUDGEUX FE2 · the optional Grading model row, under the writer Provider. */
 #settingsModal .settings-judge {
   min-width: 0;
-  margin-top: var(--jb-space-4);
-  padding: var(--jb-space-4);
+  margin: var(--jb-space-3) 0;
+  padding: var(--jb-space-3) var(--jb-space-4);
   border: 1px solid var(--jb-line);
   border-radius: var(--jb-radius-md);
   background: var(--jb-paper-2);
@@ -588,121 +588,130 @@
   overflow-wrap: anywhere;
 }
 
-#settingsModal .settings-judge .settings-judge__title {
-  margin: 0 0 var(--jb-space-1);
-  color: var(--jb-ink);
-  font-size: var(--jb-type-heading);
-}
-
-#settingsModal .settings-judge .settings-judge__lede {
-  margin: 0 0 var(--jb-space-3);
-  color: var(--jb-ink-2);
-  font-size: var(--jb-type-body);
-  line-height: 1.45;
-}
-
-#settingsModal .settings-judge .settings-judge__steps {
-  display: grid;
-  gap: var(--jb-space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-#settingsModal .settings-judge .settings-judge__step {
-  display: grid;
-  gap: var(--jb-space-1);
-  min-width: 0;
-}
-
-#settingsModal .settings-judge .settings-judge__step-label {
-  color: var(--jb-ink);
-  font-size: var(--jb-type-small);
-  font-weight: 700;
-}
-
-#settingsModal .settings-judge .field-label {
-  margin: 0;
-  color: var(--jb-ink-2);
-  font-size: var(--jb-type-small);
-}
-
-#settingsModal .settings-judge .modal-input,
-#settingsModal .settings-judge .settings-select {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-#settingsModal .settings-judge .settings-judge__key-link {
-  justify-self: start;
-  max-width: 100%;
-  color: var(--jb-action);
-  font-size: var(--jb-type-body);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-#settingsModal .settings-judge .settings-judge__hint,
-#settingsModal .settings-judge .settings-judge__key-state {
-  margin: 0;
-  color: var(--jb-ink-3);
-  font-size: var(--jb-type-small);
-  line-height: 1.45;
-}
-
-#settingsModal .settings-judge .settings-judge__error {
-  margin: var(--jb-space-2) 0 0;
-  color: var(--jb-err);
-  font-size: var(--jb-type-small);
-  line-height: 1.45;
-}
-
-#settingsModal .settings-judge .settings-judge__error[hidden] {
-  display: none;
-}
-
-#settingsModal .settings-judge .settings-judge__actions {
+#settingsModal .settings-judge .settings-judge__head {
   display: flex;
-  justify-content: flex-end;
-  margin-top: var(--jb-space-2);
-}
-
-#settingsModal .settings-judge .settings-judge__remove {
-  min-width: 88px;
-  min-height: 44px;
-  padding: 0 var(--jb-space-3);
-  border: 1px solid var(--jb-line-strong);
-  border-radius: var(--jb-radius-pill);
-  background: var(--jb-paper);
-  color: var(--jb-ink-2);
-  font: inherit;
-  cursor: pointer;
-}
-
-#settingsModal .settings-judge .settings-judge__remove:focus-visible,
-#settingsModal .settings-judge .settings-judge__other-summary:focus-visible,
-#settingsModal .settings-judge .settings-judge__key-link:focus-visible {
-  outline: 2px solid var(--jb-focus-color);
-  outline-offset: 2px;
-}
-
-#settingsModal .settings-judge .settings-judge__remove:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-#settingsModal .settings-judge .settings-judge__other {
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jb-space-2);
   min-width: 0;
+}
+
+#settingsModal .settings-judge .settings-judge__title {
+  margin: 0;
+  color: var(--jb-ink);
+  font-size: var(--jb-type-body);
+  font-weight: 700;
+}
+
+#settingsModal .settings-judge .settings-judge__change {
+  flex: none;
+  min-height: 44px;
+}
+
+#settingsModal .settings-judge .settings-judge__status {
+  margin: var(--jb-space-1) 0 0;
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+  line-height: 1.45;
+}
+
+#settingsModal .settings-judge .settings-judge__editor {
   margin-top: var(--jb-space-3);
   padding-top: var(--jb-space-3);
   border-top: 1px solid var(--jb-line);
 }
 
-#settingsModal .settings-judge .settings-judge__other-summary {
+#settingsModal .settings-judge .settings-judge__editor[hidden] {
+  display: none;
+}
+
+#settingsModal .settings-judge .settings-judge__footnote {
+  margin: var(--jb-space-2) 0 0;
+  color: var(--jb-ink-3);
+  font-size: var(--jb-type-small);
+  line-height: 1.45;
+}
+
+/* The shared Grading model field (judge-picker.js mount()), in Settings
+   and in the onboarding AI beat. Scoped under each surface's root so the
+   jb-v2 type rules never win over it. */
+#settingsModal .jb-grading,
+.oneflow-ai .jb-grading {
+  display: grid;
+  gap: var(--jb-space-3);
+  min-width: 0;
+}
+
+#settingsModal .jb-grading .jb-grading__row,
+.oneflow-ai .jb-grading .jb-grading__row {
+  display: grid;
+  gap: var(--jb-space-1);
+  min-width: 0;
+}
+
+#settingsModal .jb-grading .jb-grading__label,
+.oneflow-ai .jb-grading .jb-grading__label {
+  margin: 0;
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+  font-weight: 600;
+}
+
+#settingsModal .jb-grading .jb-grading__select,
+#settingsModal .jb-grading .jb-grading__input,
+.oneflow-ai .jb-grading .jb-grading__select,
+.oneflow-ai .jb-grading .jb-grading__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 var(--jb-space-3);
+  border: 1px solid var(--jb-line-strong);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font: inherit;
+}
+
+#settingsModal .jb-grading .jb-grading__select[aria-invalid="true"],
+#settingsModal .jb-grading .jb-grading__input[aria-invalid="true"],
+.oneflow-ai .jb-grading .jb-grading__select[aria-invalid="true"],
+.oneflow-ai .jb-grading .jb-grading__input[aria-invalid="true"] {
+  border-color: var(--jb-err);
+}
+
+#settingsModal .jb-grading .jb-grading__guide,
+#settingsModal .jb-grading .jb-grading__hint,
+#settingsModal .jb-grading .jb-grading__result,
+.oneflow-ai .jb-grading .jb-grading__guide,
+.oneflow-ai .jb-grading .jb-grading__hint,
+.oneflow-ai .jb-grading .jb-grading__result {
+  margin: 0;
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+  line-height: 1.45;
+}
+
+#settingsModal .jb-grading .jb-grading__link,
+.oneflow-ai .jb-grading .jb-grading__link {
+  color: var(--jb-action);
+  font-weight: 700;
+}
+
+#settingsModal .jb-grading .jb-grading__chip,
+.oneflow-ai .jb-grading .jb-grading__chip {
+  justify-self: start;
+  padding: 2px var(--jb-space-2);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper);
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+  font-weight: 600;
+}
+
+#settingsModal .jb-grading .jb-grading__advanced summary,
+.oneflow-ai .jb-grading .jb-grading__advanced summary {
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -712,28 +721,84 @@
   cursor: pointer;
 }
 
-#settingsModal .settings-judge .settings-judge__other > .field-label,
-#settingsModal .settings-judge .settings-judge__other > .modal-input,
-#settingsModal .settings-judge .settings-judge__other > .settings-select {
-  margin-top: var(--jb-space-1);
+#settingsModal .jb-grading .jb-grading__advanced > .jb-grading__label,
+.oneflow-ai .jb-grading .jb-grading__advanced > .jb-grading__label {
+  display: block;
+  margin-top: var(--jb-space-2);
 }
 
-#settingsModal .settings-judge .settings-judge__status {
-  margin: var(--jb-space-3) 0 0;
-  padding-top: var(--jb-space-2);
-  border-top: 1px solid var(--jb-line);
-  color: var(--jb-ink-2);
+#settingsModal .jb-grading .jb-grading__error,
+.oneflow-ai .jb-grading .jb-grading__error {
+  margin: 0;
+  color: var(--jb-err);
   font-size: var(--jb-type-small);
-  font-weight: 600;
   line-height: 1.45;
+}
+
+#settingsModal .jb-grading .jb-grading__error:empty,
+#settingsModal .jb-grading .jb-grading__result:empty,
+.oneflow-ai .jb-grading .jb-grading__error:empty,
+.oneflow-ai .jb-grading .jb-grading__result:empty {
+  display: none;
+}
+
+#settingsModal .jb-grading .jb-grading__result[data-state="fail"],
+.oneflow-ai .jb-grading .jb-grading__result[data-state="fail"] {
+  color: var(--jb-err);
+}
+
+#settingsModal .jb-grading .jb-grading__actions,
+.oneflow-ai .jb-grading .jb-grading__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-2);
+}
+
+#settingsModal .jb-grading .jb-grading__btn,
+.oneflow-ai .jb-grading .jb-grading__btn {
+  justify-self: start;
+  min-width: 88px;
+  min-height: 44px;
+  padding: 0 var(--jb-space-3);
+  border: 1px solid var(--jb-action);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-action);
+  color: var(--jb-paper);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#settingsModal .jb-grading .jb-grading__btn--ghost,
+.oneflow-ai .jb-grading .jb-grading__btn--ghost {
+  border-color: var(--jb-line-strong);
+  background: var(--jb-paper);
+  color: var(--jb-ink-2);
+}
+
+#settingsModal .jb-grading .jb-grading__btn:disabled,
+.oneflow-ai .jb-grading .jb-grading__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+#settingsModal .jb-grading [hidden],
+.oneflow-ai .jb-grading [hidden] {
+  display: none;
+}
+
+#settingsModal .jb-grading .jb-grading__btn:focus-visible,
+#settingsModal .jb-grading .jb-grading__link:focus-visible,
+#settingsModal .jb-grading .jb-grading__advanced summary:focus-visible,
+.oneflow-ai .jb-grading .jb-grading__btn:focus-visible,
+.oneflow-ai .jb-grading .jb-grading__link:focus-visible,
+.oneflow-ai .jb-grading .jb-grading__advanced summary:focus-visible {
+  outline: 2px solid var(--jb-focus-color);
+  outline-offset: 2px;
 }
 
 @media (max-width: 480px) {
   #settingsModal .settings-judge {
     padding: var(--jb-space-3);
-  }
-
-  #settingsModal .settings-judge .settings-judge__steps {
-    gap: var(--jb-space-2);
   }
 }
