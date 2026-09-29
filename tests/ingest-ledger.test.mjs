@@ -162,6 +162,33 @@ it('T-INV4-08 guard: same-hash fewer employers and resume claims still cannot pu
   assert.notEqual(out.ingest.status, 'ready');
   assert.deepEqual((await readLedger()).ledger, saved);
 });
+it('R2-B1 same-hash bullets and role claims cannot mask each other shrinking', async () => {
+  const testSource = `${source}\n`;
+  const complete = await read(testSource);
+  assert.equal(complete.ingest.status, 'ready');
+  const baseline = structuredClone((await readLedger()).ledger);
+  const bullet = baseline.claims.find((claim) => claim.id.startsWith('resume-b'));
+  const role = baseline.claims.find((claim) => claim.id.startsWith('resume-role-'));
+  assert.ok(bullet && role);
+  for (const oldShape of ['more-bullets', 'more-roles']) {
+    const saved = structuredClone(baseline);
+    if (oldShape === 'more-bullets') {
+      saved.claims = saved.claims.filter((claim) => claim.id !== role.id);
+      saved.claims.push({ ...bullet, id: 'resume-b-extra', text: 'An additional grounded fictional planning result.' });
+    } else {
+      saved.claims = saved.claims.filter((claim) => claim.id !== bullet.id);
+      saved.claims.push({ ...role, id: 'resume-role-extra', text: 'Additional fictional role evidence.' });
+    }
+    await writeLedgerAtomic(saved);
+    const persisted = (await readLedger()).ledger;
+    const storedResult = JSON.parse(readFileSync(resultPath, 'utf8'));
+    storedResult.status = 'ready_with_review';
+    writeFileSync(resultPath, JSON.stringify(storedResult));
+    const out = await read(testSource);
+    assert.equal(out.ingest.status, 'ready_with_review', oldShape);
+    assert.deepEqual((await readLedger()).ledger, persisted, oldShape);
+  }
+});
 it('T-K3-02 over-limit source refuses without slicing; under-limit arrives whole', async () => {
   const long = 'EXPERIENCE\nContoso Media\nJan 2022 — Present\n' + 'x'.repeat(70_000);
   const refused = await ensureLedger({ profile: null, resumeText: long, pin, callStage: async () => { throw new Error('must not call'); } });

@@ -10,6 +10,28 @@ const SOURCE = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", i
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/ingest-corpus/C03/stage-replies/${name}.json`, import.meta.url), "utf8"));
 const run = (source, replies) => { let calls = 0; const prompts = []; return read.structureResume?.({ lsrc: source, pin: PIN, callStage: async (request) => { prompts.push(request.userText); return replies[Math.min(calls++, replies.length - 1)]; } }).then((result) => ({ result, calls, prompts })); };
 
+it("R2-A1 a title-first employer header closes on its matching role below", async () => {
+  const source = ["EXPERIENCE", "Founder & AI Engineer | Fabrikam Labs (fabrikam.example) — Springfield, IL 2025 – Present", "Founder & AI Engineer, Fabrikam Labs 2025 – Present", "- Built a fictional planning tool for local teams."].join("\n");
+  const employer = { name: "Fabrikam Labs", lines: [2, 2], roles: [{ title: "Founder & AI Engineer", lines: [3, 3], start: "2025", end: "Present" }], claims: [{ text: "Built a fictional planning tool for local teams.", lines: [4, 4] }] };
+  const complete = await run(source, [{ employers: [employer] }]);
+  assert.equal(complete.result.status, "ready");
+  assert.equal(complete.calls, 1);
+  assert.deepEqual(complete.result.missingEmployers, []);
+  const wrongTitle = await run(source, [{ employers: [{ ...employer, roles: [{ title: "Fabrikam Labs", lines: [3, 3], start: "2025", end: "Present" }] }] }]);
+  assert.equal(wrongTitle.result.status, "ready_with_review");
+  assert.ok(wrongTitle.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
+});
+
+it("R2-B3 a dated role is not closed by overlapping accepted or quarantined claims", () => {
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Research Lead • Jan 2020 – Present"].join("\n");
+  const census = censusResume(source);
+  const employer = { name: "Contoso Media", lines: [2, 2], roles: [], claims: [{ text: source.split("\n")[2], lines: [3, 3] }] };
+  const accepted = reconcile.reconcileRead({ lsrc: source, census, employers: [employer] });
+  assert.ok(accepted.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+  const quarantined = reconcile.reconcileRead({ lsrc: source, census, employers: [{ ...employer, claims: [] }], quarantinedClaims: [{ lines: [3, 3] }] });
+  assert.ok(quarantined.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+});
+
 it("T-K7-02 closes or exposes all four anchor kinds", async () => {
   const { result } = await run(SOURCE, [fixture("read-full")]);
   assert.equal(result.reconciliation.ok, true);

@@ -652,11 +652,13 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       });
       assert.notEqual(noClaims.ingest.status, "ready");
       assert.equal(noClaims.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeFailure, "a no-claims read leaves the saved ledger byte-identical");
 
       const persistedLastGood = Object.fromEntries(
         Object.entries(lastGood).filter(([key]) => !["rebuilt", "ingest", "ledgerHash"].includes(key)),
       );
       await writeLedgerAtomic({ ...persistedLastGood, note: "ingest:failed — retry the same source" });
+      const beforeSparse = readFileSync(resolveLedgerPath());
       const sparse = await ensureLedger({
         profile: null,
         resumeText: INTERLEAVED,
@@ -678,8 +680,10 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       assert.equal(sparse.ingest.code, "ingest_incomplete");
       assert.equal(sparse.employers.length, 0);
       assert.equal(sparse.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeSparse, "a sparse read leaves the last good ledger byte-identical");
 
       await writeLedgerAtomic({ ...persistedLastGood, note: "ingest:failed — retry the same source" });
+      const beforeShortClaims = readFileSync(resolveLedgerPath());
       const shortReply = structuredClone(INTERLEAVED_MODEL);
       for (const employer of shortReply.employers) employer.claims = employer.claims.slice(0, 1);
       const shortClaims = await ensureLedger({
@@ -692,6 +696,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       assert.equal(shortClaims.ingest.status, "ready_with_review", "a reply with fewer claims cannot replace a complete ledger");
       assert.equal(shortClaims.ingest.code, "ingest_incomplete");
       assert.equal(shortClaims.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeShortClaims, "fewer claims leave the last good ledger byte-identical");
 
       const shorterResume = [
         "EXPERIENCE",
