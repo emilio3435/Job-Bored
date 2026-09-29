@@ -78,6 +78,42 @@ describe("HYPHEN replay grounding", () => {
     assert.deepEqual(result.rejected, []);
   });
 
+  it("does not count physical wrap markers toward the quote length bounds", () => {
+    const shortQuote = "Engineer-\ning";
+    const short = validateModelStructure({ employers: [{
+      name: "Engineering", sourceQuote: shortQuote, roles: [], claims: [],
+    }] }, shortQuote);
+    assert.equal(short.structure.employers.length, 0);
+    assert.ok(short.rejected.some((item) => item.reason === "source_quote_too_short"));
+
+    const broadQuote = `Cedar Studio${" a".repeat(28)} a-\na.`;
+    const broad = validateModelStructure({ employers: [{
+      name: "Cedar Studio", sourceQuote: broadQuote, roles: [], claims: [],
+    }] }, broadQuote);
+    assert.equal(broad.structure.employers.length, 1);
+    assert.deepEqual(broad.rejected, []);
+  });
+
+  it("does not equate input private-use characters with replacement characters", () => {
+    const replacement = "Cedar\uFFFDStudio Research Lab";
+    const privateUse = "Cedar\uE000Studio Research Lab";
+    const withPrivateFact = validateModelStructure({ employers: [{
+      name: "Cedar\uE000Studio", sourceQuote: replacement, roles: [], claims: [],
+    }] }, replacement);
+    assert.equal(withPrivateFact.structure.employers.length, 0);
+    assert.ok(withPrivateFact.rejected.some((item) => item.reason === "source_private_use_character"));
+    const withPrivateSource = validateModelStructure({ employers: [{
+      name: "Cedar\uFFFDStudio", sourceQuote: replacement, roles: [], claims: [],
+    }] }, privateUse);
+    assert.equal(withPrivateSource.structure.employers.length, 0);
+    assert.ok(withPrivateSource.rejected.some((item) => item.reason === "source_quote_not_found"));
+    const withPrivateQuote = validateModelStructure({ employers: [{
+      name: "Cedar\uFFFDStudio", sourceQuote: privateUse, roles: [], claims: [],
+    }] }, replacement);
+    assert.equal(withPrivateQuote.structure.employers.length, 0);
+    assert.ok(withPrivateQuote.rejected.some((item) => item.reason === "source_private_use_character"));
+  });
+
   it("keeps a soft wrap while ordinary hyphens and duplicate quotes remain strict", () => {
     const quote = "Built manage-\nment reports for fictional library visits and weekly staffing.";
     const source = ["EXPERIENCE", header, `- ${quote}`].join("\n");

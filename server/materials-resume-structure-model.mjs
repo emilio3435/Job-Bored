@@ -76,6 +76,13 @@ function quoteString(value) {
 /* Preserve a physical hyphen wrap until source, quote, and value have been
  * matched. Only this marker may stand for either a hyphen or no hyphen. */
 const WRAPPED_HYPHEN = "\uE000";
+const PRIVATE_USE_INPUT = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+const UNSAFE_GROUNDING_INPUT = /[\u0000\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
+
+/** @param {string} value Count visible quote/fact characters, not wrap markers. */
+function groundedLength(value) {
+  return Array.from(value.replaceAll(WRAPPED_HYPHEN, "")).length;
+}
 
 /**
  * Compare quotes while allowing PDF line wraps and common hyphen glyphs to
@@ -86,7 +93,9 @@ const WRAPPED_HYPHEN = "\uE000";
 function groundingText(value) {
   return String(value || "")
     .normalize("NFKC")
-    .replaceAll(WRAPPED_HYPHEN, "\uFFFD")
+    /* A NUL barrier cannot equal real U+FFFD or an inserted wrap marker.
+     * Values and quotes containing either NUL or private use are rejected. */
+    .replace(PRIVATE_USE_INPUT, "\u0000")
     .replace(/\u00ad/g, "")
     .replace(/\r\n?/g, "\n")
     .replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, `$1${WRAPPED_HYPHEN}`)
@@ -217,8 +226,12 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "source_quote_missing");
       return null;
     }
+    if (UNSAFE_GROUNDING_INPUT.test(fact) || UNSAFE_GROUNDING_INPUT.test(cited)) {
+      reject(kind, value, "source_private_use_character");
+      return null;
+    }
     const normalizedQuote = groundingText(cited);
-    const quoteLength = Array.from(normalizedQuote).length;
+    const quoteLength = groundedLength(normalizedQuote);
     const normalizedFact = groundingText(fact);
     if (INSTRUCTION_RE.test(fact) || INSTRUCTION_RE.test(cited)) {
       reject(kind, value, "source_instruction");
@@ -232,7 +245,7 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "source_quote_missing_token");
       return null;
     }
-    if (quoteLength > Math.max(72, Array.from(normalizedFact).length * 4)) {
+    if (quoteLength > Math.max(72, groundedLength(normalizedFact) * 4)) {
       reject(kind, value, "source_quote_too_broad");
       return null;
     }
