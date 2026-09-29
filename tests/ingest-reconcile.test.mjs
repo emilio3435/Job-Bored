@@ -316,4 +316,8 @@ it("T-K7-26 every title segment on a dated line needs its own role", async () =>
   const both = await run(source, [{ employers: [complete] }]);
   assert.equal(both.result.status, "ready", "both grounded titles account for the one dated line");
   assert.deepEqual(both.result.unread, []);
+  const combined = { ...employer, roles: [{ title: "Research Lead, Sales Manager", start: "2025", end: "Present", lines: [2, 2] }] };
+  const merged = await run(source, [{ employers: [combined] }, { employers: [combined] }]);
+  assert.equal(merged.result.status, "ready_with_review", "one compound role cannot close two distinct title segments");
+  assert.ok(merged.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
 });

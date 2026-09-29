@@ -70,20 +70,25 @@ function pageChromeLines(lines, census) {
   return chrome;
 }
 
-/** Employer tenure can account for a date only when that source line contains no other words.
+/** Remove only source-grounded identity text from a dated line before checking its role words.
  * @param {string} line @param {string} rawDate @param {any} employer
- * @param {import('./resume-ingest-census.mjs').CensusAnchor} head @param {boolean} onHeader @param {string[]} sourceAliases
+ * @param {import('./resume-ingest-census.mjs').CensusAnchor | undefined} head @param {string} headerLine @param {string[]} sourceAliases
  */
-function employerDateOnly(line, rawDate, employer, head, onHeader, sourceAliases) {
+function datedLineRemainder(line, rawDate, employer, head, headerLine, sourceAliases) {
   let remainder = folded(line).replace(folded(rawDate), " ");
+  const afterName = head && folded(headerLine).startsWith(folded(head.text)) ? folded(headerLine).slice(folded(head.text).length) : "";
+  const headerSite = /^\s*-\s*([\w-]+(?:\.[\w-]+)*\.[a-z]{2,})(?=\s|$)/iu.exec(afterName)?.[1] || "";
+  const host = headerSite.split(".")[0];
+  const ownBareSite = host && head && employerAliases(head.text).some((alias) => alias.split(/\s+/u).some(/** @param {string} word */ (word) => word.length >= 3 && host.includes(word))) ? headerSite : "";
   /** @type {string[]} */
-  const ownSites = onHeader ? line.match(URL) || [] : [];
+  const ownSites = (line.match(URL) || []).filter((value) => /^(?:https?:\/\/|www\.)/iu.test(value));
+  if (ownBareSite) ownSites.push(ownBareSite);
   const site = String(employer.site || "");
   const siteMatches = /** @type {string[]} */ (site.match(URL) || []);
-  if (site && siteMatches.includes(site)) ownSites.push(site);
-  const ownText = [head.text, employer.name, ...employerAliases(head.text), ...employerAliases(employer.name), ...sourceAliases, ...ownSites];
+  if (site && siteMatches.includes(site) && (/^(?:https?:\/\/|www\.)/iu.test(site) || folded(site) === ownBareSite)) ownSites.push(site);
+  const ownText = [head?.text, employer.name, ...(head ? employerAliases(head.text) : []), ...employerAliases(employer.name), ...sourceAliases, ...ownSites];
   for (const term of [...new Set(ownText.map((value) => folded(String(value || "")).trim()).filter(Boolean))].sort((a, b) => b.length - a.length)) remainder = remainder.replace(term, " ");
-  return !/[\p{L}\p{N}]/u.test(remainder);
+  return remainder;
 }
 
 /** Pure Pass C: every experience anchor is closed or returned as a visible item.
@@ -150,15 +155,26 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     });
     if (dated(anchor)) {
       const date = anchor.dateRange;
-      const roles = roleOwners.flatMap((employer) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))));
-      if (roles.length === 1 && !usedRoleDates.has(roles[0])) { closed = true; usedRoleDates.add(roles[0]); }
+      const sourceAliases = census.anchors.filter((candidate) => candidate.kind === "formerly_clause" && candidate.lines[0] === number).map((candidate) => candidate.text);
+      const roleEntries = roleOwners.flatMap((employer) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))).map((role) => ({ employer, role })));
+      if (!date && roleEntries.length === 1 && !usedRoleDates.has(roleEntries[0].role)) { closed = true; usedRoleDates.add(roleEntries[0].role); }
+      if (date && roleEntries.length && new Set(roleEntries.map((item) => item.employer)).size === 1 && roleEntries.every((item) => !usedRoleDates.has(item.role))) {
+        const owner = roleEntries[0].employer;
+        const head = associated.find((item) => item.employer === owner)?.head;
+        let remainder = datedLineRemainder(lines[number - 1], date.raw, owner, head, head ? lines[head.lines[0] - 1] : "", sourceAliases);
+        if (owner.location) remainder = remainder.replace(folded(owner.location), " ");
+        /** @param {string} value */
+        const normalizedSegment = (value) => folded(value).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").trim();
+        const segments = remainder.split(/[,;•|]/u).map(normalizedSegment).filter(Boolean).sort();
+        const titles = roleEntries.map(({ role }) => normalizedSegment(role.title)).sort();
+        if (segments.length === titles.length && segments.every((segment, index) => segment === titles[index])) { closed = true; for (const { role } of roleEntries) usedRoleDates.add(role); }
+      }
       if (!closed && groundedUmbrellaContext) {
         setAside.push({ ...visible(anchor, "employer_umbrella_context"), disposition: "umbrella_context", reviewLevel: "claim" });
         continue;
       }
-      if (!closed && date && !roles.length) {
-        const sourceAliases = census.anchors.filter((candidate) => candidate.kind === "formerly_clause" && candidate.lines[0] === number).map((candidate) => candidate.text);
-        const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer) && employerDateOnly(lines[number - 1], date.raw, employer, head, number === head.lines[0], sourceAliases));
+      if (!closed && date && !roleEntries.length) {
+        const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer) && !/[\p{L}\p{N}]/u.test(datedLineRemainder(lines[number - 1], date.raw, employer, head, lines[head.lines[0] - 1], sourceAliases)));
         if (umbrellas.length === 1) { closed = true; usedEmployerDates.add(umbrellas[0].employer); }
       }
     }
