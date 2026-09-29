@@ -188,7 +188,7 @@ it("T-K7-13 unexplained experience coverage gap cannot be ready", async () => {
   assert.ok(gap.result.reconciliation.failures.includes("reconciliation_failed") || gap.result.unread.some((item) => item.kind === "residual" && item.lines[0] === 6));
 });
 it("T-K7-14 non-job cannot hide unfamiliar or bare dated roles", async () => {
-  for (const tail of [" • Solutions Architect", " • Program Coordinator", ""]) {
+  for (const tail of [" • Solutions Architect", " • Program Coordinator", " • customer success partner", ""]) {
     const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", `May 2019 — May 2021${tail}`].join("\n");
     const reply = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "not another role" }] };
     const { result, calls } = await run(source, [reply, reply]);
@@ -217,4 +217,20 @@ it("T-K7-15 employer dates cannot close a titled date anchor", async () => {
   assert.deepEqual(partial.result.employers[0].roles.map((role) => role.title), ["Sales Manager"]);
   assert.ok(partial.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
   assert.equal(partial.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 5), false);
+});
+it("T-K7-16 a contextual umbrella tenure remains visible review", async () => {
+  for (const context of ["Springfield, IL • two progressive roles", "across two progressive roles"]) {
+    const source = ["EXPERIENCE", "Contoso Media — contoso.example", `Jan 2020 — Present • ${context}`, "Jan 2020 — Dec 2021 • Research Lead", "Jan 2022 — Present • Program Coordinator"].join("\n");
+    const employer = { name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Dec 2021", lines: [4, 4] }, { title: "Program Coordinator", start: "Jan 2022", end: "Present", lines: [5, 5] }], claims: [] };
+    const { result } = await run(source, [{ employers: [employer] }]);
+    assert.equal(result.status, "ready", "the umbrella tenure is explicit context, not a missing role");
+    assert.ok(result.setAside.some((item) => item.lines[0] === 3 && item.reason === "employer_umbrella_context"));
+    assert.ok(result.review.claims.some((item) => item.lines[0] === 3 && item.kind === "set_aside"));
+    assert.equal(result.coverage.anchorsAccounted, result.coverage.anchorsTotal, "grounded umbrella context counts as an accounted date");
+  }
+  const missingSource = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • across two progressive roles"].join("\n");
+  const missingReply = { employers: [{ name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [], claims: [] }], nonJob: [{ lines: [3, 3], reason: "not a role" }] };
+  const missing = await run(missingSource, [missingReply, missingReply]);
+  assert.equal(missing.result.status, "ready_with_review", "context cannot excuse missing roles that the source itself announces");
+  assert.ok(missing.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
 });

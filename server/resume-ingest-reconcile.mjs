@@ -35,7 +35,6 @@ const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/giu;
 const PHONE = /(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/gu;
 const URL = /(?:https?:\/\/|www\.)[^\s•|]+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?/giu;
 const PERSON_NAME = /^[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){1,3}$/u;
-const ROLE_TITLE = /\b(?:Co-founder|Founder|Chief|Director|Manager|Executive|Engineer|Designer|Analyst|Specialist|President|Officer|Consultant|Developer|Lead)\b/iu;
 /** @param {string} line */
 function pureContact(line) {
   const hasEmailOrPhone = /[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/iu.test(line);
@@ -106,10 +105,23 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
   for (const anchor of relevant) {
     const number = anchor.lines[0];
     if (withheld.has(number)) { unaccounted.push(visible(anchor, "looks_like_instructions")); continue; }
+    const inBlock = dated(anchor) ? associated.filter(({ head }) => {
+      if (!head) return false;
+      const next = headers.find((candidate) => candidate.lines[0] > head.lines[0]);
+      const section = sectionFor(head.lines[0]);
+      const end = Math.min(next?.lines[0] ? next.lines[0] - 1 : lines.length, section?.lines[1] ?? lines.length);
+      return number >= head.lines[0] && number <= end;
+    }) : [];
+    const tail = census.anchors.find((candidate) => candidate.kind === "umbrella_tail" && candidate.lines[0] === number)?.text.trim();
+    const umbrellaContext = tail && /\b(?:progressive|multiple|several)\s+roles?\b/iu.test(tail) && (!/^\p{Lu}/u.test(tail) || /^[^•·|]+,\s*[A-Z]{2}(?:\s*[•·|]|$)/u.test(tail));
+    const dateRange = anchor.dateRange;
+    const groundedUmbrellaContext = umbrellaContext && dateRange && inBlock.some(({ employer, head }) => head && number === head.lines[1] + 1 && employer.start === dateRange.start && employer.end === dateRange.end && /** @type {any[]} */ (employer.roles || []).length >= 2);
+    const backgroundNote = tail && /^background\s+tenure\s+note$/iu.test(tail);
     const modelNonJob = nonJob.find((item) => Array.isArray(item.lines) && overlap(item.lines, anchor.lines));
     const groundedRole = dated(anchor) && associated.some(({ employer, head }) => head && /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines) && (!anchor.dateRange || (role.start === anchor.dateRange.start && role.end === anchor.dateRange.end))));
     if (modelNonJob && !groundedRole && ["experience", "unknown"].includes(anchor.sectionGuess)) {
-      setAside.push({ ...visible(anchor, "model_non_job"), disposition: "non_job", nonJobReason: modelNonJob.reason, reviewLevel: dated(anchor) && ROLE_TITLE.test(lines[number - 1]) ? "role" : "claim" });
+      const roleLevel = anchor.kind === "date_range" && inBlock.some(({ head }) => head && (tail ? !groundedUmbrellaContext && !backgroundNote : anchor.sectionGuess === "experience" && number > head.lines[1]));
+      setAside.push({ ...visible(anchor, "model_non_job"), disposition: "non_job", nonJobReason: modelNonJob.reason, reviewLevel: roleLevel ? "role" : "claim" });
       continue;
     }
     let closed = false;
@@ -121,16 +133,13 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     });
     if (dated(anchor)) {
       const date = anchor.dateRange;
-      const inBlock = associated.filter(({ head }) => {
-        if (!head) return false;
-        const next = headers.find((candidate) => candidate.lines[0] > head.lines[0]);
-        const section = sectionFor(head.lines[0]);
-        const end = Math.min(next?.lines[0] ? next.lines[0] - 1 : lines.length, section?.lines[1] ?? lines.length);
-        return number >= head.lines[0] && number <= end;
-      });
       const roles = inBlock.flatMap(({ employer }) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))));
       if (roles.length === 1 && !usedRoleDates.has(roles[0])) { closed = true; usedRoleDates.add(roles[0]); }
-      if (!closed && date && !roles.length) {
+      if (!closed && groundedUmbrellaContext) {
+        setAside.push({ ...visible(anchor, "employer_umbrella_context"), disposition: "umbrella_context", reviewLevel: "claim" });
+        continue;
+      }
+      if (!closed && date && !roles.length && !tail) {
         const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer));
         if (umbrellas.length === 1) { closed = true; usedEmployerDates.add(umbrellas[0].employer); }
       }
@@ -161,9 +170,10 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     flush(run);
   }
   const experienceLines = experienceSections.flatMap((section) => Array.from({ length: section.lines[1] - section.lines[0] }, (_, i) => section.lines[0] + i + 1)).filter((n) => lines[n - 1]?.trim() && !chrome.has(n) && !withheld.has(n));
-  const accountedAnchors = relevant.length - unaccounted.length - setAside.length;
+  const unresolvedAside = setAside.filter((item) => item.disposition !== "umbrella_context");
+  const accountedAnchors = relevant.length - unaccounted.length - unresolvedAside.length;
   const datedAnchors = relevant.filter(dated);
-  const coveredDates = datedAnchors.filter((anchor) => !unaccounted.some((item) => item.id === anchor.id) && !setAside.some((item) => item.id === anchor.id));
+  const coveredDates = datedAnchors.filter((anchor) => !unaccounted.some((item) => item.id === anchor.id) && !unresolvedAside.some((item) => item.id === anchor.id));
   const coverage = { linesAttributed: experienceLines.filter((n) => attributed.has(n)).length, linesNonBlank: experienceLines.length, anchorsAccounted: accountedAnchors, anchorsTotal: relevant.length, datedAnchorsAccounted: coveredDates.length, datedAnchorsTotal: datedAnchors.length };
   const failures = [];
   const explained = new Set(attributed);
