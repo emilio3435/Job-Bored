@@ -22,6 +22,28 @@ it("R2-A1 a title-first employer header closes on its matching role below", asyn
   assert.ok(wrongTitle.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
 });
 
+it("R2-A3 narrows a broad role pointer to its unique dated title line", async () => {
+  const claim = "Built a fictional weekly planning report for local teams and their managers. ".repeat(9).trim();
+  const source = ["EXPERIENCE", "Founder | Fabrikam Labs — Springfield, IL 2025 – Present", `- ${claim}`].join("\n");
+  const raw = { employers: [{ name: "Fabrikam Labs", lines: [2, 2], roles: [
+    { title: "Founder", lines: [2, 3], start: "2025", end: "Present" },
+  ], claims: [{ text: claim, lines: [3, 3] }] }] };
+  const { result } = await run(source, [raw]);
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.employers[0].roles[0].lines, [2, 2]);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it("R2-B3b a dated earlier-role header closes on its matching role", () => {
+  const source = ["EARLIER EXPERIENCE", "Cofounder, Fabrikam Labs — Built a fictional planning workflow 2016 – 2017"].join("\n");
+  const census = censusResume(source);
+  const employer = { name: "Fabrikam Labs", lines: [2, 2], roles: [{ title: "Cofounder", lines: [2, 2], start: "2016", end: "2017" }], claims: [] };
+  const closed = reconcile.reconcileRead({ lsrc: source, census, employers: [employer] });
+  assert.deepEqual(closed.unaccounted, []);
+  const wrongRole = reconcile.reconcileRead({ lsrc: source, census, employers: [{ ...employer, roles: [{ ...employer.roles[0], title: "Founder" }] }] });
+  assert.ok(wrongRole.unaccounted.some((item) => item.kind === "date_range"));
+});
+
 it("R2-B3 a dated role is not closed by overlapping accepted or quarantined claims", () => {
   const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Research Lead • Jan 2020 – Present"].join("\n");
   const census = censusResume(source);
