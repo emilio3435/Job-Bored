@@ -37,6 +37,13 @@ function fakeFetch(reply, calls) {
   };
 }
 
+it("J-BE2a: provider timeout has a stable timeout code", async () => {
+  const fetchImpl = async () => { throw new DOMException("deadline", "TimeoutError"); };
+  const result = await judgeMaterials({ writer, judge, documents, sources, fetchImpl });
+  assert.equal(result.status, "unavailable");
+  assert.equal(result.meta.errorCode, "timeout");
+});
+
 const GEMINI_SCHEMA_KEYS = new Set([
   "type", "format", "title", "description", "enum", "items", "minItems", "maxItems",
   "minimum", "maximum", "properties", "required", "propertyOrdering", "nullable",
