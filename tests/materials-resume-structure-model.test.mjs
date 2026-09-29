@@ -677,8 +677,8 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
           }],
         }),
       });
-      assert.equal(sparse.ingest.status, "ready_with_review", "a partial structure is not a successful replacement");
-      assert.equal(sparse.ingest.code, "ingest_incomplete");
+      assert.equal(sparse.ingest.status, "failed", "a reply without line pointers cannot replace the saved read");
+      assert.equal(sparse.ingest.code, "model_error");
       assert.equal(sparse.employers.length, 0);
       assert.equal(sparse.claims.length, 0);
       assert.deepEqual(readFileSync(resolveLedgerPath()), beforeSparse, "a sparse read leaves the last good ledger byte-identical");
@@ -838,7 +838,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       assert.equal(first.rebuilt, true);
       assert.equal(first.builderVersion, LEDGER_BUILDER_VERSION);
       assert.equal(calls, 1);
-      assert.ok(first.ingest.notes.some((item) => item.reason === "out_of_span"));
+      assert.equal(first.ingest.rejected.length, 0, "the simple read has no per-item rejection queue");
       assert.equal(JSON.stringify(first.ingest).includes("Led eleven account teams"), false, "advisory notes keep ingest metadata count-only");
       const second = await ensureLedger({ profile: null, resumeText: INTERLEAVED, pin: PIN, fetchImpl: async () => ({}) });
       assert.equal(second.rebuilt, false);

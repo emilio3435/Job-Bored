@@ -22,7 +22,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { hashLedger, readLedger, resolveLedgerPath, writeLedgerAtomic, LEDGER_CONTRACT } from "./materials-ledger.mjs";
 import { aliasesFor, slugify } from "./materials-resume-structure.mjs";
 import { structureResume } from "./materials-resume-structure-model.mjs";
-import { employerKey } from "./resume-ingest-reconcile.mjs";
+import { employerKey } from "./resume-ingest-identity.mjs";
 import { validateIngestResult } from "./resume-ingest-contract.mjs";
 import { desplitMetricTokens } from "./materials-resume-source.mjs";
 

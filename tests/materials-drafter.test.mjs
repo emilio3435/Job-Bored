@@ -60,7 +60,7 @@ function baseDeps(dir, extra = {}) {
     resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "stub" }),
     scrapeJob: async () => ({ description: JD_TEXT }),
     fetchImpl: stub.fetchImpl,
-    structureCallStage: async ({ systemPrompt, userText }) => String(systemPrompt).startsWith("Read the numbered resume lines")
+    structureCallStage: async ({ systemPrompt, userText }) => String(systemPrompt).startsWith("Extract every job from these numbered")
       ? modelReadReplyFixture(resumeSourceFromReadPrompt(userText))
       : modelReplyFixture(String(userText).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || ""),
     openSession: null,
@@ -248,7 +248,7 @@ describe("createMaterialsDrafter", () => {
     release();
     await drafter.runUntilIdle();
     /* The one-time resume.structure call (L1) builds the ledger, not a run. */
-    const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT && !c.system.startsWith("Read the numbered resume lines"));
+    const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT && !c.system.startsWith("Extract every job from these numbered"));
     /* One run's current extract, select, write and judge stages make eight calls; a second run would double them. */
     assert.equal(runCalls.length, 8, `duplicate enqueue must not start a second run (saw ${runCalls.length} calls)`);
   });

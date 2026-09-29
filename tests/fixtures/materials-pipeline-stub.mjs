@@ -44,7 +44,7 @@ export function scriptedPipelineFetch(extra = {}) {
         ? (body.messages || []).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")
         : (body.messages && body.messages[1] && body.messages[1].content) || "";
     calls.push({ system: String(system), user: String(user) });
-    const readCall = (call) => call.system === RESUME_STRUCTURE_SYSTEM_PROMPT || call.system.startsWith("Read the numbered resume lines");
+    const readCall = (call) => call.system === RESUME_STRUCTURE_SYSTEM_PROMPT || call.system.startsWith("Extract every job from these numbered");
     const pipelineCallCount = calls.filter((call) => !readCall(call)).length;
     if (extra.gate && pipelineCallCount === (extra.gateAt || 1)) await extra.gate;
     let content;
@@ -55,7 +55,7 @@ export function scriptedPipelineFetch(extra = {}) {
     if (String(system) === RESUME_STRUCTURE_SYSTEM_PROMPT) {
       const resumeText = String(user).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || "";
       content = JSON.stringify(modelReplyFixture(resumeText));
-    } else if (String(system).startsWith("Read the numbered resume lines")) {
+    } else if (String(system).startsWith("Extract every job from these numbered")) {
       content = JSON.stringify(modelReadReplyFixture(resumeSourceFromReadPrompt(user)));
     } else if (supportCall) {
       const count = [...String(user).split("Letter sentences:")[1]?.matchAll(/^(\d+)\. /gm) || []].length;

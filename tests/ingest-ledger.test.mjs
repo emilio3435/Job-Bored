@@ -18,16 +18,16 @@ const resultPath = join(home, '.jobbored', 'ingest-result.json');
 const employer = (name, title = 'Research Lead', start = 'Jan 2022', end = 'Present') => ({ name, aliases: [name.toLowerCase()], start, end, roles: [{ title, start, end }], claims: [] });
 const structure = (...names) => ({ source: 'model', employers: names.map((name) => employer(name)), education: [], credentials: [], looseClaims: [] });
 
-it('T-K8-02 rejected claims reach the persisted result', async () => {
-  const out = await read();
-  assert.ok(out.ingest.rejected.length > 0);
-  assert.deepEqual(JSON.parse(readFileSync(resultPath, 'utf8')).rejected, out.ingest.rejected);
+it('T-K8-02 unplaced bullets reach the persisted result', async () => {
+  await read();
+  const persisted = JSON.parse(readFileSync(resultPath, 'utf8'));
+  assert.ok(persisted.couldntPlace.some((item) => item.kind === 'bullet' && item.reason === 'not_verbatim'));
+  assert.deepEqual(persisted.couldntPlace, persisted.unread);
 });
-it('T-K8-03 claim-level review leaves a read ready and persists its status', async () => {
+it('T-K8-03 bullet notices leave a read ready while missing headers require review', async () => {
   const out = await read();
   assert.equal(out.ingest.status, 'ready');
-  assert.ok(out.ingest.rejected.length > 0);
-  assert.equal(JSON.parse(readFileSync(resultPath, 'utf8')).status, 'ready');
+  assert.ok(JSON.parse(readFileSync(resultPath, 'utf8')).couldntPlace.some((item) => item.kind === 'bullet'));
   const partial = await read(source.replace('Tailspin Studio', 'Adventure Studio'));
   assert.equal(partial.ingest.status, 'ready_with_review');
   assert.equal(JSON.parse(readFileSync(resultPath, 'utf8')).status, 'ready_with_review');

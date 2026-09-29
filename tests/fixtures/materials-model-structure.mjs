@@ -422,9 +422,9 @@ export function readReplyFromQuotes(source, reply) {
     const first = source.slice(0, at).split(/\r?\n/u).length;
     return [first, first + value.split(/\r?\n/u).length - 1];
   };
-  return { nonJob: (reply.nonJob || []).map((item) => ({ lines: linesFor(item.sourceQuote), reason: item.reason })), employers: reply.employers.map((entry) => ({
+  return { nonExperience: (reply.nonJob || []).map((item) => linesFor(item.sourceQuote)[0]), employers: reply.employers.map((entry) => ({
     name: entry.name,
-    lines: linesFor(entry.sourceQuote),
+    headerLine: linesFor(entry.sourceQuote)[0],
     ...(/\((formerly\s+[^)]+)\)/iu.exec(entry.sourceQuote)?.[1]
       ? { aliasClause: /\((formerly\s+[^)]+)\)/iu.exec(entry.sourceQuote)[1] } : {}),
     ...(/,\s*((?:[A-Z][a-z]+,\s*[A-Z]{2})|Remote)$/u.exec(entry.sourceQuote)?.[1]
@@ -433,11 +433,11 @@ export function readReplyFromQuotes(source, reply) {
     end: entry.end,
     roles: entry.roles.map((item) => ({
       title: item.title,
-      lines: linesFor(item.sourceQuote),
+      line: linesFor(item.sourceQuote)[0],
       start: item.start,
       end: item.end,
     })),
-    claims: [...entry.claims, ...entry.roles.flatMap((item) => item.claims || [])].map((item) => ({
+    bullets: [...entry.claims, ...entry.roles.flatMap((item) => item.claims || [])].map((item) => ({
       text: item.text,
       lines: linesFor(item.sourceQuote),
     })),

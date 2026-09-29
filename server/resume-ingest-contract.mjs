@@ -1,15 +1,13 @@
 /** @typedef {{ lines: [number, number], text?: string }} LinePointer */
-/** @typedef {{ name: string, lines: [number, number], roles: Array<{title:string,start?:string|null,end?:string|null,lines:[number,number]}>, claims: Array<{text:string,lines:[number,number]}> }} ReadEmployer */
-/** @typedef {{ employers: ReadEmployer[], education?: LinePointer[], credentials?: LinePointer[], projects?: LinePointer[], volunteer?: LinePointer[], nonJob?: Array<{lines:[number,number],reason:string}> }} ReadReply */
+/** @typedef {{ name: string, headerLine: number, roles: Array<{title:string,start?:string|null,end?:string|null,line:number}>, bullets: Array<{text:string,line?:number,lines?:[number,number]}> }} ReadEmployer */
+/** @typedef {{ employers: ReadEmployer[], nonExperience?: number[] }} ReadReply */
 /** @typedef {{ unaccounted:object[], setAside:object[], residual:object[], coverage:{linesAttributed:number,linesNonBlank:number,anchorsAccounted:number,anchorsTotal:number,datedAnchorsAccounted:number,datedAnchorsTotal:number}, reconciliation:{ok:boolean,failures:string[]} }} ReconcileOutput */
-/** @typedef {{ schema:"ingest-result/1", status:"ready"|"ready_with_review"|"partial"|"needs_model"|"failed", sourceMode:"text"|"native+text"|"ocr+text", originalSha256:string,textSha256:string,model:{provider:string,id:string},chunks:number,anchors:number, employers:object[],structure:object, unread:object[], setAside:object[], review:{claims:object[]}, rejected:object[],carried:object[],resolutions:object[],notes:object[], missingEmployers:Array<{aliasKey:string,displayName:string,lines:number[]}>, reads:number, stopReasons:string[], coverage:ReconcileOutput["coverage"], reconciliation:ReconcileOutput["reconciliation"] }} IngestResult */
+/** @typedef {{ schema:"ingest-result/1", status:"ready"|"ready_with_review"|"partial"|"needs_model"|"failed", sourceMode:"text"|"native+text"|"ocr+text", originalSha256:string,textSha256:string,model:{provider:string,id:string},chunks:number,anchors:number, employers:object[],structure:object, couldntPlace?:object[], unread:object[], setAside:object[], review:{claims:object[]}, rejected:object[],carried:object[],resolutions:object[],notes:object[], missingEmployers:Array<{aliasKey:string,displayName:string,lines:number[]}>, reads:number, stopReasons:string[], coverage:ReconcileOutput["coverage"], reconciliation:ReconcileOutput["reconciliation"] }} IngestResult */
 
 /** @param {unknown} value @returns {value is Record<string, any>} */
 const object = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 /** @param {any} value */
 const pointer = (value) => Array.isArray(value) && value.length === 2 && Number.isInteger(value[0]) && Number.isInteger(value[1]) && value[0] > 0 && value[1] >= value[0];
-/** @param {any} value @param {string} key */
-const item = (value, key) => object(value) && typeof value[key] === "string" && pointer(value.lines);
 /** @param {any} value */
 const number = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 /** @param {any} value */
@@ -19,10 +17,10 @@ export function validateReadReply(raw) {
   const errors = [];
   if (!object(raw) || !Array.isArray(raw.employers)) errors.push("employers");
   else for (const employer of raw.employers) {
-    if (!item(employer, "name") || !Array.isArray(employer.roles) || !Array.isArray(employer.claims)) errors.push("employer");
+    if (!object(employer) || typeof employer.name !== "string" || !Number.isInteger(employer.headerLine) || employer.headerLine < 1 || !Array.isArray(employer.roles) || !Array.isArray(employer.bullets)) errors.push("employer");
     else {
-      if (/** @type {any[]} */ (employer.roles).some((role) => !item(role, "title"))) errors.push("role");
-      if (/** @type {any[]} */ (employer.claims).some((claim) => !item(claim, "text"))) errors.push("claim");
+      if (/** @type {any[]} */ (employer.roles).some((role) => !object(role) || typeof role.title !== "string" || !Number.isInteger(role.line) || role.line < 1)) errors.push("role");
+      if (/** @type {any[]} */ (employer.bullets).some((bullet) => !object(bullet) || typeof bullet.text !== "string" || !(Number.isInteger(bullet.line) && bullet.line > 0 || pointer(bullet.lines)))) errors.push("bullet");
     }
   }
   return { ok: !errors.length, errors };

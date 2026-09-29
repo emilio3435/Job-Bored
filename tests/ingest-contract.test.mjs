@@ -4,8 +4,8 @@ import { it } from "node:test";
 const contract = await import("../server/resume-ingest-contract.mjs").catch(() => ({}));
 
 it("T-K5-01 validates line-pointer replies and rejects malformed ranges", () => {
-  assert.equal(contract.validateReadReply?.({ employers: [{ name: "Contoso Media", lines: [2, 2], roles: [], claims: [] }] }).ok, true);
-  assert.equal(contract.validateReadReply?.({ employers: [{ name: "Contoso Media", lines: [0, 99], roles: [], claims: [] }] }).ok, false);
+  assert.equal(contract.validateReadReply?.({ employers: [{ name: "Contoso Media", headerLine: 2, roles: [], bullets: [] }] }).ok, true);
+  assert.equal(contract.validateReadReply?.({ employers: [{ name: "Contoso Media", headerLine: 0, roles: [], bullets: [] }] }).ok, false);
 });
 
 it("T-K7-01 validates reconciliation coverage and named unaccounted anchors", () => {
