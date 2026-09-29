@@ -8,6 +8,7 @@ import { chat, normalizeProvider } from "./ai/provider.mjs";
 import { aliasesFor } from "./materials-resume-structure.mjs";
 import { parseStageJson } from "./materials-writer.mjs";
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { censusResume } from "./resume-ingest-census.mjs";
 import { foldForMatch, findNumberTokens } from "./resume-text-fold.mjs";
 import { employerAliases, employerKey, normalizeReadDate, reconcileRead } from "./resume-ingest-reconcile.mjs";
@@ -509,6 +510,39 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** @param {string | null} value */
+function retryAfterMs(value) {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+/** @param {unknown} error */
+function retryableReadError(error) {
+  if (!isRecord(error) || error.retryable !== true) return false;
+  const status = error.upstreamStatus;
+  if (typeof status === "number") return status === 429 || status >= 500;
+  return error.providerCode === "network_error" || error.providerCode === "timeout";
+}
+
+/** @param {number} ms @param {AbortSignal | undefined} signal @param {((ms:number)=>Promise<void>) | undefined} sleep */
+async function waitForReadRetry(ms, signal, sleep) {
+  const aborted = () => signal?.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError");
+  if (signal?.aborted) throw aborted();
+  if (!sleep) { await delay(ms, undefined, signal ? { signal } : undefined); return; }
+  if (!signal) { await sleep(ms); return; }
+  /** @type {() => void} */
+  let onAbort = () => {};
+  const cancelled = new Promise((_, reject) => {
+    onAbort = () => reject(aborted());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try { await Promise.race([sleep(ms), cancelled]); }
+  finally { signal.removeEventListener("abort", onAbort); }
+}
+
 /**
  * The original PDF is supported natively by Gemini, Anthropic, and OpenAI.
  * Other compatible endpoints receive the extracted text only.
@@ -740,10 +774,10 @@ function decodeRead(payload) {
 /**
  * New line-pointer read used by the ingest/1 ledger. The old quote-based
  * structureResumeWithModel export remains for W1 profile callers.
- * @param {{lsrc:string|{text:string},pin?:import('./materials-writer.mjs').WriterPin|null,fetchImpl?:typeof globalThis.fetch,callStage?:(input:Record<string,unknown>)=>Promise<unknown>|unknown,timeoutMs?:number,signal?:AbortSignal}} input
+ * @param {{lsrc:string|{text:string},pin?:import('./materials-writer.mjs').WriterPin|null,fetchImpl?:typeof globalThis.fetch,callStage?:(input:Record<string,unknown>)=>Promise<unknown>|unknown,timeoutMs?:number,signal?:AbortSignal,sleep?:(ms:number)=>Promise<void>}} input
  * @returns {Promise<import('./resume-ingest-contract.mjs').IngestResult>}
  */
-export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeoutMs, signal }) {
+export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeoutMs, signal, sleep }) {
   const source = typeof lsrc === "string" ? lsrc : String(lsrc?.text || "");
   const sourceLines = source.split(/\r?\n/u);
   const census = censusResume(source);
@@ -882,7 +916,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
           (candidate.lines[0] === fresh.lines[0] && employerKey(candidate.name) === freshKey);
       });
       if (!prior) { employers.push(fresh); continue; }
-      if (block && freshKey === employerKey(block.head.text) && employerKey(prior.name) !== freshKey) {
+      if (block && freshKey === employerKey(block.head.text) && (employerKey(prior.name) !== freshKey || fresh.name.length < prior.name.length)) {
         prior.name = fresh.name;
         prior.lines = fresh.lines;
       }
@@ -954,7 +988,32 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       let payload;
       if (typeof callStage === "function") payload = await callStage({ pin, stage: RESUME_STRUCTURE_STAGE, systemPrompt: READ_PROMPT, userText, maxOutputTokens: STRUCTURE_STAGE_MAX_TOKENS, fetchImpl, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}) });
       else {
-        const response = await chat({ pin: { ...pin, model: pin.resolvedModel || pin.model }, messages: [{ role: "system", content: READ_PROMPT }, { role: "user", content: userText }], ...(fetchImpl ? { fetchImpl } : {}), ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}), temperature: 0.1, jsonMode: true });
+        const requestFetch = fetchImpl || globalThis.fetch;
+        let retryAfter = null;
+        /** @type {typeof globalThis.fetch} */
+        const observedFetch = async (url, init) => {
+          const response = await requestFetch(url, init);
+          retryAfter = response.headers?.get("retry-after") || null;
+          return response;
+        };
+        let response;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError");
+          retryAfter = null;
+          try {
+            response = await chat({ pin: { ...pin, model: pin.resolvedModel || pin.model }, messages: [{ role: "system", content: READ_PROMPT }, { role: "user", content: userText }], fetchImpl: observedFetch, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}), temperature: 0.1, jsonMode: true });
+            break;
+          } catch (error) {
+            if (attempt === 2 || !retryableReadError(error) || signal?.aborted) throw error;
+            const backoff = [1000, 3000][attempt] * (0.8 + Math.random() * 0.4);
+            const serverDelay = retryAfterMs(retryAfter);
+            if (serverDelay > 30_000) throw error;
+            const delay = Math.max(backoff, serverDelay);
+            notes.push({ kind: "read", reason: "transport_retry", attempt: attempt + 1, delayMs: delay });
+            await waitForReadRetry(delay, signal, sleep);
+          }
+        }
+        if (!response) throw new Error("Model request failed.");
         payload = { raw: response.text, providerPayload: response.payload };
       }
       const decoded = decodeRead(payload);

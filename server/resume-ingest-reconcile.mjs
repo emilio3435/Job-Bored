@@ -2,7 +2,7 @@ import { aliasesFor } from "./materials-resume-structure.mjs";
 import { foldForMatch } from "./resume-text-fold.mjs";
 
 /** @param {string} name */
-const withoutSite = (name) => String(name || "").replace(/\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$).*$/iu, "").replace(/\s+\([\w.-]+\.[a-z]{2,}\)\s*$/iu, "").trim();
+const withoutSite = (name) => String(name || "").replace(/\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$).*$/iu, "").replace(/\s+[—–]\s+.+$/u, "").replace(/\s+\([\w.-]+\.[a-z]{2,}\)\s*$/iu, "").trim();
 /** Strip a source-site suffix before comparing either census or model names. @param {string} name */
 export const employerAliases = (name) => aliasesFor(withoutSite(name));
 
