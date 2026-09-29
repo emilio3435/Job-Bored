@@ -63,6 +63,94 @@ const INTERLEAVED_MODEL = {
   credentials: [],
 };
 
+describe("HYPHEN replay grounding", () => {
+  const header = "Cedar Studio — Research Lead, 2022–2024";
+  const model = (text, sourceQuote) => ({ employers: [{
+    name: "Cedar Studio", sourceQuote: header,
+    roles: [{ title: "Research Lead", sourceQuote: header, claims: [{ text, sourceQuote }] }],
+  }] });
+
+  it("keeps a real compound whose source quote wraps at the hyphen", () => {
+    const quote = "Built audience-\nsignal maps for fictional library visits and weekly staffing.";
+    const result = validateModelStructure(model("Built audience-signal maps for fictional library visits and weekly staffing.", quote),
+      ["EXPERIENCE", header, `- ${quote}`].join("\n"));
+    assert.equal(result.structure.employers[0].claims.length, 1);
+    assert.deepEqual(result.rejected, []);
+  });
+
+  it("does not count physical wrap markers toward the quote length bounds", () => {
+    const shortQuote = "Engineer-\ning";
+    const short = validateModelStructure({ employers: [{
+      name: "Engineering", sourceQuote: shortQuote, roles: [], claims: [],
+    }] }, shortQuote);
+    assert.equal(short.structure.employers.length, 0);
+    assert.ok(short.rejected.some((item) => item.reason === "source_quote_too_short"));
+
+    const broadQuote = `Cedar Studio${" a".repeat(28)} a-\na.`;
+    const broad = validateModelStructure({ employers: [{
+      name: "Cedar Studio", sourceQuote: broadQuote, roles: [], claims: [],
+    }] }, broadQuote);
+    assert.equal(broad.structure.employers.length, 1);
+    assert.deepEqual(broad.rejected, []);
+  });
+
+  it("does not equate input private-use characters with replacement characters", () => {
+    const replacement = "Cedar\uFFFDStudio Research Lab";
+    const privateUse = "Cedar\uE000Studio Research Lab";
+    const withPrivateFact = validateModelStructure({ employers: [{
+      name: "Cedar\uE000Studio", sourceQuote: replacement, roles: [], claims: [],
+    }] }, replacement);
+    assert.equal(withPrivateFact.structure.employers.length, 0);
+    assert.ok(withPrivateFact.rejected.some((item) => item.reason === "source_private_use_character"));
+    const withPrivateSource = validateModelStructure({ employers: [{
+      name: "Cedar\uFFFDStudio", sourceQuote: replacement, roles: [], claims: [],
+    }] }, privateUse);
+    assert.equal(withPrivateSource.structure.employers.length, 0);
+    assert.ok(withPrivateSource.rejected.some((item) => item.reason === "source_quote_not_found"));
+    const withPrivateQuote = validateModelStructure({ employers: [{
+      name: "Cedar\uFFFDStudio", sourceQuote: privateUse, roles: [], claims: [],
+    }] }, replacement);
+    assert.equal(withPrivateQuote.structure.employers.length, 0);
+    assert.ok(withPrivateQuote.rejected.some((item) => item.reason === "source_private_use_character"));
+  });
+
+  it("keeps a soft wrap while ordinary hyphens and duplicate quotes remain strict", () => {
+    const quote = "Built manage-\nment reports for fictional library visits and weekly staffing.";
+    const source = ["EXPERIENCE", header, `- ${quote}`].join("\n");
+    assert.deepEqual(validateModelStructure(model("Built management reports for fictional library visits and weekly staffing.", quote), source).rejected, []);
+    const plain = quote.replace("-\n", "-");
+    assert.ok(validateModelStructure(model("Built management reports for fictional library visits and weekly staffing.", plain),
+      ["EXPERIENCE", header, `- ${plain}`].join("\n")).rejected.some((item) => item.reason === "value_not_in_source_quote"));
+    assert.ok(validateModelStructure(model("Built management reports for fictional library visits and weekly staffing.", quote),
+      `${source}\n- ${quote}`).rejected.some((item) => item.reason === "ambiguous_source_quote"));
+  });
+
+  it("grounds an unquoted date only in its own unique role header", () => {
+    const role = "Research Lead • May 2021 — 2026";
+    const claim = "Mapped fictional library visits to improve weekly staffing plans.";
+    const source = ["EXPERIENCE", "Cedar Studio — cedar.example", role, `- ${claim}`].join("\n");
+    const reply = { employers: [{ name: "Cedar Studio", sourceQuote: "Cedar Studio — cedar.example", roles: [{
+      title: "Research Lead", sourceQuote: role, start: "May 2021", end: "2026",
+      claims: [{ text: claim, sourceQuote: claim }],
+    }] }] };
+    const result = validateModelStructure(reply, source);
+    assert.equal(result.structure.employers[0].roles[0].start, "May 2021");
+    assert.equal(result.structure.employers[0].roles[0].end, "2026");
+    assert.deepEqual(result.rejected, []);
+    const bad = structuredClone(reply);
+    bad.employers[0].roles[0].end = "2027";
+    assert.ok(validateModelStructure(bad, source).rejected.some((item) => item.kind === "role_date"));
+    const missingLocalDate = structuredClone(reply);
+    missingLocalDate.employers[0].roles[0].sourceQuote = "Research Lead • May 2021";
+    const elsewhere = `${source}\nFictional certification awarded in 2026`;
+    assert.ok(validateModelStructure(missingLocalDate, elsewhere).rejected.some((item) =>
+      item.kind === "role_date" && item.reason === "value_not_in_source_quote"));
+    const ambiguousHeader = `${source}\n${role}`;
+    assert.ok(validateModelStructure(reply, ambiguousHeader).rejected.some((item) =>
+      item.kind === "role_date" && item.reason === "ambiguous_source_quote"));
+  });
+});
+
 /** @param {unknown} payload */
 function geminiReply(payload) {
   return {
