@@ -43,9 +43,11 @@ it("T-K7-07 line overlap without alias match does not close a header", () => {
 });
 it("T-K7-08 out-of-span Fabrikam claims are quarantined while Northwind claims stay there", async () => {
   const reply = fixture("read-full");
-  reply.employers[1].claims.push({ text: "Built a planning tool for local teams to review their weekly goals.", lines: [14, 14] });
+  reply.employers[1].claims.push(...reply.employers[2].claims.splice(0, 2));
   const { result } = await run(SOURCE, [reply]);
   assert.ok(result.review.claims.some((item) => item.kind === "inferred" && item.lines[0] === 14));
+  assert.equal(result.status, "ready", "grounded, quarantined claim lines count toward coverage without entering the candidate pool");
+  assert.equal(result.unread.some((item) => item.kind === "residual" && item.lines[0] === 14), false);
   assert.ok(result.employers.some((item) => item.name === "Northwind Trading"));
 });
 it("T-K7-09 a two-line residual block is visible and partial", async () => {
