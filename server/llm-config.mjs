@@ -448,37 +448,39 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
     return;
   }
   const body = /** @type {Record<string, unknown>} */ (rawBody);
-  const rawProvider = asString(body.provider);
-  const model = asString(body.model);
-  const baseUrl = asString(body.baseUrl);
-  if (!rawProvider || !model) {
+  const judgeOnly = Object.keys(body).length === 1 && Object.hasOwn(body, "judge");
+  const stored = loadLlmConfig(env);
+  const rawProvider = judgeOnly ? asString(stored?.provider) : asString(body.provider);
+  const model = judgeOnly ? asString(stored?.model) : asString(body.model);
+  const baseUrl = judgeOnly ? asString(stored?.baseUrl) : asString(body.baseUrl);
+  if (!judgeOnly && (!rawProvider || !model)) {
     res.status(400).json({ error: "provider and model are required.", code: "llm_invalid" });
     return;
   }
   const provider = normalizeProvider(rawProvider);
-  if (!provider) {
+  if (!judgeOnly && !provider) {
     res.status(400).json({
       error: "Unsupported provider. Use gemini, openai, anthropic, openrouter, openai_compatible or local.",
       code: "llm_invalid",
     });
     return;
   }
-  if (baseUrl && !isHttpUrl(baseUrl)) {
+  if (!judgeOnly && baseUrl && !isHttpUrl(baseUrl)) {
     res.status(400).json({ error: "baseUrl must be an http(s) URL.", code: "llm_invalid" });
     return;
   }
-  if (model.length > 200 || baseUrl.length > 2048) {
+  if (!judgeOnly && (model.length > 200 || baseUrl.length > 2048)) {
     res.status(400).json({ error: "model or baseUrl is too long.", code: "llm_invalid" });
     return;
   }
   // Omitted apiKey keeps the stored key (same provider and base URL). A
   // present apiKey is the caller's answer: Settings sends "" when the user
   // empties the key box, and null also clears.
-  let apiKey = "";
-  if (body.apiKey !== undefined) {
+  let apiKey = judgeOnly ? asString(stored?.apiKey) : "";
+  if (!judgeOnly && body.apiKey !== undefined) {
     apiKey = asString(body.apiKey);
-  } else {
-    const existing = loadLlmConfig(env);
+  } else if (!judgeOnly) {
+    const existing = stored;
     const sameTarget =
       existing &&
       normalizeProvider(existing.provider) === provider &&
@@ -487,7 +489,6 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
   }
   // Settings does not edit the fallback block (Decision 5: Jordan sets it by
   // hand), so a Settings save keeps whatever llm.json already holds.
-  const stored = loadLlmConfig(env);
   /** @type {LlmFallbackTarget | undefined} */
   let judge;
   if (body.judge === undefined) {
@@ -501,14 +502,29 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
     const sameJudge = stored?.judge
       && stored.judge.provider === judge.provider
       && asString(stored.judge.baseUrl).replace(/\/+$/, "") === asString(judge.baseUrl).replace(/\/+$/, "");
-    if (body.judge && typeof body.judge === "object" && !("apiKey" in body.judge)) {
+    if (body.judge && typeof body.judge === "object" && (!("apiKey" in body.judge) || body.judge.apiKey === "")) {
       judge.apiKey = sameJudge && stored?.judge ? stored.judge.apiKey : "";
     }
   }
-  const saved = await writeLlmConfig(
-    { provider: rawProvider, model, apiKey, baseUrl, ...(stored?.fallback ? { fallback: stored.fallback } : {}), ...(judge ? { judge } : {}) },
-    env,
-  );
+  // A judge-only edit must leave the writer and fallback exactly as they are
+  // on disk. loadLlmConfig intentionally migrates a legacy Gemini model on
+  // read, so use the raw stored object for this one-field merge.
+  let rawStored = null;
+  if (judgeOnly) {
+    try {
+      const parsed = JSON.parse(readFileSync(llmConfigPath(env), "utf8"));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) rawStored = parsed;
+    } catch { /* no saved writer yet */ }
+  }
+  const saved = judgeOnly
+    ? persistLlmConfig(/** @type {LlmConfig} */ (/** @type {unknown} */ ({
+      provider: "", model: "", apiKey: "", baseUrl: "",
+      ...(rawStored || {}), updatedAt: new Date().toISOString(), judge,
+    })), env)
+    : await writeLlmConfig(
+      { provider: rawProvider, model, apiKey, baseUrl, ...(stored?.fallback ? { fallback: stored.fallback } : {}), ...(judge ? { judge } : {}) },
+      env,
+    );
   res.json(redactLlmConfig(saved));
 }
 
