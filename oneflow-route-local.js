@@ -40,7 +40,7 @@
   const LOCAL_URL = `${LOCAL_BASE}/`;
 
   /** This page's build, compared against the ping's `version` (R3). */
-  const PAGE_VERSION = "0.2.0"; // x-release-please-version
+  const PAGE_VERSION = "0.3.0"; // x-release-please-version
 
   const TIMINGS = {
     /** Gap between pings while the window is open. */
