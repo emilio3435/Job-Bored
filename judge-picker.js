@@ -85,12 +85,16 @@
   /**
    * Normalize the server's `judge` (GET and POST /api/llm-config, G9) to
    * { provider, model, baseUrl, keyPresent } or null. Never carries a key.
+   * `provider` is the id the user chose: the saved alias when one round-
+   * tripped ("local"), else the normalized provider. "ollama" folds to
+   * "local" — the one local spelling both surfaces offer (P2).
    */
   function judgeFromServer(body) {
     const j = body && typeof body === "object" ? body.judge : null;
     if (!j || typeof j !== "object") return null;
+    const alias = asTrimmed(j.alias);
     return {
-      provider: asTrimmed(j.provider),
+      provider: alias === "ollama" ? "local" : alias || asTrimmed(j.provider),
       model: asTrimmed(j.model),
       baseUrl: asTrimmed(j.baseUrl),
       keyPresent: Boolean(j.keyPresent),

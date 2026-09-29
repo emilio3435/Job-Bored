@@ -37,6 +37,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} model
  * @property {string} [apiKey] omitted: reuse the primary key when the provider matches
  * @property {string} [baseUrl]
+ * @property {string} [alias] the spelling the user picked ("local", "ollama") when it differs from provider
  */
 
 /**
@@ -56,7 +57,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} baseUrl
  * @property {boolean} keyPresent
  * @property {string} updatedAt
- * @property {{ provider: string, model: string, baseUrl: string, keyPresent: boolean } | null} judge
+ * @property {{ provider: string, alias: string, model: string, baseUrl: string, keyPresent: boolean } | null} judge
  */
 
 /**
@@ -135,7 +136,16 @@ function asJudgeConfig(value) {
   const model = asString(raw.model);
   const baseUrl = asString(raw.baseUrl);
   if (!provider || !model || model.length > 200 || baseUrl.length > 2048 || (baseUrl && !isHttpUrl(baseUrl))) return undefined;
-  return { provider, model, apiKey: asString(raw.apiKey), baseUrl };
+  // One enum on disk, like the writer (E2): a fresh "local"/"ollama" spelling
+  // is kept as `alias`, and a stored alias survives reloads only when it
+  // still agrees with the provider — a mismatched one is dropped.
+  const storedAlias = asString(raw.alias);
+  const alias = providerAlias(raw.provider)
+    || (storedAlias && normalizeProvider(storedAlias) === provider ? storedAlias : "");
+  /** @type {LlmFallbackTarget} */
+  const out = { provider, model, apiKey: asString(raw.apiKey), baseUrl };
+  if (alias) out.alias = alias;
+  return out;
 }
 
 /**
@@ -335,6 +345,7 @@ export function redactLlmConfig(config) {
     updatedAt: parsed.updatedAt,
     judge: parsed.judge ? {
       provider: parsed.judge.provider,
+      alias: asString(parsed.judge.alias),
       model: parsed.judge.model,
       baseUrl: parsed.judge.baseUrl || "",
       keyPresent: Boolean(parsed.judge.apiKey),

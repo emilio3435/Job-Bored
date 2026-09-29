@@ -107,6 +107,35 @@ describe("judge-picker · fixed base URLs and catalog ids", () => {
   });
 });
 
+describe("judge-picker · judgeFromServer alias (P2: local round-trips)", () => {
+  it("presents the saved alias as the provider id, ollama folded to local", () => {
+    const picker = loadPicker();
+    assert.deepEqual(
+      plain(picker.judgeFromServer({
+        judge: { provider: "openai_compatible", alias: "local", model: "qwen3:8b", baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false },
+      })),
+      { provider: "local", model: "qwen3:8b", baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false },
+    );
+    assert.equal(
+      picker.judgeFromServer({ judge: { provider: "openai_compatible", alias: "ollama", model: "m", baseUrl: "u", keyPresent: false } }).provider,
+      "local",
+    );
+    assert.equal(
+      picker.judgeFromServer({ judge: { provider: "openai", alias: "", model: "m", baseUrl: "", keyPresent: true } }).provider,
+      "openai",
+    );
+  });
+
+  it("leaves the xAI shape untouched", () => {
+    const picker = loadPicker();
+    const judge = picker.judgeFromServer({
+      judge: { provider: "openai_compatible", alias: "", model: "grok-4.7", baseUrl: "https://api.x.ai/v1", keyPresent: true },
+    });
+    assert.equal(picker.isXaiJudge(judge), true);
+    assert.equal(picker.judgeCatalogId(judge.provider, judge.baseUrl), "xai");
+  });
+});
+
 describe("judge-picker · judgeFromServer / isXaiJudge", () => {
   it("normalizes the server judge and spots the xAI shape", () => {
     const picker = loadPicker();
