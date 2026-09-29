@@ -45,6 +45,23 @@ export const JUDGE_SCHEMA = {
 
 const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type {unknown} */ (Ajv2020));
 const validateSchema = new Ajv({ allErrors: true, strict: false }).compile(JUDGE_SCHEMA);
+const AUTH_CODES = new Set(["invalid_api_key", "authentication_error", "unauthorized", "forbidden", "permission_denied", "invalid_authentication"]);
+const TIMEOUT_CODES = new Set(["timeout", "timed_out", "request_timeout", "deadline_exceeded"]);
+
+/** @param {unknown} error @param {AbortSignal | undefined} signal */
+function providerErrorCode(error, signal) {
+  if (error instanceof ProviderApiError) {
+    const code = String(error.providerCode || "").toLowerCase();
+    if (signal?.aborted && signal.reason?.name === "TimeoutError") return "timeout";
+    if (TIMEOUT_CODES.has(code)) return "timeout";
+    if (error.classification === "config" || code === "unconfigured") return "unconfigured";
+    if (error.upstreamStatus === 401 || error.upstreamStatus === 403 || AUTH_CODES.has(code)) return "auth";
+    if (error.upstreamStatus === 429 || error.classification === "rate_limit") return "rate_limited";
+  }
+  if (signal?.aborted && signal.reason?.name === "TimeoutError") return "timeout";
+  if (error && typeof error === "object" && "name" in error && error.name === "TimeoutError") return "timeout";
+  return "unexpected";
+}
 /** @typedef {{ id: string, text: string }} InputSentence */
 /** @typedef {{ document: "letter" | "resume", text: string, textHash: string, sentences: InputSentence[] }} InputDocument */
 /** @typedef {{ provider?: string, model?: string, resolvedModel?: string, apiKey?: string, baseUrl?: string }} JudgePin */
@@ -202,15 +219,15 @@ export async function judgeMaterials({ writer, judge, documents, sources, signal
   /** @param {"ok" | "unavailable" | "invalid"} status @param {Record<string, unknown>} [extra] */
   const finish = (status, extra = {}) => ({ status, meta: { ...meta, latencyMs: Date.now() - started, ...extra } });
   const sourceTexts = sourceMap(sources);
-  if (!sourceTexts || !Array.isArray(documents) || !documents.length || documents.length > 2) return finish("invalid", { error: "invalid_evidence_packet" });
+  if (!sourceTexts || !Array.isArray(documents) || !documents.length || documents.length > 2) return finish("invalid", { error: "invalid_evidence_packet", errorCode: "invalid_judgment" });
   for (const doc of documents) {
     if (!doc || !["letter", "resume"].includes(doc.document) || typeof doc.text !== "string"
       || doc.textHash !== hashRenderedText(doc.text)
       || JSON.stringify(doc.sentences) !== JSON.stringify(splitSentences(doc.text, doc.document))
-      || !doc.sentences.length) return finish("invalid", { error: "invalid_document_packet" });
+      || !doc.sentences.length) return finish("invalid", { error: "invalid_document_packet", errorCode: "invalid_judgment" });
   }
-  if (new Set(documents.map((doc) => doc.document)).size !== documents.length) return finish("invalid", { error: "duplicate_document" });
-  if (!resolved.configured) return finish("unavailable", { error: "judge_unconfigured" });
+  if (new Set(documents.map((doc) => doc.document)).size !== documents.length) return finish("invalid", { error: "duplicate_document", errorCode: "invalid_judgment" });
+  if (!resolved.configured) return finish("unavailable", { error: "judge_unconfigured", errorCode: "unconfigured" });
   try {
     const packet = { documents, sources };
     const result = await chat({
@@ -227,12 +244,12 @@ export async function judgeMaterials({ writer, judge, documents, sources, signal
     meta.tokensIn = tokenCount(usage.prompt_tokens) ?? tokenCount(usage.input_tokens);
     meta.tokensOut = tokenCount(usage.completion_tokens) ?? tokenCount(usage.output_tokens);
     let judgment;
-    try { judgment = parseStageJson(result.text); } catch { return finish("invalid", { error: "invalid_json" }); }
-    if (!validJudgment(judgment, documents, sourceTexts)) return finish("invalid", { error: "invalid_judgment" });
+    try { judgment = parseStageJson(result.text); } catch { return finish("invalid", { error: "invalid_json", errorCode: "invalid_json" }); }
+    if (!validJudgment(judgment, documents, sourceTexts)) return finish("invalid", { error: "invalid_judgment", errorCode: "invalid_judgment" });
     return { ...finish("ok"), judgment };
   } catch (error) {
     // ProviderApiError messages omit upstream bodies, which may contain prompts or secrets.
     const cause = error instanceof ProviderApiError ? error.message : "unexpected_error";
-    return finish("unavailable", { error: `judge_call_failed: ${cause}` });
+    return finish("unavailable", { error: `judge_call_failed: ${cause}`, errorCode: providerErrorCode(error, signal) });
   }
 }

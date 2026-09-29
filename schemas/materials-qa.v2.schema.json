@@ -33,7 +33,8 @@
         "latencyMs": { "type": "number", "minimum": 0 },
         "tokensIn": { "type": ["integer", "null"], "minimum": 0 },
         "tokensOut": { "type": ["integer", "null"], "minimum": 0 },
-        "error": { "type": "string" }
+        "error": { "type": "string" },
+        "errorCode": { "enum": ["timeout", "auth", "rate_limited", "unconfigured", "invalid_json", "invalid_judgment", "unexpected"] }
       }
     },
     "degraded": { "type": "array", "items": { "type": "string" } },
