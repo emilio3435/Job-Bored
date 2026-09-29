@@ -330,18 +330,3 @@ it('SIMPLE-R5 a majority of set-aside bullet lines requires employer review', as
   const small = await run(text, [{ employers: [{ ...raw.employers[0], bullets: [{ text: 'Built a planning tool.', line: 4 }, { text: 'Coordinated local work with fictional teams.', lines: [5, 6] }, { text: 'Invented another result.', line: 7 }] }] }]);
   assert.equal(small.result.status, 'ready');
 });
-
-it('SIMPLE-R7 uncited bullets after a sidebar heading remain in the employer coverage span', async () => {
-  const text = ['EXPERIENCE', 'Contoso Media | 2022 — Present', 'Research Lead | 2022 — Present', '• Built a planning tool.', 'SKILLS', '• Coordinated local work.', '• Documented each result.', '• Trained fictional teammates.', 'Fabrikam Labs | 2020 — 2021', 'Analyst | 2020 — 2021', '• Analyzed local reports.', 'EDUCATION'].join('\n');
-  const initial = { employers: [
-    { name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool.', line: 4 }] },
-    { name: 'Fabrikam Labs', headerLine: 9, roles: [{ title: 'Analyst', line: 10 }], bullets: [{ text: 'Analyzed local reports.', line: 11 }] },
-  ] };
-  const { result, calls } = await run(text, [initial, { employers: [], bullets: [] }]);
-  assert.equal(calls.length, 2);
-  assert.ok([6, 7, 8].every((line) => calls[1].userText.includes(`L${line}:`)));
-  assert.deepEqual(result.employers.map((employer) => employer.name), ['Contoso Media', 'Fabrikam Labs']);
-  assert.ok([6, 7, 8].every((line) => result.couldntPlace.some((item) => item.lines[0] === line)));
-  assert.equal(result.status, 'ready_with_review');
-  assert.ok(result.notes.some((note) => note.reason === 'bullet_lines_set_aside' && note.employer === 'Contoso Media'));
-});

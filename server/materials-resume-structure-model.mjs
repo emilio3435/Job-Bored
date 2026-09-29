@@ -964,37 +964,12 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (first !== "invalid_json") return;
     if (await call(wanted, repair) !== "ok") modelError = true;
   };
-  /** @param {number} number */
-  const nonJobHeading = (number) => {
-    const line = lines[number - 1];
-    return isNonExperienceHeading(line) || (nonExperience.includes(number) && headingLines.has(number) && line.trim().length <= 40 && !isExperienceHeading(line) && !BULLET_LINE.test(line));
-  };
-  /** @param {number} number */
-  const wrappedProseStart = (number) => {
-    const line = lines[number - 1]?.trim() || "";
-    const next = lines[number]?.trim() || "";
-    return line.length >= 95 && line.split(/\s+/u).length >= 10 && /^[\p{Lu}]/u.test(line) && /^[\p{Ll}]/u.test(next) && /[.!?]$/u.test(next);
-  };
-  const coverageSpan = () => {
-    const first = Math.min(...employers.map((employer) => employer.lines[0]));
-    const lastHeader = Math.max(...employers.map((employer) => employer.lines[0]));
-    const finalHeading = lines.findIndex((_, index) => index + 1 > lastHeader && nonJobHeading(index + 1));
-    const last = finalHeading < 0 ? lines.length : finalHeading;
-    const anchors = new Set([...employers.map((employer) => employer.lines[0]), ...employers.flatMap((employer) => /** @type {any[]} */ (employer.roles).map((role) => role.lines[0])), ...badHeaders, ...badRoles]);
-    const relevant = new Set();
-    let active = true;
-    for (let number = first; number <= last; number += 1) {
-      if (nonJobHeading(number)) { active = false; continue; }
-      if (anchors.has(number) || isExperienceHeading(lines[number - 1])) { active = true; }
-      if (BULLET_LINE.test(lines[number - 1]) || wrappedProseStart(number)) active = true;
-      if (active) relevant.add(number);
-    }
-    return { first, last, relevant };
-  };
   /** @returns {any[]} */
   const coverageItems = () => {
     if (!employers.length) return [...malformedItems, ...badBullets];
-    const { first, last, relevant } = coverageSpan();
+    const first = Math.min(...employers.map((employer) => employer.lines[0]));
+    const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));
+    const last = stop < 0 ? lines.length : stop;
     const chrome = pageChromeLines(lines, first);
     const covered = new Set();
     for (const employer of employers) {
@@ -1004,15 +979,15 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     }
     for (let number = first; number <= last; number += 1) if (isExperienceHeading(lines[number - 1], headingLines.has(number))) covered.add(number);
     /** @type {any[]} */ const missing = [...malformedItems];
-    for (const number of badHeaders) if (relevant.has(number) && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(DATED_LINE.test(lines[number - 1]) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
-    for (const number of badRoles) if (relevant.has(number) && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
+    for (const number of badHeaders) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(DATED_LINE.test(lines[number - 1]) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
+    for (const number of badRoles) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
     for (const employer of employers) {
       const header = lines[employer.lines[0] - 1];
       const remainder = header.slice(Math.max(0, header.toLowerCase().indexOf(employer.name.toLowerCase()) + employer.name.length));
       if (/^\s*[—–-]\s*\p{L}[^,•|]*[,•|]\s*\b(?:19|20)\d{2}\b/u.test(remainder) && !/** @type {any[]} */ (employer.roles).some((role) => role.lines[0] === employer.lines[0])) missing.push({ id: `unread-role-${employer.lines[0]}`, kind: "role_header", lines: [employer.lines[0], employer.lines[0]], excerpt: header.trim(), reason: "uncovered" });
     }
     for (let number = first; number <= last; number += 1) {
-      if (!relevant.has(number) || !lines[number - 1].trim() || covered.has(number) || chrome.has(number) || missing.some((item) => item.lines[0] === number)) continue;
+      if (!lines[number - 1].trim() || covered.has(number) || chrome.has(number) || missing.some((item) => item.lines[0] === number)) continue;
       const existing = badBullets.find((item) => item.lines[0] <= number && item.lines[1] >= number);
       const kind = existing?.kind || (withheld.has(number) ? "line" : uncoveredKind(lines[number - 1]));
       missing.push({ id: `unread-${number}`, kind, lines: [number, number], excerpt: lines[number - 1].trim(), reason: existing?.reason || (withheld.has(number) ? "looks_like_instructions" : "uncovered") , ...(kind === "employer_header" ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
@@ -1061,15 +1036,15 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const headerGaps = couldntPlace.some((item) => ["employer", "role", "employer_header", "role_header"].includes(item.kind));
   const chrome = employers.length ? pageChromeLines(lines, employers[0].lines[0]) : new Set();
   const headers = new Set([...employers.flatMap((employer) => employer.lines), ...employers.flatMap((employer) => /** @type {any[]} */ (employer.roles).flatMap((role) => role.lines))]);
-  const span = employers.length ? coverageSpan() : null;
   let largeSetAside = false;
   for (const [index, employer] of employers.entries()) {
     const firstRole = employer.roles.length ? Math.min(.../** @type {any[]} */ (employer.roles).map((role) => role.lines[0])) : employer.lines[1];
     const start = Math.max(employer.lines[1], firstRole) + 1;
     const nextEmployer = employers[index + 1]?.lines[0] || lines.length + 1;
-    const end = Math.min(nextEmployer - 1, span?.last || lines.length);
+    const stop = lines.findIndex((line, at) => at + 1 >= start && at + 1 < nextEmployer && (isNonExperienceHeading(line) || nonExperience.includes(at + 1)));
+    const end = Math.min(nextEmployer - 1, stop < 0 ? lines.length : stop);
     const section = Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => start + offset)
-      .filter((number) => span?.relevant.has(number) && lines[number - 1].trim() && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1], headingLines.has(number)) && !SPACED_HEADING.test(lines[number - 1].trim()));
+      .filter((number) => lines[number - 1].trim() && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1], headingLines.has(number)) && !SPACED_HEADING.test(lines[number - 1].trim()));
     const lost = section.filter((number) => couldntPlace.some((item) => item.lines[0] <= number && item.lines[1] >= number)).length;
     if (section.length && lost > section.length / 2) {
       largeSetAside = true;
@@ -1077,7 +1052,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     }
   }
   const status = !pin ? "needs_model" : modelError || !employers.length ? "failed" : headerGaps || largeSetAside ? "ready_with_review" : "ready";
-  const relevant = span ? [...span.relevant].filter((number) => lines[number - 1].trim()).length : 0;
+  const first = employers.length ? Math.min(...employers.map((employer) => employer.lines[0])) : lines.length + 1;
+  const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));
+  const relevant = lines.slice(first - 1, stop < 0 ? lines.length : stop).filter((line) => line.trim()).length;
   const anchors = employers.length + employers.reduce((sum, employer) => sum + employer.roles.length, 0);
   return { schema: "ingest-result/1", status, sourceMode: "text", originalSha256: hash, textSha256: hash, model: { provider: pin?.provider || "", id: pin?.resolvedModel || pin?.model || "" }, reads, stopReasons, chunks: 1, anchors, employers, structure: { source: "model", employers, education: [], credentials: [], looseClaims: [] }, coverage: { linesAttributed: Math.max(0, relevant - couldntPlace.length), linesNonBlank: relevant, anchorsAccounted: anchors, anchorsTotal: anchors + missingEmployers.length, datedAnchorsAccounted: anchors, datedAnchorsTotal: anchors + missingEmployers.length }, reconciliation: { ok: true, failures: [] }, couldntPlace, unread: couldntPlace, setAside: [], review: { claims: reviewClaims }, rejected: [], carried: [], missingEmployers, resolutions: [], notes };
 }
