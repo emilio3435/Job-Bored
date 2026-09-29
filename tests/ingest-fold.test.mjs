@@ -87,3 +87,19 @@ it("T-K6-17 compatibility digits inside numeric tokens stay distinct", async () 
   assert.equal((await load()).containsNumberToken("1²M", "1"), false);
   assert.equal((await load()).containsNumberToken("2①M", "21M"), false);
 });
+
+it("T-K6-19 a match ending on an astral character ends after the whole surrogate pair", async () => {
+  const { locateLiteral } = await load();
+  const source = "x\u{1d400}y";
+  const hit = locateLiteral(source, "a", { kind: "name" });
+  assert.ok(hit);
+  assert.equal(hit.tier, "folded");
+  assert.equal(source.slice(hit.start, hit.end), "\u{1d400}");
+});
+
+it("T-K6-20 a bare line break becomes a space and never glues words", async () => {
+  const { joinSoftWrap } = await load();
+  assert.equal(joinSoftWrap("review their weekly\ngoals today"), "review their weekly goals today");
+  assert.equal(joinSoftWrap("review their weekly\r\ngoals today"), "review their weekly goals today");
+  assert.equal(joinSoftWrap("transfor-\nmation"), "transformation");
+});

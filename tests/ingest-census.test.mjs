@@ -105,10 +105,51 @@ it("T-K4-17 title-only dated lines stay in the Contoso block and C03 has four da
   assert.equal(employerLines.length, truth.datedEmployerBlocks);
 });
 
-it("T-K4-19 (guard) no server module exports or imports a rules structure builder", () => {
+it("T-K4-20 an undated f/k/a header emits the header and the formerly clause", async () => {
+  const result = await scan("Contoso Media (f/k/a Litware Radio)\nJan 2020 — Present\n");
+  assert.equal(at(result, "employer_header", 1).length, 1);
+  assert.equal(at(result, "formerly_clause", 1).length, 1);
+  assert.match(at(result, "employer_header", 1)[0].text, /^Contoso Media/);
+});
+
+it("T-K4-21 a parenthetical site is stripped from the employer text", async () => {
+  const result = await scan("Fabrikam Labs (fabrikam.example) Founder • Jan 2025 — Present\n");
+  const [header] = at(result, "employer_header", 1);
+  assert.ok(header);
+  assert.equal(header.text, "Fabrikam Labs");
+  const dash = await scan("Northwind Trading — northwind.example\nJan 2020 — Present\n");
+  assert.equal(at(dash, "employer_header", 1)[0].text, "Northwind Trading");
+});
+
+const EXPORT_NAME = /structure|parseResume/i;
+const MODEL_BACKED = /^(?:structureResumeWithModel|validateModelStructure|experiencesFromStructure)$/;
+
+/** Names a module exports or re-exports, scanned over the whole file so multi-line lists are seen. */
+function exportedNames(code) {
+  const names = [];
+  for (const m of code.matchAll(/\bexport\s+(?:async\s+)?function\s*\*?\s*([\w$]+)/g)) names.push(m[1]);
+  for (const m of code.matchAll(/\bexport\s+(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\b|\(|[\w$]+\s*=>)/g)) names.push(m[1]);
+  for (const m of code.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(",")) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (name) names.push(name);
+    }
+  }
+  if (/\bexport\s*\*\s*from/.test(code)) names.push("*");
+  return names;
+}
+
+it("T-K4-19 (guard) no server module exports or re-exports a rules structure builder", () => {
   const files = readdirSync(path.join(root, "../server"), { recursive: true }).filter((file) => /\.(?:mjs|js|ts)$/.test(file) && statSync(path.join(root, "../server", file)).isFile());
   for (const file of files) {
     const code = readFileSync(path.join(root, "../server", file), "utf8");
-    assert.doesNotMatch(code, /(?:export|import)[^;\n]*\bparseResumeStructure\b/, file);
+    const bad = exportedNames(code).filter((name) => EXPORT_NAME.test(name) && !MODEL_BACKED.test(name));
+    assert.deepEqual(bad, [], file);
   }
+});
+
+it("T-K4-19b (guard) the export scanner sees multi-line and aliased exports", () => {
+  const sample = "function build() {}\nexport {\n  other,\n  build as parseResumeFast,\n};\nexport const structureFromText = () => 1;\n";
+  const bad = exportedNames(sample).filter((name) => EXPORT_NAME.test(name) && !MODEL_BACKED.test(name));
+  assert.deepEqual(bad, ["structureFromText", "parseResumeFast"]);
 });
