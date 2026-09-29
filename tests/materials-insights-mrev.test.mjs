@@ -14,6 +14,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { buildQaRecord } from "../server/materials-qa.mjs";
+import { hashRenderedText, splitSentences } from "../server/materials-judge.mjs";
 import {
   V1_RESUME_FAIL,
   V2_LETTER_FAIL,
@@ -41,6 +43,25 @@ function group(html, name) {
 }
 
 describe("D1 · scorecard v2 reads the K3 record", () => {
+  it("FIX1 P1-1: the whole verdict uses grading model copy for success, unsupported facts and failures", () => {
+    const finalText = "I built a forecast.";
+    const textHash = hashRenderedText(finalText);
+    for (const status of ["ok", "unsupported", "unavailable", "invalid"]) {
+      const judgment = { documents: [{ document: "letter", textHash,
+        sentences: splitSentences(finalText, "letter").map((sentence) => ({ ...sentence, status: status === "unsupported" ? "unsupported" : "supported", reason: "", citations: [] })),
+        ratings: ["role_relevance", "evidence_quality", "voice", "coherence", "economy"].map((dimension) => ({ dimension, score: 4, reason: "Fictional feedback.", sentenceIds: [] })),
+      }] };
+      const qa = buildQaRecord({ document: "letter", runId: "fictional-fix1", finalText, textHash,
+        judge: { status: ["ok", "unsupported"].includes(status) ? "ok" : status, judgment,
+          meta: { model: "fictional-grader", independent: true, errorCode: "timeout" } } });
+      const html = mi.scorecardHtml({ qa }, "cover_letter");
+      const verdict = html.match(/<div class="mat-verdict [^"]*">([\s\S]*?)<\/div>/);
+      assert.ok(verdict);
+      const text = verdict[1].replace(/<[^>]*>/g, " ");
+      assert.doesNotMatch(text, /\bjudge\b/i, status);
+      assert.match(text, /grading model/i, status);
+    }
+  });
   it("should pill the verdict with its score out of 100", () => {
     assert.equal(mi.pillText(V2_LETTER_FAIL), "FAIL · 64 / 100");
     assert.equal(mi.pillText(V2_RESUME_READY_SAME_MODEL), "READY · 86 / 100");
@@ -347,6 +368,13 @@ describe("D6 · the stage timeline speaks K7", () => {
   const k7 = (...pairs) => pairs.map(([stage, status, extra]) => ({ stage, status, ms: 10, ...(extra || {}) }));
   const labels = (steps) => plain(steps.map((s) => s.label));
   const states = (steps) => plain(Object.fromEntries(steps.map((s) => [s.id, s.state])));
+
+  it("FIX1 visual: fallback notes sit outside the exact stage label", () => {
+    const html = mi.timelineHtml({ phase: "drafting", stages: k7(["prepare", "ok"], ["write", "review", { degraded: true, detail: "fell back to rules: output cut off (MAX_TOKENS)" }]) }, "cover_letter");
+    const labels = [...html.matchAll(/<span class="mat-tl__label">([\s\S]*?)<\/span>/g)].map((m) => m[1]);
+    assert.deepEqual(labels, ["Prepare", "Write", "Check &amp; render", "Grade", "Save"]);
+    assert.match(html, /<span class="mat-tl__label">Write<\/span><span class="mat-tl__why">Fell back to rules:/);
+  });
 
   it("should name the K7 steps in plain words", () => {
     const steps = mi.stageTimeline({ phase: "drafting", stages: k7(["prepare", "ok"], ["write", "ok"]) }, "cover_letter");

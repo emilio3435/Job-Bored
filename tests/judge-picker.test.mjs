@@ -321,6 +321,20 @@ async function settle() {
 }
 
 describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field", () => {
+  it("FIX1 P1-2: concurrent Test calls share the in-flight promise", async () => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const { q, field, fetchImpl } = mountField((call) => call.url.endsWith("/judge-models") ? okJson(XAI_ROWS) : pending);
+    q("ApiKey").value = "fictional-key";
+    await field.loadModels();
+    const first = field.test();
+    const second = field.test();
+    release(okJson({ ok: true, ms: 9 }));
+    assert.equal(first, second);
+    assert.equal((await second).ok, true);
+    assert.equal(q("Test").disabled, false);
+    assert.equal(fetchImpl.calls.filter((call) => call.url.endsWith("/judge-test")).length, 1);
+  });
   it("J-FE1a · lists xAI first and selects it by default", () => {
     const { q, field } = mountField(() => okJson(XAI_ROWS));
     const provider = q("Provider");

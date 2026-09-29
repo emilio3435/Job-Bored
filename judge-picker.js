@@ -335,7 +335,7 @@
       touched: false,
       listSeq: 0,
       listOk: false,
-      testing: false,
+      testing: null,
       lastTest: null,
     };
 
@@ -603,8 +603,17 @@
     }
 
     /** POST /api/llm-config/judge-test. Resolves { ok, ms, code, error }. Saves nothing. */
-    async function test() {
-      if (st.testing) return st.lastTest;
+    function test() {
+      if (st.testing) return st.testing;
+      st.testing = Promise.resolve().then(runTest).finally(() => {
+        st.testing = null;
+        testBtn.disabled = false;
+        changed();
+      });
+      return st.testing;
+    }
+
+    async function runTest() {
       const invalid = validate();
       if (invalid) {
         showError(invalid.message, invalid.fields);
@@ -615,7 +624,6 @@
       clearError();
       const form = read();
       const c = choice();
-      st.testing = true;
       testBtn.disabled = true;
       testResult.setAttribute("data-state", "busy");
       testResult.textContent = "Testing the grading model…";
@@ -636,8 +644,6 @@
       } catch (_) {
         reached = false;
       }
-      st.testing = false;
-      testBtn.disabled = false;
       const ms = answer && typeof answer.ms === "number" ? answer.ms : Date.now() - started;
       let outcome;
       if (!reached) {
@@ -659,7 +665,7 @@
     }
 
     function testedCurrent() {
-      return Boolean(st.lastTest && st.lastTest.ok && st.lastTest.combo === combo(read()));
+      return Boolean(!st.testing && st.lastTest && st.lastTest.ok && st.lastTest.combo === combo(read()));
     }
 
     function isDirty() {

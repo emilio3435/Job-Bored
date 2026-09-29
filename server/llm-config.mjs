@@ -240,21 +240,29 @@ function persistLlmConfig(config, env) {
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {LlmConfig | null}
  */
-export function loadLlmConfig(env) {
+export function loadStoredLlmConfig(env) {
   const path = llmConfigPath(env);
   try {
     const raw = readFileSync(path, "utf8");
-    const config = asLlmConfig(JSON.parse(raw));
-    if (!config) return null;
-    // Exact 3.7 was the old generated Flash default. Preserve other pins.
-    const bare = config.model.replace(/^models\//i, "").toLowerCase();
-    if (normalizeProvider(config.provider) !== "gemini" || bare !== "gemini-3.7-flash") {
-      return config;
-    }
-    return { ...config, model: GEMINI_FLASH_FAMILY };
+    return asLlmConfig(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+/** A saved grading model alone does not configure a writing model.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {LlmConfig | null}
+ */
+export function loadLlmConfig(env) {
+  const config = loadStoredLlmConfig(env);
+  if (!config?.provider) return null;
+  // Exact 3.7 was the old generated Flash default. Preserve other pins.
+  const bare = config.model.replace(/^models\//i, "").toLowerCase();
+  if (normalizeProvider(config.provider) !== "gemini" || bare !== "gemini-3.7-flash") {
+    return config;
+  }
+  return { ...config, model: GEMINI_FLASH_FAMILY };
 }
 
 /**
@@ -325,11 +333,15 @@ export function migrateLlmConfigFromEnv(env) {
   const resolved = resolveEnv(env);
   const existing = loadLlmConfig(resolved);
   if (existing) return existing;
-  if (existsSync(llmConfigPath(resolved))) return null;
+  const stored = loadStoredLlmConfig(resolved);
+  if (existsSync(llmConfigPath(resolved)) && !stored) return null;
 
   const pin = pinFromAtsEnv(resolved);
   if (!pin.apiKey && !pin.model && !pin.baseUrl) return null;
-  return persistLlmConfig(normalizeLlmConfig(pin), resolved);
+  return persistLlmConfig(normalizeLlmConfig({ ...pin,
+    ...(stored?.judge ? { judge: stored.judge } : {}),
+    ...(stored?.fallback ? { fallback: stored.fallback } : {}),
+  }), resolved);
 }
 
 /**
@@ -423,7 +435,8 @@ export async function handleGetLlmConfig(req, res, env = process.env, options = 
   const extra = lastDraft ? { lastDraft } : {};
   const loaded = loadLlmConfig(env);
   if (!loaded) {
-    res.status(404).json({ error: "No LLM pin configured.", code: "llm_unconfigured", ...extra });
+    const judge = redactLlmConfig(loadStoredLlmConfig(env)).judge;
+    res.status(404).json({ error: "No LLM pin configured.", code: "llm_unconfigured", ...(judge ? { judge } : {}), ...extra });
     return;
   }
   res.json({ ...redactLlmConfig(loaded), ...extra });
@@ -449,7 +462,7 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
   }
   const body = /** @type {Record<string, unknown>} */ (rawBody);
   const judgeOnly = Object.keys(body).length === 1 && Object.hasOwn(body, "judge");
-  const stored = loadLlmConfig(env);
+  const stored = loadStoredLlmConfig(env);
   const rawProvider = judgeOnly ? asString(stored?.provider) : asString(body.provider);
   const model = judgeOnly ? asString(stored?.model) : asString(body.model);
   const baseUrl = judgeOnly ? asString(stored?.baseUrl) : asString(body.baseUrl);
@@ -496,13 +509,13 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
   } else if (body.judge !== null) {
     judge = asJudgeConfig(body.judge);
     if (!judge) {
-      res.status(400).json({ error: "judge needs a supported provider, model and valid baseUrl.", code: "llm_invalid" });
+      res.status(400).json({ error: "The grading model needs a supported provider, model and valid baseUrl.", code: "llm_invalid" });
       return;
     }
     const sameJudge = stored?.judge
       && stored.judge.provider === judge.provider
       && asString(stored.judge.baseUrl).replace(/\/+$/, "") === asString(judge.baseUrl).replace(/\/+$/, "");
-    if (body.judge && typeof body.judge === "object" && (!("apiKey" in body.judge) || body.judge.apiKey === "")) {
+    if (body.judge && typeof body.judge === "object" && (!("apiKey" in body.judge) || (typeof body.judge.apiKey === "string" && !body.judge.apiKey.trim()))) {
       judge.apiKey = sameJudge && stored?.judge ? stored.judge.apiKey : "";
     }
   }
@@ -518,7 +531,6 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
   }
   const saved = judgeOnly
     ? persistLlmConfig(/** @type {LlmConfig} */ (/** @type {unknown} */ ({
-      provider: "", model: "", apiKey: "", baseUrl: "",
       ...(rawStored || {}), updatedAt: new Date().toISOString(), judge,
     })), env)
     : await writeLlmConfig(
@@ -560,11 +572,11 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
   const model = asString(body.model);
   const baseUrl = asString(body.baseUrl);
   if (!provider) {
-    res.status(400).json({ error: "judge test needs a supported provider.", code: "llm_invalid" });
+    res.status(400).json({ error: "The grading model test needs a supported provider.", code: "llm_invalid" });
     return;
   }
   if (!model || model.length > 200) {
-    res.status(400).json({ error: "judge test needs a model.", code: "llm_invalid" });
+    res.status(400).json({ error: "The grading model test needs a model.", code: "llm_invalid" });
     return;
   }
   if (baseUrl && (!isHttpUrl(baseUrl) || baseUrl.length > 2048)) {
@@ -573,7 +585,7 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
   }
   let apiKey = asString(body.apiKey);
   if (!apiKey) {
-    const stored = loadLlmConfig(env);
+    const stored = loadStoredLlmConfig(env);
     const sameTarget =
       stored?.judge
       && stored.judge.provider === provider
@@ -618,7 +630,7 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
       ok: false,
       ms: Date.now() - startedAt,
       structured: false,
-      error: error instanceof Error && error.message ? error.message : "The judge test failed.",
+      error: error instanceof Error && error.message ? error.message : "The grading model test failed.",
       code,
       retryable,
       ...(upstreamStatus === undefined ? {} : { upstreamStatus }),

@@ -73,7 +73,7 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-tl__state {
   font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3);
 }
 body.jb-v2 [data-region="role"] .brief-materials .mat-tl__label { min-width: 0; color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-tl__why { display: block; color: var(--jb-warn); }
+body.jb-v2 [data-region="role"] .brief-materials .mat-tl__why { grid-column: 2; display: block; color: var(--jb-warn); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-tl__step--done .mat-tl__state { color: var(--jb-accent-ink); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-tl__step--running .mat-tl__state { color: var(--jb-action); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-tl__step--running .mat-tl__label { font-weight: 600; }
