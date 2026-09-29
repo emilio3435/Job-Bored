@@ -20,6 +20,7 @@ it("T-K4-02 English date grammars and trailing free text are anchored", async ()
     ["Summer 2017", "2017", null],
     ["Early 2026 — Present", "2026", "present"],
     ["Mar 2017 — 2026 • Springfield, ST • three progressive roles", "2017-03", "2026"],
+    ["Contoso Media (formerly Litware Radio) — Springfield Market 8+ Years · Four Roles Sep 2017 – 2026", "2017-09", "2026"],
   ];
   for (const [line, start, end] of cases) {
     const hit = (await scan(line)).anchors.find((anchor) => anchor.kind === "date_range");
@@ -40,6 +41,12 @@ it("T-K4-04 an undated employer above a date-first line keeps its formerly claus
   assert.equal(at(result, "employer_header", 6)[0].text, truth.employers[0].name);
   assert.equal(at(result, "formerly_clause", 6)[0].text, "formerly Litware Radio");
   assert.equal(at(result, "employer_header", 3).length, 0, "summary mention is not a header");
+  const umbrella = await scan("PROFESSIONAL EXPERIENCE\nContoso Media (formerly Litware Radio) — Springfield Market 8+ Years · Four Roles Sep 2017 – 2026\nSales Manager, Contoso Media May 2021 – 2026\nKey Account Manager → Senior Key Account Manager, Litware Radio May 2019 – May 2021");
+  assert.equal(at(umbrella, "employer_header", 2)[0]?.text, "Contoso Media (formerly Litware Radio)");
+  assert.equal(at(umbrella, "formerly_clause", 2).length, 1);
+  assert.equal(at(umbrella, "employer_header", 3).length, 0);
+  assert.equal(at(umbrella, "employer_header", 4).length, 0);
+  for (const line of [2, 3, 4]) assert.equal(at(umbrella, "date_range", line).length, 1);
 });
 
 it("T-K4-05 numbered letter-spaced headings open sections including unknown ventures", async () => {
@@ -50,6 +57,17 @@ it("T-K4-05 numbered letter-spaced headings open sections including unknown vent
   assert.ok(result.sections.some((section) => section.kind === "unknown" && section.lines[0] === 11 && section.lines[1] >= 34));
   assert.equal(at(result, "employer_header", 12)[0].sectionGuess, "unknown");
   assert.equal(at(result, "employer_header", 13)[0].sectionGuess, "unknown");
+  for (const heading of ["PROFESSIONAL EXPERIENCE", "EARLIER EXPERIENCE", "EXPERIENCE", "WORK EXPERIENCE", "EMPLOYMENT", "WORK HISTORY", "CAREER HISTORY"]) {
+    const found = await scan(`${heading}\nContoso Media\nJan 2020 – Present`);
+    assert.equal(at(found, "section_heading", 1)[0]?.sectionGuess, "experience", heading);
+    assert.equal(at(found, "employer_header", 2)[0]?.sectionGuess, "experience", heading);
+  }
+  for (const heading of ["PROFESSIONAL SUMMARY", "CORE COMPETENCIES", "EDUCATION", "TECHNICAL SKILLS", "CERTIFICATIONS & LANGUAGES"]) {
+    const found = await scan(`PROFESSIONAL EXPERIENCE\nContoso Media\nJan 2020 – Present\n${heading}\nPython (2019)\nColorado College — Colorado Springs 2014`);
+    assert.equal(at(found, "section_heading", 4).length, 1, heading);
+    assert.equal(at(found, "employer_header", 6).length, 0, heading);
+    assert.equal(at(found, "employer_header", 5).length, 0, heading);
+  }
 });
 
 it("T-K4-07 domain suffix headers keep the employer name without the site", async () => {
@@ -103,6 +121,13 @@ it("T-K4-17 title-only dated lines stay in the Contoso block and C03 has four da
     assert.ok(result.anchors.some((anchor) => anchor.kind === "date_range" && anchor.lines[0] >= employer.block[0] && anchor.lines[0] <= employer.block[1]), employer.name);
   }
   assert.equal(employerLines.length, truth.datedEmployerBlocks);
+  const mixed = await scan("PROFESSIONAL EXPERIENCE\nFounder & AI Engineer | Fabrikam Labs (fabrikam.example) — Springfield, ST 2025 – Present\nFounder | Northwind Trading & JobBored — Springfield, ST 2024 – Present\nEARLIER EXPERIENCE\nCofounder, Tailspin Studio — Automated focus-group recruitment\n2017 – 2019\nDigital Marketing Strategist, Primary Residential Mortgage Inc. — Built campaigns\n2014 – 2016\nEDUCATION\nColorado College — Colorado Springs 2014");
+  assert.equal(at(mixed, "employer_header", 2)[0]?.text, "Fabrikam Labs");
+  assert.equal(at(mixed, "employer_header", 3)[0]?.text, "Northwind Trading & JobBored");
+  assert.equal(at(mixed, "employer_header", 5)[0]?.text, "Tailspin Studio");
+  assert.equal(at(mixed, "employer_header", 7)[0]?.text, "Primary Residential Mortgage Inc.");
+  assert.equal(at(mixed, "employer_header", 10).length, 0);
+  for (const line of [2, 3, 6, 8]) assert.equal(at(mixed, "date_range", line).length, 1);
 });
 
 it("T-K4-20 an undated f/k/a header emits the header and the formerly clause", async () => {
