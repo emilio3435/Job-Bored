@@ -23,6 +23,10 @@ it("T-K5-02 prompts numbered source lines and withholds instruction lines", asyn
 it("T-K5-03 stored claims are code-copied from source", async () => {
   const { result } = await run(simple, [reply()]);
   assert.ok(simple.includes(result.employers[0].claims[0].text));
+  const fuzzy = reply(); fuzzy.employers[0].claims[0].text = "Built a planning tool, for local teams and their weekly goals.";
+  const corrected = await run(simple, [fuzzy]);
+  assert.equal(corrected.result.employers[0].claims[0].tier, "fuzzy");
+  assert.equal(corrected.result.employers[0].claims[0].text, "Built a planning tool for local teams and their weekly goals.");
 });
 it("T-K5-04 an out-of-range pointer costs only its item", async () => {
   const raw = reply(); raw.employers[0].claims[0].lines = [99, 99];
@@ -92,6 +96,10 @@ it("T-K6-16 fuzzy grounding rejects antonym, inserted not, digit swap, and long 
   const { result } = await run(simple, [raw]);
   assert.equal(result.employers[0].claims.length, 0);
   assert.equal(result.review.claims.filter((item) => item.kind === "rejected").length, 4);
+  const numberSource = `${simple}\nRevenue reached 1.5M in the fictional pilot.`;
+  const numberReply = reply(); numberReply.employers[0].claims.push({ text: "Revenue reached 1 in the fictional pilot.", lines: [5, 5] });
+  const numbered = await run(numberSource, [numberReply]);
+  assert.ok(numbered.result.rejected.some((item) => item.valuePreview.startsWith("Revenue reached 1 ")));
 });
 it("T-K6-18 repeated title and Present resolve locally with a note", async () => {
   const source = `${simple}\nResearch Lead • Jan 2020 — Present`;

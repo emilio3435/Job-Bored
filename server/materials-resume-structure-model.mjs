@@ -649,6 +649,11 @@ function occurrences(source, value) {
   const hay = foldForMatch(source);
   const needle = foldForMatch(value).text;
   if (!needle) return [];
+  const numbers = findNumberTokens(source);
+  const soleNumber = findNumberTokens(value);
+  if (soleNumber.length === 1 && soleNumber[0].start === 0 && soleNumber[0].end === value.length) return numbers
+    .filter((token) => foldForMatch(token.value).text === needle)
+    .map((token) => ({ start: token.start, end: token.end, tier: token.value === value ? "exact" : "folded" }));
   const result = [];
   let at = 0;
   while ((at = hay.text.indexOf(needle, at)) >= 0) {
@@ -657,10 +662,45 @@ function occurrences(source, value) {
     const next = hay.text[end] || "";
     const numeric = /^[\d$€£+−-]/u.test(needle) && findNumberTokens(value).length > 0;
     const bounds = numeric ? !/[\p{L}\p{N}.$€£%]/u.test(prior) && !/[\p{L}\p{N}.%]/u.test(next) : !/[\p{L}\p{N}]/u.test(prior) && !/[\p{L}\p{N}]/u.test(next);
-    if (bounds) result.push({ start: hay.map[at], end: hay.map[end - 1] + 1, tier: source.slice(hay.map[at], hay.map[end - 1] + 1) === value ? "exact" : "folded" });
+    const startRaw = hay.map[at]; const endRaw = hay.map[end - 1] + 1;
+    const bisectsNumber = numbers.some((token) => (startRaw > token.start && startRaw < token.end) || (endRaw > token.start && endRaw < token.end));
+    if (bounds && !bisectsNumber) result.push({ start: startRaw, end: endRaw, tier: source.slice(startRaw, endRaw) === value ? "exact" : "folded" });
     at += 1;
   }
   return result;
+}
+
+/** Claim-only punctuation tolerance: identical ordered tokens and at most two separator edits. @param {string} source @param {string} value */
+function fuzzyClaimOccurrences(source, value) {
+  const raw = foldForMatch(source);
+  const wanted = foldForMatch(value).text;
+  /** @param {string} text */
+  const tokens = (text) => [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) => ({ text: match[0], start: match.index, end: match.index + match[0].length }));
+  const sourceTokens = tokens(raw.text); const targetTokens = tokens(wanted);
+  if (!targetTokens.length) return [];
+  /** @param {string} text */
+  const separators = (text) => text.replace(/[\p{L}\p{N}]/gu, "");
+  /** @param {string} a @param {string} b */
+  const withinTwo = (a, b) => {
+    let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i += 1) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j += 1) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      row = next;
+    }
+    return row[b.length] <= 2;
+  };
+  const matches = [];
+  for (let i = 0; i + targetTokens.length <= sourceTokens.length; i += 1) {
+    if (!targetTokens.every((token, offset) => token.text === sourceTokens[i + offset].text)) continue;
+    const start = sourceTokens[i].start; const end = sourceTokens[i + targetTokens.length - 1].end;
+    if (!withinTwo(separators(raw.text.slice(start, end)), separators(wanted))) continue;
+    let rawEnd = raw.map[end - 1] + 1;
+    const trailing = /[.,;:!?]$/u.exec(value)?.[0];
+    if (trailing && source[rawEnd] === trailing) rawEnd += 1;
+    matches.push({ start: raw.map[start], end: rawEnd, tier: "fuzzy" });
+  }
+  return matches;
 }
 
 /** Complete top-level employer objects are kept when JSON ends mid-object. @param {string} source */
@@ -737,7 +777,8 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (kind === "claim" && cited.trim().length < 12) { reject(kind, value, range, "source_quote_too_short"); return null; }
     if (!/[\p{L}\p{N}]/u.test(cited)) { reject(kind, value, range, "source_quote_missing_token"); return null; }
     if (cited.length > Math.max(500, value.length * 20)) { reject(kind, value, range, "source_quote_too_broad"); return null; }
-    const matches = occurrences(cited, value.trim());
+    const literalMatches = occurrences(cited, value.trim());
+    const matches = literalMatches.length || kind !== "claim" ? literalMatches : fuzzyClaimOccurrences(cited, value.trim());
     if (matches.length !== 1) { reject(kind, value, range, matches.length ? "ambiguous_source_quote" : "value_not_in_source_quote"); return null; }
     const match = matches[0];
     if (occurrences(source, value.trim()).length > 1) notes.push({ kind, reason: "local_range_tiebreak", lines: range });
@@ -752,7 +793,8 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (!normalized) { reject(kind, value, range, "invalid_date"); return null; }
     const localEnd = kind === "employer_date" && range[0] === range[1] ? Math.min(sourceLines.length, range[1] + 1) : range[1];
     const cited = sourceLines.slice(range[0] - 1, localEnd).join("\n");
-    if (!occurrences(cited, String(value)).length) { reject(kind, value, range, "value_not_in_source_quote"); return null; }
+    const anchorDate = census.anchors.some((anchor) => anchor.kind === "date_range" && anchor.lines[0] >= range[0] && anchor.lines[0] <= localEnd && (anchor.dateRange?.start === normalized || anchor.dateRange?.end === normalized));
+    if (!occurrences(cited, String(value)).length && !anchorDate) { reject(kind, value, range, "value_not_in_source_quote"); return null; }
     if (occurrences(source, String(value)).length > occurrences(cited, String(value)).length) notes.push({ kind, reason: "local_range_tiebreak", lines: range });
     return normalized;
   };
