@@ -44,6 +44,14 @@ it("J-BE2a: provider timeout has a stable timeout code", async () => {
   assert.equal(result.meta.errorCode, "timeout");
 });
 
+it("J-BE2b: HTTP 401 has an auth code without exposing the provider body", async () => {
+  const fetchImpl = async () => ({ ok: false, status: 401, json: async () => ({ error: { code: "invalid_api_key", message: "example private text" } }) });
+  const result = await judgeMaterials({ writer, judge, documents, sources, fetchImpl });
+  assert.equal(result.status, "unavailable");
+  assert.equal(result.meta.errorCode, "auth");
+  assert.ok(!JSON.stringify(result).includes("example private text"));
+});
+
 const GEMINI_SCHEMA_KEYS = new Set([
   "type", "format", "title", "description", "enum", "items", "minItems", "maxItems",
   "minimum", "maximum", "properties", "required", "propertyOrdering", "nullable",
