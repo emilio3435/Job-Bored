@@ -123,13 +123,13 @@ it("T-K4-17 title-only dated lines stay in the Contoso block and C03 has four da
     assert.ok(result.anchors.some((anchor) => anchor.kind === "date_range" && anchor.lines[0] >= employer.block[0] && anchor.lines[0] <= employer.block[1]), employer.name);
   }
   assert.equal(employerLines.length, truth.datedEmployerBlocks);
-  const mixed = await scan("PROFESSIONAL EXPERIENCE\nFounder & AI Engineer | Fabrikam Labs (fabrikam.example) — Springfield, ST 2025 – Present\nFounder | Northwind Trading & JobBored — Springfield, ST 2024 – Present\nEARLIER EXPERIENCE\nCofounder, Tailspin Studio — Automated focus-group recruitment\n2017 – 2019\nDigital Marketing Strategist, Primary Residential Mortgage Inc. — Built campaigns\n2014 – 2016\nEDUCATION\nColorado College — Colorado Springs 2014");
+  const mixed = await scan("PROFESSIONAL EXPERIENCE\nFounder & AI Engineer | Fabrikam Labs (fabrikam.example) — Springfield, ST 2025 – Present\nFounder | Northwind Trading & JobBored — Springfield, ST 2024 – Present\nEARLIER EXPERIENCE\nCofounder, Tailspin Studio — Automated focus-group recruitment 2017 – 2019\nDigital Marketing Strategist, Primary Residential Mortgage Inc. — Built campaigns 2014 – 2016\nEDUCATION\nColorado College — Colorado Springs 2014");
   assert.equal(at(mixed, "employer_header", 2)[0]?.text, "Fabrikam Labs");
   assert.equal(at(mixed, "employer_header", 3)[0]?.text, "Northwind Trading & JobBored");
   assert.equal(at(mixed, "employer_header", 5)[0]?.text, "Tailspin Studio");
-  assert.equal(at(mixed, "employer_header", 7)[0]?.text, "Primary Residential Mortgage Inc.");
-  assert.equal(at(mixed, "employer_header", 10).length, 0);
-  for (const line of [2, 3, 6, 8]) assert.equal(at(mixed, "date_range", line).length, 1);
+  assert.equal(at(mixed, "employer_header", 6)[0]?.text, "Primary Residential Mortgage Inc.");
+  assert.equal(at(mixed, "employer_header", 8).length, 0);
+  for (const line of [2, 3, 5, 6]) assert.equal(at(mixed, "date_range", line).length, 1);
 });
 
 it("T-K4-20 an undated f/k/a header emits the header and the formerly clause", async () => {

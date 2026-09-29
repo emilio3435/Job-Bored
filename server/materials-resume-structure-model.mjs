@@ -749,6 +749,14 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const census = censusResume(source);
   const withheld = new Set(sourceLines.flatMap((line, index) => INSTRUCTION_RE.test(line) ? [index + 1] : []));
   const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header");
+  /** @param {number} number */
+  const employerBlockAt = (number) => {
+    const section = census.sections.find((part) => number >= part.lines[0] && number <= part.lines[1]);
+    const head = headers.filter((anchor) => anchor.lines[0] <= number && (!section || anchor.lines[0] >= section.lines[0])).at(-1);
+    if (!head) return null;
+    const next = headers.find((anchor) => anchor.lines[0] > head.lines[0] && (!section || anchor.lines[0] <= section.lines[1]));
+    return { head, end: Math.min(next ? next.lines[0] - 1 : sourceLines.length, section?.lines[1] ?? sourceLines.length) };
+  };
   const sha256 = sha(source);
   /** @type {any[]} */ const rejected = [];
   /** @type {any[]} */ const reviewClaims = [];
@@ -937,11 +945,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     const repairItems = missingHeaders.length ? missingHeaders : [...reconciled.unaccounted, ...blockingSetAside, ...reconciled.residual, ...rejected];
     for (const item of repairItems) if (Array.isArray(item.lines)) {
       for (let n = item.lines[0]; n <= item.lines[1]; n += 1) if (n >= 1 && n <= sourceLines.length) target.add(n);
-      if (item.kind === "employer_header") {
-        const next = headers.find((anchor) => anchor.lines[0] > item.lines[0]);
-        const section = census.sections.find((part) => part.lines[0] <= item.lines[0] && part.lines[1] >= item.lines[0]);
-        const end = Math.min(next?.lines[0] ? next.lines[0] - 1 : sourceLines.length, section?.lines[1] ?? sourceLines.length);
-        for (let n = item.lines[0]; n <= end; n += 1) target.add(n);
+      if (["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(item.kind)) {
+        const block = employerBlockAt(item.lines[0]);
+        if (block) for (let n = block.head.lines[0]; n <= block.end; n += 1) target.add(n);
       }
     }
     if (!target.size && !parseable) for (const number of allLines) target.add(number);
@@ -960,7 +966,12 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   if (!pin) for (const item of unread) item.reason = "needs_model";
   else if (reads === 2) for (const item of unread) if (item.reason === "unaccounted_anchor") item.reason = "ingest_budget_exceeded";
   for (const item of rejected.filter((entry) => entry.kind === "employer" && entry.reason === "needs_confirmation")) unread.push({ id: `unread-${unread.length + 1}`, kind: "employer", lines: item.lines, excerpt: item.valuePreview, aliasKey: employerKey(item.valuePreview), reason: "needs_confirmation" });
-  const missingEmployers = unread.filter((item) => item.kind === "employer_header" || item.kind === "employer").map((item) => ({ aliasKey: item.aliasKey || employerKey(item.excerpt), displayName: sourceLines[item.lines[0] - 1]?.trim() || item.excerpt, lines: item.lines }));
+  const missingEmployers = [...new Map(unread.flatMap((item) => {
+    if (item.kind === "employer_header" || item.kind === "employer") return [{ aliasKey: item.aliasKey || employerKey(item.excerpt), displayName: sourceLines[item.lines[0] - 1]?.trim() || item.excerpt, lines: item.lines }];
+    if (!["date_range", "fallback_date", "formerly_clause"].includes(item.kind)) return [];
+    const head = employerBlockAt(item.lines[0])?.head;
+    return head ? [{ aliasKey: employerKey(head.text), displayName: sourceLines[head.lines[0] - 1]?.trim() || head.text, lines: head.lines }] : [];
+  }).map((item) => [`${item.aliasKey}:${item.lines[0]}`, item])).values()];
   if (source.trim() && !census.anchors.length) reconciled.reconciliation.failures.push("census_empty");
   for (const item of reconciled.setAside) if (item.kind !== "employer_header" && item.kind !== "formerly_clause") reviewClaims.push({ id: `claim-${reviewClaims.length + 1}`, kind: "set_aside", lines: item.lines, reason: item.reason });
   const uniqueRejected = [...new Map(rejected.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview}`, item])).values()];

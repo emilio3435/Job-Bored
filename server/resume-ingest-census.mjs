@@ -18,7 +18,7 @@ const DATE_RANGE_RE = new RegExp(`\\b(${DATE_PART})\\s*(?:[–—-]|\\bto\\b)\\s
 const FALLBACK_YEAR_RE = /\b(?:19[5-9]\d|20\d\d)\b/gu;
 const SITE_RE = /^(.+?)\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$)/iu;
 const PAREN_SITE_RE = /\s*\((?:https?:\/\/)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^)\s]*)?\)/iu;
-const TITLE_RE = /\b(?:Co-founder|Founder|Chief|Director|Manager|Executive|Engineer|Designer|Analyst|Specialist|President|Officer|Consultant|Developer|Lead)\b/iu;
+const TITLE_RE = /\b(?:Co-?founder|Founder|Chief|Director|Manager|Executive|Engineer|Designer|Analyst|Specialist|President|Officer|Consultant|Developer|Lead|Strategist)\b/iu;
 const ALIAS_RE = /\((?:formerly|now|acquired by|f\/k\/a|fka|previously)\s+[^)]+\)|\b(?:formerly|now|acquired by|f\/k\/a|fka|previously)\s+[^,;•]+/giu;
 
 /** @param {string} part */
@@ -40,16 +40,19 @@ function dateRange(line) {
   return { raw, start: normalizeDate(match[1] ?? match[3]), end: match[2] ? normalizeDate(match[2]) : null, index: match.index };
 }
 
-/** @param {string} line */
-function sectionHeading(line) {
+/** @param {string} line @param {string} [next] */
+function sectionHeading(line, next) {
   const trimmed = line.trim();
   const spaced = /^(?:[A-Z]\s+){2,}[A-Z](?:\s+\d{1,3})?$/u.test(trimmed);
-  const plain = /^(?:EXPERIENCE|EDUCATION|SKILLS|SUMMARY|VENTURES|PROJECTS)(?:\s+\d{1,3})?$/iu.test(trimmed);
-  if (!spaced && !plain) return null;
+  const plain = /^(?:EXPERIENCE|EDUCATION|SKILLS|SUMMARY|VENTURES|PROJECTS|EMPLOYMENT)(?:\s+\d{1,3})?$/iu.test(trimmed);
+  const caps = /^(?:(?:[A-Z][A-Z/-]*|&)\s+){1,5}[A-Z][A-Z/-]*(?:\s+\d{1,3})?$/u.test(trimmed);
+  if (!spaced && !plain && !caps) return null;
+  if (caps && !spaced && /@|\b\d{3}[-.)\s]\d{3}[-.\s]\d{4}\b/u.test(next || "")) return null;
   const word = trimmed.replace(/\s|\d/g, "").toLowerCase();
-  if (word.includes("experience")) return "experience";
+  if (/experience|employment|workhistory|careerhistory/u.test(word)) return "experience";
   if (word.includes("education")) return "education";
-  if (word.includes("skill")) return "skills";
+  if (/skill|competenc/u.test(word)) return "skills";
+  if (/certification|language/u.test(word)) return "credentials";
   if (word.includes("summary")) return "summary";
   return "unknown";
 }
@@ -57,6 +60,19 @@ function sectionHeading(line) {
 /** @param {string} line @param {(CensusDateRange & {index: number}) | null} date @param {string | undefined} next @param {string | undefined} afterNext @param {boolean} previousHeader */
 function employerName(line, date, next, afterNext, previousHeader) {
   if (!line || /^(?:summary|profile|objective)\s*:/iu.test(line) || /@|\b\d{3}-\d{3}-\d{4}\b/u.test(line)) return null;
+  const beforeDate = date ? line.slice(0, date.index).trim() : line;
+  const earlierRole = /^(.+?),\s+(.+?)\s+[—–]\s+\S/u.exec(beforeDate);
+  if (earlierRole && TITLE_RE.test(earlierRole[1])) return earlierRole[2].trim();
+  if (date && date.index > 0) {
+    const before = beforeDate;
+    const roleAndEmployer = /^(.+?)\s+\|\s+(.+)$/u.exec(before);
+    if (roleAndEmployer && TITLE_RE.test(roleAndEmployer[1])) {
+      const employer = roleAndEmployer[2].replace(PAREN_SITE_RE, "").split(/\s+[—–]\s+/u)[0].trim();
+      if (employer) return employer;
+    }
+    const umbrella = /^(.+?\((?:formerly|previously|now|f\/k\/a|fka|acquired by)\s+[^)]+\))\s+[—–]\s+.+$/iu.exec(before);
+    if (umbrella && !TITLE_RE.test(umbrella[1])) return umbrella[1].trim();
+  }
   const site = SITE_RE.exec(line);
   if (site) return site[1].trim();
   if (PAREN_SITE_RE.test(line)) return employerName(line.replace(PAREN_SITE_RE, ""), date, next, afterNext, previousHeader);
@@ -87,7 +103,7 @@ export function censusResume(source) {
     const ck = createHash("sha256").update(foldForMatch(raw).text).digest("hex").slice(0, 12);
     /** @param {CensusAnchor["kind"]} kind @param {string} text @param {{dateRange?: CensusDateRange}} [extra] */
     const add = (kind, text, extra = {}) => anchors.push({ id: `a-${number}-${kind}-${anchors.length}`, kind, lines: [number, number], ck, text, sectionGuess, ...extra });
-    const heading = sectionHeading(line);
+    const heading = sectionHeading(line, lines[index + 1]);
     if (heading) {
       if (sections.length) sections[sections.length - 1].lines[1] = number - 1;
       sectionGuess = heading;
@@ -109,7 +125,7 @@ export function censusResume(source) {
       if (years.length >= 2 || (years.length >= 1 && /\b(?:present|current|now)\b/iu.test(line))) add("fallback_date", line);
     }
     /** @type {string | null} */
-    const name = sectionGuess !== "education" ? employerName(line, date, lines[index + 1]?.trim(), lines[index + 2]?.trim(), previousHeader) : null;
+    const name = ["experience", "unknown"].includes(sectionGuess) ? employerName(line, date, lines[index + 1]?.trim(), lines[index + 2]?.trim(), previousHeader) : null;
     if (name) add("employer_header", name);
     for (const alias of line.matchAll(ALIAS_RE)) add("formerly_clause", alias[0].replace(/^\(|\)$/gu, ""));
     if (previousHeader && !date && !name) add("descriptor", line);

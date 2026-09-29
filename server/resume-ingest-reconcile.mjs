@@ -99,7 +99,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
   const chrome = pageChromeLines(lines, census);
   const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header" && !employers.some((employer) =>
     /** @type {any[]} */ (employer.roles || []).some((role) => anchor.lines[0] > employer.lines[0] && overlap(role.lines, anchor.lines) && folded(role.title).startsWith(folded(anchor.text)))));
-  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education");
+  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && ["experience", "unknown"].includes(anchor.sectionGuess));
   /** @type {any[]} */ const unaccounted = [];
   /** @type {any[]} */ const setAside = [];
   /** @type {any[]} */ const residual = [];
@@ -175,6 +175,12 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
       if (!closed && groundedUmbrellaContext) {
         setAside.push({ ...visible(anchor, "employer_umbrella_context"), disposition: "umbrella_context", reviewLevel: "claim" });
         continue;
+      }
+      if (!closed && date && !roleEntries.length && /\b\d+\+?\s+years?\b.*\broles?\b/iu.test(lines[number - 1])) {
+        const umbrella = inBlock.find(({ employer, head }) => head?.lines[0] === number &&
+          folded(lines[number - 1]).startsWith(folded(head.text)) && employer.start === date.start &&
+          employer.end === date.end && !usedEmployerDates.has(employer));
+        if (umbrella) { closed = true; usedEmployerDates.add(umbrella.employer); }
       }
       if (!closed && date && !roleEntries.length) {
         const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer) && !/[\p{L}\p{N}]/u.test(datedLineRemainder(lines[number - 1], date.raw, employer, head, lines[head.lines[0] - 1], sourceAliases)));
