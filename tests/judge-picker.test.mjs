@@ -321,6 +321,66 @@ async function settle() {
 }
 
 describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field", () => {
+  it("FIX2 P2: selecting a dropdown model clears a hidden Advanced override for Test and Save", async () => {
+    const { q, field, fetchImpl } = mountField((call) => call.url.endsWith("/judge-models") ? okJson(XAI_ROWS) : okJson({ ok: true, ms: 9 }));
+    q("ApiKey").value = "fictional-key";
+    await field.loadModels();
+    q("Advanced").open = true;
+    q("CustomModel").value = "fictional-hidden-model";
+    q("CustomModel").dispatch("input", {});
+    q("Advanced").open = false;
+    q("Model").value = "grok-4.6";
+    q("Model").dispatch("change", {});
+    await field.test();
+    assert.equal(q("CustomModel").value, "");
+    assert.equal(field.pin().model, "grok-4.6");
+    assert.equal(fetchImpl.calls.find((call) => call.url.endsWith("/judge-test")).body.model, "grok-4.6");
+  });
+
+  for (const [suffix, event, value] of [
+    ["Provider", "change", "openai"],
+    ["ApiKey", "input", "fictional-new-key"],
+    ["ApiKey", "change", ""],
+    ["BaseUrl", "input", "https://fictional-new.example/v1"],
+    ["BaseUrl", "change", "https://fictional-new.example/v1"],
+  ]) {
+    for (const failed of [false, true]) {
+      it(`FIX2 P3: ${suffix} ${event} invalidates an in-flight catalog ${failed ? "error" : "success"}`, async () => {
+        let release;
+        const pending = new Promise((resolve) => { release = resolve; });
+        const { q, field } = mountField(() => pending);
+        q("ApiKey").value = "fictional-original-key";
+        const old = field.loadModels();
+        q(suffix).value = value;
+        q(suffix).dispatch(event, {});
+        release(failed ? okJson({ error: "Fictional stale catalog failure." }, 401) : okJson(XAI_ROWS));
+        assert.equal(await old, false);
+        assert.equal(q("Model").children.some((row) => row.value === "grok-4.7"), false);
+        assert.doesNotMatch(q("Error").textContent, /Fictional stale catalog failure/);
+        assert.equal(q("Retry").hidden, true);
+      });
+    }
+  }
+
+  it("FIX2 P3: a new Local endpoint catalog wins when the old endpoint replies later", async () => {
+    let releaseOld;
+    let n = 0;
+    const pending = new Promise((resolve) => { releaseOld = resolve; });
+    const fresh = { models: [{ id: "fictional-new-local-model", label: "New local" }], recommended: "fictional-new-local-model" };
+    const { q, field, fetchImpl } = mountField(() => ++n === 1 ? pending : okJson(fresh));
+    q("Provider").value = "local";
+    q("BaseUrl").value = "http://old-fictional.example:11434/v1";
+    const old = field.loadModels();
+    q("BaseUrl").value = "http://new-fictional.example:11434/v1";
+    q("BaseUrl").dispatch("input", {});
+    q("BaseUrl").dispatch("change", {});
+    await settle();
+    assert.equal(q("Model").value, "fictional-new-local-model");
+    releaseOld(okJson({ models: [{ id: "fictional-old-local-model" }], recommended: "fictional-old-local-model" }));
+    assert.equal(await old, false);
+    assert.equal(q("Model").value, "fictional-new-local-model");
+    assert.equal(fetchImpl.calls.at(-1).body.baseUrl, "http://new-fictional.example:11434/v1");
+  });
   it("FIX1 P1-2: concurrent Test calls share the in-flight promise", async () => {
     let release;
     const pending = new Promise((resolve) => { release = resolve; });

@@ -287,6 +287,53 @@ describe("J-FE3 · the offer is one collapsed line", () => {
 });
 
 describe("B2 grading model offer — Save & continue", () => {
+  it("FIX2 P2: wizard Test and Save both use the visible dropdown after Advanced is collapsed", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch() });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    field(env, "Advanced").open = true;
+    field(env, "CustomModel").value = "fictional-hidden-model";
+    field(env, "CustomModel").dispatch("input", {});
+    field(env, "Advanced").open = false;
+    field(env, "Model").value = "grok-4.6";
+    field(env, "Model").dispatch("change", {});
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(callsTo(env, JUDGE_TEST_PATH)[0].body.model, "grok-4.6");
+    assert.equal(judgeSaves(env)[0].body.judge.model, "grok-4.6");
+    assert.ok(completed(env));
+  });
+  it("FIX2 P2: an abandoned grading Test cannot clear a newer writer check's busy state", async () => {
+    let releaseGrade;
+    let releaseWriter;
+    const grading = new Promise((resolve) => { releaseGrade = resolve; });
+    const writing = new Promise((resolve) => { releaseWriter = resolve; });
+    let checks = 0;
+    const env = await openBeat({
+      fetchImpl: judgeFetch({ judgeTest: () => grading }),
+      verifyProvider: () => ++checks === 1 ? { ok: true, model: "fictional-writer", ms: 9 } : writing,
+    });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const oldSave = env.beats.ai.handleAction("ai_judge_save");
+    await flush();
+    env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
+    const key = env.mount().querySelector("#oneFlowAiKeyInput");
+    key.value = "fictional-new-writer-key";
+    key.dispatch("input", { target: key });
+    const newCheck = env.beats.ai.handleAction("ai_check");
+    await flush();
+    assert.equal(actionButton(env.mount(), "ai_check").disabled, true);
+    releaseGrade({ json: { ok: true, ms: 9 } });
+    await oldSave;
+    const stillBusy = actionButton(env.mount(), "ai_check").disabled;
+    releaseWriter({ ok: false, message: "Fictional provider rejected this key.", ms: 9 });
+    await newCheck;
+    assert.equal(stillBusy, true, "the new writer check remains busy while its response is pending");
+    assert.equal(actionButton(env.mount(), "ai_check").disabled, false);
+    assert.equal(judgeSaves(env).length, 0);
+  });
   for (const edit of ["none", "model", "provider", "key"]) {
     it(`FIX1 P1-2: Save awaits an in-flight Test and retests a changed ${edit} combo`, async () => {
       let release;

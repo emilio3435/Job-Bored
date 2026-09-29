@@ -520,6 +520,7 @@
 
     /** Load the live list for the current choice. Seq-guarded: the newest request wins. */
     async function loadModels() {
+      const seq = ++st.listSeq;
       const c = choice();
       retry.hidden = true;
       if (!c.catalog) {
@@ -533,7 +534,6 @@
         changed();
         return false;
       }
-      const seq = ++st.listSeq;
       resetModels("Loading models…", `Loading models from ${c.short === "Grok" ? "xAI" : c.short}…`);
       const result = await fetchJudgeModels({
         provider: c.catalog,
@@ -717,6 +717,7 @@
 
     provider.addEventListener("change", () => {
       touch();
+      st.listSeq += 1;
       const c = choice();
       apiKey.value = "";
       customModel.value = "";
@@ -729,12 +730,12 @@
       else resetModels(c.catalog ? "Enter your key to load models" : "No list for a self-hosted server", keyWaitCopy());
       changed();
     });
-    apiKey.addEventListener("input", () => { touch(); clearError(); changed(); });
-    apiKey.addEventListener("change", () => { touch(); void loadModels(); });
-    model.addEventListener("change", () => { touch(); changed(); });
+    apiKey.addEventListener("input", () => { touch(); st.listSeq += 1; clearError(); changed(); });
+    apiKey.addEventListener("change", () => { touch(); st.listSeq += 1; void loadModels(); });
+    model.addEventListener("change", () => { touch(); customModel.value = ""; changed(); });
     customModel.addEventListener("input", () => { touch(); changed(); });
-    baseUrl.addEventListener("input", () => { touch(); changed(); });
-    baseUrl.addEventListener("change", () => { touch(); if (choice().id === "local") void loadModels(); });
+    baseUrl.addEventListener("input", () => { touch(); st.listSeq += 1; changed(); });
+    baseUrl.addEventListener("change", () => { touch(); st.listSeq += 1; if (choice().id === "local") void loadModels(); });
     retry.addEventListener("click", () => { void loadModels(); });
     testBtn.addEventListener("click", () => { void test(); });
     remove.addEventListener("click", () => {
