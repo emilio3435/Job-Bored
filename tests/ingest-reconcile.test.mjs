@@ -36,11 +36,21 @@ it("T-K7-03 an unaccounted dated anchor triggers a repair read", async () => {
   assert.equal(repaired.result.employers[0].roles.length, 3, "the repair adds the missing role to an accepted employer");
   assert.equal(repaired.result.employers[2].claims.length, fixture("read-full").employers[2].claims.length, "the repair adds its grounded claim");
   assert.equal(repaired.result.unread.some((item) => item.lines[0] === 9), false);
+  const source = "EXPERIENCE\nContoso Media (formerly Litware Radio) — Springfield Market 8+ Years · Four Roles Sep 2017 – 2026\nSales Manager, Contoso Media May 2021 – 2026\n\nExpanded reporting workflows.\nSKILLS";
+  const incomplete = { employers: [{ name: "Contoso Media", lines: [2, 2], start: "Sep 2017", end: "2026", aliasClause: "formerly Litware Radio", roles: [] }] };
+  const targeted = await run(source, [incomplete, incomplete]);
+  assert.equal(targeted.calls, 2);
+  for (const line of [2, 3, 5]) assert.match(targeted.prompts[1], new RegExp(`L${line}:`), `repair includes the whole incomplete employer block at L${line}`);
 });
 it("T-K7-04 a still unaccounted dated anchor is visible and partial", async () => {
   const { result } = await run(SOURCE, [fixture("read-run6-shape"), fixture("read-run6-shape")]);
   assert.equal(result.status, "ready_with_review");
   assert.ok(result.unread.some((item) => item.kind === "date_range"));
+  const source = "EXPERIENCE\nContoso Media (formerly Litware Radio) — Springfield Market 8+ Years · Four Roles Sep 2017 – 2026\nSales Manager, Contoso Media May 2021 – 2026\nExpanded reporting workflows.\nSKILLS";
+  const incomplete = { employers: [{ name: "Contoso Media", lines: [2, 2], start: "Sep 2017", end: "2026", aliasClause: "formerly Litware Radio", roles: [] }] };
+  const partial = await run(source, [incomplete, incomplete]);
+  assert.equal(partial.result.status, "ready_with_review");
+  assert.ok(partial.result.missingEmployers.some((item) => item.aliasKey === "contoso media"), "a header with an unread dated role names its employer");
 });
 it("T-K7-05 run 6 lists both missing employers by alias key", async () => {
   const { result } = await run(SOURCE, [fixture("read-run6-shape"), fixture("read-run6-shape")]);
