@@ -14,6 +14,13 @@ it("T-K7-02 closes or exposes all four anchor kinds", async () => {
   const { result } = await run(SOURCE, [fixture("read-full")]);
   assert.equal(result.reconciliation.ok, true);
   assert.equal(result.coverage.anchorsAccounted, result.coverage.anchorsTotal);
+
+  const source = ["EXPERIENCE", "Contoso Media (formerly Litware Radio)", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams."].join("\n");
+  const employer = { name: "Contoso Media", aliasClause: "(formerly Litware Radio)", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] };
+  const covered = await run(source, [{ employers: [employer] }]);
+  assert.equal(covered.result.status, "ready", "a grounded parenthesized formerly clause closes its anchor");
+  assert.equal(covered.calls, 1, "the covered clause does not spend the repair read");
+  assert.equal(covered.result.unread.some((item) => item.kind === "formerly_clause"), false);
 });
 it("T-K7-03 an unaccounted dated anchor triggers a repair read", async () => {
   const { calls } = await run(SOURCE, [fixture("read-run6-shape"), fixture("read-full")]);
@@ -37,10 +44,19 @@ it("T-K7-06 reports C03 coverage counts", async () => {
   assert.equal(result.coverage.anchorsTotal, 12);
   assert.equal(result.coverage.datedAnchorsTotal, 7);
 });
-it("T-K7-07 line overlap without alias match does not close a header", () => {
+it("T-K7-07 line overlap without alias match does not close a header", async () => {
   assert.equal(reconcile.employerKey?.("Contoso Media — contoso.example"), "contoso media");
   assert.equal(reconcile.employerKey?.("Contoso Media (contoso.example)"), "contoso media");
   assert.notEqual(reconcile.employerKey?.("Fabrikam Labs"), reconcile.employerKey?.("Contoso Media"));
+
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams."].join("\n");
+  const employer = { name: "Contoso Media — contoso.example", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] };
+  const matched = await run(source, [{ employers: [employer] }]);
+  assert.equal(matched.result.status, "ready", "a grounded model name with a site suffix closes the matching header");
+  assert.deepEqual(matched.result.missingEmployers, []);
+  const unsupported = await run(source, [{ employers: [{ ...employer, name: "Fabrikam Labs — fabrikam.example" }] }, { employers: [{ ...employer, name: "Fabrikam Labs — fabrikam.example" }] }]);
+  assert.equal(unsupported.result.status, "ready_with_review");
+  assert.ok(unsupported.result.missingEmployers.some((item) => item.aliasKey === "contoso media"), "a site suffix does not legitimize a different employer");
 });
 it("T-K7-08 out-of-span Fabrikam claims are quarantined while Northwind claims stay there", async () => {
   const reply = fixture("read-full");
@@ -95,6 +111,16 @@ it("T-K7-10 model non_job on a dated experience anchor is set aside and partial"
   const { result } = await run(SOURCE, [reply, reply]);
   assert.equal(result.status, "ready_with_review");
   assert.ok(result.setAside.some((item) => item.lines[0] === 34));
+
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams.", "2018 — 2019 • background tenure note"].join("\n");
+  const complete = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "background note, not a separate role" }] };
+  const claimsOnly = await run(source, [complete]);
+  assert.equal(claimsOnly.result.status, "ready", "claim-level set-asides do not make a complete read partial");
+  assert.ok(claimsOnly.result.setAside.some((item) => item.lines[0] === 5));
+  assert.ok(claimsOnly.result.review.claims.length > 0, "claim review records remain visible");
+  const missing = await run(source, [{ ...complete, employers: [] }, { ...complete, employers: [] }]);
+  assert.equal(missing.result.status, "ready_with_review", "a genuinely missing employer still blocks ready");
+  assert.ok(missing.result.missingEmployers.some((item) => item.aliasKey === "contoso media"));
 });
 it("T-K7-11 merged dated roles leave the extra anchor unread", async () => {
   const reply = fixture("read-full"); reply.employers[0].roles.splice(1, 1);
