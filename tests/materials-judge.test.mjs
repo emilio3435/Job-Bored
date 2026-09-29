@@ -52,6 +52,14 @@ it("J-BE2b: HTTP 401 has an auth code without exposing the provider body", async
   assert.ok(!JSON.stringify(result).includes("example private text"));
 });
 
+it("J-BE2c: malformed schema-shaped judgment has an invalid_judgment code", async () => {
+  const reply = validJudgment();
+  reply.documents[0].ratings.pop();
+  const result = await judgeMaterials({ writer, judge, documents, sources, fetchImpl: fakeFetch(reply, []) });
+  assert.equal(result.status, "invalid");
+  assert.equal(result.meta.errorCode, "invalid_judgment");
+});
+
 const GEMINI_SCHEMA_KEYS = new Set([
   "type", "format", "title", "description", "enum", "items", "minItems", "maxItems",
   "minimum", "maximum", "properties", "required", "propertyOrdering", "nullable",
