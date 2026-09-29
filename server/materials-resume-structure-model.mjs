@@ -721,8 +721,16 @@ function salvageEmployers(source) {
 
 /** @param {unknown} payload */
 function decodeRead(payload) {
-  const stopReason = String(readRecord(payload) ? payload.stop_reason || payload.stopReason || payload.finishReason || "unknown" : "unknown");
-  const source = readRecord(payload) && typeof payload.raw === "string" ? payload.raw : payload;
+  const providerPayload = readRecord(payload) && readRecord(payload.providerPayload) ? payload.providerPayload : payload;
+  const candidate = readRecord(providerPayload) && Array.isArray(providerPayload.candidates) ? providerPayload.candidates[0] : null;
+  const choice = readRecord(providerPayload) && Array.isArray(providerPayload.choices) ? providerPayload.choices[0] : null;
+  const stopReason = String(readRecord(payload) && (payload.stop_reason || payload.stopReason || payload.finishReason) ||
+    (readRecord(candidate) && candidate.finishReason) ||
+    (readRecord(choice) && choice.finish_reason) ||
+    (readRecord(providerPayload) && providerPayload.stop_reason) || "not_reported");
+  const source = readRecord(payload) && typeof payload.raw === "string" ? payload.raw :
+    readRecord(payload) && Array.isArray(payload.candidates) ? payload.candidates.flatMap((part) => readRecord(part) && readRecord(part.content) && Array.isArray(part.content.parts) ? part.content.parts.map((item) => readRecord(item) ? item.text || "" : "") : []).join("") :
+      readRecord(payload) && readRecord(payload.reply) ? payload.reply : payload;
   if (readRecord(source)) return { reply: source, stopReason, truncated: false };
   if (typeof source !== "string") return { reply: null, stopReason, truncated: false };
   try { const parsed = parseStageJson(source); if (readRecord(parsed)) return { reply: parsed, stopReason, truncated: false }; } catch { /* salvage below */ }
@@ -761,6 +769,13 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const pointer = (raw, kind) => {
     const range = readRecord(raw) ? raw.lines : null;
     if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isInteger) || range[0] < 1 || range[1] < range[0] || range[1] > sourceLines.length) { reject(kind, raw?.name || raw?.title || raw?.text, range || [], "pointer_out_of_range"); return null; }
+    if (kind === "employer" && range[1] - range[0] + 1 > 3) {
+      const included = headers.filter((anchor) => anchor.lines[0] >= range[0] && anchor.lines[0] <= range[1]);
+      const anchored = included.length === 1 && included[0].lines[0] === range[0] &&
+        aliasesFor(included[0].text).some((alias) => aliasesFor(String(raw.name || "")).includes(alias));
+      if (!anchored) { reject(kind, raw?.name, range, included.length > 1 ? "pointer_crosses_employer_header" : "pointer_too_wide"); return null; }
+      return included[0].lines;
+    }
     if (range[1] - range[0] + 1 > { employer: 3, role: 4, claim: 6 }[kind]) { reject(kind, raw?.name || raw?.title || raw?.text, range, "pointer_too_wide"); return null; }
     if (headers.some((anchor) => anchor.lines[0] > range[0] && anchor.lines[0] <= range[1])) { reject(kind, raw?.name || raw?.title || raw?.text, range, "pointer_crosses_employer_header"); return null; }
     if (Array.from({ length: range[1] - range[0] + 1 }, (_, i) => range[0] + i).some((n) => withheld.has(n))) { reject(kind, raw?.name || raw?.title || raw?.text, range, "source_instruction"); return null; }
@@ -810,7 +825,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         if (Array.isArray(rawEmployer.lines) && /^\s*[-•*]/u.test(sourceLines[rawEmployer.lines[0] - 1] || "")) reject("employer", rawEmployer.name, rawEmployer.lines, "needs_confirmation");
         continue;
       }
-      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && employerKey(anchor.text) === employerKey(found.text));
+      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && aliasesFor(anchor.text).some((alias) => aliasesFor(found.text).includes(alias)));
       const nearDate = census.anchors.some((anchor) => anchor.kind === "date_range" && Math.abs(anchor.lines[0] - found.lines[0]) <= 2);
       if (!matchingHeader && (!nearDate || /^\s*[-•*]/u.test(sourceLines[found.lines[0] - 1]))) { reject("employer", rawEmployer.name, found.lines, "needs_confirmation"); continue; }
       /** @type {any} */
@@ -855,7 +870,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     for (const { employer } of incoming) if (!employers.some((prior) => prior.lines[0] === employer.lines[0] && employerKey(prior.name) === employerKey(employer.name))) employers.push(employer);
     nonJob.push(...readList(rawReply.nonJob));
   };
-  const initialResult = () => reconcileRead({ lsrc: source, census, employers, nonJob, withheld });
+  const initialResult = () => reconcileRead({ lsrc: source, census, employers, nonJob, quarantinedClaims: reviewClaims.filter((item) => item.kind === "inferred"), withheld });
   /** @param {number[]} wanted */
   const promptLines = (wanted) => wanted.map((number) => `L${number}: ${withheld.has(number) ? "[line withheld]" : sourceLines[number - 1]}`).join("\n");
   /** @param {number[]} wanted @param {boolean} repair */
@@ -868,7 +883,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       if (typeof callStage === "function") payload = await callStage({ pin, stage: RESUME_STRUCTURE_STAGE, systemPrompt: READ_PROMPT, userText, maxOutputTokens: STRUCTURE_STAGE_MAX_TOKENS, fetchImpl, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}) });
       else {
         const response = await chat({ pin: { ...pin, model: pin.resolvedModel || pin.model }, messages: [{ role: "system", content: READ_PROMPT }, { role: "user", content: userText }], ...(fetchImpl ? { fetchImpl } : {}), ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}), temperature: 0.1, jsonMode: true });
-        payload = { raw: response.text, stop_reason: /** @type {any} */ (response).stopReason || /** @type {any} */ (response).finishReason || "unknown" };
+        payload = { raw: response.text, providerPayload: response.payload };
       }
       const decoded = decodeRead(payload);
       stopReasons.push(decoded.stopReason);
@@ -881,7 +896,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   let reconciled = initialResult();
   if (pin && (reconciled.unaccounted.length || reconciled.residual.length || rejected.length || !parseable)) {
     const target = new Set();
-    for (const item of [...reconciled.unaccounted, ...reconciled.residual, ...rejected]) if (Array.isArray(item.lines)) {
+    const missingHeaders = reconciled.unaccounted.filter((item) => item.kind === "employer_header");
+    const repairItems = missingHeaders.length ? missingHeaders : [...reconciled.unaccounted, ...reconciled.residual, ...rejected];
+    for (const item of repairItems) if (Array.isArray(item.lines)) {
       for (let n = item.lines[0]; n <= item.lines[1]; n += 1) if (n >= 1 && n <= sourceLines.length) target.add(n);
       if (item.kind === "employer_header") {
         const next = headers.find((anchor) => anchor.lines[0] > item.lines[0]);

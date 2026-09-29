@@ -72,6 +72,10 @@ it("T-K6-13 pointer width and employer-header crossings reject only those items"
   const { result } = await run(source, [raw]);
   assert.equal(result.employers.length, 1);
   assert.ok(result.rejected.some((item) => item.reason === "pointer_too_wide" || item.reason === "pointer_crosses_employer_header"));
+  const fabricated = { employers: [{ name: "Invented Labs", lines: [2, 6], roles: [], claims: [] }] };
+  const negative = await run(source, [fabricated, fabricated]);
+  assert.equal(negative.result.employers.length, 0);
+  assert.ok(negative.result.rejected.some((item) => item.reason === "pointer_crosses_employer_header"));
 });
 it("T-K6-14 a value repeated inside the cited range is ambiguous", async () => {
   const source = `${simple}\nBuilt a planning tool for local teams and their weekly goals.`;
@@ -195,6 +199,9 @@ it("T-K9-12 records stop_reason for each model call", async () => {
   const envelope = { candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(fixture("read-run6-shape")) }] } }] };
   const { result } = await run(C03, [envelope, envelope]);
   assert.deepEqual(result.stopReasons, ["STOP", "STOP"]);
+  const fetched = await model.structureResume({ lsrc: simple, pin: PIN, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(reply()) }] } }] }) }) });
+  assert.ok(fetched.stopReasons.length >= 1);
+  assert.ok(fetched.stopReasons.every((reason) => reason === "STOP"));
 });
 it("T-K9-13 no pin produces needs_model with named census employers", async () => {
   const { result, calls } = await run(C03, [fixture("read-full")], null);

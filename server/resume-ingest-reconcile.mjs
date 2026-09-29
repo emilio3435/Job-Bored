@@ -30,9 +30,9 @@ const folded = (value) => foldForMatch(value).text;
 const dated = (anchor) => anchor.kind === "date_range" || anchor.kind === "fallback_date";
 
 /** Pure Pass C: every experience anchor is closed or returned as a visible item.
- * @param {{lsrc:string,census:import('./resume-ingest-census.mjs').ResumeCensus,employers:Array<any>,nonJob?:Array<any>,withheld?:Set<number>}} input
+ * @param {{lsrc:string,census:import('./resume-ingest-census.mjs').ResumeCensus,employers:Array<any>,nonJob?:Array<any>,quarantinedClaims?:Array<{lines:[number,number]}>,withheld?:Set<number>}} input
  */
-export function reconcileRead({ lsrc, census, employers, nonJob = [], withheld = new Set() }) {
+export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantinedClaims = [], withheld = new Set() }) {
   const lines = String(lsrc).split(/\r?\n/u);
   const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header");
   const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education");
@@ -49,7 +49,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], withheld =
   /** @param {import('./resume-ingest-census.mjs').CensusAnchor} anchor @param {string} reason */
   const visible = (anchor, reason) => ({ id: anchor.id, kind: anchor.kind, lines: anchor.lines, ck: anchor.ck, excerpt: lines[anchor.lines[0] - 1]?.trim() || anchor.text, ...(anchor.kind === "employer_header" ? { aliasKey: employerKey(anchor.text) } : {}), reason });
   const associated = employers.map((employer) => {
-    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && employerKey(anchor.text) === employerKey(employer.name));
+    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && aliasesFor(anchor.text).some((alias) => aliasesFor(employer.name).includes(alias)));
     return { employer, head };
   });
   for (const { employer, head } of associated) {
@@ -57,6 +57,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], withheld =
     for (const role of employer.roles || []) if (Array.isArray(role.lines)) markRange(role.lines);
     for (const claim of employer.claims || []) if (Array.isArray(claim.lines)) markRange(claim.lines);
   }
+  for (const claim of quarantinedClaims) if (Array.isArray(claim.lines)) markRange(claim.lines);
   for (const anchor of relevant) {
     const number = anchor.lines[0];
     if (withheld.has(number)) { unaccounted.push(visible(anchor, "looks_like_instructions")); continue; }
@@ -67,7 +68,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], withheld =
     }
     let closed = false;
     if (anchor.kind === "employer_header") closed = associated.some(({ head }) => head?.id === anchor.id);
-    if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => head?.lines[0] === number && aliasesFor(employer.name).some((alias) => folded(anchor.text).includes(alias)));
+    if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => head?.lines[0] === number && typeof employer.aliasClause === "string" && employer.aliasClause && folded(anchor.text).includes(folded(employer.aliasClause)));
     if (dated(anchor)) {
       const date = anchor.dateRange;
       if (date) closed = associated.some(({ employer, head }) => {

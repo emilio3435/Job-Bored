@@ -122,7 +122,7 @@ it("T-K4-21 a parenthetical site is stripped from the employer text", async () =
 });
 
 const EXPORT_NAME = /structure|parseResume/i;
-const MODEL_BACKED = /^(?:structureResumeWithModel|validateModelStructure|experiencesFromStructure)$/;
+const MODEL_BACKED = /^(?:structureResume|structureResumeWithModel|validateModelStructure|experiencesFromStructure)$/;
 
 /** Names a module exports or re-exports, scanned over the whole file so multi-line lists are seen. */
 function exportedNames(code) {
