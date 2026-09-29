@@ -113,7 +113,8 @@ describe("D1 · scorecard v2 reads the K3 record", () => {
     const down = mi.scorecardHtml(V2_LETTER_JUDGE_DOWN, "cover_letter");
     assert.doesNotMatch(down, /Writing quality ·/, "no score to show");
     for (const html of [mi.scorecardHtml(V2_LETTER_FAIL, "cover_letter"), mi.scorecardHtml(V2_RESUME_READY_SAME_MODEL, "resume"), down]) {
-      assert.doesNotMatch(visible(verdictLine(html)), /judge/i);
+      /* The fixture's fictional model id is "grok-judge-1"; only our own words count. */
+      assert.doesNotMatch(visible(verdictLine(html)).replace(/grok-judge-1/g, ""), /judge/i);
     }
   });
 

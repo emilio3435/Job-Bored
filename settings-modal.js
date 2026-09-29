@@ -1177,6 +1177,15 @@ function removeJudgeModel() {
   return saveJudgeModel({ remove: true });
 }
 
+/** Open Settings on the AI tab with the grading row in view and focused. */
+async function openGradingSettings() {
+  await openCommandCenterSettingsModal({ tab: "ai" });
+  const group = document.getElementById(JUDGE_GROUP_ID);
+  if (group && typeof group.scrollIntoView === "function") group.scrollIntoView({ block: "center" });
+  const change = document.getElementById("settingsJudgeChange");
+  if (change && typeof change.focus === "function") change.focus();
+}
+
 /**
  * Hand the user back to the beat that owns this value. `returnTo: "close"`
  * (lane A's controller seam) closes the shell when that one beat completes,
@@ -1933,6 +1942,16 @@ function initCommandCenterSettings() {
     ?.addEventListener("click", () => {
       void openCommandCenterSettingsModal();
     });
+  // JUDGEUX FE4: the scorecard's "Change grading model" and "Add a second
+  // opinion" land on the grading row in Settings → AI.
+  document.addEventListener("click", (event) => {
+    const target = event && event.target && typeof event.target.closest === "function"
+      ? event.target.closest('[data-action="settings-open-grading"]')
+      : null;
+    if (!target) return;
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    void openGradingSettings();
+  });
   document
     .getElementById("settingsModalClose")
     ?.addEventListener("click", () => {
@@ -2053,6 +2072,7 @@ function initCommandCenterSettings() {
     loadJudgeModels,
     saveJudgeModel,
     removeJudgeModel,
+    openGradingSettings,
     settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,
