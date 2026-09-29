@@ -73,6 +73,10 @@ function quoteString(value) {
   return typeof value === "string" ? value.replace(/\r/g, "").trim().slice(0, 4_000) : "";
 }
 
+/* Preserve a physical hyphen wrap until source, quote, and value have been
+ * matched. Only this marker may stand for either a hyphen or no hyphen. */
+const WRAPPED_HYPHEN = "\uE000";
+
 /**
  * Compare quotes while allowing PDF line wraps and common hyphen glyphs to
  * differ from the extracted text. A hyphen at a line break is a wrap marker;
@@ -82,36 +86,56 @@ function quoteString(value) {
 function groundingText(value) {
   return String(value || "")
     .normalize("NFKC")
+    .replaceAll(WRAPPED_HYPHEN, "\uFFFD")
     .replace(/\u00ad/g, "")
     .replace(/\r\n?/g, "\n")
-    .replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1")
+    .replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, `$1${WRAPPED_HYPHEN}`)
     .replace(/[‐‑‒–—―]/g, "-")
     .replace(/[\s\p{Z}]+/gu, " ")
     .trim()
     .toLocaleLowerCase("en-US");
 }
 
-/** @param {string} text @param {string} phrase */
-function wholePhrasePositions(text, phrase) {
-  /** @type {number[]} */
-  const positions = [];
-  if (!phrase) return positions;
-  let offset = 0;
-  while (offset <= text.length - phrase.length) {
-    const index = text.indexOf(phrase, offset);
-    if (index < 0) break;
-    const before = index > 0 ? text[index - 1] : "";
-    const afterIndex = index + phrase.length;
-    const after = afterIndex < text.length ? text[afterIndex] : "";
-    if ((!before || !/[\p{L}\p{N}]/u.test(before)) && (!after || !/[\p{L}\p{N}]/u.test(after))) positions.push(index);
-    offset = index + 1;
+/** Match whole phrases without shifting source-coordinate attribution spans.
+ * @param {string} text @param {string} phrase */
+function wholePhraseMatches(text, phrase) {
+  /** @type {Array<{at:number,end:number}>} */
+  const matches = [];
+  if (!phrase) return matches;
+  /** @param {string | undefined} char */
+  const letter = (char) => /[\p{L}\p{N}]/u.test(char || "");
+  for (let at = 0; at < text.length; at += 1) {
+    let source = at;
+    let fact = 0;
+    while (fact < phrase.length) {
+      const sourceChar = text[source];
+      const factChar = phrase[fact];
+      if (sourceChar === WRAPPED_HYPHEN) {
+        source += 1;
+        if (factChar === WRAPPED_HYPHEN || factChar === "-") fact += 1;
+      } else if (factChar === WRAPPED_HYPHEN) {
+        fact += 1;
+        if (sourceChar === "-") source += 1;
+      } else if (sourceChar === factChar && sourceChar !== undefined) {
+        source += 1;
+        fact += 1;
+      } else {
+        break;
+      }
+    }
+    if (fact !== phrase.length) continue;
+    let before = at - 1;
+    while (text[before] === WRAPPED_HYPHEN) before -= 1;
+    let after = source;
+    while (text[after] === WRAPPED_HYPHEN) after += 1;
+    if (!letter(text[before]) && !letter(text[after])) matches.push({ at, end: source });
   }
-  return positions;
+  return matches;
 }
 
 /** @param {string} text @param {string} phrase */
 function containsWholePhrase(text, phrase) {
-  return wholePhrasePositions(text, phrase).length > 0;
+  return wholePhraseMatches(text, phrase).length > 0;
 }
 
 /** @param {string} quote @param {string} normalizedEmployer */
@@ -212,13 +236,16 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "source_quote_too_broad");
       return null;
     }
-    const quotePositions = wholePhrasePositions(documentText, normalizedQuote);
-    if (quotePositions.length !== 1) {
-      reject(kind, value, quotePositions.length ? "ambiguous_source_quote" : "source_quote_not_found");
+    const quoteMatches = wholePhraseMatches(documentText, normalizedQuote);
+    if (quoteMatches.length !== 1) {
+      reject(kind, value, quoteMatches.length ? "ambiguous_source_quote" : "source_quote_not_found");
       return null;
     }
-    const factPositions = wholePhrasePositions(normalizedQuote, normalizedFact);
-    if (!/[\p{L}\p{N}]/u.test(normalizedFact) || factPositions.length !== 1) {
+    const factInQuote = wholePhraseMatches(normalizedQuote, normalizedFact);
+    const quoteSpan = quoteMatches[0];
+    const factInSource = wholePhraseMatches(documentText, normalizedFact)
+      .filter((match) => match.at >= quoteSpan.at && match.end <= quoteSpan.end);
+    if (!/[\p{L}\p{N}]/u.test(normalizedFact) || factInQuote.length !== 1 || factInSource.length !== 1) {
       reject(kind, value, "value_not_in_source_quote");
       return null;
     }
@@ -230,8 +257,8 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "employer_name_partial_phrase");
       return null;
     }
-    const at = quotePositions[0];
-    const end = at + normalizedQuote.length;
+    const at = quoteSpan.at;
+    const end = quoteSpan.end;
     if (span && (at < span.start || end > span.end)) {
       reject(kind, value, "unsupported_employer_attribution");
       return null;
@@ -242,7 +269,10 @@ export function validateModelStructure(raw, resumeText) {
   const dateValue = (rawItem, key, kind, span = null) => {
     const date = rawItem[key];
     if (date === null || date === undefined || date === "") return { value: null, sourceQuote: null };
-    return grounded(date, rawItem[`${key}SourceQuote`], kind, span);
+    /* A uniquely grounded header can support its own date when the model
+     * omitted the redundant date-specific quote. All ordinary quote and
+     * attribution checks still apply to that header. */
+    return grounded(date, rawItem[`${key}SourceQuote`] || rawItem.sourceQuote, kind, span);
   };
   /** @param {Record<string, unknown>} rawItem @param {"start" | "end"} key @param {string} kind @param {string} parentReason @param {{start:number,end:number}|null} [span] */
   const rejectBoundDate = (rawItem, key, kind, parentReason, span = null) => {
