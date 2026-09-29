@@ -203,19 +203,23 @@ export function pinIsUsable(pin) {
 
 /* ─── Signals ─────────────────────────────────────────────────────────── */
 
-/** @param {unknown} ms */
-export function clampTimeoutMs(ms) {
+/**
+ * @param {unknown} ms
+ * @param {number} [ceilingMs] a scoped ceiling for a long, named workflow call (the materials judge); every other caller keeps MAX_PROVIDER_TIMEOUT_MS
+ */
+export function clampTimeoutMs(ms, ceilingMs = MAX_PROVIDER_TIMEOUT_MS) {
   const n = Number(ms);
-  if (Number.isFinite(n) && n > 0) return Math.min(Math.trunc(n), MAX_PROVIDER_TIMEOUT_MS);
+  if (Number.isFinite(n) && n > 0) return Math.min(Math.trunc(n), Math.max(ceilingMs, MAX_PROVIDER_TIMEOUT_MS));
   return DEFAULT_PROVIDER_TIMEOUT_MS;
 }
 
 /**
  * @param {AbortSignal | undefined | null} signal
  * @param {number} [timeoutMs]
+ * @param {number} [ceilingMs]
  */
-export function composeSignal(signal, timeoutMs) {
-  const timeout = AbortSignal.timeout(clampTimeoutMs(timeoutMs));
+export function composeSignal(signal, timeoutMs, ceilingMs) {
+  const timeout = AbortSignal.timeout(clampTimeoutMs(timeoutMs, ceilingMs));
   return signal ? AbortSignal.any([timeout, signal]) : timeout;
 }
 
@@ -561,6 +565,7 @@ function splitSystem(messages) {
  * @property {boolean} [jsonMode] request JSON output without imposing a schema
  * @property {AbortSignal} [signal] the caller's (request) signal
  * @property {number} [timeoutMs]
+ * @property {number} [timeoutCeilingMs] scoped ceiling above MAX_PROVIDER_TIMEOUT_MS for this call only
  * @property {number} [maxTokens]
  * @property {number} [temperature]
  * @property {typeof globalThis.fetch} [fetchImpl]
@@ -705,7 +710,7 @@ export async function chat(input) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: composeSignal(input.signal, input.timeoutMs),
+      signal: composeSignal(input.signal, input.timeoutMs, input.timeoutCeilingMs),
     });
   } catch (error) {
     throw providerRequestError(provider, error, input.signal);
