@@ -279,3 +279,54 @@ it('SIMPLE-R4 two-column re-homing keeps the whole claim and its review notice',
   assert.deepEqual(result.employers[1].claims.map((claim) => claim.lines), [[6, 7]]);
   assert.ok(result.review.claims.some((claim) => claim.kind === 'check_role' && claim.reason === 'misattributed_out_of_span' && claim.lines[0] === 6));
 });
+
+it('SIMPLE-R5 a first-line citation copies the full three-line bullet', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', 'for local teams and', 'documented each result.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool for local teams and documented each result.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].claims.map((claim) => ({ text: claim.text, lines: claim.lines })), [{ text: 'Built a planning tool for local teams and documented each result.', lines: [4, 6] }]);
+  assert.ok(!result.couldntPlace.some((item) => item.reason === 'not_verbatim'));
+  const first = structuredClone(raw);
+  first.employers[0].bullets[0].text = 'Invented unrelated work.';
+  const repaired = await run(text, [first, raw]);
+  assert.equal(repaired.calls.length, 2);
+  assert.deepEqual(repaired.result.employers[0].claims.map((claim) => claim.lines), [[4, 6]]);
+  assert.ok(!repaired.result.couldntPlace.some((item) => item.reason === 'not_verbatim'));
+});
+
+it('SIMPLE-R5 a last-line citation can extend two lines backward', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', 'for local teams and', 'documented each result.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool for local teams and documented each result.', line: 6 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].claims.map((claim) => claim.lines), [[4, 6]]);
+});
+
+it('SIMPLE-R5 extension stops at blanks, bullet markers, headers, and four lines', async () => {
+  for (const [label, tail, extraRoles] of [
+    ['blank', ['', 'continued here.'], []],
+    ['bullet marker', ['• New bullet.'], []],
+    ['role header', ['Senior Lead | 2020 — 2021'], [{ title: 'Senior Lead', line: 5 }]],
+    ['four-line limit', ['part two', 'part three', 'part four', 'part five.'], []],
+  ]) {
+    const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', ...tail, 'SKILLS'].join('\n');
+    const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }, ...extraRoles], bullets: [{ text: ['Built a planning tool', ...tail].filter(Boolean).join(' '), line: 4 }] }] };
+    const { result } = await run(text, [raw]);
+    assert.equal(result.employers[0].claims.length, 0, label);
+    assert.ok(result.couldntPlace.some((item) => item.reason === 'not_verbatim'), label);
+  }
+});
+
+it('SIMPLE-R5 a majority of set-aside bullet lines requires employer review', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool.', '• Coordinated local work', 'with fictional teams.', '• Documented each result', 'for the weekly review.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [
+    { text: 'Built a planning tool.', line: 4 }, { text: 'Invented unrelated work.', line: 5 }, { text: 'Invented another result.', line: 7 },
+  ] }] };
+  const { result, calls } = await run(text, [raw]);
+  assert.equal(calls.length, 2);
+  assert.equal(result.status, 'ready_with_review');
+  assert.ok(result.notes.some((note) => note.reason === 'bullet_lines_set_aside' && note.employer === 'Contoso Media'));
+  const small = await run(text, [{ employers: [{ ...raw.employers[0], bullets: [{ text: 'Built a planning tool.', line: 4 }, { text: 'Coordinated local work with fictional teams.', lines: [5, 6] }, { text: 'Invented another result.', line: 7 }] }] }]);
+  assert.equal(small.result.status, 'ready');
+});
