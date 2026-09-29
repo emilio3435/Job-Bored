@@ -19,6 +19,7 @@ import { loadOneFlow, readRepoFile } from "./oneflow-l0-harness.mjs";
 const NEW_BROWSER_FILES = [
   "onboarding-flow.js",
   "oneflow-beat-google.js",
+  "judge-picker.js",
   "oneflow-beat-ai.js",
   "oneflow-beat-resume.js",
   "oneflow-beat-fit.js",

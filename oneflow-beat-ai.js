@@ -862,10 +862,15 @@
     if (!loaded) selectAttrs.disabled = true;
     const select = el("select", "oneflow-ai__field", selectAttrs);
     if (!loaded) {
+      // Status 0 is the transport itself; anything else answered and refused,
+      // usually the key — the same split as the Settings card.
+      const unreachable = j.xaiModelsStatus === 0;
       const placeholder = j.xaiLoading
         ? "Loading Grok models…"
         : j.xaiModelsError
-          ? "Models unavailable — check your key"
+          ? unreachable
+            ? "Models unavailable — check your connection"
+            : "Models unavailable — check your key"
           : j.xaiLoaded
             ? "No text-capable Grok models found"
             : "Enter your key to load Grok models";
@@ -890,12 +895,14 @@
     hint.textContent = j.xaiLoading
       ? "Loading the latest Grok models from xAI…"
       : j.xaiModelsError
-        ? "Check the key, then enter it again to reload models."
+        ? j.xaiModelsStatus === 0
+          ? "Check your connection, then enter the key again to reload models."
+          : "Check the key, then enter it again to reload models."
         : !j.xaiLoaded
           ? "Enter your key to load the latest Grok models."
           : j.xaiModels.length
             ? "Model list loaded from xAI. The newest recommended Grok model is selected."
-            : "xAI did not return any text-capable Grok models.";
+            : "xAI returned no text-capable Grok models. Press Test to try loading the list again.";
     wrap.appendChild(hint);
     wrap.appendChild(
       el(
@@ -1580,6 +1587,7 @@
       xaiLoaded: false,
       xaiLoading: false,
       xaiModelsError: "",
+      xaiModelsStatus: 0,
       xaiSelected: "",
       xaiSeq: 0,
       keyDraft: "",
@@ -1621,6 +1629,7 @@
       state.judge.xaiModels = [];
       state.judge.xaiSelected = "";
       state.judge.xaiModelsError = result.error;
+      state.judge.xaiModelsStatus = result.status;
       repaint(ctx, result.error, "error");
       return false;
     }
@@ -1632,6 +1641,7 @@
       saved: "",
     });
     state.judge.xaiModelsError = "";
+    state.judge.xaiModelsStatus = result.status;
     repaint(ctx, "");
     return result.models.length > 0;
   }
@@ -1644,11 +1654,14 @@
     const def = isXaiJudgePath(form.provider) ? { id: JUDGE_XAI_PROVIDER } : judgeOtherById(form.provider);
     judgeRememberForm(form);
     // Typing a key and pressing Test never leaves the field, so no change
-    // event fires: load the list here rather than stranding the dropdown.
-    if (isXaiJudgePath(form.provider) && form.key && !state.judge.xaiLoaded) {
-      const loaded = await loadXaiJudgeModels(ctx);
+    // event fires — and an empty list deserves another fetch, not a dead
+    // end — so load the list here rather than stranding the dropdown.
+    if (isXaiJudgePath(form.provider) && form.key && (!state.judge.xaiLoaded || state.judge.xaiModels.length === 0)) {
+      await loadXaiJudgeModels(ctx);
       if (!state.judge) return;
-      if (!loaded) {
+      // A failed load already put its message on screen: stop. An empty but
+      // answered load falls through to validation, which names what is missing.
+      if (state.judge.xaiModelsError) {
         state.judge.testing = false;
         return;
       }

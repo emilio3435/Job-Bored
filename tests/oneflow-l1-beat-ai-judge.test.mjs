@@ -56,12 +56,14 @@ function judgeFetch({ ping = CURRENT_PING, pin = { ok: true }, judgeModels = nul
     ? { ok: true, json: { ok: true, provider: "openai_compatible", model: "grok-4.7", ms: 9 } }
     : judgeTest;
   let pinCalls = 0;
+  let catalogCalls = 0;
   return makeFetchDouble((call) => {
     if (call.url.endsWith("/__proxy/ping")) {
       return ping instanceof Error ? ping : { ok: true, json: ping };
     }
     if (call.url.endsWith(JUDGE_MODELS_PATH)) {
-      return catalogAnswer instanceof Error ? catalogAnswer : catalogAnswer;
+      const answer = typeof catalogAnswer === "function" ? catalogAnswer(catalogCalls++, call) : catalogAnswer;
+      return answer instanceof Error ? answer : answer;
     }
     if (call.url.endsWith(JUDGE_TEST_PATH)) {
       return testAnswer instanceof Error ? testAnswer : testAnswer;
@@ -267,6 +269,65 @@ describe("B2 judge offer — the live Grok dropdown", () => {
     assert.equal(xaiSelect(env).value, "");
     assert.match(judgeSection(env).textContent, /Check the key, then enter it again to reload models/);
     assert.equal(completed(env), false);
+  });
+
+  it("a dead catalog server names the connection, not the key", async () => {
+    const env = await openBeat({
+      fetchImpl: judgeFetch({ judgeModels: new TypeError("Failed to fetch") }),
+    });
+    await checkWriter(env);
+    await saveWriter(env);
+    await typeXaiKey(env);
+    assert.match(
+      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
+      /Couldn't reach xAI: try again\./,
+    );
+    assert.equal(xaiSelect(env).value, "");
+    assert.equal(xaiSelect(env).children[0].textContent, "Models unavailable — check your connection");
+    assert.match(judgeSection(env).textContent, /Check your connection, then enter the key again to reload models/);
+    assert.equal(completed(env), false);
+  });
+
+  it("an empty catalog names Test as the retry path", async () => {
+    const env = await openBeat({
+      fetchImpl: judgeFetch({ judgeModels: { ok: true, json: { models: [], recommended: null } } }),
+    });
+    await checkWriter(env);
+    await saveWriter(env);
+    await typeXaiKey(env);
+    assert.match(judgeSection(env).textContent, /Press Test to try loading the list again/);
+    assert.equal(completed(env), false);
+  });
+
+  it("Test refetches an empty catalog instead of dead-ending", async () => {
+    const env = await openBeat({
+      fetchImpl: judgeFetch({ judgeModels: { ok: true, json: { models: [], recommended: null } } }),
+    });
+    await checkWriter(env);
+    await saveWriter(env);
+    await typeXaiKey(env);
+    await env.beats.ai.handleAction("ai_judge_test");
+    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 2, "Test retries the empty list");
+    assert.match(
+      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
+      /Pick a Grok model first\./,
+    );
+    assert.equal(completed(env), false);
+  });
+
+  it("Test recovers when the catalog retry fills the list", async () => {
+    const env = await openBeat({
+      fetchImpl: judgeFetch({
+        judgeModels: (n) => (n === 0 ? { ok: true, json: { models: [], recommended: null } } : { ok: true, json: XAI_CATALOG }),
+      }),
+    });
+    await checkWriter(env);
+    await saveWriter(env);
+    await typeXaiKey(env);
+    await env.beats.ai.handleAction("ai_judge_test");
+    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 2);
+    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 1, "the refilled pick is tested");
+    assert.equal(actionButton(env.mount(), "ai_judge_save").textContent, "Save & continue");
   });
 
   it("choosing another Grok model tests and saves that model", async () => {
