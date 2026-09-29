@@ -1018,7 +1018,6 @@ async function refreshLlmStatus(opts) {
    ============================================================ */
 
 const JUDGE_GROUP_ID = "settingsJudgeGroup";
-const XAI_JUDGE_BASE_URL = "https://api.x.ai/v1";
 const JUDGE_FIELD_IDS = Object.freeze([
   "settingsJudgeApiKey",
   "settingsJudgeXaiModel",
@@ -1043,23 +1042,23 @@ let judgeModelsRequestSeq = 0;
 let judgeModelsAvailable = false;
 let judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
 
+/**
+ * The shared grading-model picker (judge-picker.js, loaded before this
+ * file). Read lazily so a misordered load fails loudly here instead of
+ * silently forking the xAI endpoint, the pick rule, or the saved shape.
+ */
+function judgePicker() {
+  const picker = window.JobBoredJudgePicker;
+  if (!picker) throw new Error("[JobBored] judge-picker.js must load before settings-modal.js");
+  return picker;
+}
+
 function judgeFromServer(body) {
-  const j = body && typeof body === "object" ? body.judge : null;
-  if (!j || typeof j !== "object") return null;
-  return {
-    provider: String(j.provider || "").trim(),
-    model: String(j.model || "").trim(),
-    baseUrl: String(j.baseUrl || "").trim(),
-    keyPresent: Boolean(j.keyPresent),
-  };
+  return judgePicker().judgeFromServer(body);
 }
 
 function isXaiJudge(judge) {
-  return Boolean(
-    judge
-      && judge.provider === "openai_compatible"
-      && String(judge.baseUrl || "").replace(/\/+$/, "") === XAI_JUDGE_BASE_URL,
-  );
+  return judgePicker().isXaiJudge(judge);
 }
 
 function appendJudgeField(group, labelText, control) {
@@ -1219,9 +1218,9 @@ function ensureJudgeGroup() {
   const steps = llmStatusEl("ol", "settings-judge__steps");
   const linkStep = llmStatusEl("li", "settings-judge__step");
   linkStep.appendChild(llmStatusEl("span", "settings-judge__step-label", "Step 1 · Create a key"));
-  const link = llmStatusEl("a", "settings-judge__key-link", "Create an xAI API key");
+  const link = llmStatusEl("a", "settings-judge__key-link", judgePicker().XAI_KEY_LINK_LABEL);
   link.id = "settingsJudgeKeyLink";
-  link.setAttribute("href", "https://console.x.ai/");
+  link.setAttribute("href", judgePicker().XAI_KEY_URL);
   link.setAttribute("target", "_blank");
   link.setAttribute("rel", "noopener");
   linkStep.appendChild(link);
@@ -1364,7 +1363,7 @@ function readJudgeForm() {
     mode: "xai",
     provider: "openai_compatible",
     model: value("settingsJudgeXaiModel"),
-    baseUrl: XAI_JUDGE_BASE_URL,
+    baseUrl: judgePicker().XAI_BASE_URL,
     apiKey: value("settingsJudgeApiKey"),
   };
 }
@@ -1419,8 +1418,7 @@ function buildJudgeRequestBody(server, form, options = {}) {
   if (!provider || !model) return null;
   let judge = null;
   if (!options.remove && form.provider) {
-    judge = { provider: form.provider, model: form.model, baseUrl: form.baseUrl };
-    if (form.apiKey) judge.apiKey = form.apiKey;
+    judge = judgePicker().buildJudgePin(form);
   }
   return { provider, model, baseUrl: String(s.baseUrl || "").trim(), judge };
 }
@@ -1446,58 +1444,43 @@ async function loadJudgeModels() {
   select.disabled = false;
   if (hint) hint.textContent = "Loading the latest Grok models from xAI…";
   showJudgeError("");
-  const body = { provider: "xai" };
-  if (apiKey) body.apiKey = apiKey;
-  try {
-    const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config/judge-models", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    let answer = null;
-    try { answer = await resp.json(); } catch (_) { answer = null; }
-    if (seq !== judgeModelsRequestSeq) return false;
-    if (!resp || resp.ok === false) {
-      const message = answer && typeof answer.error === "string"
-        ? answer.error
-        : "Couldn't reach xAI: try again.";
-      showJudgeError(message, [apiKey ? "settingsJudgeApiKey" : "settingsJudgeXaiModel"]);
-      select.replaceChildren();
-      appendJudgeOption(select, "", "Models unavailable — check your key");
-      select.value = "";
-      select.disabled = false;
-      if (hint) hint.textContent = "Check the key, then enter it again to reload models.";
-      return false;
-    }
-    const models = Array.isArray(answer && answer.models) ? answer.models : [];
-    const selected = isXaiJudge(judgeLoaded) ? judgeLoaded.model : "";
+  const result = await judgePicker().fetchJudgeModels({
+    baseUrl: resolveJobBoredApiUrl(),
+    fetchImpl: apiFetch,
+    apiKey,
+  });
+  if (seq !== judgeModelsRequestSeq) return false;
+  if (!result.ok) {
+    // Status 0 is the transport itself (the old catch block); anything else
+    // answered and refused, usually the key (the old !resp.ok block).
+    const unreachable = result.status === 0;
+    showJudgeError(result.error, [apiKey ? "settingsJudgeApiKey" : "settingsJudgeXaiModel"]);
     select.replaceChildren();
-    for (const item of models) {
-      if (!item || !item.id) continue;
-      appendJudgeOption(select, String(item.id), String(item.label || item.id));
-    }
-    if (selected && !models.some((item) => item && String(item.id) === selected)) {
-      appendJudgeOption(select, selected, `${selected} (saved model)`);
-    }
-    if (models.length === 0 && !selected) appendJudgeOption(select, "", "No text-capable Grok models found");
-    const recommended = String(answer && answer.recommended || "");
-    select.value = selected || recommended || (models[0] && String(models[0].id)) || "";
-    select.disabled = false;
-    judgeModelsAvailable = models.length > 0;
-    if (hint) hint.textContent = models.length
-      ? "Model list loaded from xAI. The newest recommended Grok model is selected."
-      : "xAI did not return any text-capable Grok models.";
-    return models.length > 0;
-  } catch {
-    if (seq !== judgeModelsRequestSeq) return false;
-    showJudgeError("Couldn't reach xAI: try again.", [apiKey ? "settingsJudgeApiKey" : "settingsJudgeXaiModel"]);
-    select.replaceChildren();
-    appendJudgeOption(select, "", "Models unavailable — check your connection");
+    appendJudgeOption(select, "", unreachable ? "Models unavailable — check your connection" : "Models unavailable — check your key");
     select.value = "";
     select.disabled = false;
-    if (hint) hint.textContent = "Check your connection, then enter the key again to reload models.";
+    if (hint) hint.textContent = unreachable
+      ? "Check your connection, then enter the key again to reload models."
+      : "Check the key, then enter it again to reload models.";
     return false;
   }
+  const models = result.models;
+  const selected = isXaiJudge(judgeLoaded) ? judgeLoaded.model : "";
+  select.replaceChildren();
+  for (const item of models) {
+    appendJudgeOption(select, item.id, item.label);
+  }
+  if (selected && !models.some((item) => item.id === selected)) {
+    appendJudgeOption(select, selected, `${selected} (saved model)`);
+  }
+  if (models.length === 0 && !selected) appendJudgeOption(select, "", "No text-capable Grok models found");
+  select.value = judgePicker().pickJudgeModel({ models, recommended: result.recommended, saved: selected });
+  select.disabled = false;
+  judgeModelsAvailable = models.length > 0;
+  if (hint) hint.textContent = models.length
+    ? "Model list loaded from xAI. The newest recommended Grok model is selected."
+    : "xAI did not return any text-capable Grok models.";
+  return models.length > 0;
 }
 
 function renderJudgeModel(status, reset) {

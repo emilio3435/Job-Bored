@@ -9,6 +9,7 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
+const judgePickerJs = readFileSync(join(repoRoot, "judge-picker.js"), "utf8");
 
 class FakeElement {
   constructor(tagName, doc) {
@@ -152,6 +153,7 @@ function loadSettings(respond) {
     Date,
   };
   vm.createContext(ctx);
+  vm.runInContext(judgePickerJs, ctx, { filename: "judge-picker.js" });
   vm.runInContext(settingsModalJs, ctx, { filename: "settings-modal.js" });
   return { settings: window.JobBoredApp.settings, document, calls, toasts, activeTabs };
 }

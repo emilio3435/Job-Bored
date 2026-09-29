@@ -320,6 +320,8 @@ export function loadArrival(options = {}) {
     "discovery-wizard-shell.js",
     "onboarding-flow.js",
     "local-server.js",
+    // The AI beat's judge offer shares the Settings card's picker.
+    "judge-picker.js",
     "oneflow-beat-google.js",
     "oneflow-beat-ai.js",
     "oneflow-beat-resume.js",
