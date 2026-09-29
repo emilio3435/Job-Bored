@@ -78,9 +78,17 @@ it("T-K7-09 a two-line residual block is visible and partial", async () => {
   assert.deepEqual(chromeOnly.residual, [], "repeated page identity and contact lines are chrome");
   assert.equal(chromeOnly.reconciliation.ok, true);
 
+  const foldedCopy = [...prefix.slice(0, 9), "Jordan  Rivera", prefix[1], prefix[2]].join("\n");
+  const foldedHeader = reconcile.reconcileRead({ lsrc: foldedCopy, census: censusResume(foldedCopy), employers: [employer] });
+  assert.equal(foldedHeader.reconciliation.ok, true, "a folded identity copy is accounted as chrome");
+
   const withBullet = [...prefix, "Led account reviews in Springfield for three neighborhood teams.", "Prepared buyer notes for the next field meeting."].join("\n");
   const withRealWork = reconcile.reconcileRead({ lsrc: withBullet, census: censusResume(withBullet), employers: [employer] });
   assert.deepEqual(withRealWork.residual.map((item) => item.lines), [[14, 15]], "city mentions in real experience stay visible");
+
+  const withYearRange = [...prefix.slice(0, 7), "2017 - 2026"].join("\n");
+  const datedWork = reconcile.reconcileRead({ lsrc: withYearRange, census: censusResume(withYearRange), employers: [{ ...employer, roles: [], claims: [] }] });
+  assert.ok(datedWork.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 8), "an ungrounded year range stays visible");
 });
 it("T-K7-10 model non_job on a dated experience anchor is set aside and partial", async () => {
   const reply = fixture("read-full"); reply.nonJob = [{ lines: [34, 34], reason: "user_asserted" }]; reply.employers.pop();

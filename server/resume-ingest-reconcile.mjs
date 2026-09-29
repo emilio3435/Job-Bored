@@ -29,13 +29,52 @@ const folded = (value) => foldForMatch(value).text;
 /** @param {import('./resume-ingest-census.mjs').CensusAnchor} anchor */
 const dated = (anchor) => anchor.kind === "date_range" || anchor.kind === "fallback_date";
 
+const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/giu;
+const PHONE = /(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/gu;
+const URL = /(?:https?:\/\/|www\.)[^\s•|]+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?/giu;
+const PERSON_NAME = /^[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){1,3}$/u;
+/** @param {string} line */
+function pureContact(line) {
+  const hasEmailOrPhone = /[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/iu.test(line);
+  const isBareUrl = /^(?:(?:https?:\/\/|www\.)[^\s•|]+|[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?)$/iu.test(line.trim());
+  if (!hasEmailOrPhone && !isBareUrl) return false;
+  const rest = line.replace(EMAIL, " ").replace(PHONE, " ").replace(URL, " ").replace(/^[\s•|·;:—–-]+|[\s•|·;:—–-]+$/gu, "").trim();
+  return !rest || /^[\p{Lu}][\p{L}.'’-]*(?:\s+[\p{Lu}][\p{L}.'’-]*){0,3},\s*[A-Z]{2}$/u.test(rest);
+}
+
+/** Page furniture is grounded in the document's own identity block or a complete running-header pattern. @param {string[]} lines @param {import('./resume-ingest-census.mjs').ResumeCensus} census */
+function pageChromeLines(lines, census) {
+  const firstEmployer = census.anchors.find((anchor) => anchor.kind === "employer_header")?.lines[0] ?? lines.length + 1;
+  const chrome = new Set();
+  const topContact = lines.findIndex((line, index) => index < Math.min(firstEmployer - 1, 8) && pureContact(line));
+  const topName = topContact >= 2 && PERSON_NAME.test(lines[topContact - 2].trim()) ? topContact - 2 : topContact >= 1 && PERSON_NAME.test(lines[topContact - 1].trim()) ? topContact - 1 : -1;
+  const topIdentity = new Set(topName < 0 ? [] : lines.slice(topName, topContact + 1).map((line) => folded(line).trim()).filter(Boolean));
+  /** @param {string} line */
+  const words = (line) => (folded(line).match(/[\p{L}\p{N}]+/gu) || []).filter((word) => word.length >= 4);
+  for (let index = firstEmployer; index < lines.length; index += 1) {
+    const number = index + 1;
+    if (pureContact(lines[index]) || topIdentity.has(folded(lines[index]).trim())) chrome.add(number);
+    if (index + 3 >= lines.length || !/^\s*—\s+/u.test(lines[index])) continue;
+    const name = lines[index + 1].trim();
+    if (!PERSON_NAME.test(name)) continue;
+    if (!folded(lines[index]).replace(/^-\s*/u, "").startsWith(folded(name))) continue;
+    if (!pureContact(lines[index + 3])) continue;
+    const taglineWords = words(lines[index + 2]);
+    const runningWords = new Set(words(lines[index]));
+    if (taglineWords.length < 2 || taglineWords.filter((word) => runningWords.has(word)).length < Math.ceil(taglineWords.length / 2)) continue;
+    for (let offset = 0; offset < 4; offset += 1) chrome.add(number + offset);
+  }
+  return chrome;
+}
+
 /** Pure Pass C: every experience anchor is closed or returned as a visible item.
  * @param {{lsrc:string,census:import('./resume-ingest-census.mjs').ResumeCensus,employers:Array<any>,nonJob?:Array<any>,quarantinedClaims?:Array<{lines:[number,number]}>,withheld?:Set<number>}} input
  */
 export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantinedClaims = [], withheld = new Set() }) {
   const lines = String(lsrc).split(/\r?\n/u);
+  const chrome = pageChromeLines(lines, census);
   const headers = census.anchors.filter((anchor) => anchor.kind === "employer_header");
-  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education");
+  const relevant = census.anchors.filter((anchor) => ["employer_header", "date_range", "fallback_date", "formerly_clause"].includes(anchor.kind) && anchor.sectionGuess !== "education" && !chrome.has(anchor.lines[0]));
   /** @type {any[]} */ const unaccounted = [];
   /** @type {any[]} */ const setAside = [];
   /** @type {any[]} */ const residual = [];
@@ -95,12 +134,12 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
       if (current.length >= 2 || size >= 80) residual.push({ id: `residual-${current[0]}`, kind: "residual", lines: [current[0], current.at(-1)], excerpt: lines[current[0] - 1].trim(), reason: "residual" });
     };
     for (let n = section.lines[0] + 1; n <= section.lines[1]; n += 1) {
-      if (!lines[n - 1]?.trim() || attributed.has(n) || withheld.has(n)) { flush(run); run = []; }
+      if (!lines[n - 1]?.trim() || attributed.has(n) || withheld.has(n) || chrome.has(n)) { flush(run); run = []; }
       else run.push(n);
     }
     flush(run);
   }
-  const experienceLines = experienceSections.flatMap((section) => Array.from({ length: section.lines[1] - section.lines[0] }, (_, i) => section.lines[0] + i + 1)).filter((n) => lines[n - 1]?.trim());
+  const experienceLines = experienceSections.flatMap((section) => Array.from({ length: section.lines[1] - section.lines[0] }, (_, i) => section.lines[0] + i + 1)).filter((n) => lines[n - 1]?.trim() && !chrome.has(n));
   const accountedAnchors = relevant.length - unaccounted.length - setAside.length;
   const datedAnchors = relevant.filter(dated);
   const coveredDates = datedAnchors.filter((anchor) => !unaccounted.some((item) => item.id === anchor.id) && !setAside.some((item) => item.id === anchor.id));
