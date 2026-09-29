@@ -108,6 +108,8 @@ export function buildQaRecord({ document, runId, finalText, textHash, gates = []
       ...(Number.isInteger(meta.tokensIn) ? { tokensIn: meta.tokensIn } : {}),
       ...(Number.isInteger(meta.tokensOut) ? { tokensOut: meta.tokensOut } : {}),
       ...(typeof meta.error === "string" ? { error: meta.error } : {}),
+      ...(["timeout", "auth", "rate_limited", "unconfigured", "invalid_json", "invalid_judgment", "unexpected"].includes(meta.errorCode)
+        ? { errorCode: meta.errorCode } : {}),
     },
     degraded: [...degraded],
     repair: { attempted: repair?.attempted === true, parentRunId: repair?.parentRunId || null,
