@@ -1411,6 +1411,10 @@
          so the controller tag must precede them. -->
     <script src="onboarding-flow.js" defer></script>
     <script src="oneflow-beat-google.js" defer></script>
+    <!-- Shared grading-model picker: the AI beat's judge offer and the
+         Settings grading card consume window.JobBoredJudgePicker, so this
+         tag must precede both of their script tags. -->
+    <script src="judge-picker.js" defer></script>
     <script src="oneflow-beat-ai.js" defer></script>
     <script src="llm-output-budget.js" defer></script>
     <!-- Shared Fit Profile drafting (prompt + parser + clamp), consumed by
