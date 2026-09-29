@@ -357,7 +357,8 @@ describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field"
         assert.equal(await old, false);
         assert.equal(q("Model").children.some((row) => row.value === "grok-4.7"), false);
         assert.doesNotMatch(q("Error").textContent, /Fictional stale catalog failure/);
-        assert.equal(q("Retry").hidden, true);
+        const offersRetry = event === "input" || suffix === "BaseUrl";
+        assert.equal(q("Retry").hidden, !offersRetry);
       });
     }
   }
@@ -381,6 +382,72 @@ describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field"
     assert.equal(q("Model").value, "fictional-new-local-model");
     assert.equal(fetchImpl.calls.at(-1).body.baseUrl, "http://new-fictional.example:11434/v1");
   });
+
+  for (const suffix of ["ApiKey", "BaseUrl"]) {
+    it(`FIX3 P3-4: ${suffix} edit and revert without change gives Retry and never sticks on Loading`, async () => {
+      let release;
+      let n = 0;
+      const pending = new Promise((resolve) => { release = resolve; });
+      const { q, field } = mountField(() => ++n === 1 ? pending : okJson(XAI_ROWS));
+      if (suffix === "BaseUrl") q("Provider").value = "local";
+      q("ApiKey").value = "fictional-key";
+      q("BaseUrl").value = "http://fictional.example:11434/v1";
+      const original = q(suffix).value;
+      const old = field.loadModels();
+      q(suffix).value = `${original}-edited`;
+      q(suffix).dispatch("input", {});
+      q(suffix).value = original;
+      q(suffix).dispatch("input", {});
+      release(okJson(XAI_ROWS));
+      assert.equal(await old, false);
+      assert.doesNotMatch(q("Model").textContent, /Loading models/);
+      assert.equal(q("Retry").hidden, false);
+      q("Retry").dispatch("click", {});
+      await settle();
+      assert.equal(q("Model").value, "grok-4.7");
+      assert.equal(q("Retry").hidden, true);
+    });
+  }
+
+  it("FIX3 P3-4: restoring a temporarily empty key without change restores Retry", async () => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const { q, field } = mountField(() => pending);
+    q("ApiKey").value = "fictional-key";
+    const old = field.loadModels();
+    q("ApiKey").value = "";
+    q("ApiKey").dispatch("input", {});
+    assert.equal(q("Retry").hidden, true, "an empty key cannot load models");
+    q("ApiKey").value = "fictional-key";
+    q("ApiKey").dispatch("input", {});
+    release(okJson(XAI_ROWS));
+    assert.equal(await old, false);
+    assert.doesNotMatch(q("Model").textContent, /Loading models|Enter your key/);
+    assert.equal(q("Retry").hidden, false, "restoring the key makes reload available");
+  });
+
+  it("FIX3 P3-4: an invalidated catalog cannot end a successor's Loading state or expose Retry", async () => {
+    let releaseOld, releaseNew;
+    let n = 0;
+    const oldReply = new Promise((resolve) => { releaseOld = resolve; });
+    const newReply = new Promise((resolve) => { releaseNew = resolve; });
+    const { q, field } = mountField(() => ++n === 1 ? oldReply : newReply);
+    q("ApiKey").value = "fictional-old-key";
+    const old = field.loadModels();
+    q("ApiKey").value = "fictional-new-key";
+    q("ApiKey").dispatch("input", {});
+    const fresh = field.loadModels();
+    releaseOld(okJson({ error: "Fictional stale catalog failure." }, 401));
+    assert.equal(await old, false);
+    assert.match(q("Model").textContent, /Loading models/);
+    assert.equal(q("Retry").hidden, true);
+    assert.doesNotMatch(q("Error").textContent, /Fictional stale catalog failure/);
+    releaseNew(okJson(XAI_ROWS));
+    assert.equal(await fresh, true);
+    assert.equal(q("Model").value, "grok-4.7");
+    assert.equal(q("Retry").hidden, true);
+  });
+
   it("FIX1 P1-2: concurrent Test calls share the in-flight promise", async () => {
     let release;
     const pending = new Promise((resolve) => { release = resolve; });

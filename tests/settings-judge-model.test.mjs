@@ -212,7 +212,7 @@ async function typeKey(document, value = "fictional-xai-key") {
 
 async function openWriterModal(env, hydration) {
   const { settings, window, document } = env;
-  const cfg = { resumeProvider: "openrouter", resumeOpenRouterModel: "fictional-browser-writer", resumeOpenRouterApiKey: "fictional-browser-key", resumeOpenRouterBaseUrl: "https://fictional.example/v1" };
+  const cfg = { resumeProvider: "openrouter", resumeOpenRouterModel: "fictional-browser-writer", resumeOpenRouterApiKey: "fictional-browser-key", resumeOpenRouterBaseUrl: "https://fictional.example/v1", resumeOpenAIApiKey: "fictional-openai-browser-key" };
   Object.assign(window.COMMAND_CENTER_CONFIG, cfg);
   const modal = document.body.appendChild(document.createElement("div"));
   modal.id = "settingsModal";
@@ -293,6 +293,146 @@ describe("FIX2 P1 · modal Save preserves an untouched server writer", () => {
     await env.settings.saveCommandCenterSettingsFromForm();
     assert.equal(llmPosts(env.calls).length, 1);
     assert.equal(llmPosts(env.calls)[0].body.model, "fictional-edited-during-hydration");
+  });
+});
+
+describe("FIX3 · writer bootstrap and saved baselines", () => {
+  for (const changeGrader of [false, true]) {
+    it(`P1: untouched writer Save configures a missing server writer${changeGrader ? " alongside the grader" : ""}`, async () => {
+      const respond = storingServer({ ...NO_WRITER, code: "llm_unconfigured", judge: null });
+      const env = loadSettings((url, method, body) => {
+        const answer = respond(url, method, body);
+        return method === "GET" && url.endsWith("/api/llm-config") ? { ...answer, status: 404 } : answer;
+      });
+      await openWriterModal(env);
+      if (changeGrader) { await openEditor(env.document); await typeKey(env.document); }
+      await env.settings.saveCommandCenterSettingsFromForm();
+      const posts = llmPosts(env.calls).map((call) => call.body);
+      assert.equal(posts.length, changeGrader ? 2 : 1);
+      assert.deepEqual(posts[0], { provider: "openrouter", model: "fictional-browser-writer", apiKey: "fictional-browser-key", baseUrl: "https://fictional.example/v1" });
+      if (changeGrader) assert.deepEqual(posts[1], { judge: { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key" } });
+    });
+  }
+
+  it("P1: an unreachable server does not authorize an untouched writer POST", async () => {
+    const env = loadSettings(() => { throw new TypeError("Fictional server unavailable."); });
+    await openWriterModal(env);
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(env.calls).length, 0);
+  });
+
+  it("P1: a successful bootstrap is not repeated when the grader fails", async () => {
+    const respond = storingServer({ ...NO_WRITER, judge: null }, { save: (body) => body.judge ? { status: 500, body: { error: "Fictional grading save failed." } } : null });
+    const env = loadSettings(respond);
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const afterFirst = env.calls.length;
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const posts = llmPosts(env.calls.slice(afterFirst));
+    assert.equal(posts.length, 1);
+    assert.ok("judge" in posts[0].body, "retry sends only the failed grader");
+  });
+
+  it("P1: a pre-write missing-writer reply cannot undo a successful writer POST", async () => {
+    let release;
+    let reads = 0;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const respond = storingServer(undefined, { save: (body) => body.judge ? { status: 500, body: { error: "Fictional grading save failed." } } : null });
+    const env = loadSettings((url, method, body) => method === "GET" && ++reads === 2 ? pending : respond(url, method, body));
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    const oldStatus = env.settings.refreshLlmStatus();
+    el(env.document, "settingsResumeOpenRouterModel").value = "fictional-new-writer";
+    await env.settings.saveCommandCenterSettingsFromForm();
+    release({ status: 404, body: { ...NO_WRITER, code: "llm_unconfigured", judge: null } });
+    assert.equal(await oldStatus, null, "a landed writer invalidates the earlier read");
+    const afterFirst = env.calls.length;
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const posts = llmPosts(env.calls.slice(afterFirst));
+    assert.equal(posts.length, 1);
+    assert.ok("judge" in posts[0].body);
+  });
+
+  for (const editTargetKey of [false, true]) {
+    it(`P2: adopting the server model preserves ${editTargetKey ? "an edited target key" : "a grader-only Save"}`, async () => {
+      const env = loadSettings(storingServer({ ...WRITER, provider: "openai", model: "fictional-server-writer", judge: null }));
+      env.window.JobBoredApp.core.host.mergeStoredConfigOverridePatch = (patch) => Object.assign(env.window.COMMAND_CENTER_CONFIG, patch);
+      await openWriterModal(env);
+      if (editTargetKey) el(env.document, "settingsResumeOpenAIApiKey").value = "fictional-edited-target-key";
+      let button;
+      env.document.body.walk((node) => { if (node.getAttribute("data-action") === "settings_llm_match_server") button = node; });
+      assert.ok(button, "Use X in this browser is offered for the mismatch");
+      await button.dispatch("click");
+      await settle();
+      const adopted = llmPosts(env.calls);
+      assert.equal(adopted.length, 1);
+      assert.equal("apiKey" in adopted[0].body, false, "adoption keeps the server key");
+      const beforeSave = env.calls.length;
+      await openEditor(env.document);
+      await typeKey(env.document);
+      await env.settings.saveCommandCenterSettingsFromForm();
+      const posts = llmPosts(env.calls.slice(beforeSave));
+      assert.equal(posts.length, editTargetKey ? 2 : 1);
+      if (editTargetKey) assert.equal(posts[0].body.apiKey, "fictional-edited-target-key");
+      assert.ok("judge" in posts.at(-1).body);
+    });
+  }
+
+  it("P3-3: a landed writer Save becomes the baseline when a failed grader leaves the modal open", async () => {
+    let gradingSaves = 0;
+    const env = loadSettings(storingServer(undefined, { save: (body) => body.judge && ++gradingSaves === 1 ? { status: 500, body: { error: "Fictional grading save failed." } } : null }));
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    const model = el(env.document, "settingsResumeOpenRouterModel");
+    model.value = "fictional-new-writer";
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const afterFirst = env.calls.length;
+    model.value = "fictional-browser-writer";
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const posts = llmPosts(env.calls.slice(afterFirst));
+    assert.equal(posts.length, 2);
+    assert.equal(posts[0].body.model, "fictional-browser-writer");
+    assert.ok("judge" in posts[1].body);
+  });
+
+  it("P3-3: editing the writer during its POST does not move the baseline past the submitted value", async () => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    let writes = 0;
+    const respond = storingServer(undefined, { save: (body) => body.judge ? { status: 500, body: { error: "Fictional grading save failed." } } : null });
+    const env = loadSettings((url, method, body) => method === "POST" && body.provider && ++writes === 1 ? pending : respond(url, method, body));
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    const model = el(env.document, "settingsResumeOpenRouterModel");
+    model.value = "fictional-submitted-writer";
+    const saving = env.settings.saveCommandCenterSettingsFromForm();
+    await settle();
+    model.value = "fictional-edited-while-saving";
+    release({ body: { ok: true } });
+    await saving;
+    const afterFirst = env.calls.length;
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(env.calls.slice(afterFirst))[0].body.model, "fictional-edited-while-saving");
+  });
+
+  it("P3-3: a rejected writer POST leaves its baseline unchanged", async () => {
+    const env = loadSettings((url, method, body) => method === "POST" && body.provider
+      ? { status: 500, body: { error: "Fictional writer save failed." } }
+      : method === "POST" && body.judge ? { status: 500, body: { error: "Fictional grading save failed." } }
+        : url.endsWith("/judge-models") ? { body: CATALOG } : { body: WRITER });
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    el(env.document, "settingsResumeOpenRouterModel").value = "fictional-new-writer";
+    await env.settings.saveCommandCenterSettingsFromForm();
+    const afterFirst = env.calls.length;
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(env.calls.slice(afterFirst))[0].body.model, "fictional-new-writer");
   });
 });
 

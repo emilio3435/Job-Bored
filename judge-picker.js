@@ -334,6 +334,8 @@
       savedChoice: "",
       touched: false,
       listSeq: 0,
+      loadingSeq: null,
+      reloadNeeded: false,
       listOk: false,
       testing: null,
       lastTest: null,
@@ -518,9 +520,26 @@
       return `Enter your key to load the latest ${c.id === "xai" ? "Grok" : c.short} models.`;
     }
 
+    function invalidateModels() {
+      st.listSeq += 1;
+      if (st.loadingSeq != null) st.reloadNeeded = true;
+      if (!st.reloadNeeded) return;
+      st.loadingSeq = null;
+      const c = choice();
+      if (c.catalog && (c.keyless || asTrimmed(apiKey.value) || savedKey())) {
+        resetModels("Reload models", "Your key or server changed. Reload the model list.");
+        retry.hidden = false;
+      } else {
+        resetModels(c.catalog ? "Enter your key to load models" : "No list for a self-hosted server", keyWaitCopy());
+        retry.hidden = true;
+      }
+    }
+
     /** Load the live list for the current choice. Seq-guarded: the newest request wins. */
     async function loadModels() {
       const seq = ++st.listSeq;
+      st.loadingSeq = null;
+      st.reloadNeeded = false;
       const c = choice();
       retry.hidden = true;
       if (!c.catalog) {
@@ -535,6 +554,7 @@
         return false;
       }
       resetModels("Loading models…", `Loading models from ${c.short === "Grok" ? "xAI" : c.short}…`);
+      st.loadingSeq = seq;
       const result = await fetchJudgeModels({
         provider: c.catalog,
         baseUrl: apiBase(),
@@ -543,6 +563,7 @@
         judgeBaseUrl: c.id === "local" ? asTrimmed(baseUrl.value) || PROVIDER_BASE_URLS.local : "",
       });
       if (seq !== st.listSeq) return false;
+      st.loadingSeq = null;
       if (!result.ok) {
         resetModels(result.status === 0 ? "Models unavailable — check your connection" : "Models unavailable — check your key", "");
         showError(result.error, [typed ? "ApiKey" : "Model"]);
@@ -686,6 +707,8 @@
       st.touched = false;
       st.lastTest = null;
       st.listSeq += 1;
+      st.loadingSeq = null;
+      st.reloadNeeded = false;
       provider.value = st.saved ? st.savedChoice : FIELD_CHOICES[0].id;
       apiKey.value = "";
       customModel.value = "";
@@ -718,6 +741,9 @@
     provider.addEventListener("change", () => {
       touch();
       st.listSeq += 1;
+      st.loadingSeq = null;
+      st.reloadNeeded = false;
+      retry.hidden = true;
       const c = choice();
       apiKey.value = "";
       customModel.value = "";
@@ -730,12 +756,12 @@
       else resetModels(c.catalog ? "Enter your key to load models" : "No list for a self-hosted server", keyWaitCopy());
       changed();
     });
-    apiKey.addEventListener("input", () => { touch(); st.listSeq += 1; clearError(); changed(); });
-    apiKey.addEventListener("change", () => { touch(); st.listSeq += 1; void loadModels(); });
+    apiKey.addEventListener("input", () => { touch(); invalidateModels(); clearError(); changed(); });
+    apiKey.addEventListener("change", () => { touch(); invalidateModels(); void loadModels(); });
     model.addEventListener("change", () => { touch(); customModel.value = ""; changed(); });
     customModel.addEventListener("input", () => { touch(); changed(); });
-    baseUrl.addEventListener("input", () => { touch(); st.listSeq += 1; changed(); });
-    baseUrl.addEventListener("change", () => { touch(); st.listSeq += 1; if (choice().id === "local") void loadModels(); });
+    baseUrl.addEventListener("input", () => { touch(); invalidateModels(); changed(); });
+    baseUrl.addEventListener("change", () => { touch(); invalidateModels(); if (choice().id === "local") void loadModels(); });
     retry.addEventListener("click", () => { void loadModels(); });
     testBtn.addEventListener("click", () => { void test(); });
     remove.addEventListener("click", () => {

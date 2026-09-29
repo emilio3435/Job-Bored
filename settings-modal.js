@@ -341,8 +341,8 @@ async function postLlmConfigPin(pin) {
   const { provider, model, baseUrl } = pin;
   const p = String(provider || "").trim();
   const m = String(model || "").trim();
-  if (!p || !m) return;
-  if (typeof fetch !== "function") return;
+  if (!p || !m) return false;
+  if (typeof fetch !== "function") return false;
   const jobBoredApiUrl = resolveJobBoredApiUrl();
   const body = { provider: p, model: m };
   if ("apiKey" in pin) body.apiKey = String(pin.apiKey || "").trim();
@@ -356,13 +356,19 @@ async function postLlmConfigPin(pin) {
     if (!resp || resp.ok === false) {
       const status = resp && typeof resp.status === "number" ? resp.status : 0;
       console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+      return false;
     }
+    serverWriterMissing = false;
+    // A status read begun before this write cannot mark the writer missing.
+    llmStatusSeq += 1;
+    return true;
   } catch (err) {
     const message =
       err && typeof err === "object" && "message" in err
         ? String(err.message)
         : String(err);
     console.warn("[JobBored] llm-config pin POST failed:", message);
+    return false;
   }
 }
 
@@ -694,6 +700,7 @@ function renderSettingsReceipts() {
 const LLM_STATUS_HOST_ID = "settingsLlmStatus";
 const LLM_STATUS_TIMEOUT_MS = 4000;
 let llmStatusSeq = 0;
+let serverWriterMissing = false;
 
 /** The company that picks the version when a pin is a family alias. */
 const LLM_ALIAS_PICKERS = Object.freeze({
@@ -985,6 +992,14 @@ async function matchBrowserLlmToServer(mismatch) {
     if (provEl && provEl.id) settingsFormSnapshot[provEl.id] = String(provEl.value || "");
     if (modelEl && modelEl.id) settingsFormSnapshot[modelEl.id] = String(modelEl.value || "");
   }
+  // Adoption saves only provider/model. Keep any unsaved target-provider
+  // key or endpoint edit visible to the writer's separate dirty check.
+  const targetBaseline = settingsWriterBaselines[mismatch.providerId];
+  settingsWriterSnapshot = {
+    ...(targetBaseline || readSettingsWriterState(mismatch.providerId)),
+    model: llmStatusNormalizeModel(mismatch.providerId, mismatch.model),
+  };
+  settingsWriterBaselines[mismatch.providerId] = settingsWriterSnapshot;
   updateSettingsProviderPanels();
   const pin = mismatch.serverPin || { provider: mismatch.providerId, model: mismatch.model, baseUrl: "" };
   await postLlmConfigPin({ provider: pin.provider, model: pin.model, baseUrl: pin.baseUrl });
@@ -1004,6 +1019,7 @@ async function refreshLlmStatus(opts) {
     browser: readBrowserLlmChoice(getEffectiveConfig()),
     nowMs,
   });
+  serverWriterMissing = view.kind === "ok" && Boolean(view.unconfigured);
   renderLlmStatus(view);
   renderJudgeModel(status, Boolean(opts && opts.resetJudge));
   return view;
@@ -1305,6 +1321,10 @@ async function openCommandCenterSettingsModal(opts) {
   // Keep the writer's open-time baseline separate: async hydration below
   // refreshes the general form snapshot, but must not absorb a writer edit.
   settingsWriterSnapshot = readSettingsWriterState();
+  settingsWriterBaselines = Object.fromEntries(
+    Object.keys(SETTINGS_PROVIDER_DEFS).map((provider) => [provider, readSettingsWriterState(provider)]),
+  );
+  serverWriterMissing = false;
   // The drafting-model block reads the local API; it never blocks opening.
   void refreshLlmStatus({ resetJudge: true });
   // Escape-to-close + auto-focus the close button. The brief asks for both:
@@ -1377,14 +1397,15 @@ async function openCommandCenterSettingsModal(opts) {
    programmatic closes skip the question. */
 let settingsFormSnapshot = null;
 let settingsWriterSnapshot = null;
+let settingsWriterBaselines = {};
 
-function readSettingsWriterState() {
+function readSettingsWriterState(selectedProvider) {
   const value = (id) => String(document.getElementById(id)?.value || "").trim();
-  const provider = value("settingsResumeProvider");
+  const provider = selectedProvider || value("settingsResumeProvider");
   const def = SETTINGS_PROVIDER_DEFS[provider];
   return {
     provider,
-    model: def ? value(def.modelSelectId) || defaultModelFor(provider) : "",
+    model: def ? llmStatusNormalizeModel(provider, value(def.modelSelectId) || defaultModelFor(provider)) : "",
     apiKey: def ? value(def.keyInputId) : "",
     baseUrl: def?.baseUrlInputId ? value(def.baseUrlInputId) : "",
   };
@@ -1493,6 +1514,9 @@ function showSettingsClearConfirmBar() {
 function closeCommandCenterSettingsModal() {
   settingsFormSnapshot = null;
   settingsWriterSnapshot = null;
+  settingsWriterBaselines = {};
+  serverWriterMissing = false;
+  llmStatusSeq += 1;
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
@@ -1776,7 +1800,7 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
-  if (selectedDef && settingsWriterWasEdited()) {
+  if (selectedDef && (settingsWriterWasEdited() || serverWriterMissing)) {
     const pin = {
       provider,
       model: payload[selectedDef.configModelField],
@@ -1788,7 +1812,16 @@ async function saveCommandCenterSettingsFromForm() {
     // the server treats apiKey "" as "remove the stored key".
     const typedKey = String(payload[selectedDef.configKeyField] || "").trim();
     if (typedKey) pin.apiKey = typedKey;
-    await postLlmConfigPin(pin);
+    const baseline = settingsWriterSnapshot;
+    const submitted = { provider, model: pin.model, apiKey: typedKey, baseUrl: pin.baseUrl };
+    if (await postLlmConfigPin(pin)) {
+      // Capture submitted values, not fields edited while the POST awaited.
+      // A closed/reopened modal owns a new snapshot and must keep it.
+      if (settingsWriterSnapshot === baseline) {
+        settingsWriterSnapshot = submitted;
+        settingsWriterBaselines[provider] = submitted;
+      }
+    }
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();
