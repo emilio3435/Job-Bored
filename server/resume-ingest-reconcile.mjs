@@ -70,6 +70,22 @@ function pageChromeLines(lines, census) {
   return chrome;
 }
 
+/** Employer tenure can account for a date only when that source line contains no other words.
+ * @param {string} line @param {string} rawDate @param {any} employer
+ * @param {import('./resume-ingest-census.mjs').CensusAnchor} head @param {boolean} onHeader @param {string[]} sourceAliases
+ */
+function employerDateOnly(line, rawDate, employer, head, onHeader, sourceAliases) {
+  let remainder = folded(line).replace(folded(rawDate), " ");
+  /** @type {string[]} */
+  const ownSites = onHeader ? line.match(URL) || [] : [];
+  const site = String(employer.site || "");
+  const siteMatches = /** @type {string[]} */ (site.match(URL) || []);
+  if (site && siteMatches.includes(site)) ownSites.push(site);
+  const ownText = [head.text, employer.name, ...employerAliases(head.text), ...employerAliases(employer.name), ...sourceAliases, ...ownSites];
+  for (const term of [...new Set(ownText.map((value) => folded(String(value || "")).trim()).filter(Boolean))].sort((a, b) => b.length - a.length)) remainder = remainder.replace(term, " ");
+  return !/[\p{L}\p{N}]/u.test(remainder);
+}
+
 /** Pure Pass C: every experience anchor is closed or returned as a visible item.
  * @param {{lsrc:string,census:import('./resume-ingest-census.mjs').ResumeCensus,employers:Array<any>,nonJob?:Array<any>,quarantinedClaims?:Array<{lines:[number,number]}>,withheld?:Set<number>}} input
  */
@@ -112,13 +128,14 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
       const end = Math.min(next?.lines[0] ? next.lines[0] - 1 : lines.length, section?.lines[1] ?? lines.length);
       return number >= head.lines[0] && number <= end;
     }) : [];
+    const roleOwners = [...new Set([...inBlock.map(({ employer }) => employer), ...associated.filter(({ employer, head }) => !head && employer.lines[0] <= number && number <= employer.lines[1] + 2).map(({ employer }) => employer)])];
     const tail = census.anchors.find((candidate) => candidate.kind === "umbrella_tail" && candidate.lines[0] === number)?.text.trim();
     const umbrellaContext = tail && /\b(?:progressive|multiple|several)\s+roles?\b/iu.test(tail) && (!/^\p{Lu}/u.test(tail) || /^[^•·|]+,\s*[A-Z]{2}(?:\s*[•·|]|$)/u.test(tail));
     const dateRange = anchor.dateRange;
     const groundedUmbrellaContext = umbrellaContext && dateRange && inBlock.some(({ employer, head }) => head && number === head.lines[1] + 1 && employer.start === dateRange.start && employer.end === dateRange.end && /** @type {any[]} */ (employer.roles || []).length >= 2);
     const backgroundNote = tail && /^background\s+tenure\s+note$/iu.test(tail);
     const modelNonJob = nonJob.find((item) => Array.isArray(item.lines) && overlap(item.lines, anchor.lines));
-    const groundedRole = dated(anchor) && associated.some(({ employer, head }) => head && /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines) && (!anchor.dateRange || (role.start === anchor.dateRange.start && role.end === anchor.dateRange.end))));
+    const groundedRole = dated(anchor) && roleOwners.some((employer) => /** @type {any[]} */ (employer.roles || []).some((role) => overlap(role.lines, anchor.lines) && (!anchor.dateRange || (role.start === anchor.dateRange.start && role.end === anchor.dateRange.end))));
     if (modelNonJob && !groundedRole && ["experience", "unknown"].includes(anchor.sectionGuess)) {
       const roleLevel = anchor.kind === "date_range" && inBlock.some(({ head }) => head && (tail ? !groundedUmbrellaContext && !backgroundNote : anchor.sectionGuess === "experience" && number > head.lines[1]));
       setAside.push({ ...visible(anchor, "model_non_job"), disposition: "non_job", nonJobReason: modelNonJob.reason, reviewLevel: roleLevel ? "role" : "claim" });
@@ -133,14 +150,15 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     });
     if (dated(anchor)) {
       const date = anchor.dateRange;
-      const roles = inBlock.flatMap(({ employer }) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))));
+      const roles = roleOwners.flatMap((employer) => /** @type {any[]} */ (employer.roles || []).filter((role) => overlap(role.lines, anchor.lines) && (!date || (role.start === date.start && role.end === date.end))));
       if (roles.length === 1 && !usedRoleDates.has(roles[0])) { closed = true; usedRoleDates.add(roles[0]); }
       if (!closed && groundedUmbrellaContext) {
         setAside.push({ ...visible(anchor, "employer_umbrella_context"), disposition: "umbrella_context", reviewLevel: "claim" });
         continue;
       }
-      if (!closed && date && !roles.length && !tail) {
-        const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer));
+      if (!closed && date && !roles.length) {
+        const sourceAliases = census.anchors.filter((candidate) => candidate.kind === "formerly_clause" && candidate.lines[0] === number).map((candidate) => candidate.text);
+        const umbrellas = inBlock.filter(({ employer, head }) => head && employer.start === date.start && employer.end === date.end && number <= head.lines[1] + 1 && !usedEmployerDates.has(employer) && employerDateOnly(lines[number - 1], date.raw, employer, head, number === head.lines[0], sourceAliases));
         if (umbrellas.length === 1) { closed = true; usedEmployerDates.add(umbrellas[0].employer); }
       }
     }

@@ -261,4 +261,32 @@ it("T-K7-21 a bare date beneath the header closes with employer tenure", async (
   assert.equal(calls, 1);
   assert.equal(result.status, "ready");
   assert.deepEqual(result.unread, []);
+  const sameLine = ["EXPERIENCE", "Contoso Media (formerly Litware Radio) — contoso.example • Jan 2020 — Present"].join("\n");
+  const named = await run(sameLine, [{ employers: [{ ...employer, aliasClause: "(formerly Litware Radio)" }] }]);
+  assert.equal(named.result.status, "ready", "the employer's own name, alias, and site leave no role words");
+  assert.deepEqual(named.result.unread, []);
+});
+it("T-K7-22 a grounded dated role closes without a census employer header", async () => {
+  const source = ["EXPERIENCE", "Research Lead, Tailspin Studio 2025 — Present"].join("\n");
+  const employer = { name: "Tailspin Studio", start: "2025", end: "Present", lines: [2, 2], roles: [{ title: "Research Lead", start: "2025", end: "Present", lines: [2, 2] }], claims: [] };
+  const { result, calls } = await run(source, [{ employers: [employer] }]);
+  assert.equal(calls, 1);
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.unread, []);
+  assert.equal(result.employers[0].roles.length, 1);
+});
+it("T-K7-23 role words cannot be erased by mislabeled employer metadata", async () => {
+  const source = ["EXPERIENCE", "Fabrikam Labs — fabrikam.example Founder & AI Engineer • Jan 2025 — Present"].join("\n");
+  for (const field of ["aliasClause", "site"]) {
+    const employer = { name: "Fabrikam Labs", start: "Jan 2025", end: "Present", lines: [2, 2], roles: [], claims: [], [field]: "Founder & AI Engineer" };
+    const { result } = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+    assert.equal(result.status, "ready_with_review", `${field} cannot impersonate the employer's own identity`);
+    assert.ok(result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
+  }
+});
+it("T-K7-24 a dated role attributed to another employer cannot close this block", () => {
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Fabrikam Labs — fabrikam.example", "May 2019 — May 2021 • Sales Manager"].join("\n");
+  const employers = [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "2020-01", end: "present", lines: [3, 3] }, { title: "Sales Manager", start: "2019-05", end: "2021-05", lines: [5, 5] }], claims: [] }, { name: "Fabrikam Labs", lines: [4, 4], roles: [], claims: [] }];
+  const result = reconcile.reconcileRead({ lsrc: source, census: censusResume(source), employers });
+  assert.ok(result.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 5));
 });
