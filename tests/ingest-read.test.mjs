@@ -194,6 +194,9 @@ it("T-K9-11 instruction-shaped AI role bullet is withheld but employer remains",
   const { result, calls } = await run(source, [reply()]);
   assert.match(calls[0].userText, /L5: \[line withheld\]/);
   assert.equal(result.employers[0].name, "Contoso Media");
+  assert.equal(result.missingEmployers.length, 0, "a withheld bullet cannot masquerade as a missing employer");
+  assert.equal(result.unread.some((item) => item.kind === "employer_header" && item.lines[0] === 5), false);
+  assert.ok(result.review.claims.some((item) => item.lines[0] === 5 && item.reason === "looks_like_instructions"));
 });
 it("T-K9-12 records stop_reason for each model call", async () => {
   const envelope = { candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(fixture("read-run6-shape")) }] } }] };

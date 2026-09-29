@@ -21,10 +21,21 @@ it("T-K7-02 closes or exposes all four anchor kinds", async () => {
   assert.equal(covered.result.status, "ready", "a grounded parenthesized formerly clause closes its anchor");
   assert.equal(covered.calls, 1, "the covered clause does not spend the repair read");
   assert.equal(covered.result.unread.some((item) => item.kind === "formerly_clause"), false);
+  const formerOnly = await run(source, [{ employers: [{ ...employer, name: "Litware Radio" }] }, { employers: [{ ...employer, name: "Litware Radio" }] }]);
+  assert.equal(formerOnly.result.status, "ready_with_review", "the former name cannot impersonate the parent employer");
+  assert.ok(formerOnly.result.missingEmployers.some((item) => item.aliasKey === "contoso media"));
 });
 it("T-K7-03 an unaccounted dated anchor triggers a repair read", async () => {
   const { calls } = await run(SOURCE, [fixture("read-run6-shape"), fixture("read-full")]);
   assert.equal(calls, 2);
+  const first = fixture("read-full");
+  first.employers[0].roles.splice(1, 1);
+  first.employers[2].claims.splice(0, 1);
+  const repaired = await run(SOURCE, [first, fixture("read-full")]);
+  assert.equal(repaired.calls, 2);
+  assert.equal(repaired.result.employers[0].roles.length, 3, "the repair adds the missing role to an accepted employer");
+  assert.equal(repaired.result.employers[2].claims.length, fixture("read-full").employers[2].claims.length, "the repair adds its grounded claim");
+  assert.equal(repaired.result.unread.some((item) => item.lines[0] === 9), false);
 });
 it("T-K7-04 a still unaccounted dated anchor is visible and partial", async () => {
   const { result } = await run(SOURCE, [fixture("read-run6-shape"), fixture("read-run6-shape")]);
@@ -43,10 +54,15 @@ it("T-K7-06 reports C03 coverage counts", async () => {
   const { result } = await run(SOURCE, [fixture("read-full")]);
   assert.equal(result.coverage.anchorsTotal, 12);
   assert.equal(result.coverage.datedAnchorsTotal, 7);
+  const source = ["Jordan Rivera", "Audience operations leader", "Springfield, IL • 555-010-2345 • jordan@example.com", "EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", "Jordan Rivera", "2018 — 2019"].join("\n");
+  const employer = { name: "Contoso Media", lines: [5, 5], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [6, 6] }], claims: [{ text: "Built a planning tool for local teams.", lines: [7, 7] }] };
+  const hidden = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.ok(hidden.result.missingEmployers.some((item) => item.aliasKey === "jordan rivera" && item.lines[0] === 8), "chrome cannot erase a census employer header");
 });
 it("T-K7-07 line overlap without alias match does not close a header", async () => {
   assert.equal(reconcile.employerKey?.("Contoso Media — contoso.example"), "contoso media");
   assert.equal(reconcile.employerKey?.("Contoso Media (contoso.example)"), "contoso media");
+  assert.equal(reconcile.employerKey?.("Contoso Media (formerly Litware Radio)"), "contoso media");
   assert.notEqual(reconcile.employerKey?.("Fabrikam Labs"), reconcile.employerKey?.("Contoso Media"));
 
   const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams."].join("\n");
@@ -65,7 +81,9 @@ it("T-K7-08 out-of-span Fabrikam claims are quarantined while Northwind claims s
   assert.ok(result.review.claims.some((item) => item.kind === "inferred" && item.lines[0] === 14));
   assert.equal(result.status, "ready", "grounded, quarantined claim lines count toward coverage without entering the candidate pool");
   assert.equal(result.unread.some((item) => item.kind === "residual" && item.lines[0] === 14), false);
-  assert.ok(result.employers.some((item) => item.name === "Northwind Trading"));
+  const northwind = result.employers.find((item) => item.name === "Northwind Trading");
+  assert.ok(northwind);
+  assert.ok(northwind.claims.some((claim) => claim.lines[0] === 14 && claim.attribution === "inferred" && claim.quarantined === true), "a grounded foreign claim is re-homed but quarantined");
 });
 it("T-K7-09 a two-line residual block is visible and partial", async () => {
   const reply = fixture("read-full"); reply.employers[2].claims = [];
@@ -105,6 +123,11 @@ it("T-K7-09 a two-line residual block is visible and partial", async () => {
   const withYearRange = [...prefix.slice(0, 7), "2017 - 2026"].join("\n");
   const datedWork = reconcile.reconcileRead({ lsrc: withYearRange, census: censusResume(withYearRange), employers: [{ ...employer, roles: [], claims: [] }] });
   assert.ok(datedWork.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 8), "an ungrounded year range stays visible");
+
+  const splitRun = [...prefix.slice(0, 9), "Shipped the weekly planning tool for neighborhood teams.", "Jordan Rivera", "Opened regional reporting for neighborhood managers.", "", "2018 — 2019"].join("\n");
+  const split = reconcile.reconcileRead({ lsrc: splitRun, census: censusResume(splitRun), employers: [employer] });
+  assert.ok(split.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 14));
+  assert.ok(split.residual.some((item) => item.lines[0] === 10 && item.lines[1] === 12), "a chrome line cannot split two unclaimed work lines");
 });
 it("T-K7-10 model non_job employer anchors stay partial while date notes do not", async () => {
   const reply = fixture("read-full"); reply.nonJob = [{ lines: [34, 34], reason: "user_asserted" }];
@@ -126,12 +149,25 @@ it("T-K7-10 model non_job employer anchors stay partial while date notes do not"
   const hiddenEmployer = await run(source, [falseNonJob, falseNonJob]);
   assert.equal(hiddenEmployer.result.status, "ready_with_review", "a model non_job label cannot hide an employer header");
   assert.ok(hiddenEmployer.result.missingEmployers.some((item) => item.aliasKey === "contoso media"));
+
+  const roleSource = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", "May 2019 — May 2021 • Senior Account Executive"].join("\n");
+  const roleReply = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "not another role" }] };
+  const roleGap = await run(roleSource, [roleReply, roleReply]);
+  assert.equal(roleGap.result.status, "ready_with_review", "a non_job label cannot silently clear a dated role header");
+  assert.ok(roleGap.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 5));
+  assert.ok(roleGap.result.setAside.some((item) => item.lines[0] === 5));
+  assert.ok(roleGap.result.review.claims.some((item) => item.lines[0] === 5));
 });
 it("T-K7-11 merged dated roles leave the extra anchor unread", async () => {
   const reply = fixture("read-full"); reply.employers[0].roles.splice(1, 1);
   const { result } = await run(SOURCE, [reply, reply]);
   assert.equal(result.status, "ready_with_review");
   assert.ok(result.unread.some((item) => item.lines[0] === 9 && item.kind === "date_range"));
+  const duplicateDates = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", "Jan 2020 — Present • Sales Manager"].join("\n");
+  const oneRole = { employers: [{ name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }] };
+  const duplicate = await run(duplicateDates, [oneRole, oneRole]);
+  assert.equal(duplicate.result.status, "ready_with_review");
+  assert.ok(duplicate.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 5), "one date cannot close a second role anchor");
 });
 it("T-K7-12 same normalized company on different dated blocks stays separate", async () => {
   const source = "EXPERIENCE\nAcme Inc\n2019 — 2020\nAcme LLC\n2021 — 2022";
@@ -145,4 +181,9 @@ it("T-K7-13 unexplained experience coverage gap cannot be ready", async () => {
   const { result } = await run(SOURCE, [reply, reply]);
   assert.notEqual(result.status, "ready");
   assert.ok(result.reconciliation.failures.includes("reconciliation_failed") || result.unread.some((item) => item.kind === "residual"));
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams.", "", "Shipped a separate field program for neighborhood teams.", "", "2018 — 2019 • background tenure note"].join("\n");
+  const gapReply = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [8, 8], reason: "background note" }] };
+  const gap = await run(source, [gapReply, gapReply]);
+  assert.equal(gap.result.status, "ready_with_review", "a set-aside elsewhere cannot excuse a separate work line");
+  assert.ok(gap.result.reconciliation.failures.includes("reconciliation_failed") || gap.result.unread.some((item) => item.kind === "residual" && item.lines[0] === 6));
 });
