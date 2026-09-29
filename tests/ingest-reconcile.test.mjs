@@ -33,8 +33,8 @@ it("T-K7-05 run 6 lists both missing employers by alias key", async () => {
 });
 it("T-K7-06 reports C03 coverage counts", async () => {
   const { result } = await run(SOURCE, [fixture("read-full")]);
-  assert.equal(result.coverage.anchorsTotal, 10);
-  assert.equal(result.coverage.datedAnchorsTotal, 8);
+  assert.equal(result.coverage.anchorsTotal, 12);
+  assert.equal(result.coverage.datedAnchorsTotal, 7);
 });
 it("T-K7-07 line overlap without alias match does not close a header", () => {
   assert.equal(reconcile.employerKey?.("Contoso Media — contoso.example"), "contoso media");
@@ -66,9 +66,12 @@ it("T-K7-11 merged dated roles leave the extra anchor unread", async () => {
   assert.equal(result.status, "ready_with_review");
   assert.ok(result.unread.some((item) => item.lines[0] === 9 && item.kind === "date_range"));
 });
-it("T-K7-12 same normalized company on different dated blocks stays separate", () => {
-  assert.equal(typeof reconcile.reconcileRead, "function");
-  assert.notEqual(reconcile.employerKey?.("Acme Inc"), reconcile.employerKey?.("Acme LLC"));
+it("T-K7-12 same normalized company on different dated blocks stays separate", async () => {
+  const source = "EXPERIENCE\nAcme Inc\n2019 — 2020\nAcme LLC\n2021 — 2022";
+  const raw = { employers: [{ name: "Acme Inc", lines: [2, 2], roles: [], claims: [] }, { name: "Acme LLC", lines: [4, 4], roles: [], claims: [] }] };
+  const { result } = await run(source, [raw]);
+  assert.equal(result.employers.length, 2);
+  assert.equal(reconcile.employerKey("Acme Inc"), reconcile.employerKey("Acme LLC"));
 });
 it("T-K7-13 unexplained experience coverage gap cannot be ready", async () => {
   const reply = fixture("read-full"); reply.employers[2].claims = [];

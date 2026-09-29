@@ -57,13 +57,14 @@ it("T-K5-08 in-employer claim outside all role spans uses latest role with check
   assert.ok(result.review.claims.some((item) => item.kind === "check_role"));
 });
 it("T-K5-09 a six-line pointer stores only its matched extent", async () => {
-  const raw = reply(); raw.employers[0].claims[0].lines = [1, 4];
-  const { result } = await run(simple, [raw]);
+  const source = `${simple.split("\n").slice(0, 3).join("\n")}\nA first local note.\nA second local note.\nA third local note.\nA fourth local note.\nBuilt a planning tool for local teams and their weekly goals.`;
+  const raw = reply(); raw.employers[0].claims[0].lines = [3, 8];
+  const { result } = await run(source, [raw]);
   assert.equal(result.employers[0].claims[0].text, "Built a planning tool for local teams and their weekly goals.");
 });
 it("T-K6-13 pointer width and employer-header crossings reject only those items", async () => {
   const source = `${simple}\nNorthwind Trading — northwind.example\nDirector • 2020 — 2021`;
-  const raw = reply(); raw.employers[0].claims[0].lines = [1, 7];
+  const raw = reply(); raw.employers[0].claims[0].lines = [1, 6];
   const { result } = await run(source, [raw]);
   assert.equal(result.employers.length, 1);
   assert.ok(result.rejected.some((item) => item.reason === "pointer_too_wide" || item.reason === "pointer_crosses_employer_header"));
