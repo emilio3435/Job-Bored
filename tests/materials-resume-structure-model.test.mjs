@@ -485,35 +485,56 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
     assert.ok(result.rejected.some((item) => item.reason === "source_instruction"), "an instruction-shaped quote is rejected even when its selected value is ordinary prose");
   });
 
-  it("I3 reports incomplete or partial model reads as failed ingest", async () => {
+  it("I3 keeps grounded employers when claims are absent or individually rejected", async () => {
     const cases = [
       {
         resumeText: "Cedar Studio — Research Lead, 2022",
         reply: { employers: [{ name: "Cedar Studio", sourceQuote: "Cedar Studio — Research Lead, 2022", roles: [], claims: [] }] },
-        reason: "no matched claims",
+        status: "ready", employers: 1,
       },
       {
         resumeText: "EDUCATION\nB.S. Mathematics at Cedar State University.",
         reply: { employers: [], education: [{ text: "B.S. Mathematics", sourceQuote: "B.S. Mathematics at Cedar State University." }] },
-        reason: "no matched employers",
+        status: "failed", employers: 0,
       },
       {
         resumeText: INTERLEAVED,
         reply: structuredClone(INTERLEAVED_MODEL),
-        reason: "rejected item beside matched employers and claims",
+        status: "ready", employers: 3,
       },
     ];
     cases[2].reply.employers[0].claims.push({ text: "Invented annual growth across every account.", sourceQuote: "not in the resume" });
-    for (const { resumeText, reply, reason } of cases) {
+    for (const { resumeText, reply, status, employers } of cases) {
       const result = await structureResumeWithModel({
         resumeText,
         pin: PIN,
         fetchImpl: async () => ({}),
         callStage: async () => reply,
       });
-      assert.equal(result.ingest.status, "failed", reason);
-      assert.equal(result.structure, null, reason);
+      assert.equal(result.ingest.status, status);
+      assert.equal(result.structure?.employers.length ?? 0, employers);
+      if (status === "ready" && result.rejected.length) {
+        assert.ok(result.rejected.some((item) => item.kind === "claim"));
+        assert.ok(result.structure.employers[0].claims.length > 0);
+      }
     }
+  });
+
+  it("I3 grounds an ambiguous employer year by its unique header and rejects five bad claims without failing the resume", async () => {
+    const contoso = "Contoso Media — Founder • 2025 — Present";
+    const northwind = "Northwind Trading — Director • 2025 — Present";
+    const bullets = Array.from({ length: 5 }, (_, index) => `Northwind Trading reviewed fictional plan ${index + 1} with its local team.`);
+    const resumeText = ["EXPERIENCE", contoso, northwind, ...bullets].join("\n");
+    const reply = { employers: [
+      { name: "Contoso Media", sourceQuote: contoso, start: "2025", startSourceQuote: "2025", roles: [{ title: "Founder", sourceQuote: contoso }], claims: bullets.map((text) => ({ text, sourceQuote: text })) },
+      { name: "Northwind Trading", sourceQuote: northwind, roles: [{ title: "Director", sourceQuote: northwind }], claims: [] },
+    ] };
+    const result = await structureResumeWithModel({ resumeText, pin: PIN, fetchImpl: async () => ({}), callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready");
+    assert.equal(result.structure.employers.length, 2);
+    assert.equal(result.structure.employers[0].start, "2025");
+    assert.equal(result.structure.employers[0].claims.length, 0);
+    assert.equal(result.rejected.filter((item) => item.reason === "misattributed_out_of_span").length, 5);
   });
 
   it("I3 rejects a rebuilt ledger with zero employer-attributed resume claims", async () => {
@@ -627,7 +648,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         callStage: async () => ({ employers: [{ name: "Aster Vale Audio (formerly Vale Signal)", sourceQuote: ASTER_HEADER_QUOTE }] }),
       });
       assert.equal(noClaims.ingest.status, "failed");
-      assert.match(noClaims.ingest.reason, /no grounded employers or claims/);
+      assert.match(noClaims.ingest.reason, /no usable ledger claims/);
       assert.deepEqual(noClaims.claims.map((claim) => claim.text), lastGood.claims.map((claim) => claim.text));
 
       const persistedLastGood = Object.fromEntries(
