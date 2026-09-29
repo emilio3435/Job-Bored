@@ -44,8 +44,10 @@ export function foldForMatch(value) {
 /** @param {string} value */
 export function joinSoftWrap(value) {
   return String(value ?? "")
-    .replace(/(?<!\p{L})(\p{L}+)-?\r?\n(?=\p{Ll})/gu, (match, word) =>
-      /^\p{Lu}/u.test(word) ? match : word);
+    .replace(/(?<!\p{L})(\p{L}+)(-?)\r?\n(?=\p{Ll})/gu, (match, word, hyphen) => {
+      if (/^\p{Lu}/u.test(word)) return match;
+      return hyphen ? word : `${word} `;
+    });
 }
 
 const NUMBER_TOKEN_RE = /(?:[$€£+−-])?\p{N}+(?:[.,]\p{N}+)*(?:\s*[-–—]\s*\p{N}+(?:[.,]\p{N}+)*)?(?:[kmbt%])?/giu;
@@ -62,6 +64,11 @@ export function findNumberTokens(value) {
 export function containsNumberToken(source, value) {
   const wanted = foldForMatch(value).text;
   return findNumberTokens(source).some((token) => foldForMatch(token.value).text === wanted);
+}
+
+/** UTF-16 length of the code point starting at `offset`. @param {string} value @param {number} offset */
+function rawCharLength(value, offset) {
+  return (value.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1;
 }
 
 /** Literal locator for employer names, dates, and numbers; it intentionally has no fuzzy tier. */
@@ -83,5 +90,5 @@ export function locateLiteral(source, value, { kind = "name" } = {}) {
   const foldedNeedle = foldForMatch(needle).text;
   const folded = foldedSource.text.indexOf(foldedNeedle);
   if (folded < 0) return null;
-  return { tier: "folded", start: foldedSource.map[folded], end: foldedSource.map[folded + foldedNeedle.length - 1] + 1 };
+  return { tier: "folded", start: foldedSource.map[folded], end: foldedSource.map[folded + foldedNeedle.length - 1] + rawCharLength(haystack, foldedSource.map[folded + foldedNeedle.length - 1]) };
 }

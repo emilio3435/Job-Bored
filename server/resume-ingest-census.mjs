@@ -17,6 +17,7 @@ const DATE_PART = `(?:${MONTH}|${NUMERIC_MONTH}|${SEASON}|${YEAR})`;
 const DATE_RANGE_RE = new RegExp(`\\b(${DATE_PART})\\s*(?:[–—-]|\\bto\\b)\\s*(${DATE_PART}|Present|Current|Now)\\b|\\b(${SEASON})\\b`, "iu");
 const FALLBACK_YEAR_RE = /\b(?:19[5-9]\d|20\d\d)\b/gu;
 const SITE_RE = /^(.+?)\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$)/iu;
+const PAREN_SITE_RE = /\s*\((?:https?:\/\/)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^)\s]*)?\)/iu;
 const TITLE_RE = /\b(?:Co-founder|Founder|Chief|Director|Manager|Executive|Engineer|Designer|Analyst|Specialist|President|Officer|Consultant|Developer|Lead)\b/iu;
 const ALIAS_RE = /\((?:formerly|now|acquired by|f\/k\/a|fka|previously)\s+[^)]+\)|\b(?:formerly|now|acquired by|f\/k\/a|fka|previously)\s+[^,;•]+/giu;
 
@@ -58,6 +59,7 @@ function employerName(line, date, next, afterNext, previousHeader) {
   if (!line || /^(?:summary|profile|objective)\s*:/iu.test(line) || /@|\b\d{3}-\d{3}-\d{4}\b/u.test(line)) return null;
   const site = SITE_RE.exec(line);
   if (site) return site[1].trim();
+  if (PAREN_SITE_RE.test(line)) return employerName(line.replace(PAREN_SITE_RE, ""), date, next, afterNext, previousHeader);
   if (date && date.index > 0 && /[•·|]/u.test(line.slice(0, date.index))) {
     const before = line.slice(0, date.index).replace(/[•·|\s]+$/gu, "").trim();
     const title = TITLE_RE.exec(before);
@@ -65,7 +67,7 @@ function employerName(line, date, next, afterNext, previousHeader) {
     return null;
   }
   const nearDate = (next && dateRange(next)?.index === 0) || (afterNext && dateRange(afterNext)?.index === 0);
-  if (!previousHeader && !date && nearDate && /^[A-Z][\p{L}\p{N}()&.,'’\s-]{2,79}$/u.test(line) && !TITLE_RE.test(line) && !/[.!?]$/u.test(line)) return line;
+  if (!previousHeader && !date && nearDate && /^[A-Z][\p{L}\p{N}()&.,'’\s/-]{2,79}$/u.test(line) && !TITLE_RE.test(line) && !/[.!?]$/u.test(line)) return line;
   return null;
 }
 
