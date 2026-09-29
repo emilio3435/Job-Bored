@@ -57,7 +57,7 @@ describe("P-2: resume uploads keep their line structure", () => {
     assert.deepEqual(lines, SOURCE_LINES, "every source line survives, in order, bullets included");
     const ledger = buildLedger({ profile: null, resumeText: text, structure: modelStructureFixture(text) });
     assert.ok(ledger.claims.length >= 10, `claims: ${ledger.claims.length}`);
-    assert.equal(ledger.claims.filter((c) => c.employerId).length, SOURCE_BULLETS.length);
+    assert.equal(ledger.claims.filter((c) => c.employerId && c.kind !== "role").length, SOURCE_BULLETS.length);
   });
 
   it("PDF: lines rebuilt from hasEOL and y-position; bullet glyphs become '- '", async () => {
