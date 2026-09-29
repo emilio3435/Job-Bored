@@ -1061,6 +1061,32 @@ function isXaiJudge(judge) {
   return judgePicker().isXaiJudge(judge);
 }
 
+/**
+ * Point the generic path at the selected provider's key page, with its cost
+ * note. The entries come from the shared picker, so Settings and onboarding
+ * can never disagree about where a key comes from or what it costs.
+ */
+function updateJudgeKeyGuide() {
+  if (typeof document === "undefined" || !document.getElementById) return;
+  const link = document.getElementById("settingsJudgeKeyGuideLink");
+  const note = document.getElementById("settingsJudgeKeyGuideNote");
+  const provider = document.getElementById("settingsJudgeProvider");
+  if (!link || !note || !provider) return;
+  const guide = judgePicker().OTHER_PROVIDER_KEYS[provider.value] || null;
+  if (!guide) {
+    link.hidden = true;
+    note.hidden = true;
+    return;
+  }
+  link.hidden = false;
+  note.hidden = false;
+  link.setAttribute("href", guide.keyUrl);
+  link.setAttribute("target", "_blank");
+  link.setAttribute("rel", "noopener");
+  link.textContent = guide.keyLabel;
+  note.textContent = guide.keyNote;
+}
+
 function appendJudgeField(group, labelText, control) {
   const label = llmStatusEl("label", "field-label", labelText);
   label.setAttribute("for", control.id);
@@ -1174,6 +1200,7 @@ function fillJudgeForm(judge) {
   if (xaiKey) xaiKey.value = "";
   if (keyState) keyState.textContent = isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
   if (otherKeyState) otherKeyState.textContent = j && !isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
+  updateJudgeKeyGuide();
 
   if (xaiModel) {
     const selected = j && isXaiJudge(j) ? j.model : "";
@@ -1286,6 +1313,7 @@ function ensureJudgeGroup() {
   for (const [value, label] of JUDGE_PROVIDERS) appendJudgeOption(provider, value, label);
   provider.value = "";
   provider.addEventListener("change", () => {
+    updateJudgeKeyGuide();
     if (provider.value) {
       judgeMode = "generic";
       return;
@@ -1314,6 +1342,14 @@ function ensureJudgeGroup() {
   const otherKeyState = llmStatusEl("p", "settings-judge__key-state", "No key saved");
   otherKeyState.id = "settingsJudgeOtherKeyState";
   other.appendChild(otherKeyState);
+  const keyGuideLink = llmStatusEl("a", "settings-judge__key-link", "");
+  keyGuideLink.id = "settingsJudgeKeyGuideLink";
+  keyGuideLink.hidden = true;
+  other.appendChild(keyGuideLink);
+  const keyGuideNote = llmStatusEl("p", "settings-judge__hint", "");
+  keyGuideNote.id = "settingsJudgeKeyGuideNote";
+  keyGuideNote.hidden = true;
+  other.appendChild(keyGuideNote);
   group.appendChild(other);
 
   key.addEventListener("focus", () => { judgeMode = "xai"; });

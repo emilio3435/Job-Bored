@@ -393,3 +393,54 @@ describe("MREV JUDGEUX · xAI grading model setup", () => {
     assert.equal(el(document, "settingsJudgeError").getAttribute("role"), "alert");
   });
 });
+
+describe("MREV JUDGEUX · generic key guide (shared with onboarding)", () => {
+  async function openGeneric(document, provider) {
+    const other = el(document, "settingsJudgeOtherProviders");
+    other.open = true;
+    await other.dispatch("toggle");
+    el(document, "settingsJudgeProvider").value = provider;
+    await el(document, "settingsJudgeProvider").dispatch("change");
+  }
+
+  it("shows the selected provider's key link and cost note", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openrouter");
+    const link = el(document, "settingsJudgeKeyGuideLink");
+    assert.equal(link.getAttribute("href"), "https://openrouter.ai/keys");
+    assert.match(text(link), /Create an OpenRouter key/);
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Pay-as-you-go/);
+  });
+
+  it("updates the guide when the provider changes", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "openrouter");
+    el(document, "settingsJudgeProvider").value = "gemini";
+    await el(document, "settingsJudgeProvider").dispatch("change");
+    assert.equal(
+      el(document, "settingsJudgeKeyGuideLink").getAttribute("href"),
+      "https://aistudio.google.com/app/apikey",
+    );
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Free tier/);
+  });
+
+  it("tells local users no key is needed, with an Ollama link", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    await openGeneric(document, "local");
+    assert.equal(el(document, "settingsJudgeKeyGuideLink").getAttribute("href"), "https://ollama.com");
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /usually need no key/);
+  });
+
+  it("lives inside the Other disclosure, so it hides with it", async () => {
+    const { settings, document } = loadSettings(defaultRespond);
+    await settings.refreshLlmStatus();
+    const other = el(document, "settingsJudgeOtherProviders");
+    const ids = [];
+    other.walk((node) => ids.push(node.id));
+    assert.ok(ids.includes("settingsJudgeKeyGuideLink"));
+    assert.ok(ids.includes("settingsJudgeKeyGuideNote"));
+  });
+});

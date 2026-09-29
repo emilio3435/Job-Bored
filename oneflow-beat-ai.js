@@ -215,9 +215,6 @@
       label: "OpenRouter",
       note: "One key grades with any model. Pay-as-you-go.",
       keyPlaceholder: "sk-or-…",
-      signupUrl: "https://openrouter.ai/keys",
-      signupLabel: "Create an OpenRouter key ↗",
-      keyHelp: "Pay-as-you-go — a few dollars of credit grades a lot of letters.",
       modelHelp: "Any OpenRouter model id. Free options end in :free.",
       modelHelpUrl: "https://openrouter.ai/models",
       modelHelpLabel: "Browse OpenRouter models ↗",
@@ -227,27 +224,18 @@
       label: "OpenAI",
       note: "Paid. Uses your OpenAI API credit.",
       keyPlaceholder: "sk-…",
-      signupUrl: "https://platform.openai.com/api-keys",
-      signupLabel: "Create an OpenAI key ↗",
-      keyHelp: "Paid — the test fails without API credit.",
     },
     {
       id: "anthropic",
       label: "Anthropic",
       note: "Paid. Uses your Anthropic API credit.",
       keyPlaceholder: "sk-ant-…",
-      signupUrl: "https://console.anthropic.com/settings/keys",
-      signupLabel: "Create an Anthropic key ↗",
-      keyHelp: "Paid — the test fails without API credit.",
     },
     {
       id: "gemini",
       label: "Gemini",
       note: "Free tier — no card needed.",
       keyPlaceholder: "AIza…",
-      signupUrl: "https://aistudio.google.com/app/apikey",
-      signupLabel: "Create a free Gemini key ↗",
-      keyHelp: "Free tier, no card needed.",
     },
     {
       id: "local",
@@ -256,8 +244,6 @@
       defaultBaseUrl: "http://127.0.0.1:11434/v1",
       baseUrlField: true,
       keyless: true,
-      signupUrl: "https://ollama.com",
-      signupLabel: "Get Ollama ↗",
       modelHelp: "The model name Ollama serves (ollama list shows yours).",
     },
   ];
@@ -270,7 +256,16 @@
     "in Settings.";
 
   function judgeOtherById(id) {
-    return JUDGE_OTHER_PROVIDERS.find((p) => p.id === id) || JUDGE_OTHER_PROVIDERS[0];
+    const def = JUDGE_OTHER_PROVIDERS.find((p) => p.id === id) || JUDGE_OTHER_PROVIDERS[0];
+    // Key pages and cost notes come from the shared picker, never from a
+    // second table, so onboarding and Settings cannot disagree about them.
+    const guide = judgePicker().OTHER_PROVIDER_KEYS[def.id] || {};
+    return {
+      ...def,
+      signupUrl: guide.keyUrl || "",
+      signupLabel: guide.keyLabel || "",
+      keyHelp: guide.keyNote || "",
+    };
   }
 
   function isXaiJudgePath(providerId) {

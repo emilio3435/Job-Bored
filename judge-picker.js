@@ -17,6 +17,44 @@
   const XAI_KEY_LINK_LABEL = "Create an xAI API key";
   const XAI_KEY_STEPS_HINT = "Sign in → API Keys → Create";
 
+  /**
+   * One key page and cost note per non-xAI provider, shared by the Settings
+   * generic path and the onboarding Other disclosure so the two can never
+   * disagree about where a key comes from or what it costs.
+   */
+  const OTHER_PROVIDER_KEYS = {
+    openrouter: {
+      keyUrl: "https://openrouter.ai/keys",
+      keyLabel: "Create an OpenRouter key ↗",
+      keyNote: "Pay-as-you-go — a few dollars of credit grades a lot of letters.",
+    },
+    openai: {
+      keyUrl: "https://platform.openai.com/api-keys",
+      keyLabel: "Create an OpenAI key ↗",
+      keyNote: "Paid — requests fail without API credit.",
+    },
+    anthropic: {
+      keyUrl: "https://console.anthropic.com/settings/keys",
+      keyLabel: "Create an Anthropic key ↗",
+      keyNote: "Paid — requests fail without API credit.",
+    },
+    gemini: {
+      keyUrl: "https://aistudio.google.com/app/apikey",
+      keyLabel: "Create a free Gemini key ↗",
+      keyNote: "Free tier, no card needed.",
+    },
+    local: {
+      keyUrl: "https://ollama.com",
+      keyLabel: "Get Ollama ↗",
+      keyNote: "Local servers usually need no key.",
+    },
+    openai_compatible: {
+      keyUrl: "https://console.x.ai/",
+      keyLabel: "Create an xAI key ↗",
+      keyNote: "For xAI the API is prepaid: add credit first. A self-hosted endpoint uses its own key page.",
+    },
+  };
+
   function asTrimmed(value) {
     return String(value == null ? "" : value).trim();
   }
@@ -146,6 +184,7 @@
     XAI_KEY_URL,
     XAI_KEY_LINK_LABEL,
     XAI_KEY_STEPS_HINT,
+    OTHER_PROVIDER_KEYS,
     judgeFromServer,
     isXaiJudge,
     buildJudgePin,

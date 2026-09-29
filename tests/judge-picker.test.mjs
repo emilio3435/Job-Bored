@@ -57,6 +57,27 @@ describe("judge-picker · shared constants", () => {
     assert.equal(picker.XAI_BASE_URL, "https://api.x.ai/v1");
     assert.equal(picker.XAI_KEY_URL, "https://console.x.ai/");
   });
+
+  it("names one key page and cost note per other provider", () => {
+    const picker = loadPicker();
+    const guide = plain(picker.OTHER_PROVIDER_KEYS);
+    assert.deepEqual(Object.keys(guide).sort(), [
+      "anthropic",
+      "gemini",
+      "local",
+      "openai",
+      "openai_compatible",
+      "openrouter",
+    ]);
+    for (const [id, entry] of Object.entries(guide)) {
+      assert.match(entry.keyUrl, /^https:\/\//, `${id} key page is an https URL`);
+      assert.ok(entry.keyLabel, `${id} names its key link`);
+      assert.ok(entry.keyNote, `${id} carries a cost note`);
+    }
+    assert.equal(guide.openrouter.keyUrl, "https://openrouter.ai/keys");
+    assert.match(guide.openai.keyNote, /Paid/);
+    assert.match(guide.gemini.keyNote, /Free tier/);
+  });
 });
 
 describe("judge-picker · judgeFromServer / isXaiJudge", () => {
