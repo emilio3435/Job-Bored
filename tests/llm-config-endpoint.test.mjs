@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -88,6 +88,19 @@ describe("/api/llm-config", () => {
     const stored = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
     assert.equal(stored.judge, undefined);
     assert.equal(stored.apiKey, "writer-example-key");
+  });
+
+  it("J-BE3d: judge-only save does not migrate an older writer model on disk", async () => {
+    const original = {
+      provider: "gemini", model: "gemini-3.7-flash", apiKey: "writer-example-key", baseUrl: "",
+      fallback: { enabled: false, stages: { draft: { provider: "openai", model: "gpt-example" } } },
+    };
+    await writeFile(env.JOBBORED_LLM_CONFIG_PATH, JSON.stringify(original));
+    const res = mockRes();
+    await handlePostLlmConfig({ body: { judge: { provider: "openai", model: "gpt-example", apiKey: "judge-example-key" } } }, res, env);
+    assert.equal(res.statusCode, 200);
+    const after = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
+    for (const field of ["provider", "model", "apiKey", "baseUrl", "fallback"]) assert.deepEqual(after[field], original[field], field);
   });
 
   it("GET returns 404 llm_unconfigured when the pin file is missing", async () => {
