@@ -3,6 +3,7 @@
  * Usage: npm install && npm start
  * Default: http://127.0.0.1:3847
  */
+import "./net-defaults.mjs";
 import "dotenv/config";
 import express from "express";
 import { createReadStream } from "node:fs";
