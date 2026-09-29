@@ -679,15 +679,31 @@ const sha = (value) => createHash("sha256").update(value).digest("hex");
 const folded = (value) => foldForMatch(value).text.trim();
 /** @param {string} value */
 const bulletFold = (value) => folded(value.replace(/^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s*/u, "").replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1")).replace(/\s+/gu, " ");
+/** @param {unknown} value */
+function lineRef(value) {
+  if (Number.isInteger(value)) return /** @type {[number,number]} */ ([value, value]);
+  if (typeof value !== "string") return null;
+  const match = /^L?(\d+)(?:\s*[-–—]\s*L?(\d+))?$/iu.exec(value.trim());
+  return match ? /** @type {[number,number]} */ ([Number(match[1]), Number(match[2] || match[1])]) : null;
+}
 /** @param {unknown} value @param {number} count */
 function lineRange(value, count) {
-  const lines = Number.isInteger(value) ? [value, value] : Array.isArray(value) && value.length === 2 ? value : null;
-  return lines && lines.every(Number.isInteger) && lines[0] > 0 && lines[1] >= lines[0] && lines[1] <= count ? /** @type {[number,number]} */ (lines) : null;
+  let range = lineRef(value);
+  if (Array.isArray(value) && value.length > 0 && value.length <= 20) {
+    const parts = value.map(lineRef);
+    if (parts.every(Boolean)) {
+      const refs = /** @type {[number,number][]} */ (parts);
+      const contiguous = refs.length <= 2 || refs.every((part, index) => index === 0 || part[0] === refs[index - 1][1] + 1);
+      if (contiguous && refs[0] && refs[refs.length - 1]) range = [refs[0][0], refs[refs.length - 1][1]];
+    }
+  }
+  return range && range.every(Number.isSafeInteger) && range[0] > 0 && range[1] >= range[0] && range[1] <= count ? range : null;
 }
 /** @param {unknown} raw @param {number} count @param {string} kind */
 const citedRange = (raw, count, kind) => {
   const item = readRecord(raw) ? raw : {};
-  return lineRange(kind === "employer" ? item.headerLine ?? item.lines : item.line ?? item.lines, count);
+  const range = lineRange(kind === "employer" ? item.headerLine ?? item.lines : item.line ?? item.lines, count);
+  return range && kind === "employer" ? /** @type {[number,number]} */ ([range[0], range[0]]) : range;
 };
 /** @param {unknown} payload */
 function decodeRead(payload) {
@@ -761,6 +777,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   /** @type {any[]} */ const notes = [];
   /** @type {any[]} */ const reviewClaims = [];
   /** @type {any[]} */ const badBullets = [];
+  /** @type {any[]} */ const malformedItems = [];
   const badHeaders = new Set();
   const badRoles = new Set();
   /** @type {number[]} */ const nonExperience = [];
@@ -791,7 +808,8 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     /** @type {Array<{owner:any,raw:any}>} */ const incoming = [];
     for (const rawEmployer of readList(raw.employers)) {
       const range = citedRange(rawEmployer, lines.length, "employer");
-      if (!range || !usableRange(range) || typeof rawEmployer.name !== "string" || rawEmployer.name.length > 160 || INSTRUCTION_RE.test(rawEmployer.name) || UNSAFE_GROUNDING_INPUT.test(rawEmployer.name)) { if (range) badHeaders.add(range[0]); continue; }
+      if (!range) { malformedItems.push({ kind: "employer", lines: [0, 0], excerpt: String(rawEmployer?.name || "").slice(0, 160), reason: "malformed_ref" }); continue; }
+      if (!usableRange(range) || typeof rawEmployer.name !== "string" || rawEmployer.name.length > 160 || INSTRUCTION_RE.test(rawEmployer.name) || UNSAFE_GROUNDING_INPUT.test(rawEmployer.name)) { badHeaders.add(range[0]); continue; }
       const header = lines.slice(range[0] - 1, range[1]).join(" ");
       const match = locateLiteral(header, rawEmployer.name.trim());
       if (!match || /^\s*[-•*]/u.test(lines[range[0] - 1])) { badHeaders.add(range[0]); continue; }
@@ -799,13 +817,15 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       const prior = employers.find((candidate) => candidate.lines[0] === range[0] && employerKey(candidate.name) === employerKey(name));
       const employer = prior || { name, lines: range, aliases: employerAliases(name), roles: /** @type {any[]} */ ([]), claims: /** @type {any[]} */ ([]), start: null, end: null };
       if (!prior) employers.push(employer);
-      const alias = typeof rawEmployer.aliasClause === "string" ? locateLiteral(header, rawEmployer.aliasClause) : null;
+      const aliasText = typeof rawEmployer.aliasClause === "string" ? rawEmployer.aliasClause.trim().replace(/^\(/u, "").replace(/\)$/u, "") : "";
+      const alias = aliasText ? locateLiteral(header, aliasText) : null;
       if (alias) employer.aliasClause = header.slice(alias.start, alias.end);
       employer.start ||= groundedDate(rawEmployer.start, range[0]);
       employer.end ||= groundedDate(rawEmployer.end, range[0]);
       for (const rawRole of readList(rawEmployer.roles)) {
         const roleRange = citedRange(rawRole, lines.length, "role");
-        if (!roleRange || !usableRange(roleRange) || typeof rawRole.title !== "string" || INSTRUCTION_RE.test(rawRole.title)) { if (roleRange) badRoles.add(roleRange[0]); continue; }
+        if (!roleRange) { malformedItems.push({ kind: "role", lines: [0, 0], excerpt: String(rawRole?.title || "").slice(0, 160), reason: "malformed_ref" }); continue; }
+        if (!usableRange(roleRange) || typeof rawRole.title !== "string" || INSTRUCTION_RE.test(rawRole.title)) { badRoles.add(roleRange[0]); continue; }
         const roleSource = lines.slice(roleRange[0] - 1, roleRange[1]).join(" ");
         const roleMatch = locateLiteral(roleSource, rawRole.title.trim());
         if (!roleMatch) { badRoles.add(roleRange[0]); continue; }
@@ -819,12 +839,12 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       const range = citedRange(rawBullet, lines.length, "bullet");
       const owner = range ? [...employers].reverse().find((employer) => employer.lines[0] <= range[0]) : null;
       if (owner) incoming.push({ owner, raw: { bullets: [rawBullet] } });
-      else badBullets.push({ lines: range || [0, 0], kind: "bullet", reason: "no_employer_above", excerpt: "" });
+      else badBullets.push({ lines: range || [0, 0], kind: "bullet", reason: range ? "no_employer_above" : "malformed_ref", excerpt: "" });
     }
     for (const { owner, raw: rawEmployer } of incoming) {
       for (const rawBullet of [...readList(rawEmployer.bullets), ...readList(rawEmployer.claims), ...readList(rawEmployer.roles).flatMap((role) => readList(role?.bullets || role?.claims))]) {
         const range = citedRange(rawBullet, lines.length, "bullet");
-        const item = { lines: range || (Array.isArray(rawBullet?.lines) ? rawBullet.lines : [rawBullet?.line || 0, rawBullet?.line || 0]), kind: "bullet", reason: "not_verbatim", excerpt: "" };
+        const item = { lines: range || [0, 0], kind: "bullet", reason: range ? "not_verbatim" : "malformed_ref", excerpt: "" };
         if (!range || !usableRange(range) || typeof rawBullet?.text !== "string" || INSTRUCTION_RE.test(rawBullet.text) || UNSAFE_GROUNDING_INPUT.test(rawBullet.text)) { badBullets.push(item); continue; }
         const cited = lines.slice(range[0] - 1, range[1]).join("\n");
         item.excerpt = cited.trim().slice(0, 160);
@@ -883,7 +903,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   };
   /** @returns {any[]} */
   const coverageItems = () => {
-    if (!employers.length) return [];
+    if (!employers.length) return [...malformedItems, ...badBullets];
     const first = Math.min(...employers.map((employer) => employer.lines[0]));
     const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));
     const last = stop < 0 ? lines.length : stop;
@@ -894,7 +914,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       for (const role of employer.roles) for (let number = role.lines[0]; number <= role.lines[1]; number += 1) covered.add(number);
       for (const claim of employer.claims) for (let number = claim.lines[0]; number <= claim.lines[1]; number += 1) covered.add(number);
     }
-    /** @type {any[]} */ const missing = [];
+    /** @type {any[]} */ const missing = [...malformedItems];
     for (const number of badHeaders) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: "employer_header", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", aliasKey: employerKey(lines[number - 1]) });
     for (const number of badRoles) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: "role_header", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
     for (const employer of employers) {
@@ -908,19 +928,19 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       const kind = existing?.kind || (withheld.has(number) ? "line" : uncoveredKind(lines[number - 1], lines[number] || ""));
       missing.push({ id: `unread-${number}`, kind, lines: [number, number], excerpt: lines[number - 1].trim(), reason: existing?.reason || (withheld.has(number) ? "looks_like_instructions" : "uncovered") , ...(kind === "employer_header" ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
     }
-    for (const item of badBullets) if (!missing.some((entry) => entry.kind === "bullet" && entry.reason === item.reason && entry.lines[0] === item.lines[0])) missing.push({ ...item, id: `unread-bullet-${missing.length + 1}` });
+    for (const item of badBullets) if (item.lines[0] === 0 || !missing.some((entry) => entry.kind === "bullet" && entry.reason === item.reason && entry.lines[0] === item.lines[0])) missing.push({ ...item, id: `unread-bullet-${missing.length + 1}` });
     return missing;
   };
   if (pin) await call(lines.map((_, index) => index + 1), false);
   let couldntPlace = coverageItems();
-  const repair = couldntPlace.filter((item) => item.kind !== "employer_header" && item.kind !== "role_header" && item.reason !== "looks_like_instructions");
+  const repair = couldntPlace.filter((item) => item.lines[0] > 0 && item.reason !== "malformed_ref" && item.kind !== "employer" && item.kind !== "role" && item.kind !== "employer_header" && item.kind !== "role_header" && item.reason !== "looks_like_instructions");
   if (pin && parseable && !modelError && repair.length >= 3) {
     await call(repair.map((item) => item.lines[0]), true);
     couldntPlace = coverageItems();
   }
   if (!pin && source.trim()) couldntPlace = [{ id: "unread-1", kind: "line", lines: [1, lines.length], excerpt: "Resume needs model read.", reason: "needs_model" }];
   const missingEmployers = couldntPlace.filter((item) => item.kind === "employer_header").map((item) => ({ aliasKey: item.aliasKey, displayName: item.excerpt, lines: item.lines }));
-  const headerGaps = couldntPlace.some((item) => item.kind === "employer_header" || item.kind === "role_header");
+  const headerGaps = couldntPlace.some((item) => ["employer", "role", "employer_header", "role_header"].includes(item.kind));
   const status = !pin ? "needs_model" : modelError || !employers.length ? "failed" : headerGaps ? "ready_with_review" : "ready";
   const first = employers.length ? Math.min(...employers.map((employer) => employer.lines[0])) : lines.length + 1;
   const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));

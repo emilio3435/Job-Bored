@@ -98,3 +98,73 @@ it('SIMPLE-10 a cited hyphen wrap is copied from source as one word', async () =
   assert.equal(result.status, 'ready');
   assert.equal(result.employers[0].claims[0].text, 'Built a transformation log for local teams.');
 });
+
+const refSource = [...Array(11).fill(''), 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool for local teams.', 'SKILLS', 'Fictional skill'].join('\n');
+for (const [label, headerLine] of [
+  ['integer', 12], ['digit string', '12'], ['L-prefixed line', 'L12'],
+  ['L-prefixed range', 'L12-L16'], ['hyphen range', '12-16'],
+  ['en-dash range', '12–16'], ['numeric pair', [12, 16]],
+  ['L-prefixed pair', ['L12', 'L13']],
+]) {
+  it(`SIMPLE-R2 ${label} header reference uses its first source line`, async () => {
+    const raw = { employers: [{ name: 'Contoso Media', headerLine, roles: [{ title: 'Research Lead', line: 13 }], bullets: [{ text: 'Built a planning tool for local teams.', line: 14 }] }] };
+    const { result } = await run(refSource, [raw]);
+    assert.equal(result.status, 'ready');
+    assert.deepEqual(result.employers[0].lines, [12, 12]);
+  });
+}
+
+it('SIMPLE-R2 role line and multiline bullet refs accept L-prefixed strings and arrays', async () => {
+  const text = [...Array(11).fill(''), 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', 'for local teams.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 'L12', roles: [{ title: 'Research Lead', line: 'L13' }], bullets: [{ text: 'Built a planning tool for local teams.', lines: ['L14', 'L15'] }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].roles[0].lines, [13, 13]);
+  assert.deepEqual(result.employers[0].claims[0].lines, [14, 15]);
+});
+
+it('SIMPLE-R2 three consecutive L-prefixed bullet lines form one grounded range', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning', 'tool for local', 'teams.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool for local teams.', lines: ['L4', 'L5', 'L6'] }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].claims[0].lines, [4, 6]);
+});
+
+it('SIMPLE-R2 one malformed bullet reference is a notice and does not fail valid employers', async () => {
+  const raw = reply(); raw.employers[0].bullets[0].line = 'not-a-line';
+  const { result } = await run(source, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.employers.length, 2);
+  assert.equal(result.employers[0].claims.length, 1);
+  assert.ok(result.couldntPlace.some((item) => item.kind === 'bullet' && item.reason === 'malformed_ref'));
+});
+
+it('SIMPLE-R2 malformed employer, role and bullet refs are visible while valid items survive', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool.', 'Fabrikam Labs', 'Analyst | 2020 — 2021', '• Analyzed fictional reports.', 'SKILLS'].join('\n');
+  const raw = { employers: [
+    { name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }, { title: 'Research Lead', line: 'Lbad' }], bullets: [{ text: 'Built a planning tool.', line: 4 }, { text: 'Built a planning tool.', line: 'L999' }] },
+    { name: 'Fabrikam Labs', headerLine: 'Lbad', roles: [], bullets: [] },
+    { name: 'Fabrikam Labs', headerLine: 5, roles: [{ title: 'Analyst', line: 6 }], bullets: [{ text: 'Analyzed fictional reports.', line: 7 }] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready_with_review');
+  assert.equal(result.employers.length, 2);
+  assert.equal(result.employers[0].roles.length, 1);
+  assert.equal(result.employers[0].claims.length, 1);
+  assert.equal(result.employers[1].claims.length, 1);
+  assert.deepEqual(new Set(result.couldntPlace.filter((item) => item.reason === 'malformed_ref').map((item) => item.kind)), new Set(['employer', 'role', 'bullet']));
+});
+
+for (const [sourceAlias, modelAlias] of [
+  ['(formerly Litware Radio)', 'formerly Litware Radio'],
+  ['formerly Litware Radio', '(formerly Litware Radio)'],
+]) {
+  it(`SIMPLE-R2 alias clause grounds with optional parentheses: ${sourceAlias.startsWith('(') ? 'source' : 'model'}`, async () => {
+    const text = ['EXPERIENCE', `Contoso Media ${sourceAlias}`, 'Research Lead | 2022 — Present', '• Built a planning tool.', 'SKILLS'].join('\n');
+    const raw = { employers: [{ name: 'Contoso Media', aliasClause: modelAlias, headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool.', line: 4 }] }] };
+    const { result } = await run(text, [raw]);
+    assert.equal(result.status, 'ready');
+    assert.match(result.employers[0].aliasClause, /formerly Litware Radio/);
+  });
+}
