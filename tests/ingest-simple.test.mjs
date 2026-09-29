@@ -229,3 +229,53 @@ it('SIMPLE-R3 repair merge deduplicates bullet claims by source range', async ()
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.employers[0].claims.map((claim) => claim.lines), [[4, 4], [5, 5], [6, 6], [7, 7]]);
 });
+
+it('SIMPLE-R4 adjacent cited fragments become whole source bullets', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', 'that helped local teams.', '• Designed a reporting view,', 'and tested weekly changes.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [
+    { text: 'Built a planning tool', line: 4 }, { text: 'that helped local teams.', line: 5 },
+    { text: 'Designed a reporting view,', line: 6 }, { text: 'and tested weekly changes.', line: 7 },
+  ] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].claims.map(({ text, lines }) => ({ text, lines })), [
+    { text: 'Built a planning tool that helped local teams.', lines: [4, 5] },
+    { text: 'Designed a reporting view, and tested weekly changes.', lines: [6, 7] },
+  ]);
+});
+
+it('SIMPLE-R4 split claims never join across blank lines, headers, or bullet markers', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool', '', 'for local teams.', '• Coordinated weekly reviews', '• Documented each decision.', 'Fabrikam Labs | 2020 — 2021', 'Analyst | 2020 — 2021', '• Analyzed fictional data', 'for annual reports.', 'SKILLS'].join('\n');
+  const raw = { employers: [
+    { name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool', line: 4 }, { text: 'for local teams.', line: 6 }, { text: 'Coordinated weekly reviews', line: 7 }, { text: 'Documented each decision.', line: 8 }] },
+    { name: 'Fabrikam Labs', headerLine: 9, roles: [{ title: 'Analyst', line: 10 }], bullets: [{ text: 'Analyzed fictional data', line: 11 }, { text: 'for annual reports.', line: 12 }] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.deepEqual(result.employers[0].claims.map((claim) => claim.lines), [[4, 4], [6, 6], [7, 7], [8, 8]]);
+  assert.deepEqual(result.employers[1].claims.map((claim) => claim.lines), [[11, 12]]);
+});
+
+it('SIMPLE-R4 role-led headers keep the grounded company as employer name', async () => {
+  const text = ['EXPERIENCE', 'Founder & AI Engineer | Fabrikam Labs — Springfield 2022 — Present', '• Built a local assistant.', 'Cofounder, Bucketz — regional project 2020 — 2021', '• Designed a fictional catalog.', 'SKILLS'].join('\n');
+  const raw = { employers: [
+    { name: 'Founder & AI Engineer', headerLine: 2, roles: [{ title: 'Founder & AI Engineer', line: 2 }], bullets: [{ text: 'Built a local assistant.', line: 3 }] },
+    { name: 'Cofounder, Bucketz', headerLine: 4, roles: [{ title: 'Cofounder', line: 4 }], bullets: [{ text: 'Designed a fictional catalog.', line: 5 }] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers.map((employer) => employer.name), ['Fabrikam Labs', 'Bucketz']);
+  assert.deepEqual(result.employers.map((employer) => employer.roles[0].title), ['Founder & AI Engineer', 'Cofounder']);
+});
+
+it('SIMPLE-R4 two-column re-homing keeps the whole claim and its review notice', async () => {
+  const text = ['EXPERIENCE', 'Northwind Studio | 2022 — Present', 'Founder | 2022 — Present', 'Fabrikam Labs | 2021 — Present', 'Research Lead | 2021 — Present', '• Built a local guide', 'that served volunteers.', 'SKILLS'].join('\n');
+  const raw = { employers: [
+    { name: 'Northwind Studio', headerLine: 2, roles: [{ title: 'Founder', line: 3 }], bullets: [{ text: 'Built a local guide', line: 6 }, { text: 'that served volunteers.', line: 7 }] },
+    { name: 'Fabrikam Labs', headerLine: 4, roles: [{ title: 'Research Lead', line: 5 }], bullets: [] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.employers[0].claims.length, 0);
+  assert.deepEqual(result.employers[1].claims.map((claim) => claim.lines), [[6, 7]]);
+  assert.ok(result.review.claims.some((claim) => claim.kind === 'check_role' && claim.reason === 'misattributed_out_of_span' && claim.lines[0] === 6));
+});
