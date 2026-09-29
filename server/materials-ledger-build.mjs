@@ -759,14 +759,18 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
     return unpublishable(result, "invalid_structure", "The model returned no employer-attributed résumé claims.");
   }
   if (previous && resumeFresh) {
-    const oldClaims = /** @type {Array<{id?:string}>} */ (previous.claims).filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
-    const newClaims = built.claims.filter((claim) => claim.id.startsWith("resume-")).length;
+    /** @param {Array<{id?:string}>} claims @param {string} prefix */
+    const count = (claims, prefix) => claims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith(prefix)).length;
+    const oldBullets = count(previous.claims, "resume-b");
+    const newBullets = count(built.claims, "resume-b");
+    const oldRoles = count(previous.claims, "resume-role-");
+    const newRoles = count(built.claims, "resume-role-");
     const newKeys = new Set(built.employers.flatMap((entry) => entry.aliases || [employerKey(entry.name)]));
     const missing = /** @type {LedgerEmployer[]} */ (previous.employers).flatMap((entry) =>
       (entry.aliases || [employerKey(entry.name)]).filter((key) => key && !newKeys.has(key)).map((aliasKey) => ({ aliasKey, entry })));
     let loss = "";
     if (built.employers.length < previous.employers.length) loss = "The model returned fewer grounded employers than the saved ledger.";
-    else if (newClaims < oldClaims) loss = "The model returned fewer grounded résumé claims than the saved ledger.";
+    else if (newBullets < oldBullets || newRoles < oldRoles) loss = "The model returned fewer grounded résumé claims or roles than the saved ledger.";
     else if (missing.length) loss = "The model omitted a saved employer alias key.";
     if (loss) {
       result.status = "ready_with_review";

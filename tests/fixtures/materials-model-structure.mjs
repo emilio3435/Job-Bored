@@ -422,7 +422,7 @@ export function readReplyFromQuotes(source, reply) {
     const first = source.slice(0, at).split(/\r?\n/u).length;
     return [first, first + value.split(/\r?\n/u).length - 1];
   };
-  return { employers: reply.employers.map((entry) => ({
+  return { nonJob: (reply.nonJob || []).map((item) => ({ lines: linesFor(item.sourceQuote), reason: item.reason })), employers: reply.employers.map((entry) => ({
     name: entry.name,
     lines: linesFor(entry.sourceQuote),
     ...(/\((formerly\s+[^)]+)\)/iu.exec(entry.sourceQuote)?.[1]

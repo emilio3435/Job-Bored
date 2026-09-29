@@ -415,7 +415,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         const loadEmployers = deps.employerLogoLoader || ((/** @type {string[]} */ names) => loadEmployerMarks(names));
         employerMarks = source === "regenerate" ? await loadEmployers(employersWithoutMarks(model)).catch(() => []) : [];
       }
-      rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath }, targetMark, employerMarks, header });
+      rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath }, targetMark, employerMarks, header, ledger: logoLedger });
     } finally {
       await session.close();
     }

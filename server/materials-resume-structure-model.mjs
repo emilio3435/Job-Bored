@@ -757,6 +757,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     const next = headers.find((anchor) => anchor.lines[0] > head.lines[0] && (!section || anchor.lines[0] <= section.lines[1]));
     return { head, end: Math.min(next ? next.lines[0] - 1 : sourceLines.length, section?.lines[1] ?? sourceLines.length) };
   };
+  /** @param {import("./resume-ingest-census.mjs").CensusAnchor} head */
+  const blockAliases = (head) => new Set([
+    ...employerAliases(head.text),
+    ...(head.text.includes(" & ") ? head.text.split(/\s+&\s+/u).flatMap(employerAliases) : []),
+  ]);
   const sha256 = sha(source);
   /** @type {any[]} */ const rejected = [];
   /** @type {any[]} */ const reviewClaims = [];
@@ -791,12 +796,26 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   };
   /** @param {unknown} value @param {unknown} raw @param {"employer"|"role"|"claim"} kind */
   const ground = (value, raw, kind) => {
-    const range = pointer(raw, kind);
+    let range = pointer(raw, kind);
     if (!range) return null;
     if (typeof value !== "string" || !value.trim()) { reject(kind, value, range, "value_missing"); return null; }
     if (UNSAFE_GROUNDING_INPUT.test(value)) { reject(kind, value, range, "source_private_use_character"); return null; }
     if (INSTRUCTION_RE.test(value)) { reject(kind, value, range, "source_instruction"); return null; }
-    const cited = sourceLines.slice(range[0] - 1, range[1]).join("\n");
+    let cited = sourceLines.slice(range[0] - 1, range[1]).join("\n");
+    if (kind === "role" && cited.length > Math.max(500, value.length * 20)) {
+      const fields = readRecord(raw) ? raw : {};
+      const start = normalizeReadDate(fields.start);
+      const end = normalizeReadDate(fields.end);
+      const citedRange = range;
+      const narrowed = Array.from({ length: citedRange[1] - citedRange[0] + 1 }, (_, index) => citedRange[0] + index).filter((number) =>
+        occurrences(sourceLines[number - 1], value.trim()).length === 1 && census.anchors.some((anchor) =>
+          anchor.kind === "date_range" && anchor.lines[0] === number && anchor.dateRange?.start === start && anchor.dateRange?.end === end));
+      if (narrowed.length === 1) {
+        range = [narrowed[0], narrowed[0]];
+        cited = sourceLines[narrowed[0] - 1];
+        notes.push({ kind, reason: "narrowed_role_pointer", lines: range });
+      }
+    }
     if (kind === "claim" && cited.trim().length < 12) { reject(kind, value, range, "source_quote_too_short"); return null; }
     if (!/[\p{L}\p{N}]/u.test(cited)) { reject(kind, value, range, "source_quote_missing_token"); return null; }
     if (cited.length > Math.max(500, value.length * 20)) { reject(kind, value, range, "source_quote_too_broad"); return null; }
@@ -854,8 +873,19 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     }
     for (const item of incoming) {
       const fresh = item.employer;
-      const prior = employers.find((candidate) => candidate.lines[0] === fresh.lines[0] && employerKey(candidate.name) === employerKey(fresh.name));
+      const block = employerBlockAt(fresh.lines[0]);
+      const keys = block ? blockAliases(block.head) : null;
+      const freshKey = employerKey(fresh.name);
+      const prior = employers.find((candidate) => {
+        const sameBlock = block && employerBlockAt(candidate.lines[0])?.head.id === block.head.id;
+        return (sameBlock && keys?.has(freshKey) && keys.has(employerKey(candidate.name))) ||
+          (candidate.lines[0] === fresh.lines[0] && employerKey(candidate.name) === freshKey);
+      });
       if (!prior) { employers.push(fresh); continue; }
+      if (block && freshKey === employerKey(block.head.text) && employerKey(prior.name) !== freshKey) {
+        prior.name = fresh.name;
+        prior.lines = fresh.lines;
+      }
       for (const field of ["site", "location", "aliasClause", "start", "end"]) if (!prior[field] && fresh[field]) prior[field] = fresh[field];
       prior.aliases = [...new Set([...prior.aliases, ...fresh.aliases])];
       for (const role of fresh.roles) {

@@ -24,6 +24,7 @@ const PDF_DOCUMENT = {
   data: Buffer.from("%PDF-1.7 fictional layout bytes").toString("base64"),
 };
 const INTERLEAVED_MODEL = {
+  nonJob: [{ sourceQuote: "Improved renewal conversion by 27% during 2019–2021 across the Aster Vale Audio portfolio.", reason: "achievement_date" }],
   employers: [
     {
       name: "Aster Vale Audio (formerly Vale Signal)",
