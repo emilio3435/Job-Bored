@@ -15,6 +15,7 @@ import { isReadoutMetric, maskNonMetrics, productNumeralSpans } from "../server/
 import { buildRenderModelFromDraft, refreshStoredModel, tagMetrics } from "../server/materials-render-model-adapter.mjs";
 import { renderDocument } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 describe("product and model names are not metrics", () => {
   it("should mask numerals inside product and model names", () => {
@@ -51,15 +52,17 @@ describe("product and model names are not metrics", () => {
   });
 
   it("should build ledger metrics without product numerals and with split figures re-joined", () => {
+    const resumeText = [
+      "Jordan Rivera",
+      "EXPERIENCE",
+      "Northwind Studio — Founder, 2023 – Present",
+      "- Built a platform backed by Google Chirp 3 HD text-to-speech.",
+      "- Owned a $ 12 M + annual digital book with a top -4 ranking.",
+    ].join("\n");
     const ledger = buildLedger({
       profile: null,
-      resumeText: [
-        "Jordan Rivera",
-        "EXPERIENCE",
-        "Northwind Studio — Founder, 2023 – Present",
-        "- Built a platform backed by Google Chirp 3 HD text-to-speech.",
-        "- Owned a $ 12 M + annual digital book with a top -4 ranking.",
-      ].join("\n"),
+      resumeText,
+      structure: modelStructureFixture(resumeText),
       nowIso: "2026-09-27T00:00:00.000Z",
     });
     const tokens = ledger.claims.flatMap((c) => (c.metrics || []).map((m) => m.token));

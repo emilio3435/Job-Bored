@@ -3,7 +3,7 @@
 
   <header class="masthead">
     <h1 class="name{{#if identity.nameFit.full}} name--full{{/if}}" style="font-size:{{identity.nameFit.pt}}pt">{{identity.name}}</h1>
-    <p class="target">{{identity.target}}</p>
+    <p class="target">{{#if target.logo}}<img class="target-logo" src="{{target.logo.src}}" alt="{{target.logo.alt}}" />{{/if}}{{identity.target}}</p>
   </header>
 
   <div class="ledger">

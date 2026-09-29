@@ -224,6 +224,25 @@ describe("wordmarks and names", () => {
   });
 });
 
+describe("target logo slots", () => {
+  it("should render the addressed company mark in all three cover-letter families", () => {
+    const targetMark = {
+      src: "data:image/png;base64,aGVsbG8=",
+      alt: "Harbor Fleet logo",
+      shape: "mark",
+      source: "upload",
+    };
+    for (const family of FAMILIES) {
+      const model = fullRenderModel(family);
+      const html = renderDocument(model, "coverLetter", {
+        target: { company: "Harbor Fleet", logo: targetMark },
+      });
+      assert.match(html, /alt="Harbor Fleet logo"/, `${family} exposes the target alt text`);
+      assert.match(html, /src="data:image\/png;base64,aGVsbG8="/, `${family} uses the resolved mark`);
+    }
+  });
+});
+
 describe("render model helpers", () => {
   it("should validate the full fixture in every family after retargeting", () => {
     for (const family of FAMILIES) {

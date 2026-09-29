@@ -29,6 +29,8 @@ import {
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import { readProfile } from "./user-profile.mjs";
 
+/* A materials pipeline writes up to two documents and judges each serially. */
+export const MATERIALS_DRAFT_DEADLINE_MS = 480_000;
 
 /* F14: a non-terminal pending with no heartbeat for this long belongs to
  * a dead process (the live drafter heartbeats every minute). */
@@ -596,6 +598,12 @@ export function createMaterialsDrafter(deps = {}) {
     if ((errCode === "jd_unusable" || errCode === "ledger_empty" || errCode === "resume_source_review") && typeof error?.message === "string") {
       return { code: errCode, message: error.message };
     }
+    if (errCode === "resume_ingest_failed") {
+      return {
+        code: "resume_ingest_failed",
+        message: "The resume could not be interpreted. Check your AI model setting and try again.",
+      };
+    }
     if (name === "WriterJsonError" || errCode === "writer_json_error") {
       return {
         code: "materials_generation_failed",
@@ -815,7 +823,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     let ledger;
     try {
-      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
+      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, document: resumeSource.document, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
     } catch (err) {
       if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
         await failJob(job, {
@@ -891,6 +899,7 @@ export function createMaterialsDrafter(deps = {}) {
       now: now(),
       runId,
       openSession: openSession || (async () => null),
+      signal: AbortSignal.timeout(MATERIALS_DRAFT_DEADLINE_MS),
       /* The production path must render PDFs; a missing browser fails the
        * render loudly instead of leaving stale PDFs behind an "ok". */
       requirePdf: deps.openSession === undefined,

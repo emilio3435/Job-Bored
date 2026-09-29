@@ -64,6 +64,7 @@ const VERIFIED_PROVIDER = {
   resumeOpenRouterModel: "openai/gpt-oss-120b:free",
   resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
 };
+const UPLOADED_PDF = { mimeType: "application/pdf", filename: "fictional.pdf", data: "AQID" };
 
 async function openBeat(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
@@ -139,6 +140,36 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
       RESUME_TEXT,
       "body text is what lets the server persist ~/.jobbored/resume.txt and skip the disk hunt",
     );
+  });
+
+  it("sends the original PDF bytes beside extracted text", async () => {
+    const env = await openBeat({ documentForModel: async () => UPLOADED_PDF });
+    await env.beats.resume.ingestFile({ name: "fictional.pdf" });
+    const call = env.fetchImpl.calls.find((c) => c.url.includes("/profile/from-resume"));
+    assert.equal(call.body.resumeText, "extracted:fictional.pdf");
+    assert.deepEqual(call.body.document, UPLOADED_PDF);
+  });
+
+  it("a failed file interpretation shows a plain error and keeps the previous profile", async () => {
+    let calls = 0;
+    const env = await openBeat({
+      documentForModel: async () => UPLOADED_PDF,
+      fetchImpl: draftingFetch({
+        fromResume: () => {
+          calls += 1;
+          return calls === 1
+            ? { ok: true, json: { ok: true, profile: DRAFT_PROFILE } }
+            : { ok: false, status: 500, json: { ok: false, message: "model structure failed" } };
+        },
+      }),
+    });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    const previous = env.beats.resume.getDraft();
+    await env.beats.resume.ingestFile({ name: "fictional.pdf" });
+    const message = env.mount().querySelector(".discovery-setup-wizard__message");
+    assert.equal(message.textContent, "We couldn't read that file: try again or paste the text.");
+    assert.equal(env.beats.resume.getDraft(), previous);
+    assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), true);
   });
 
   // GFX N-B3-2 / B3-9: the two stages that really happen; ✓ comes from
@@ -233,6 +264,22 @@ describe("B3 Hand us your resume — the honest failure split (spec §5 B3 fallb
       RESUME_TEXT,
       "a failed draft must not cost the user their upload — that IS the keystone bug",
     );
+  });
+});
+
+describe("P2 Settings resume read transport", () => {
+  it("passes the original document through the shared Settings reader", async () => {
+    const env = await openBeat({
+      extraFiles: ["profile-identity.js"],
+      fetchImpl: draftingFetch({
+        fromResume: () => ({ ok: true, json: { ok: true, profile: DRAFT_PROFILE, read: { version: 2 } } }),
+      }),
+    });
+    const result = await env.window.JobBoredResumeRead.readWithAi(RESUME_TEXT, UPLOADED_PDF);
+    assert.equal(result.ok, true);
+    const call = env.fetchImpl.calls.find((entry) => entry.url.includes("/profile/from-resume"));
+    assert.equal(call.body.resumeText, RESUME_TEXT);
+    assert.deepEqual(call.body.document, UPLOADED_PDF);
   });
 });
 

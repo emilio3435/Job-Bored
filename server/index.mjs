@@ -46,10 +46,10 @@ import {
   assertAllowedUploadName,
   listLogos,
   parseMultipartFile,
-  refreshLogosFromProfile,
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { refreshLogosFromLedger } from "./materials-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage, templateRegenerateResponse } from "./materials-regenerate.mjs";
@@ -78,9 +78,11 @@ import { saveResumeRead } from "./resume-read.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
   analyzeResume,
+  createProfileFromResumeJsonParser,
   getStoredResumeText,
   parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
+  validateResumeDocument,
 } from "./profile-from-resume.mjs";
 import {
   endRouteRescore,
@@ -90,7 +92,8 @@ import {
   rescoreAllPipelineRows,
   tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
-import { handleGetLlmConfig, handleJudgeTest, handlePostLlmConfig } from "./llm-config.mjs";
+import { handleGetLlmConfig, handleJudgeTest, handlePostLlmConfig, loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
+import { handlePostJudgeModels } from "./judge-models.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
 import { leadsChatHandler } from "./leads-chat.mjs";
@@ -335,7 +338,13 @@ app.use((req, res, next) => {
   }
   return next();
 });
-app.use(express.json({ limit: "2mb" }));
+const profileFromResumeJsonParser = createProfileFromResumeJsonParser((options) => express.json(options));
+app.use((req, res, next) => {
+  if (req.path === "/profile/from-resume") {
+    return profileFromResumeJsonParser(req, res, next);
+  }
+  return express.json({ limit: "2mb" })(req, res, next);
+});
 
 app.get("/health", (_req, res) => {
   const ats = getAtsConfigStatus();
@@ -367,6 +376,7 @@ app.get("/api/llm-config", (req, res) =>
   handleGetLlmConfig(req, res, process.env, { readLastDraft: () => readLastDraft() }),
 );
 app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
+app.post("/api/llm-config/judge-models", (req, res) => handlePostJudgeModels(req, res));
 app.post("/api/llm-config/judge-test", (req, res) => handleJudgeTest(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
@@ -508,16 +518,19 @@ app.post("/profile", async (req, res) => {
     /* F21: rebuild the claim ledger from the saved profile + the stored
      * resume. Best-effort like the logo refresh: a ledger failure must
      * never fail the save (claims.load rebuilds on demand anyway). */
-    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string }} */
+    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string, ingest?: unknown }} */
     let ledger = { ok: false };
     try {
       const stored = await getStoredResumeText().catch(() => null);
+      const config = loadLlmConfig();
       const built = await ensureLedger({
         profile: candidate,
         resumeText: stored ? stored.text : "",
         resumeSource: stored ? stored.source : "upload",
+        pin: config ? await resolveActivePin(config) : null,
+        fetchImpl: globalThis.fetch,
       });
-      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash };
+      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash, ingest: built.ingest };
     } catch (ledgerErr) {
       const code = /** @type {{ code?: unknown }} */ (ledgerErr)?.code;
       ledger = {
@@ -526,7 +539,7 @@ app.post("/profile", async (req, res) => {
       };
     }
     try {
-      await refreshLogosFromProfile(candidate);
+      await refreshLogosFromLedger();
     } catch (logoErr) {
       const logoError = /** @type {{ message?: unknown } | null | undefined} */ (logoErr);
       console.warn(
@@ -794,6 +807,15 @@ const PROFILE_ROUTE_DEADLINE_MS = 180_000;
  * 500 { ok: false, reason: "profile_provider_error", message }
  */
 app.post("/profile/from-resume", async (req, res) => {
+  const requestBody = /** @type {Record<string, unknown> | undefined} */ (req.body);
+  const checkedDocument = validateResumeDocument(requestBody?.document);
+  if (!checkedDocument.ok) {
+    return res.status(checkedDocument.status).json({
+      ok: false,
+      reason: checkedDocument.reason,
+      message: checkedDocument.message,
+    });
+  }
   let stored;
   try {
     stored = await resolveResumeTextForAnalysis(req.body);
@@ -822,7 +844,11 @@ app.post("/profile/from-resume", async (req, res) => {
     const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);
     const { profile, read } = await analyzeResume(
       stored.text,
-      requestedConfig ? { config: requestedConfig, signal } : { signal },
+      {
+        ...(requestedConfig ? { config: requestedConfig } : {}),
+        ...(checkedDocument.document ? { document: checkedDocument.document } : {}),
+        signal,
+      },
     );
     // RESJ2-EXTRACT: keep what was read for the Settings panel.
     await saveResumeRead(read);
@@ -1383,10 +1409,17 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
   }
 });
 
-app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, next) => {
+app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, req, res, next) => {
   if (!err) return next();
   const error = /** @type {{ type?: unknown, status?: unknown, statusCode?: unknown }} */ (err);
   if (error.type === "entity.too.large") {
+    if (req.path === "/profile/from-resume") {
+      return res.status(413).json({
+        ok: false,
+        reason: "resume_file_too_large",
+        message: "This file is over the 10 MB limit. Choose a smaller file or paste the text instead.",
+      });
+    }
     return res.status(413).json({
       error: "Request body is too large.",
       code: "payload_too_large",

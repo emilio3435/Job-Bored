@@ -161,52 +161,146 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-vh {
 body.jb-v2 [data-region="role"] .brief-materials .mat-both { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2) var(--jb-space-3); margin: 0 0 var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-both .mat-both__hint { font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
 
-/* ---------------- the manual-apply checklist (<jb-apply-checklist>) ---------------- */
+/* ---------------- the manual-apply checklist (<jb-apply-checklist>) ----------------
+   A horizontal progress strip, sibling to the stage timeline, the docket
+   stepper and the setup spine. Those use round dots, pills and top rules;
+   this one is a row of square ticks, one per step, with the step in view
+   raised like a cursor. Done is green ink, the step in view is navy, a
+   step that needs care is amber. One step is in focus, the next one peeks
+   (dashed, not yet), and finished steps fold into a disclosure. */
 body.jb-v2 [data-region="role"] .brief-materials .case__docst--checklist { background: var(--jb-info-bg); color: var(--jb-action); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist { display: block; min-width: 0; font-family: var(--jb-font-body); color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist { display: block; min-width: 0; container: jb-cl / inline-size; font-family: var(--jb-font-body); color: var(--jb-ink); }
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__loading,
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__note { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__note { margin-top: var(--jb-space-2); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__strip { display: grid; gap: var(--jb-space-2); min-width: 0; }
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--jb-space-1) var(--jb-space-3); }
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__title {
   margin: 0; font-family: var(--jb-font-serif); font-size: var(--jb-type-body); font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--jb-ink);
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__count { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__bar {
-  height: 6px; margin: var(--jb-space-2) 0 var(--jb-space-3); border-radius: var(--jb-radius-pill); background: var(--jb-line-soft); overflow: hidden;
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__count { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); font-variant-numeric: tabular-nums; color: var(--jb-ink-2); }
+
+/* The track: square ticks, the step in view stands taller. */
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__track { display: flex; align-items: center; gap: 3px; height: 10px; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick {
+  flex: 1 1 0; min-width: 4px; height: 4px; border-radius: 1px; background: var(--jb-line-soft);
+  transition: background-color var(--jb-duration-base) ease, height var(--jb-duration-base) ease;
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__fill {
-  display: block; height: 100%; border-radius: inherit; background: var(--jb-accent-ink);
-  transform-origin: left center; transform: scaleX(var(--jb-cl-done, 0)); transition: transform var(--jb-duration-base) ease;
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick--warn { background: var(--jb-amber-soft); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick--done { background: var(--jb-accent-ink); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick--now { height: 10px; background: var(--jb-action); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick--now.jb-cl__tick--warn { background: var(--jb-warn); }
+
+/* The row: back, the step in view, the one after it, forward. */
+/* Narrow (a phone, or the Case's side column): the step in view takes the
+   width; back, the next step and forward share the row under it. */
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__row {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-areas: "now now now" "prev peek next";
+  align-items: stretch; gap: var(--jb-space-2);
 }
-@media (prefers-reduced-motion: reduce) {
-  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__fill { transition: none; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__now { grid-area: now; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav--prev { grid-area: prev; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek { grid-area: peek; min-height: 44px; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav--next { grid-area: next; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav {
+  display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 44px; height: 44px; padding: 0;
+  border: 1px solid var(--jb-line); border-radius: var(--jb-radius-pill); background: var(--jb-paper); color: var(--jb-action); cursor: pointer;
+  transition: background-color var(--jb-duration-fast) ease, border-color var(--jb-duration-fast) ease;
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--jb-space-1); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: var(--jb-space-2); row-gap: 2px; align-items: start;
-  padding: var(--jb-space-2) var(--jb-space-2); border-radius: var(--jb-radius-sm); border: 1px solid var(--jb-line-soft); background: var(--jb-paper);
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav:hover:not([disabled]) { background: var(--jb-info-tint); border-color: var(--jb-action); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav[disabled] { color: var(--jb-line); border-color: var(--jb-line-soft); cursor: default; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__now {
+  position: relative; display: grid; align-content: start; gap: 2px; min-width: 0;
+  padding: var(--jb-space-2) var(--jb-space-3) var(--jb-space-3); border: 1px solid var(--jb-line); border-radius: var(--jb-radius-md); background: var(--jb-paper);
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item--warn { border-color: var(--jb-warn); background: var(--jb-warn-tint); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__now--warn { border-color: var(--jb-warn); background: var(--jb-warn-tint); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__row[data-cl-dir="next"] .jb-cl__now { animation: jb-cl-in-next var(--jb-duration-base) ease-out; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__row[data-cl-dir="prev"] .jb-cl__now { animation: jb-cl-in-prev var(--jb-duration-base) ease-out; }
+@keyframes jb-cl-in-next { from { opacity: 0.4; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+@keyframes jb-cl-in-prev { from { opacity: 0.4; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__pos { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); font-variant-numeric: tabular-nums; color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__check { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: var(--jb-space-2); align-items: center; }
+/* The tick box draws a 20px square but takes a 44px hit area; the
+   negative margin keeps it in its 22px column. */
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input {
-  grid-row: 1; grid-column: 1; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--jb-accent-ink); cursor: pointer;
+  -webkit-appearance: none; appearance: none; display: grid; place-content: center; box-sizing: border-box;
+  width: 44px; height: 44px; margin: -12px; padding: 0; border: 0; border-radius: var(--jb-radius-sm); background: transparent; cursor: pointer;
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:focus-visible { outline: none; box-shadow: var(--jb-shadow-focus); border-radius: var(--jb-radius-xs); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input::before,
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input::after { content: ""; grid-area: 1 / 1; box-sizing: border-box; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input::before {
+  width: 20px; height: 20px; border: 2px solid var(--jb-ink-2); border-radius: var(--jb-radius-xs); background: var(--jb-paper);
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:checked::before { border-color: var(--jb-accent-ink); background: var(--jb-accent-ink); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:checked::after {
+  justify-self: center; align-self: center; width: 6px; height: 11px; margin-top: -2px;
+  border: solid var(--jb-ink-inverse); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:disabled { cursor: progress; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:focus-visible { outline: none; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__input:focus-visible::before { box-shadow: var(--jb-shadow-focus); }
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__label {
-  grid-column: 2; font-size: var(--jb-type-small); font-weight: 600; line-height: 1.4; color: var(--jb-ink); cursor: pointer;
+  display: flex; align-items: center; min-height: 44px; font-size: var(--jb-type-body); font-weight: 600; line-height: 1.35; color: var(--jb-ink); cursor: pointer;
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__detail { grid-column: 2; margin: 0; font-size: var(--jb-type-small); line-height: 1.45; color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__when { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); color: var(--jb-ink-3); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__act { grid-column: 2; margin-top: var(--jb-space-1); display: flex; flex-wrap: wrap; gap: var(--jb-space-2); }
-/* Done stays on the list, quieter. */
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item--done { background: transparent; border-color: transparent; }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item--done .jb-cl__label { font-weight: 400; color: var(--jb-ink-3); text-decoration: line-through; text-decoration-color: var(--jb-line); }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item--done .jb-cl__detail { color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__detail { margin: 0; max-width: 62ch; font-size: var(--jb-type-small); line-height: 1.45; color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__act { margin: var(--jb-space-2) 0 0; display: flex; flex-wrap: wrap; gap: var(--jb-space-2); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__act .jb-cl__btn { min-height: 44px; display: inline-flex; align-items: center; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__saving { opacity: 0.7; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek {
+  display: grid; align-content: center; gap: 2px; min-width: 0; margin: 0; padding: var(--jb-space-2) var(--jb-space-3);
+  border: 1px dashed var(--jb-line); border-radius: var(--jb-radius-md); background: transparent;
+  font: inherit; font-size: var(--jb-type-small); text-align: left; color: var(--jb-ink-2); cursor: pointer;
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist button.jb-cl__peek:hover { border-color: var(--jb-action); color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek--last { cursor: default; color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek-k { font-size: var(--jb-type-small); color: var(--jb-ink-3); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek-label { min-width: 0; overflow-wrap: anywhere; color: var(--jb-ink); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav:focus-visible,
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__peek:focus-visible,
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__done-sum:focus-visible,
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__btn:focus-visible { outline: none; box-shadow: var(--jb-shadow-focus); }
+
+/* Finished steps: one line, open to review or untick. */
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__done { margin: 0; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__done-sum {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--jb-space-1); border-radius: var(--jb-radius-sm);
+  font-size: var(--jb-type-small); color: var(--jb-accent-ink); cursor: pointer;
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__done-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: var(--jb-space-2); align-items: center; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__item .jb-cl__label { font-size: var(--jb-type-small); font-weight: 400; color: var(--jb-ink-3); text-decoration: line-through; text-decoration-color: var(--jb-line); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__when { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); color: var(--jb-ink-3); white-space: nowrap; }
+
+/* States: nothing yet, all done, could not load. */
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__empty { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__alldone {
+  display: flex; align-items: center; gap: var(--jb-space-2); margin: 0; padding: var(--jb-space-2) var(--jb-space-3);
+  border-radius: var(--jb-radius-md); background: var(--jb-ok-tint); font-size: var(--jb-type-small); color: var(--jb-accent-ink);
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__alldone-mark {
+  flex: none; width: 8px; height: 13px; margin: 0 4px 3px 2px; border: solid var(--jb-accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__strip[data-cl-state="error"] { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2) var(--jb-space-3); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__error { margin: 0; font-size: var(--jb-type-small); color: var(--jb-err); }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__btn[data-cl-retry] { min-height: 44px; }
+
 body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__copy {
-  grid-column: 2; margin-top: var(--jb-space-1); width: 100%; box-sizing: border-box; padding: var(--jb-space-2);
+  margin-top: var(--jb-space-2); width: 100%; box-sizing: border-box; padding: var(--jb-space-2);
   border: 1px solid var(--jb-line); border-radius: var(--jb-radius-sm); background: var(--jb-paper); color: var(--jb-ink); font: inherit;
 }
-body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .mat-confirm { grid-column: 1 / -1; }
+body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .mat-confirm { margin-top: var(--jb-space-2); }
+
+/* Wide: back, the step in view, the one after it, forward, in one row. */
+@container jb-cl (min-width: 40rem) {
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__row { grid-template-columns: 44px minmax(0, 1fr) minmax(0, 13rem) 44px; grid-template-areas: "prev now peek next"; }
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__detail,
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__act { margin-left: 30px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__tick,
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__nav { transition: none; }
+  body.jb-v2 [data-region="role"] .brief-materials jb-apply-checklist .jb-cl__row[data-cl-dir] .jb-cl__now { animation: none; }
+}
 
 /* ---------------- Wave 3 surfaces: outreach note, company facts, the option ---------------- */
 body.jb-v2 [data-region="role"] .brief-materials .mat-opt {

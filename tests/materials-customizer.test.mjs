@@ -20,6 +20,7 @@ import { buildOutline } from "../server/materials-outline.mjs";
 import { BULLET_TARGET, selectClaims } from "../server/materials-select.mjs";
 import { toolPattern } from "../server/materials-tool-match.mjs";
 import { soundsHumanRow } from "../server/materials-voice-tells.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const NORTHWIND_JD = readFileSync(new URL("./fixtures/jobs/northwind-director-digital-sales.txt", import.meta.url), "utf8");
 const PIN = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
@@ -93,13 +94,15 @@ describe("2. ambiguous tool names", () => {
   });
 
   it("should build no Go tool from a resume that says go-to", () => {
+    const resumeText = [
+      "Example Person",
+      "Acme — Digital Sales Manager, 2021–2026",
+      "- Became the market's go-to client-facing strategist, leading high-stakes pitches and QBRs for 20+ accounts.",
+    ].join("\n");
     const ledger = buildLedger({
       profile: { version: 1, identity: { targetRoles: ["x"], targetSeniority: "director", primaryNarrative: "x" }, strengths: [], hardConstraints: { workMode: "any" } },
-      resumeText: [
-        "Example Person",
-        "Acme — Digital Sales Manager, 2021–2026",
-        "- Served as the team's lead presenter for major pitches and quarterly reviews for 24+ accounts.",
-      ].join("\n"),
+      resumeText,
+      structure: modelStructureFixture(resumeText),
     });
     const tools = (ledger.toolInventory || []).map((t) => t.tool);
     assert.equal(tools.includes("Go"), false, tools.join(", "));

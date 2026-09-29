@@ -193,7 +193,7 @@ describe("GFX B3-2 · .docx, not .doc", () => {
           ...file,
           arrayBuffer: async () => new ArrayBuffer(8),
         }),
-        (err) => /\.doc\b/.test(err.message) && /\.docx/.test(err.message),
+        (err) => /Word \.doc files aren't supported/i.test(err.message) && /save as \.docx/i.test(err.message),
       );
     }
   });

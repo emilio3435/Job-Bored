@@ -293,9 +293,14 @@ describe("GET /api/applications/:slug/export/*", () => {
     assert.match(doc, /Jordan Rivera/);
     /* Same words as the ATS twin: every bullet line of resume.txt appears. */
     const txt = readFileSync(join(appsRoot, SLUG, "resume.txt"), "utf8");
-    const firstBullet = txt.split("\n").find((l) => /^- /.test(l));
-    const docText = [...doc.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map((match) => match[1]).join("");
-    if (firstBullet) assert.ok(docText.includes(firstBullet.slice(2, 30).replace(/&/g, "&amp;")), firstBullet);
+    const bullets = txt.split("\n").filter((line) => /^- /.test(line));
+    const wordText = [...doc.matchAll(/<w:t(?: [^>]*)?>([\s\S]*?)<\/w:t>/g)]
+      .map(([, text]) => text.replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"))
+      .join("");
+    assert.ok(bullets.some((line) => line.slice(2).includes("Built streaming ingestion for analytics events with Kafka and Postgres.")), "ATS twin keeps the streaming ingestion claim");
+    for (const bullet of bullets) {
+      assert.ok(wordText.includes(bullet.slice(2)), "Word export must keep every resume bullet: " + bullet);
+    }
   });
 
   it("should build a Word cover letter", async () => {

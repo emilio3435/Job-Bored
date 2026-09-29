@@ -20,6 +20,7 @@ import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 import { scriptedMrevFetch } from "./materials-mrev-stub.test.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const REPLIES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "materials", "stage-replies");
 const reply = (/** @type {string} */ name) => JSON.parse(readFileSync(join(REPLIES, name), "utf8"));
@@ -321,11 +322,11 @@ describe("cache key and degraded runs (P-8)", () => {
     "Jordan Rivera",
     "Austin, TX · user@example.com",
     "Northwind — Digital Sales Manager, 2021–2026",
-    "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
-    "- Drove 125% YoY paid-search conversion growth on a flagship account.",
+    "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
+    "- Drove 130% YoY paid-search conversion growth on a flagship account.",
     "- Led the market to a 60% digital revenue mix with clear weekly readouts.",
     "Example App — Founder, 2024–present",
-    "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
+    "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
     "- Built streaming ingestion for analytics events with Kafka and Postgres.",
   ].join("\n");
   const PROFILE = {
@@ -400,7 +401,7 @@ describe("cache key and degraded runs (P-8)", () => {
     jdText: "Data Platform Engineer at Acme Analytics. Build streaming ingestion and pipeline math with analysts. Requirements: SQL, Python, Kafka.",
     jdSource: "paste",
     gate: { verdict: "usable", confidence: 0.9, signals: {} },
-    ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT }),
+    ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) }),
     resumeText: RESUME_TEXT,
     voice: [],
     now: new Date("2026-09-27T05:00:00.000Z"),

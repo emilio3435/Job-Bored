@@ -95,6 +95,12 @@ describe("render-model adapter", () => {
     assert.equal(matchMark(EXAMPLE_MARKS, { employerId: "x", org: "Globex" }), undefined);
   });
 
+  it("matches logo marks only by exact companyKey", () => {
+    const maple = { slug: "maple", label: "Maple", src: "data:image/png;base64,AA==", alt: "Maple logo", shape: "mark" };
+    assert.equal(matchMark([maple], { employerId: "maple-cloud-role", org: "Maple Cloud" }), undefined);
+    assert.equal(matchMark([maple], { employerId: "unrelated-id", org: "Maple" }).src, maple.src);
+  });
+
   it("should render the adapted model in every family with no identity from the templates", () => {
     for (const family of ["signal", "dossier", "editorial"]) {
       for (const doc of ["resume", "coverLetter"]) {

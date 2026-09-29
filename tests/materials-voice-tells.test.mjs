@@ -168,6 +168,17 @@ describe("sounds_human rubric row", () => {
     assert.equal(row.note, "no machine tells");
   });
 
+  it("S1: confident verbs like drove and led are not voice penalties", () => {
+    const paragraphs = [
+      "I drove the forecast rollout for Lumen Parcel's regional fleet.",
+      "I led the work end-to-end and cut missed windows by 20%.",
+      "I would bring that practical eye to next week's route review.",
+    ];
+    const row = soundsHumanRow(paragraphs, { company: "Lumen Parcel" });
+    assert.ok(!row.tells.some((tell) => /\b(?:drove|led)\b/i.test(tell.text)), row.note);
+    assert.deepEqual(detectAiWords(paragraphs.join(" ")).filter((hit) => /\b(?:drove|led)\b/i.test(hit.text)), []);
+  });
+
   it("should score soft tells as 1 (review) and never 0: only a hard tell fails", () => {
     const oneSoft = [...GOOD_LETTER.slice(0, 3), "Here's my offer — a one-page readout — on Lumen Parcel's routes. Send the data."];
     assert.equal(soundsHumanRow(oneSoft, { company: "Lumen Parcel" }).score, 1);
@@ -222,9 +233,15 @@ describe("voice guide reaches the draft prompt", () => {
   it("should carry the one voice guide in the system prompt", () => {
     const system = draftSystemPrompt([180, 260]);
     const guide = voiceGuide();
-    assert.ok(guide.oneLine && system.includes(guide.oneLine), "oneLine");
+    const rewrittenOneLine = guide.oneLine?.replace(/and is exact about every number/i, "handles numbers carefully and allows modest rounding when faithful to a claim");
+    assert.ok(rewrittenOneLine && system.includes(rewrittenOneLine), "oneLine is adapted for MREV-8 rounding");
     assert.ok(guide.persona && system.includes(guide.persona), "persona");
-    for (const line of (guide.do || []).filter((line) => !/at least one sentence|two or three sentences|three or four sentences|^Hook:/i.test(line))) assert.ok(system.includes(line), `do: ${line}`);
+    for (const line of (guide.do || []).filter((line) => !/at least one sentence|two or three sentences|three or four sentences|^Hook:/i.test(line))) {
+      const rewritten = /^Rigor:/i.test(line)
+        ? "Rigor: every number stays grounded in a claim and keeps its unit; modest rounding is allowed when faithful (for example, 21 can be written as 20+). Never invent a number."
+        : line;
+      assert.ok(system.includes(rewritten), `do: ${line}`);
+    }
     for (const line of (guide.dont || []).filter((line) => !/^Stock closers:/i.test(line))) assert.ok(system.includes(line), `dont: ${line}`);
     assert.ok(guide.summary && draftSystemPrompt([180, 260], "resume").includes(guide.summary), "resume summary line rule");
     assert.ok(!system.includes(guide.summary), "letter has no summary quota");
@@ -232,6 +249,7 @@ describe("voice guide reaches the draft prompt", () => {
     assert.match(system, /open with what the company requires, needs or seeks/);
     assert.match(system, /three short letter paragraphs/);
     assert.doesNotMatch(system, /at least one sentence of nine words|3-4 sentences/);
+    assert.doesNotMatch(system, /never round up|exact about every number/i);
     assert.match(system, /never a made-up aside/);
     assert.match(system, /Letter band: 180-260 words/);
   });
@@ -250,7 +268,7 @@ describe("voice guide reaches the draft prompt", () => {
       featuredIds: [],
       earlierIds: [],
     }).join("\n");
-    assert.match(lines, /open with your most relevant verified work and why Lumen Parcel is the place to apply it/);
+    assert.match(lines, /Opening reason: state a specific reason to apply for this role, drawn from the posting and connected to candidate evidence/);
     assert.match(lines, /close with a specific next step and a fresh short ask/);
     assert.doesNotMatch(lines, /2-3 sentences|3-4 sentences|ask, 2 sentences/);
   });

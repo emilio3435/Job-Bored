@@ -9,6 +9,7 @@ import {
 import { scoreClaims } from "../server/materials-claim-score.mjs";
 import { selectClaims, selectRankedClaims, validateSelection } from "../server/materials-select.mjs";
 import { buildOutline } from "../server/materials-outline.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -48,7 +49,7 @@ const JD_TEXT = [
 ].join("\n");
 
 function ledger() {
-  return buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT });
+  return buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) });
 }
 
 function stubFetch(responses) {

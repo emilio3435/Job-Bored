@@ -12,6 +12,7 @@ import {
   getProfileProviderConfig,
 } from "../server/profile-from-resume.mjs";
 import { readFileSync } from "node:fs";
+import { modelReplyFixture } from "./fixtures/materials-model-structure.mjs";
 
 function restoreEnv(key, previous) {
   if (previous === undefined) delete process.env[key];
@@ -272,32 +273,34 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
 
   it("profile extract Gemini HTTP uses gemini-flash-latest and pin-key", async () => {
     const originalFetch = globalThis.fetch;
-    let call;
+    const resumeText = "Jordan Rivera\nNorthwind — Manager, 2021-2026\n- Grew revenue 30% on a $2M book.\n";
+    const profile = JSON.stringify({
+      version: 1,
+      identity: {
+        targetRoles: ["Frontend Engineer"],
+        targetSeniority: "ic_senior",
+        primaryNarrative: "I ship product features with React and TypeScript.",
+      },
+      strengths: [{ name: "React", rank: 1 }],
+      hardConstraints: { workMode: "any" },
+    });
+    const responses = [profile, JSON.stringify(modelReplyFixture(resumeText))];
+    const calls = [];
     globalThis.fetch = async (url, init) => {
-      call = { url: String(url), init };
-      return geminiOk(
-        JSON.stringify({
-          version: 1,
-          identity: {
-            targetRoles: ["Frontend Engineer"],
-            targetSeniority: "ic_senior",
-            primaryNarrative: "I ship product features with React and TypeScript.",
-          },
-          strengths: [{ name: "React", rank: 1 }],
-          hardConstraints: { workMode: "any" },
-        }),
-      );
+      calls.push({ url: String(url), init });
+      return geminiOk(responses[Math.min(calls.length - 1, responses.length - 1)]);
     };
     try {
-      await analyzeResumeToProfile(
-        "Frontend engineer with eight years of React and TypeScript product work.",
-      );
-      assert.match(call.url, /models\/gemini-flash-latest:generateContent/);
-      // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
-      assert.doesNotMatch(call.url, /[?&]key=/);
-      assert.equal(new Headers(call.init.headers).get("x-goog-api-key"), "pin-key");
-      assert.doesNotMatch(call.url, /gemini-2\.5-flash/);
-      assert.doesNotMatch(call.url, /env-key/);
+      await analyzeResumeToProfile(resumeText);
+      assert.equal(calls.length, 2, "profile and model-owned resume structure both use the pin");
+      for (const call of calls) {
+        assert.match(call.url, /models\/gemini-flash-latest:generateContent/);
+        // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
+        assert.doesNotMatch(call.url, /[?&]key=/);
+        assert.equal(new Headers(call.init.headers).get("x-goog-api-key"), "pin-key");
+        assert.doesNotMatch(call.url, /gemini-2\.5-flash/);
+        assert.doesNotMatch(call.url, /env-key/);
+      }
     } finally {
       globalThis.fetch = originalFetch;
     }

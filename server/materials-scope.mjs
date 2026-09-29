@@ -1,12 +1,11 @@
 /**
- * Materials — scope and scale guard (review defect 5).
+ * Materials — scope and scale advisory detector (review defect 5).
  *
- * A draft may reword a claim, but it may not upgrade it: "strategic Austin
- * accounts" must not become "enterprise accounts", and "an SEM forecast
- * tool on Gemini" must not become "engineering production forecasting
- * models on GCP". This module finds the upgrade words (scope, scale,
- * seniority, team size, tech depth, development framing) a sentence uses
- * that its source does not.
+ * This module flags wording that may overstate the source: "strategic Austin
+ * accounts" becoming "enterprise accounts", or "an SEM forecast tool on
+ * Gemini" becoming "engineering production forecasting models on GCP".
+ * These matches are advisory evidence for the semantic judge. This module
+ * never decides a verdict; confident framing that stays grounded is allowed.
  *
  * A word is licensed only when one source states it next to what the
  * sentence says it about: the source must contain the word (or its family)
@@ -15,8 +14,8 @@
  * tool") from licensing a merged false one ("production forecasting
  * models").
  *
- * Deterministic; no model call. The support check's prompt carries the
- * same rule for the meaning-level pass.
+ * Deterministic; no model call. The judge decides whether a flagged phrase
+ * actually fabricates scope or is supported confident framing.
  */
 
 import { stem } from "./materials-claim-score.mjs";

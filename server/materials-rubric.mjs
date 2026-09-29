@@ -12,6 +12,7 @@ import { voiceTells } from "./materials-voice-tells.mjs";
 /** @typedef {{ id?: string, text?: string, metrics?: Array<{ token?: string }>, employerId?: string }} Claim */
 /** @typedef {{ claims?: Claim[], employers?: Array<{ id?: string, name?: string }> }} Ledger */
 /** @typedef {{ contract?: string, statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} Draft */
+/** @typedef {Array<{ sentence?: string, claimIds?: string[] }>} SourceRefs */
 /** @typedef {{ id: string, kind: "hard" | "advisory" | "constraint", pass: boolean, reason: string, sentenceIds: string[] }} Gate */
 /** @typedef {{ id: string, kind: string, sentenceIds: string[], detail: string }} Advisory */
 
@@ -43,12 +44,13 @@ export function resumeFill(/** @type {{ measurement?: { lastTextBottom?: number,
  * @param {Draft} [input.draft]
  * @param {Ledger} [input.ledger]
  * @param {string | { text?: string }} [input.posting]
+ * @param {SourceRefs} [input.sourceRefs]
  * @param {{ html?: string, pdf?: Buffer | Uint8Array | string, renderedText?: string, schemaValid?: boolean }} [input.artifacts]
  * @param {{ expectedEmployers?: string[], renderedEmployers?: string[], identity?: { expected?: Record<string, unknown>, actual?: Record<string, unknown> }, history?: { expected?: Array<Record<string, unknown>>, actual?: Array<Record<string, unknown>> } }} [input.protected]
  * @param {string} [input.textHash]
  * @returns {Gate[]}
  */
-export function runHardGates({ document, finalText, draft = {}, ledger = {}, posting = "", artifacts = {}, protected: protectedFacts = {}, textHash }) {
+export function runHardGates({ document, finalText, draft = {}, ledger = {}, posting = "", sourceRefs = [], artifacts = {}, protected: protectedFacts = {}, textHash }) {
   const body = String(finalText || "");
   const claimTexts = (ledger.claims || []).map((claim) => String(claim.text || ""));
   const named = TOOL_LEXICON.filter((tool) => toolPattern(tool).test(body));
@@ -56,7 +58,7 @@ export function runHardGates({ document, finalText, draft = {}, ledger = {}, pos
   /** @param {string} id @param {boolean} pass @param {string} reason @returns {Gate} */
   const gate = (id, pass, reason) => ({ id, kind: "hard", pass, reason, sentenceIds: [] });
   const html = artifacts.html || "";
-  const critic = criticHardChecks({ document, draft, ledger, protected: protectedFacts, posting, finalText: body, html });
+  const critic = criticHardChecks({ document, draft, ledger, sourceRefs, protected: protectedFacts, posting, finalText: body, html });
   const unsafeHtml = /<script\b|\bon[a-z]+\s*=|javascript:/i.test(html);
   const pdf = artifacts.pdf;
   const pdfText = pdf ? Buffer.from(pdf).toString("latin1") : "";

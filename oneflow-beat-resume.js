@@ -136,6 +136,7 @@
     failed: false,
     lastText: "",
     lastSource: "",
+    lastDocument: null,
     writeOrder: [],
     draft: null,
     // True while the only useful next step is Beat 2 (GREENFIELD A3/A4).
@@ -707,7 +708,7 @@
    * outcomes may retry straight from the browser; provider errors must
    * surface, not silently re-attempt.
    */
-  async function draftOnServer(text, signal) {
+  async function draftOnServer(text, signal, document) {
     const provider = verifiedProviderConfig();
     // GREENFIELD A3: no usable provider means no request. The server would
     // only answer with an error, and an error the browser could have
@@ -715,6 +716,7 @@
     if (!provider) return { ok: false, missing: false, locked: true, message: CONNECT_AI_COPY };
     state.writeOrder.push("server");
     const payload = { resumeText: text, ...provider };
+    if (document) payload.document = document;
     let res;
     try {
       const init = {
@@ -856,7 +858,7 @@
     }
   }
 
-  async function ingest(text, source, ctx) {
+  async function ingest(text, source, ctx, modelDocument) {
     const context = ctx || lastCtx;
     const clean = String(text || "").trim();
     if (!clean) {
@@ -872,6 +874,7 @@
     const run = (state.ingestRun += 1);
     state.lastText = clean;
     state.lastSource = source;
+    state.lastDocument = modelDocument || null;
     state.failed = false;
     state.providerLocked = false;
     state.notice = null;
@@ -896,10 +899,10 @@
     let drafted;
     try {
       drafted = await Promise.race([
-        draftOnServer(clean, watch.controller ? watch.controller.signal : null),
+        draftOnServer(clean, watch.controller ? watch.controller.signal : null, modelDocument),
         watch.deadline,
       ]);
-      if (drafted !== TIMED_OUT && !drafted.ok && drafted.directFallback) {
+      if (source !== "upload" && drafted !== TIMED_OUT && !drafted.ok && drafted.directFallback) {
         // No drafting endpoint answered (static host, or the local server
         // is down) — draft straight from the browser with the B2-verified
         // provider before giving up, on the same deadline.
@@ -918,9 +921,9 @@
       drafted = {
         ok: false,
         missing: false,
-        message:
-          `Your AI provider didn't answer in ${Math.round(DRAFT_TIMINGS.abortAfterMs / 1000)} ` +
-          "seconds. Press Try again, or start from a template.",
+        message: source === "upload"
+          ? "We couldn't read that file: try again or paste the text."
+          : `Your AI provider didn't answer in ${Math.round(DRAFT_TIMINGS.abortAfterMs / 1000)} seconds. Press Try again, or start from a template.`,
       };
     }
     if (!drafted.ok) {
@@ -930,11 +933,15 @@
       state.providerLocked = !!drafted.locked;
       state.failed = !drafted.locked;
       state.notice = drafted.notice || null;
+      if (source === "upload" && !drafted.locked && !/10 MB limit/i.test(drafted.message || "")) {
+        drafted.message = "We couldn't read that file: try again or paste the text.";
+      }
       repaint(context, drafted.message, "error");
       return;
     }
 
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
+    state.lastDocument = null;
     if (context && context.runtime) context.runtime.profileDraft = state.draft;
     saveDraft(context, "profileDraft", state.draft);
     // RESJ2-EXTRACT: say what the AI read, in the stage list and in a toast
@@ -995,8 +1002,10 @@
     }
     setStage(context, 0);
     let text;
+    let modelDocument = null;
     try {
       text = await api.extractTextFromFile(file);
+      if (typeof api.documentForModel === "function") modelDocument = await api.documentForModel(file);
     } catch (err) {
       clearStages(context);
       state.failed = true;
@@ -1014,7 +1023,7 @@
       typeof api.normalizeExtractedText === "function"
         ? api.normalizeExtractedText
         : (t) => t;
-    return ingest(normalize(text), "upload", context);
+    return ingest(normalize(text), "upload", context, modelDocument);
   }
 
   // ---------------------------------------------------------------
@@ -1070,7 +1079,7 @@
         // Text edited in the box since the failure is what the user means.
         const text =
           state.lastSource === "paste" ? readPaste() || state.lastText : state.lastText;
-        if (text) return ingest(text, state.lastSource || "paste", context);
+        if (text) return ingest(text, state.lastSource || "paste", context, state.lastDocument);
         state.failed = false;
         repaint(context, "");
         return undefined;

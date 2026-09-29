@@ -123,10 +123,9 @@ describe("resume-ingest.js lazy reader contract", () => {
     );
   });
 
-  it("awaits the lazy loader before parsing in the public entry", () => {
-    // The public entry point (extractTextFromFile) must call the loader
-    // before touching pdfjsLib / mammoth, otherwise the first upload races
-    // a still-unloaded vendor and hits the watchdog.
+  it("awaits the lazy loader after signature checks and before extraction", () => {
+    // Reader vendors load only for a validated PDF/DOCX, after the byte and
+    // signature checks, but still before the first parser dispatch.
     const entryIdx = resumeIngestJs.indexOf(
       "async function extractTextFromFile",
     );
@@ -134,12 +133,18 @@ describe("resume-ingest.js lazy reader contract", () => {
       entryIdx > -1,
       "extractTextFromFile entry function must still exist",
     );
-    const entryBody = resumeIngestJs.slice(entryIdx, entryIdx + 400);
-    assert.match(
-      entryBody,
-      /await loadResumeReaders\(\)/,
-      "extractTextFromFile must `await loadResumeReaders()` before parsing",
+    const documentEntryIdx = resumeIngestJs.indexOf(
+      "async function documentForModel",
+      entryIdx,
     );
+    assert.ok(documentEntryIdx > entryIdx, "could not find end of extractTextFromFile");
+    const entryBody = resumeIngestJs.slice(entryIdx, documentEntryIdx);
+    const sniffIdx = entryBody.indexOf("const mime = sniffDocumentMime(buf)");
+    const loadIdx = entryBody.indexOf("if (mime) await loadResumeReaders()");
+    const dispatchIdx = entryBody.indexOf("dispatchExtraction(file, buf, mime)");
+    assert.ok(sniffIdx >= 0, "file bytes must be signature-checked before loading readers");
+    assert.ok(loadIdx > sniffIdx, "reader vendors must load only after PDF/DOCX signature validation");
+    assert.ok(dispatchIdx > loadIdx, "extractTextFromFile must await reader loading before parser dispatch");
   });
 });
 

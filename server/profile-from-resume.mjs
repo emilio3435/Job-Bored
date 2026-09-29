@@ -44,7 +44,8 @@ import {
 import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
 import { normalizeGeminiFlashPreference } from "./model-family.mjs";
 import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
-import { experiencesFromStructure, parseResumeStructure } from "./materials-resume-structure.mjs";
+import { experiencesFromStructure } from "./materials-resume-structure.mjs";
+import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
 import { detectGarbledResume, resumeGarbledError } from "./materials-resume-source.mjs";
 import { buildResumeRead } from "./resume-read.mjs";
 
@@ -99,6 +100,17 @@ const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_VERSION = "2023-06-01";
+export const MAX_PROFILE_DOCUMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_PROFILE_DOCUMENT_BASE64_CHARS = Math.ceil(MAX_PROFILE_DOCUMENT_BYTES / 3) * 4;
+// Covers a maximum extracted-text prompt (including JSON escaping) and the
+// small provider/document envelope alongside the base64 file payload.
+export const MAX_PROFILE_FROM_RESUME_BODY_BYTES =
+  MAX_PROFILE_DOCUMENT_BASE64_CHARS + MAX_RESUME_INPUT_CHARS * 6 + 16 * 1024;
+const PDF_MIME = "application/pdf";
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PROFILE_DOCUMENT_TOO_LARGE_MESSAGE =
+  "This file is over the 10 MB limit. Choose a smaller file or paste the text instead.";
+const PROFILE_DOCUMENT_INVALID_MESSAGE = "Choose a readable PDF or DOCX file and try again.";
 
 /** @typedef {"gemini" | "anthropic" | "openrouter" | "openai" | "openai_compatible" | "local"} ProfileProvider */
 /**
@@ -108,7 +120,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
  * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
  */
-/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal, retriedTruncation?: boolean }} ProfileCallOptions */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal, retriedTruncation?: boolean, document?: { mimeType: string, filename?: string, data: string }, fetchImpl?: typeof globalThis.fetch, structureCallStage?: (input: Record<string, unknown>) => Promise<unknown> | unknown }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
 /**
@@ -120,7 +132,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * @property {{ workMode: string, salaryRequired?: boolean, workAuth?: string, acceptableLocations?: string[], skipTitles?: string[] }} hardConstraints
  * @property {string[]} [wants]
  * @property {string[]} [avoids]
- * @property {Array<Record<string, unknown>>} [experiences] employers, titles and dates parsed from the resume
+ * @property {Array<Record<string, unknown>>} [experiences] employers, titles and dates interpreted from the resume
  */
 
 /**
@@ -305,6 +317,95 @@ export async function resolveResumeTextForAnalysis(body) {
     };
   }
   return getStoredResumeText();
+}
+
+/** Validate request-only original-file data. The base64 is consumed by the
+ * model call and is never included in a saved profile or resume read.
+ * @param {unknown} value
+ * @returns {{ ok: true, document: { mimeType: string, filename?: string, data: string } | null } | { ok: false, status: 400 | 413, reason: string, message: string }}
+ */
+export function validateResumeDocument(value) {
+  if (value == null) return { ok: true, document: null };
+  if (!isRecord(value)) {
+    return { ok: false, status: 400, reason: "resume_file_invalid", message: "Choose a PDF or DOCX file and try again." };
+  }
+  const data = typeof value.data === "string" ? value.data : "";
+  if (data.length > MAX_PROFILE_DOCUMENT_BASE64_CHARS) {
+    return { ok: false, status: 413, reason: "resume_file_too_large", message: PROFILE_DOCUMENT_TOO_LARGE_MESSAGE };
+  }
+  if (!data || data.length % 4 !== 0) {
+    return { ok: false, status: 400, reason: "resume_file_invalid", message: PROFILE_DOCUMENT_INVALID_MESSAGE };
+  }
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  const decodedLength = (data.length / 4) * 3 - padding;
+  if (!Number.isSafeInteger(decodedLength) || decodedLength > MAX_PROFILE_DOCUMENT_BYTES) {
+    return { ok: false, status: 413, reason: "resume_file_too_large", message: PROFILE_DOCUMENT_TOO_LARGE_MESSAGE };
+  }
+
+  let lastDigit = -1;
+  for (let index = 0; index < data.length - padding; index += 1) {
+    const code = data.charCodeAt(index);
+    let digit = -1;
+    if (code >= 65 && code <= 90) digit = code - 65;
+    else if (code >= 97 && code <= 122) digit = code - 71;
+    else if (code >= 48 && code <= 57) digit = code + 4;
+    else if (code === 43) digit = 62;
+    else if (code === 47) digit = 63;
+    if (digit < 0) {
+      return { ok: false, status: 400, reason: "resume_file_invalid", message: PROFILE_DOCUMENT_INVALID_MESSAGE };
+    }
+    lastDigit = digit;
+  }
+  if ((padding === 2 && (lastDigit & 0x0f) !== 0) || (padding === 1 && (lastDigit & 0x03) !== 0)) {
+    return { ok: false, status: 400, reason: "resume_file_invalid", message: PROFILE_DOCUMENT_INVALID_MESSAGE };
+  }
+  const decoded = Buffer.from(data, "base64");
+  if (decoded.length !== decodedLength) {
+    return { ok: false, status: 400, reason: "resume_file_invalid", message: PROFILE_DOCUMENT_INVALID_MESSAGE };
+  }
+  let mimeType = "";
+  if (
+    decoded.length >= 5 && decoded[0] === 0x25 && decoded[1] === 0x50 && decoded[2] === 0x44 &&
+    decoded[3] === 0x46 && decoded[4] === 0x2d
+  ) mimeType = PDF_MIME;
+  else if (decoded.length >= 4 && decoded[0] === 0x50 && decoded[1] === 0x4b && decoded[2] === 0x03 && decoded[3] === 0x04) {
+    mimeType = DOCX_MIME;
+  }
+  if (!mimeType) {
+    return { ok: false, status: 400, reason: "resume_file_invalid", message: PROFILE_DOCUMENT_INVALID_MESSAGE };
+  }
+  const rawName = typeof value.filename === "string" ? value.filename : "";
+  const basename = (rawName.replace(/\\/g, "/").split("/").pop() || "resume").replace(/[\r\n\0]/g, " ").slice(0, 180);
+  const stem = basename.replace(/\.[^.]*$/, "") || "resume";
+  const extension = mimeType === PDF_MIME ? ".pdf" : ".docx";
+  const filename = `${stem}${extension}`;
+  return {
+    ok: true,
+    document: { mimeType, ...(filename ? { filename } : {}), data },
+  };
+}
+
+/**
+ * Create the JSON parser used only by POST /profile/from-resume. Reject a
+ * declared over-limit request before the parser reads it; the parser's own
+ * byte limit also caps requests without Content-Length while streaming.
+ * @param {(options: { limit: number }) => (req: any, res: any, next: (error?: unknown) => void) => unknown} jsonParserFactory
+ * @returns {(req: { headers?: Record<string, unknown> }, res: { status(code: number): { json(body: unknown): unknown } }, next: (error?: unknown) => void) => unknown}
+ */
+export function createProfileFromResumeJsonParser(jsonParserFactory) {
+  const parseJson = jsonParserFactory({ limit: MAX_PROFILE_FROM_RESUME_BODY_BYTES });
+  return (req, res, next) => {
+    const header = req.headers?.["content-length"];
+    const contentLength = typeof header === "string" && /^\d+$/.test(header) ? Number(header) : null;
+    if (contentLength !== null && contentLength > MAX_PROFILE_FROM_RESUME_BODY_BYTES) {
+      return res.status(413).json({
+        ok: false,
+        reason: "resume_file_too_large",
+        message: PROFILE_DOCUMENT_TOO_LARGE_MESSAGE,
+      });
+    }
+    return parseJson(req, res, next);
+  };
 }
 
 /* ─── Provider config ──────────────────────────────────────────────────── */
@@ -675,15 +776,25 @@ const GEMINI_RESPONSE_SCHEMA = {
     resumeFacts: {
       type: "object",
       properties: {
-        skills: {
+        contact: {
           type: "object",
           properties: {
-            hard: { type: "array", items: { type: "string" } },
-            tools: { type: "array", items: { type: "string" } },
-            soft: { type: "array", items: { type: "string" } },
+            name: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+            email: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+            phone: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+            location: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+            links: { type: "array", items: { type: "object", properties: { label: { type: "string" }, url: { type: "string" }, sourceQuote: { type: "string" } }, required: ["label", "url", "sourceQuote"] } },
           },
         },
+        headline: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+        summary: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] },
+        skills: { type: "array", items: { type: "object", properties: { text: { type: "string" }, kind: { type: "string", enum: ["hard", "tools", "soft"] }, sourceQuote: { type: "string" } }, required: ["text", "kind", "sourceQuote"] } },
+        certifications: { type: "array", items: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] } },
+        awards: { type: "array", items: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] } },
+        projects: { type: "array", items: { type: "object", properties: { name: { type: "string" }, url: { type: "string" }, sourceQuote: { type: "string" } }, required: ["name", "url", "sourceQuote"] } },
+        languages: { type: "array", items: { type: "object", properties: { text: { type: "string" }, sourceQuote: { type: "string" } }, required: ["text", "sourceQuote"] } },
       },
+      required: ["contact", "skills", "certifications", "awards", "projects", "languages"],
     },
     hardConstraints: {
       type: "object",
@@ -703,7 +814,7 @@ const GEMINI_RESPONSE_SCHEMA = {
       required: ["workMode"],
     },
   },
-  required: ["version", "identity", "strengths", "hardConstraints"],
+  required: ["version", "identity", "strengths", "hardConstraints", "resumeFacts"],
 };
 
 /** @param {unknown} value */
@@ -714,6 +825,30 @@ function trimTrailingSlashes(value) {
 /** @param {unknown} baseUrl */
 function buildChatCompletionsUrl(baseUrl) {
   return `${trimTrailingSlashes(baseUrl)}/chat/completions`;
+}
+
+/**
+ * Profile fact providers currently accept native PDF input for Gemini,
+ * Anthropic, and OpenAI. DOCX and other compatible endpoints use extracted
+ * text, matching the structure model's document support.
+ * @param {unknown} value
+ * @param {unknown} provider
+ * @returns {{ mimeType: string, filename: string, data: string } | null}
+ */
+function profileDocumentForProvider(value, provider) {
+  const family = sharedNormalizeProvider(provider);
+  if (
+    !isRecord(value) ||
+    value.mimeType !== PDF_MIME ||
+    typeof value.data !== "string" ||
+    !["gemini", "anthropic", "openai"].includes(family)
+  ) return null;
+  const filename = typeof value.filename === "string" ? value.filename : "resume.pdf";
+  return {
+    mimeType: PDF_MIME,
+    filename: (filename.replace(/\\/g, "/").split("/").pop() || "resume.pdf").slice(0, 200),
+    data: value.data,
+  };
 }
 
 // Scan for the first balanced JSON object embedded in surrounding text and
@@ -742,11 +877,27 @@ function truncatedDraftError(providerLabel, code, provider, model) {
 async function callChatJsonForProfile(resumeText, config, opts = {}) {
   assertProfileProviderConfigured(config);
   const model = opts.model || config.model;
+  const document = profileDocumentForProvider(opts.document, config.provider);
+  const prompt = buildUserPrompt(resumeText);
   const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(resumeText) },
+      {
+        role: "user",
+        content: document && config.provider === "openai"
+          ? [
+              {
+                type: "file",
+                file: {
+                  filename: document.filename,
+                  file_data: `data:${document.mimeType};base64,${document.data}`,
+                },
+              },
+              { type: "text", text: prompt },
+            ]
+          : prompt,
+      },
     ],
     temperature: 0.2,
     ...outputLimitField(config.provider, model),
@@ -829,6 +980,8 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
 async function callAnthropicForProfile(resumeText, config, opts = {}) {
   assertProfileProviderConfigured(config);
   const model = opts.model || config.model;
+  const document = profileDocumentForProvider(opts.document, config.provider);
+  const prompt = buildUserPrompt(resumeText);
   let resp;
   try {
     resp = await fetch(`${trimTrailingSlashes(config.baseUrl)}/messages`, {
@@ -843,7 +996,18 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
         ...(outputBudget("anthropic", model) === undefined ? {} : { max_tokens: outputBudget("anthropic", model) }),
         temperature: 0.2,
         system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
+        messages: [{
+          role: "user",
+          content: document
+            ? [
+                {
+                  type: "document",
+                  source: { type: "base64", media_type: document.mimeType, data: document.data },
+                },
+                { type: "text", text: prompt },
+              ]
+            : prompt,
+        }],
       }),
       signal: opts.signal,
     });
@@ -909,11 +1073,19 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   const cfg = opts.config || getProfileProviderConfig();
   assertProfileProviderConfigured(cfg);
   const model = opts.model || cfg.model;
+  const document = profileDocumentForProvider(opts.document, cfg.provider);
+  const prompt = buildUserPrompt(resumeText);
   // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [{ role: "user", parts: [{ text: buildUserPrompt(resumeText) }] }],
+    contents: [{
+      role: "user",
+      parts: [
+        ...(document ? [{ inline_data: { mime_type: document.mimeType, data: document.data } }] : []),
+        { text: prompt },
+      ],
+    }],
     generationConfig: {
       temperature: 0.2,
       ...(outputBudget("gemini", model) === undefined ? {} : { maxOutputTokens: outputBudget("gemini", model) }),
@@ -1015,13 +1187,12 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
 }
 
 /**
- * The profile draft plus "what JobBored read from the resume": the rules
- * read with the model's `resumeFacts` folded in (only strings found in the
- * resume survive), and the provider and model that did the reading.
+ * The profile draft plus "what JobBored read from the resume": quote-grounded
+ * profile facts and the independently validated model structure.
  *
  * @param {string} resumeText
  * @param {ProfileCallOptions} [opts]
- * @returns {Promise<{ profile: NormalizedUserProfile, read: import("./resume-read.mjs").ResumeRead }>}
+ * @returns {Promise<{ profile: NormalizedUserProfile, read: ReturnType<typeof buildResumeRead> & { ingest?: unknown } }>}
  */
 export async function analyzeResume(resumeText, opts = {}) {
   const text = String(resumeText || "").trim();
@@ -1057,16 +1228,41 @@ export async function analyzeResume(resumeText, opts = {}) {
     raw = await callChatJsonForProfile(text, config, opts);
   }
   const profile = clampToUserProfile(raw);
-  /* The resume's own employers, titles and dates travel with the draft, so
-   * the saved profile carries them and the claim ledger reads them instead
-   * of re-deriving them on every build. Deterministic: parsed from the
-   * resume text, never from the model's reply. */
-  const experiences = experiencesFromStructure(parseResumeStructure(text));
+  const structurePin = {
+    provider: config.provider,
+    model: config.model,
+    resolvedModel: config.model,
+    apiKey: config.apiKey,
+    baseUrl: config.baseUrl,
+  };
+  const interpreted = await structureResumeWithModel({
+    resumeText: text,
+    document: opts.document,
+    pin: structurePin,
+    fetchImpl: opts.fetchImpl || globalThis.fetch,
+    callStage: opts.structureCallStage,
+    signal: opts.signal,
+  });
+  if (interpreted.ingest.status !== "ready" || !interpreted.structure) {
+    const error = /** @type {ProfileProviderError & { ingest?: unknown }} */ (
+      new Error(interpreted.ingest.reason || "The resume could not be grounded in its source text.")
+    );
+    error.code = "profile_resume_ingest_failed";
+    error.provider = config.provider;
+    error.ingest = interpreted.ingest;
+    throw error;
+  }
+  const experiences = experiencesFromStructure(interpreted.structure);
   const read = buildResumeRead(text, {
     facts: resumeFactsOf(raw),
+    structure: interpreted.structure,
     by: { provider: config.provider, model: String(opts.model || config.model || "") || config.provider },
   });
-  return { profile: experiences.length ? { ...profile, experiences } : profile, read };
+  const readWithIngest = {
+    ...read,
+    ingest: interpreted.ingest,
+  };
+  return { profile: experiences.length ? { ...profile, experiences } : profile, read: readWithIngest };
 }
 
 // Expose for tests/scratch only — not part of the documented surface.

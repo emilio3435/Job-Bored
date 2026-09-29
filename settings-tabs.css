@@ -575,3 +575,165 @@
   color: var(--jb-ink-2, currentColor);
   font-size: 13px;
 }
+
+/* MREV JUDGEUX · independent grading model setup. */
+#settingsModal .settings-judge {
+  min-width: 0;
+  margin-top: var(--jb-space-4);
+  padding: var(--jb-space-4);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-md);
+  background: var(--jb-paper-2);
+  color: var(--jb-ink);
+  overflow-wrap: anywhere;
+}
+
+#settingsModal .settings-judge .settings-judge__title {
+  margin: 0 0 var(--jb-space-1);
+  color: var(--jb-ink);
+  font-size: var(--jb-type-heading);
+}
+
+#settingsModal .settings-judge .settings-judge__lede {
+  margin: 0 0 var(--jb-space-3);
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-body);
+  line-height: 1.45;
+}
+
+#settingsModal .settings-judge .settings-judge__steps {
+  display: grid;
+  gap: var(--jb-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#settingsModal .settings-judge .settings-judge__step {
+  display: grid;
+  gap: var(--jb-space-1);
+  min-width: 0;
+}
+
+#settingsModal .settings-judge .settings-judge__step-label {
+  color: var(--jb-ink);
+  font-size: var(--jb-type-small);
+  font-weight: 700;
+}
+
+#settingsModal .settings-judge .field-label {
+  margin: 0;
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+}
+
+#settingsModal .settings-judge .modal-input,
+#settingsModal .settings-judge .settings-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+#settingsModal .settings-judge .settings-judge__key-link {
+  justify-self: start;
+  max-width: 100%;
+  color: var(--jb-action);
+  font-size: var(--jb-type-body);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+#settingsModal .settings-judge .settings-judge__hint,
+#settingsModal .settings-judge .settings-judge__key-state {
+  margin: 0;
+  color: var(--jb-ink-3);
+  font-size: var(--jb-type-small);
+  line-height: 1.45;
+}
+
+#settingsModal .settings-judge .settings-judge__error {
+  margin: var(--jb-space-2) 0 0;
+  color: var(--jb-err);
+  font-size: var(--jb-type-small);
+  line-height: 1.45;
+}
+
+#settingsModal .settings-judge .settings-judge__error[hidden] {
+  display: none;
+}
+
+#settingsModal .settings-judge .settings-judge__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--jb-space-2);
+}
+
+#settingsModal .settings-judge .settings-judge__remove {
+  min-width: 88px;
+  min-height: 44px;
+  padding: 0 var(--jb-space-3);
+  border: 1px solid var(--jb-line-strong);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper);
+  color: var(--jb-ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+#settingsModal .settings-judge .settings-judge__remove:focus-visible,
+#settingsModal .settings-judge .settings-judge__other-summary:focus-visible,
+#settingsModal .settings-judge .settings-judge__key-link:focus-visible {
+  outline: 2px solid var(--jb-focus-color);
+  outline-offset: 2px;
+}
+
+#settingsModal .settings-judge .settings-judge__remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+#settingsModal .settings-judge .settings-judge__other {
+  min-width: 0;
+  margin-top: var(--jb-space-3);
+  padding-top: var(--jb-space-3);
+  border-top: 1px solid var(--jb-line);
+}
+
+#settingsModal .settings-judge .settings-judge__other-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--jb-action);
+  font-size: var(--jb-type-small);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#settingsModal .settings-judge .settings-judge__other > .field-label,
+#settingsModal .settings-judge .settings-judge__other > .modal-input,
+#settingsModal .settings-judge .settings-judge__other > .settings-select {
+  margin-top: var(--jb-space-1);
+}
+
+#settingsModal .settings-judge .settings-judge__status {
+  margin: var(--jb-space-3) 0 0;
+  padding-top: var(--jb-space-2);
+  border-top: 1px solid var(--jb-line);
+  color: var(--jb-ink-2);
+  font-size: var(--jb-type-small);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+@media (max-width: 480px) {
+  #settingsModal .settings-judge {
+    padding: var(--jb-space-3);
+  }
+
+  #settingsModal .settings-judge .settings-judge__steps {
+    gap: var(--jb-space-2);
+  }
+}

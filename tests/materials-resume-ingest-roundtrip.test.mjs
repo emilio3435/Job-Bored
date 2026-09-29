@@ -3,8 +3,8 @@
  *
  * Generated PDF and DOCX fixtures (tests/fixtures/resumes/generate-binary-
  * fixtures.py, from bulleted-source.txt) go through resume-ingest.js with
- * the real vendored pdf.js and mammoth, then into the claim ledger. Before
- * P-2 the PDF came back as one line and the DOCX lost its list bullets.
+ * the real vendored pdf.js and mammoth. These checks pin text extraction;
+ * claim attribution is tested against explicit model replies separately.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import vm from "node:vm";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const require = createRequire(import.meta.url);
 const repo = (p) => new URL(`../${p}`, import.meta.url);
@@ -34,6 +35,7 @@ function loadIngest() {
     console: quiet,
     performance,
     TextDecoder,
+    btoa,
     setTimeout,
     clearTimeout,
   });
@@ -53,7 +55,7 @@ describe("P-2: resume uploads keep their line structure", () => {
     const text = await ingest.extractTextFromDocx(arrayBuffer("tests/fixtures/resumes/bulleted.docx"));
     const lines = text.split("\n").filter((l) => l.trim());
     assert.deepEqual(lines, SOURCE_LINES, "every source line survives, in order, bullets included");
-    const ledger = buildLedger({ profile: null, resumeText: text });
+    const ledger = buildLedger({ profile: null, resumeText: text, structure: modelStructureFixture(text) });
     assert.ok(ledger.claims.length >= 10, `claims: ${ledger.claims.length}`);
     assert.equal(ledger.claims.filter((c) => c.employerId).length, SOURCE_BULLETS.length);
   });
@@ -67,7 +69,7 @@ describe("P-2: resume uploads keep their line structure", () => {
     for (const header of SOURCE_LINES.filter((l) => !l.startsWith("- ") && l.length < 90)) {
       assert.ok(lines.includes(header), `header line kept whole: ${header}`);
     }
-    const ledger = buildLedger({ profile: null, resumeText: text });
+    const ledger = buildLedger({ profile: null, resumeText: text, structure: modelStructureFixture(text) });
     assert.ok(ledger.claims.length >= 10, `claims: ${ledger.claims.length}`);
     const claimTexts = ledger.claims.map((c) => c.text);
     for (const bullet of SOURCE_BULLETS) {
@@ -102,5 +104,76 @@ describe("P-2: resume uploads keep their line structure", () => {
       '- Grew "core" revenue 22%',
       "- Nested win",
     ]);
+  });
+
+  it("P2 returns the original PDF bytes as bounded request data", async () => {
+    const ingest = loadIngest();
+    const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
+    const file = {
+      name: "fictional.pdf",
+      type: "application/pdf",
+      size: bytes.byteLength,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    };
+    const document = await ingest.documentForModel(file);
+    assert.equal(document.mimeType, "application/pdf");
+    assert.equal(document.filename, "fictional.pdf");
+    assert.equal(document.data, bytes.toString("base64"));
+    await assert.rejects(
+      () => ingest.documentForModel({ name: "large.pdf", type: "application/pdf", size: 10 * 1024 * 1024 + 1 }),
+      /10 MB limit/,
+    );
+  });
+
+  it("P2 derives a document's model MIME from its bytes, not its name or browser type", async () => {
+    const ingest = loadIngest();
+    const docx = arrayBuffer("tests/fixtures/resumes/bulleted.docx");
+    const mislabeled = {
+      name: "fictional.pdf",
+      type: "application/pdf",
+      size: docx.byteLength,
+      arrayBuffer: async () => docx,
+    };
+
+    const document = await ingest.documentForModel(mislabeled);
+
+    assert.equal(
+      document.mimeType,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    assert.equal(document.data, Buffer.from(docx).toString("base64"));
+    assert.equal(ingest.guessMime(mislabeled), document.mimeType);
+  });
+
+  it("P2 rejects a PDF declaration without a PDF signature", async () => {
+    const ingest = loadIngest();
+    const bytes = Buffer.from("fictional text, not a PDF");
+    const file = {
+      name: "fictional.pdf",
+      type: "application/pdf",
+      size: bytes.byteLength,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    };
+
+    await assert.rejects(
+      () => ingest.documentForModel(file),
+      /supported PDF or DOCX/,
+    );
+  });
+
+  it("P2 extracts a DOCX by signature when its metadata claims PDF", async () => {
+    const ingest = loadIngest();
+    const docx = arrayBuffer("tests/fixtures/resumes/bulleted.docx");
+    const mislabeled = {
+      name: "fictional.pdf",
+      type: "application/pdf",
+      size: docx.byteLength,
+      arrayBuffer: async () => docx,
+    };
+
+    assert.deepEqual(
+      (await ingest.extractTextFromFile(mislabeled)).split("\n").filter((line) => line.trim()),
+      SOURCE_LINES,
+    );
   });
 });

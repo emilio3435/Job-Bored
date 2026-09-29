@@ -69,6 +69,7 @@ export const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 export const MAX_PROVIDER_TIMEOUT_MS = 120_000;
+/* Generic interactive routes stay bounded; long workflows set a scoped budget. */
 export const DEFAULT_ROUTE_DEADLINE_MS = 45_000;
 
 /** @param {unknown} raw */
@@ -386,32 +387,86 @@ export function providerRequestError(provider, cause, callerSignal) {
 
 /* ─── Schema helpers ──────────────────────────────────────────────────── */
 
-const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
-  "additionalProperties",
-  "$schema",
-  "$id",
-  "$ref",
-  "allOf",
-  "anyOf",
-  "oneOf",
-  "not",
+const GEMINI_SCHEMA_KEYS = new Set([
+  "type", "format", "title", "description", "enum", "items", "minItems", "maxItems",
+  "minimum", "maximum", "properties", "required", "propertyOrdering", "nullable",
 ]);
+
+/** Inline local definitions before sending a schema to an API. Ajv still checks the original. */
+function toStructuredOutputSchema(/** @type {unknown} */ schema) {
+  /** @param {string} ref */
+  function target(ref) {
+    if (!ref.startsWith("#/")) throw new TypeError("Only local schema references are supported");
+    const parts = ref.slice(2).split("/").map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+    let node = schema;
+    for (const part of parts) {
+      if (!node || typeof node !== "object" || !Object.hasOwn(node, part)) throw new TypeError("Unknown schema reference");
+      node = /** @type {Record<string, unknown>} */ (node)[part];
+    }
+    return node;
+  }
+
+  /** @param {unknown} node @param {Set<string>} refs @returns {unknown} */
+  function expand(node, refs) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+    const record = /** @type {Record<string, unknown>} */ (node);
+    /** @type {Record<string, unknown>} */
+    let out = {};
+    if (Object.hasOwn(record, "$ref")) {
+      const ref = record.$ref;
+      if (typeof ref !== "string" || refs.has(ref)) throw new TypeError("Invalid or circular schema reference");
+      out = /** @type {Record<string, unknown>} */ (expand(target(ref), new Set([...refs, ref])));
+    }
+    for (const [key, value] of Object.entries(record)) {
+      if (key.startsWith("$") || key === "uniqueItems") continue;
+      if (key === "const") { out.enum = [value]; continue; }
+      if (key === "properties" || key === "patternProperties" || key === "dependentSchemas") {
+        out[key] = Object.fromEntries(Object.entries(/** @type {Record<string, unknown>} */ (value))
+          .map(([name, child]) => [name, expand(child, refs)]));
+      } else if (["items", "additionalProperties", "not", "if", "then", "else", "contains", "propertyNames"].includes(key)) {
+        out[key] = expand(value, refs);
+      } else if (["allOf", "anyOf", "oneOf", "prefixItems"].includes(key) && Array.isArray(value)) {
+        out[key] = value.map((child) => expand(child, refs));
+      } else {
+        out[key] = value;
+      }
+    }
+    if (!out.type && Array.isArray(out.enum) && out.enum.length && out.enum.every((value) => typeof value === "string")) {
+      out.type = "string";
+    }
+    return out;
+  }
+  return expand(schema, new Set());
+}
 
 /** @param {unknown} schema */
 export function toGeminiSchema(schema) {
   /** @param {unknown} node @returns {unknown} */
-  function clean(node) {
-    if (Array.isArray(node)) return node.map(clean);
-    if (!node || typeof node !== "object") return node;
+  function project(node) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
     /** @type {Record<string, unknown>} */
     const out = {};
     for (const [k, v] of Object.entries(node)) {
-      if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k)) continue;
-      out[k] = clean(v);
+      if (!GEMINI_SCHEMA_KEYS.has(k)) continue;
+      if (k === "properties") {
+        out[k] = Object.fromEntries(Object.entries(/** @type {Record<string, unknown>} */ (v))
+          .map(([name, child]) => [name, project(child)]));
+      } else if (k === "items") {
+        out[k] = project(v);
+      } else {
+        out[k] = v;
+      }
     }
     return out;
   }
-  return clean(schema);
+  return project(toStructuredOutputSchema(schema));
+}
+
+/** xAI's Chat Completions endpoint supports structured output; other compatible endpoints vary. */
+function supportsStrictSchema(/** @type {ResolvedProvider} */ resolved) {
+  if (resolved.provider === "openai") return openAISupportsStrictSchema(resolved.model);
+  if (resolved.provider !== "openai_compatible") return false;
+  try { return new URL(resolved.baseUrl).hostname === "api.x.ai"; } catch { return false; }
 }
 
 /** @param {unknown} model */
@@ -447,7 +502,9 @@ export function extractGeminiText(payload) {
       ? candidate.content.parts
       : [];
     const text = parts
-      .map((/** @type {unknown} */ p) => (isRecord(p) && typeof p.text === "string" ? p.text : ""))
+      .map((/** @type {unknown} */ p) =>
+        isRecord(p) && p.thought !== true && typeof p.text === "string" ? p.text : "",
+      )
       .join("");
     if (text.trim()) return text;
   }
@@ -501,12 +558,14 @@ function splitSystem(messages) {
  * @property {ChatMessage[]} messages
  * @property {Record<string, unknown>} [schema] JSON schema for a structured reply
  * @property {string} [schemaName]
+ * @property {boolean} [jsonMode] request JSON output without imposing a schema
  * @property {AbortSignal} [signal] the caller's (request) signal
  * @property {number} [timeoutMs]
  * @property {number} [maxTokens]
  * @property {number} [temperature]
  * @property {typeof globalThis.fetch} [fetchImpl]
  * @property {string} [endpoint] overrides the resolved endpoint (worker configs carry their own)
+ * @property {{ mimeType: string, filename?: string, data: string }} [document] original document input; currently native PDF blocks only
  * @property {boolean} [retriedTruncation] internal one-time retry marker
  */
 
@@ -544,6 +603,10 @@ export async function chat(input) {
   const temperature = Number.isFinite(Number(input.temperature)) ? Number(input.temperature) : 0.1;
   const schema = input.schema;
   const { system, rest } = splitSystem(messages);
+  const document = input.document && input.document.mimeType === "application/pdf" && typeof input.document.data === "string"
+    ? input.document
+    : null;
+  const lastUserIndex = rest.map((m) => m.role).lastIndexOf("user");
 
   /** @type {Record<string, string>} */
   let headers;
@@ -553,15 +616,21 @@ export async function chat(input) {
     headers = geminiHeaders(resolved.apiKey);
     body = {
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-      contents: rest.map((m) => ({
+      contents: rest.map((m, index) => ({
         role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
+        parts: [
+          ...(document && index === lastUserIndex
+            ? [{ inline_data: { mime_type: document.mimeType, data: document.data } }]
+            : []),
+          { text: m.content },
+        ],
       })),
       generationConfig: {
         temperature,
         ...(maxTokens === undefined ? {} : { maxOutputTokens: maxTokens }),
         ...(Object.keys(thinkingConfig).length ? { thinkingConfig } : {}),
-        ...(schema ? { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) } : {}),
+        ...(schema || input.jsonMode ? { responseMimeType: "application/json" } : {}),
+        ...(schema ? { responseSchema: toGeminiSchema(schema) } : {}),
       },
     };
   } else if (provider === "anthropic") {
@@ -576,7 +645,18 @@ export async function chat(input) {
       // Sampling options travel on every provider's wire, Anthropic included.
       temperature,
       ...(system ? { system } : {}),
-      messages: rest.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      messages: rest.map((m, index) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: document && index === lastUserIndex
+          ? [
+              {
+                type: "document",
+                source: { type: "base64", media_type: document.mimeType, data: document.data },
+              },
+              { type: "text", text: m.content },
+            ]
+          : m.content,
+      })),
       ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
     };
   } else {
@@ -587,16 +667,31 @@ export async function chat(input) {
     const limitKey = provider === "openai" && openAIUsesMaxCompletionTokens(model) ? "max_completion_tokens" : "max_tokens";
     /** @type {Record<string, unknown> | undefined} */
     let responseFormat;
-    if (schema && provider === "openai") {
-      responseFormat = openAISupportsStrictSchema(model)
-        ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema } }
+    if (schema && (provider === "openai" || provider === "openai_compatible")) {
+      responseFormat = supportsStrictSchema(resolved)
+        ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema: toStructuredOutputSchema(schema) } }
         : { type: "json_object" };
-    } else if (schema && provider === "openai_compatible") {
-      responseFormat = { type: "json_object" };
     }
     body = {
       model,
-      messages: [...(system ? [{ role: "system", content: system }] : []), ...rest],
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        ...rest.map((m, index) => ({
+          role: m.role,
+          content: document && provider === "openai" && index === lastUserIndex
+            ? [
+                {
+                  type: "file",
+                  file: {
+                    filename: (String(document.filename || "resume.pdf").split(/[\\/]/).pop() || "resume.pdf").slice(0, 200),
+                    file_data: `data:${document.mimeType};base64,${document.data}`,
+                  },
+                },
+                { type: "text", text: m.content },
+              ]
+            : m.content,
+        })),
+      ],
       ...(responseFormat ? { response_format: responseFormat } : {}),
       temperature,
       ...(maxTokens === undefined ? {} : { [limitKey]: maxTokens }),

@@ -1,14 +1,4 @@
-/**
- * MREV D7 + D8 · Settings → AI → Judge model, in a real browser.
- *
- * The judge group sits at the end of the AI pane, fills from GET
- * /api/llm-config, shows a stored key only as present, and posts K1 `judge`
- * through the main Save only when a judge field changed. A Save with no
- * judge edit posts exactly what it posted before this group existed.
- *
- * Hermetic: the C1 fence answers everything; this spec adds one route for
- * 127.0.0.1:3847/api/llm-config after the fence (later routes win).
- */
+/** MREV JUDGEUX · setup, live model selection, saved status and error states. */
 /* global document */
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -21,16 +11,18 @@ import {
 
 let app = null;
 
-test.beforeAll(async () => {
-  app = await startHermeticApp();
-});
-
-test.afterAll(async () => {
-  if (app) await app.close();
-});
+test.beforeAll(async () => { app = await startHermeticApp(); });
+test.afterAll(async () => { if (app) await app.close(); });
 
 const WRITER = { provider: "gemini", alias: "", model: "gemini-3.8-flash", baseUrl: "", keyPresent: true, updatedAt: "2026-09-28T08:00:00.000Z" };
-const BROWSER_GEMINI = { resumeProvider: "gemini", resumeGeminiApiKey: "hermetic-gemini-key", resumeGeminiModel: "gemini-3.8-flash" };
+const CATALOG = {
+  models: [
+    { id: "grok-4.2", label: "Grok 4.2", created: 400 },
+    { id: "grok-4-mini", label: "Grok 4 mini", created: 500 },
+    { id: "grok-4.1", label: "Grok 4.1", created: 300 },
+  ],
+  recommended: "grok-4.2",
+};
 
 function shotsDir(testInfo) {
   const dir = process.env.JB_MREV_SHOTS_DIR || testInfo.outputPath("shots");
@@ -46,7 +38,7 @@ async function bootSignedIn(page, width) {
     const key = "command_center_config_overrides";
     const current = JSON.parse(globalThis.localStorage.getItem(key) || "{}");
     globalThis.localStorage.setItem(key, JSON.stringify({ ...current, ...patch }));
-  }, BROWSER_GEMINI);
+  }, { resumeProvider: "gemini", resumeGeminiApiKey: "hermetic-gemini-key", resumeGeminiModel: "gemini-3.8-flash" });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(`${app.baseUrl}/?jb-v2=1`, { waitUntil: "load" });
   await page.evaluate(async () => {
@@ -58,105 +50,102 @@ async function bootSignedIn(page, width) {
   return fence;
 }
 
-/** GET answers `state.pin`; POST records the body and answers in the GET shape. */
-async function routeLlmConfig(page, state) {
-  const posts = [];
+async function routeJudgeApis(page) {
+  const state = { pin: { ...WRITER, judge: null }, posts: [] };
   await page.route("http://127.0.0.1:3847/api/llm-config", async (route) => {
     const req = route.request();
     if (req.method() === "POST") {
       const body = JSON.parse(req.postData() || "{}");
-      posts.push(body);
+      state.posts.push(body);
       if ("judge" in body) {
         state.pin = {
           ...state.pin,
           judge: body.judge
-            ? { provider: body.judge.provider, model: body.judge.model, baseUrl: body.judge.baseUrl || "", keyPresent: Boolean(body.judge.apiKey) || Boolean(state.pin.judge && state.pin.judge.keyPresent) }
+            ? {
+              provider: body.judge.provider,
+              model: body.judge.model,
+              baseUrl: body.judge.baseUrl || "",
+              keyPresent: Boolean(body.judge.apiKey) || Boolean(state.pin.judge && state.pin.judge.keyPresent),
+            }
             : null,
         };
       }
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state.pin) });
   });
-  return posts;
+  await page.route("http://127.0.0.1:3847/api/llm-config/judge-models", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}");
+    if (body.apiKey === "fictional-bad-key") {
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "That key didn't work: check it on the xAI console." }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CATALOG) });
+  });
+  return state;
+}
+
+async function openSettings(page) {
+  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
+  await expect(page.locator("#settingsJudgeGroup")).toBeVisible();
+}
+
+async function captureGroup(page, dir, width, state) {
+  const group = page.locator("#settingsJudgeGroup");
+  await group.scrollIntoViewIfNeeded();
+  const box = await group.boundingBox();
+  expect(box, "the card has a visible box").not.toBeNull();
+  expect(box.x + box.width, `the card fits a ${width}px viewport`).toBeLessThanOrEqual(width + 1);
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(sideways, "the page has no sideways scroll").toBeLessThanOrEqual(0);
+  await group.screenshot({ path: `${dir}/settings-judge-${width}-${state}.png`, animations: "disabled" });
 }
 
 for (const width of [1440, 375]) {
-  test(`at ${width}px · the judge group shows its fields, the helper, and a stored key only as present`, async ({ page }, testInfo) => {
+  test(`U1–U5 · ${width}px empty, loaded, saved and key-error states`, async ({ page }, testInfo) => {
     const fence = await bootSignedIn(page, width);
-    await routeLlmConfig(page, {
-      pin: { ...WRITER, judge: { provider: "openai_compatible", model: "grok-judge-1", baseUrl: "https://api.x.ai/v1", keyPresent: true } },
-    });
-    await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
-    const group = page.locator("#settingsJudgeGroup");
-    await expect(group).toBeVisible();
-    await expect(group).toContainText("Judge model (optional)");
-    await expect(group).toContainText("A different model grades the writing. Leave empty to use your writing model.");
-    await expect(page.locator("#settingsJudgeProvider")).toHaveValue("openai_compatible");
-    await expect(page.locator("#settingsJudgeModel")).toHaveValue("grok-judge-1");
-    await expect(page.locator("#settingsJudgeBaseUrl")).toHaveValue("https://api.x.ai/v1");
-    await expect(page.locator("#settingsJudgeApiKey")).toHaveValue("");
-    await expect(page.locator("#settingsJudgeApiKey")).toHaveAttribute("type", "password");
-    await expect(page.locator("#settingsJudgeKeyState")).toHaveText(/A key is saved for the judge/);
-    await expect(page.getByLabel("Judge provider")).toBeVisible();
+    const state = await routeJudgeApis(page);
+    const dir = shotsDir(testInfo);
 
-    await group.scrollIntoViewIfNeeded();
-    const box = await group.boundingBox();
-    expect(box, "the judge group has a box").not.toBeNull();
-    expect(box.x + box.width, `the judge group fits a ${width}px viewport`).toBeLessThanOrEqual(width + 1);
-    const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(sideways, "no sideways scroll").toBeLessThanOrEqual(0);
-    await group.screenshot({ path: `${shotsDir(testInfo)}/mrev-settings-judge-${width}.png`, animations: "disabled" });
-    /* Settings' own live model lists (Gemini, local Ollama) are fenced and
-       predate this group; the judge group itself never calls its provider. */
-    expect(fence.unexpectedExternal.filter((u) => /x\.ai/.test(u))).toEqual([]);
+    await openSettings(page);
+    const group = page.locator("#settingsJudgeGroup");
+    await expect(group).toContainText("Recommended: xAI (Grok)");
+    await expect(group).toContainText("A different company's model grades your writing more honestly.");
+    await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("href", "https://console.x.ai/");
+    await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("target", "_blank");
+    await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("rel", "noopener");
+    await expect(page.locator("#settingsJudgeOtherProviders")).not.toHaveAttribute("open", "");
+    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Grading with your writing model: less independent");
+    await captureGroup(page, dir, width, "empty");
+
+    const key = page.locator("#settingsJudgeApiKey");
+    await key.fill("fictional-xai-key");
+    await key.blur();
+    const model = page.locator("#settingsJudgeXaiModel");
+    await expect(model.locator("option")).toHaveCount(3);
+    await expect(model).toHaveValue("grok-4.2");
+    await expect(group).toContainText("Model list loaded from xAI");
+    await captureGroup(page, dir, width, "models-loaded");
+
+    await page.locator("#settingsSaveBtn").click();
+    await expect(page.locator("#settingsModal")).toBeHidden();
+    expect(state.posts.at(-1)).toEqual({
+      provider: "gemini", model: "gemini-3.8-flash", baseUrl: "",
+      judge: { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key" },
+    });
+    await openSettings(page);
+    await expect(page.locator("#settingsJudgeKeyState")).toHaveText("Key saved");
+    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Grading with Grok (grok-4.2)");
+    await expect(key).toHaveValue("");
+    await captureGroup(page, dir, width, "saved");
+
+    await key.fill("fictional-bad-key");
+    await key.blur();
+    await expect(page.locator("#settingsJudgeError")).toHaveText("That key didn't work: check it on the xAI console.");
+    await expect(key).toHaveAttribute("aria-invalid", "true");
+    await captureGroup(page, dir, width, "key-error");
+    const modalHtml = await page.locator("#settingsModal").innerHTML();
+    expect(modalHtml).not.toContain("fictional-xai-key");
+    expect(modalHtml).not.toContain("fictional-bad-key");
+    expect(fence.unexpectedExternal.filter((url) => /x\.ai/.test(url))).toEqual([]);
   });
 }
-
-test("Save posts the judge only when a judge field changed, and keeps the writer's key", async ({ page }) => {
-  await bootSignedIn(page, 1440);
-  const state = { pin: { ...WRITER, judge: null } };
-  const posts = await routeLlmConfig(page, state);
-
-  /* A Save with no judge edit: the same one writer POST as before. */
-  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
-  await expect(page.locator("#settingsJudgeGroup")).toBeVisible();
-  await expect(page.locator("#settingsJudgeKeyState")).toHaveText(/No key saved for the judge/);
-  await page.locator("#settingsSaveBtn").click();
-  await expect(page.locator("#settingsModal")).toBeHidden();
-  expect(posts).toHaveLength(1);
-  expect("judge" in posts[0], "no judge in the writer's POST").toBe(false);
-  const writerPost = posts[0];
-
-  /* A judge edit: one more POST, the server's writer pin plus K1 judge. */
-  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
-  await page.locator("#settingsJudgeProvider").selectOption("openai_compatible");
-  await page.locator("#settingsJudgeModel").fill("grok-judge-1");
-  await page.locator("#settingsJudgeBaseUrl").fill("https://api.x.ai/v1");
-  await page.locator("#settingsJudgeApiKey").fill("xai-hermetic-key");
-  await page.locator("#settingsSaveBtn").click();
-  await expect(page.locator("#settingsModal")).toBeHidden();
-  expect(posts).toHaveLength(3);
-  expect(posts[1], "the writer's own POST is unchanged").toEqual(writerPost);
-  expect(posts[2]).toEqual({
-    provider: "gemini",
-    model: "gemini-3.8-flash",
-    baseUrl: "",
-    judge: { provider: "openai_compatible", model: "grok-judge-1", baseUrl: "https://api.x.ai/v1", apiKey: "xai-hermetic-key" },
-  });
-
-  /* Reopened, the key shows as present and never as its value. */
-  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
-  await expect(page.locator("#settingsJudgeKeyState")).toHaveText(/A key is saved for the judge/);
-  await expect(page.locator("#settingsJudgeApiKey")).toHaveValue("");
-  const html = await page.locator("#settingsModal").innerHTML();
-  expect(html).not.toContain("xai-hermetic-key");
-
-  /* Grok P1: choosing None alone posts judge: null (use the writing model)
-     and empties the other judge boxes. */
-  await page.locator("#settingsJudgeProvider").selectOption("");
-  await expect(page.locator("#settingsJudgeModel")).toHaveValue("");
-  await expect(page.locator("#settingsJudgeBaseUrl")).toHaveValue("");
-  await page.locator("#settingsSaveBtn").click();
-  await expect(page.locator("#settingsModal")).toBeHidden();
-  expect(posts.at(-1).judge).toBeNull();
-});

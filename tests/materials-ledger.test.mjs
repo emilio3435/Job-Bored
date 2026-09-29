@@ -16,6 +16,7 @@ import {
   writeLedgerAtomic,
 } from "../server/materials-ledger.mjs";
 import { buildLedger, ensureLedger, ledgerEmptyError } from "../server/materials-ledger-build.mjs";
+import { modelReplyFixture, modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -34,6 +35,8 @@ const RESUME_TEXT = [
   "EDUCATION",
   "B.S. Mathematics, Example State University",
 ].join("\n");
+const PIN = { provider: "gemini", model: "gemini-3.8-flash", resolvedModel: "gemini-3.8-flash", apiKey: "fictional-key" };
+const fetchImpl = async () => ({});
 
 function fixtureProfile() {
   const tpl = buildStarterTemplate(listStarterTemplateIds()[0]);
@@ -64,6 +67,7 @@ describe("materials ledger (slice 1)", () => {
     const ledger = buildLedger({
       profile: fixtureProfile(),
       resumeText: RESUME_TEXT,
+      structure: modelStructureFixture(RESUME_TEXT),
       resumeSource: "upload",
       nowIso: "2026-09-26T04:00:00.000Z",
     });
@@ -94,7 +98,7 @@ describe("materials ledger (slice 1)", () => {
 
   it("round-trips through read/write with a stable hash", async () => {
     sandbox();
-    const ledger = buildLedger({ profile: fixtureProfile(), resumeText: RESUME_TEXT });
+    const ledger = buildLedger({ profile: fixtureProfile(), resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) });
     const first = hashLedger(ledger);
     const { path } = await writeLedgerAtomic(ledger);
     assert.equal(path, resolveLedgerPath());
@@ -119,11 +123,24 @@ describe("materials ledger (slice 1)", () => {
   it("ensureLedger reuses a fresh ledger and rebuilds on input change", async () => {
     sandbox();
     const profile = fixtureProfile();
-    const first = await ensureLedger({ profile, resumeText: RESUME_TEXT });
-    const second = await ensureLedger({ profile, resumeText: RESUME_TEXT });
+    const first = await ensureLedger({
+      profile,
+      resumeText: RESUME_TEXT,
+      pin: PIN,
+      fetchImpl,
+      callStage: async () => modelReplyFixture(RESUME_TEXT),
+    });
+    const second = await ensureLedger({ profile, resumeText: RESUME_TEXT, pin: PIN, fetchImpl });
     assert.equal(second.ledgerHash, first.ledgerHash);
     assert.equal(second.rebuilt, false);
-    const third = await ensureLedger({ profile, resumeText: `${RESUME_TEXT}\nExtra line.` });
+    const changedResume = `${RESUME_TEXT}\nExtra line.`;
+    const third = await ensureLedger({
+      profile,
+      resumeText: changedResume,
+      pin: PIN,
+      fetchImpl,
+      callStage: async () => modelReplyFixture(changedResume),
+    });
     assert.equal(third.rebuilt, true);
     assert.notEqual(third.ledgerHash, first.ledgerHash);
   });
@@ -152,6 +169,20 @@ describe("materials ledger (slice 1)", () => {
     assert.equal(failed.ingest.code, "model_error");
     assert.equal(failed.ingest.sourceHash, `sha256:${createHash("sha256").update(`${source}\nChanged source.`).digest("hex")}`);
     assert.deepEqual(readFileSync(resolveLedgerPath()), saved);
+  });
+
+  it("rebuilds a profile-only ledger on profile changes without requiring resume interpretation", async () => {
+    sandbox();
+    const first = await ensureLedger({
+      profile: { strengths: [{ name: "Planning", rank: 1, evidence: "Built a fictional route planning workflow." }] },
+    });
+    const second = await ensureLedger({
+      profile: { strengths: [{ name: "Planning", rank: 1, evidence: "Built a fictional route planning workflow for four teams." }] },
+    });
+    assert.equal(second.rebuilt, true);
+    assert.equal(second.ingest.status, "not_required");
+    assert.match(second.claims[0].text, /four teams/);
+    assert.notEqual(second.ledgerHash, first.ledgerHash);
   });
 });
 

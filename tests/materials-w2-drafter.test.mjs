@@ -11,6 +11,7 @@ import { mkdtemp, rm, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter, stageProgressMessage } from "../server/materials-drafter.mjs";
+import { resumeDocumentXml, servedRenderModel } from "../server/materials-export.mjs";
 import { normalizeRequestBody } from "../server/materials-request.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
@@ -143,6 +144,13 @@ describe("materials W2 · drafter", () => {
     assert.equal(runs.length, 2, `two runs, got ${runs.join(", ")}`);
     const resumeQa = JSON.parse(await readFile(join(appDir, "qa.resume.json"), "utf8"));
     const letterQa = JSON.parse(await readFile(join(appDir, "qa.letter.json"), "utf8"));
+    const resumeRunDir = join(appDir, "runs", resumeQa.runId);
+    const resumeModel = JSON.parse(await readFile(join(resumeRunDir, "render-model.json"), "utf8"));
+    assert.match(
+      resumeDocumentXml(resumeModel),
+      /Built streaming ingestion for analytics events with Kafka and Postgres\./,
+      "Word rendering keeps the Example App claim",
+    );
     assert.notEqual(resumeQa.runId, letterQa.runId, "each document carries its own run's verdict");
     assert.match(resumeQa.disposition, /^(READY|REVIEW|FAIL)$/);
     assert.match(letterQa.disposition, /^(READY|REVIEW|FAIL)$/);
@@ -161,6 +169,25 @@ describe("materials W2 · drafter", () => {
     const pending = JSON.parse(await readFile(join(dir, "acme-data-platform-engineer", "pending.json"), "utf8"));
     assert.equal(pending.feature, "resume");
     assert.equal(pending.progress.phase, "failed");
+  });
+
+  it("should keep the streaming-ingestion claim in a dossier Word export", async () => {
+    const drafter = createMaterialsDrafter(deps(dir));
+    await drafter.enqueue(request({ then: "cover_letter" }));
+    await drafter.runUntilIdle();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await drafter.enqueue(request({ template: "dossier" }));
+    await drafter.runUntilIdle();
+    const appDir = join(dir, "acme-data-platform-engineer");
+    const model = await servedRenderModel("acme-data-platform-engineer", "resume", { root: dir });
+    const wordXml = resumeDocumentXml(model);
+    const wordText = [...wordXml.matchAll(/<w:t(?: [^>]*)?>([\s\S]*?)<\/w:t>/g)]
+      .map(([, text]) => text.replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"))
+      .join("");
+    const resumeText = await readFile(join(appDir, "resume.txt"), "utf8");
+    const bullets = resumeText.split("\n").filter((line) => /^- /.test(line));
+    assert.ok(bullets.some((line) => line.slice(2).includes("Built streaming ingestion for analytics events with Kafka and Postgres.")), "the text twin retains the supported claim");
+    for (const bullet of bullets) assert.ok(wordText.includes(bullet.slice(2)), "Word rendering keeps every text-twin bullet: " + bullet);
   });
 });
 

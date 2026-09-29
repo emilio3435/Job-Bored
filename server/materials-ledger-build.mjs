@@ -2,14 +2,12 @@
  * Materials v3 — build the claim ledger from the user's resume and profile
  * (plan slice 1, mechanism §5).
  *
- * Employers come from profile experiences plus the resume structure
- * (materials-resume-structure.mjs, or its model-structured twin when a pin
- * is available); claims from strength evidence plus every line written
- * under an employer, education and credential lines; metric tokens from
- * numerals; and a tool inventory split into user-asserted (owned) and
- * resume-mentioned (adjacent). Every string is verbatim user text with a
- * recorded source — nothing is inferred, so every claim ships
- * verified:true and selection can feature any of them.
+ * Employers come from profile experiences plus a previously interpreted
+ * resume structure. `ensureLedger` requires the quote-grounded model path for
+ * non-empty resumes; this pure builder never parses resume text. Claims come
+ * from profile strength evidence and model-attributed resume claims, with
+ * metric tokens and a tool inventory split into user-asserted (owned) and
+ * resume-mentioned (adjacent).
  *
  * Fails with `ledger_empty` when neither input yields a fact.
  */
@@ -21,7 +19,7 @@ import { createHash } from "node:crypto";
 import { userInfo } from "node:os";
 import { join, resolve as resolvePath, sep } from "node:path";
 import { hashLedger, readLedger, resolveLedgerPath, writeLedgerAtomic, LEDGER_CONTRACT } from "./materials-ledger.mjs";
-import { aliasesFor, parseResumeStructure, slugify } from "./materials-resume-structure.mjs";
+import { aliasesFor, slugify } from "./materials-resume-structure.mjs";
 import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
 import { desplitMetricTokens } from "./materials-resume-source.mjs";
 
@@ -59,7 +57,7 @@ const MAX_CLAIM_TEXT = 2000;
  * ledger from an older builder (no field = 1, the bullet-only parser that
  * produced 0-claim ledgers from unbulleted resumes) is rebuilt on the next
  * ensureLedger even when the resume and profile hashes still match.
- * 3: split figures re-joined ("$ 10 M +" → "$12M+") and product-name
+ * 3: split figures re-joined ("$ 10 M +" → "$10M+") and product-name
  * numerals ("Chirp 3 HD") no longer metric tokens. */
 /* 4: ambiguous tool names ("Go", "R", "Segment") no longer match plain
  * English ("go-to", "R&D"), so older ledgers with a false "Go" rebuild. */
@@ -72,9 +70,10 @@ const MAX_CLAIM_TEXT = 2000;
  * "Company, formerly Old Name" answers to both names. */
 /* 7: RECOGNITION headings are credentials, not loose claims; a
  * "— formerly X —" header segment is the employer's former name. */
-/* 9: model labels resolve only to parsed employers, roles, dates and claims;
- * rebuild ledgers that may contain a model-invented employer. */
-/* 10: quote-grounded model structure and current-source ingest status. */
+/* 8: model labels resolved only to parsed employers, roles, dates and claims;
+ * rebuild ledgers that may contain a model-invented employer.
+ * 10: the model owns document structure and quotes; no rules-structure path
+ * may fill gaps or replace a failed model pass. */
 export const LEDGER_BUILDER_VERSION = 10;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
@@ -348,10 +347,9 @@ function closestEmployerId(text, resumeClaims) {
 }
 
 /**
- * Build a claim ledger from profile JSON plus resume text. Pure and
- * synchronous: no LLM, no network, no disk. Pass `structure` to use a
- * model-structured resume (see ensureLedger); without it the resume text
- * goes through the deterministic parser.
+ * Build a claim ledger from profile JSON plus a previously interpreted
+ * resume structure. Pure and synchronous: no LLM, no network, no disk.
+ * Resume text alone is never parsed into employers or claims.
  * @param {object} input
  * @param {unknown} input.profile canonical UserProfile or null
  * @param {string} [input.resumeText] the user's resume, plain text
@@ -370,7 +368,16 @@ export function buildLedger({
 }) {
   const resume = String(resumeText || "").trim().slice(0, 60_000);
   const builtAt = nowIso || new Date().toISOString();
-  const structure = givenStructure || parseResumeStructure(resume);
+  if (resume && !givenStructure) {
+    const error = /** @type {Error & { code: string }} */ (
+      new Error("Resume text requires a quote-grounded model structure before ledger building.")
+    );
+    error.code = "resume_structure_required";
+    throw error;
+  }
+  const structure = givenStructure || /** @type {import("./materials-resume-structure.mjs").ResumeStructure} */ (
+    { source: "model", employers: [], education: [], credentials: [], looseClaims: [] }
+  );
   const { employers, keysById, byStructure } = collectEmployers(profile, structure);
 
   /** @type {Array<{ id: string, kind: "resume" | "profile", hash: string, ingestedAt: string }>} */
@@ -400,7 +407,7 @@ export function buildLedger({
    */
   const addResumeClaim = (id, employerId, kind, rawText, roleId) => {
     /* A figure split by a PDF text layer ("$ 10 M +") is re-joined, so the
-     * claim's metric token is the one a draft prints ("$12M+"). */
+     * claim's metric token is the one a draft prints ("$10M+"). */
     const text = desplitMetricTokens(clean(rawText));
     if (!text) return;
     if (resumeClaims.some((c) => claimSimilarity(c.text, text) >= DUPLICATE_JACCARD)) return;
@@ -500,7 +507,7 @@ export function buildLedger({
     ledgerHash: "sha256:0",
     builtAt,
     builderVersion: LEDGER_BUILDER_VERSION,
-    note: note || `structure:${structure.source}`,
+    note: note || (resume ? `structure:${structure.source}` : "profile:only"),
     sources,
     employers,
     claims,
@@ -547,18 +554,20 @@ export function assertLedgerPathIsolated(ledgerPath) {
  * Load the stored ledger, rebuilding it when the inputs moved. Returns
  * the ledger plus whether it was rebuilt.
  *
- * With a writer `pin` and `fetchImpl`, the resume is structured by one
- * model call. A failed current model interpretation retains the last ledger
- * byte for byte and reports a current-source ingest failure to the caller.
+ * A non-empty resume requires a grounded model structure. If that pass fails,
+ * the last successful fact ledger is retained byte for byte and the failure is surfaced in
+ * the returned `ingest` status. Resume text is never parsed as a
+ * fallback.
  * @param {object} input
  * @param {unknown} input.profile
  * @param {string} [input.resumeText]
  * @param {string} [input.resumeSource]
+ * @param {{ mimeType: string, filename?: string, data: string }} [input.document] original PDF, never persisted
  * @param {import("./materials-writer.mjs").WriterPin | null} [input.pin]
  * @param {Function} [input.fetchImpl]
  * @param {Function} [input.callStage] test seam for the model stage call
  */
-export async function ensureLedger({ profile, resumeText = "", resumeSource = "upload", pin = null, fetchImpl, callStage }) {
+export async function ensureLedger({ profile, resumeText = "", resumeSource = "upload", document, pin = null, fetchImpl, callStage }) {
   assertLedgerPathIsolated(resolveLedgerPath());
   const resume = String(resumeText || "").trim().slice(0, 60_000);
   const sourceHash = resume ? sha(resume) : "";
@@ -577,14 +586,44 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
       looseClaims: resumeClaims.filter((claim) => !claim.employerId && claim.kind !== "education" && claim.kind !== "credential").length,
     };
   };
-  /** @param {"ready" | "failed" | "not_required"} status @param {string} code @param {Record<string, unknown> | null} ledger @param {number} [rejectedClaims] */
-  const ingest = (status, code, ledger, rejectedClaims = 0) => ({ status, sourceHash, code, coverage: coverageFor(ledger, rejectedClaims) });
-  /** @param {string} code @param {number} [rejectedClaims] */
-  const failed = (code, rejectedClaims = 0) => ({
-    ...(stored.ok ? stored.ledger : {}),
-    rebuilt: false,
-    ingest: ingest("failed", code, null, rejectedClaims),
+  /** @param {"ready" | "failed" | "not_required"} status @param {string} [reason] @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {Record<string, unknown> | null} [ledger] @param {Array<{kind:string,reason:string}>} [notes] */
+  const ingest = (status, reason = "", rejected = [], ledger = null, notes = []) => ({
+    status,
+    sourceHash,
+    code: status === "failed" ? reason.match(/\(([a-z0-9_]+)\)/)?.[1] || "invalid_structure" : "",
+    reason,
+    rejected: [],
+    notes: notes.map(({ kind, reason: noteReason }) => ({ kind, reason: noteReason })),
+    coverage: coverageFor(ledger, rejected.filter((item) => item.kind === "claim").length),
   });
+  /** @param {string} reason @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {{persistNote?: boolean,notes?:Array<{kind:string,reason:string}>}} [options] */
+  const recordFailure = async (reason, rejected = [], { persistNote = true, notes = [] } = {}) => {
+    if (stored.ok) {
+      return { ...stored.ledger, note: `ingest:failed — ${reason}`, rebuilt: false, ingest: ingest("failed", reason, rejected, null, notes) };
+    }
+    try {
+      /* Existing profile facts remain usable while a first resume ingest is
+       * waiting for a model. The unstructured resume itself is not recorded
+       * as a successful source. */
+      const profileOnly = buildLedger({
+        profile,
+        resumeText: "",
+        resumeSource,
+        note: persistNote ? `ingest:failed — ${reason}` : "",
+      });
+      const { ledgerHash } = await writeLedgerAtomic(profileOnly);
+      return { ...profileOnly, ledgerHash, rebuilt: true, ingest: ingest("failed", reason, rejected, null, notes) };
+    } catch (error) {
+      if (isRecord(error) && error.code === "ledger_empty") {
+        const failure = /** @type {Error & { code: string, ingest: unknown }} */ (new Error(reason));
+        failure.code = "resume_ingest_failed";
+        failure.ingest = ingest("failed", reason, rejected, null, notes);
+        throw failure;
+      }
+      throw error;
+    }
+  };
+
   if (stored.ok) {
     const sources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
       Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []
@@ -598,41 +637,82 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
       (profileText ? profileSourceEntry?.hash === sha(profileText) : !profileSourceEntry) &&
       (!profileSourceEntry || profileText);
     const { note, builderVersion } = /** @type {{ note?: unknown, builderVersion?: unknown }} */ (stored.ledger);
-    const awaitsModel = canModel && note !== "structure:model";
+    const failedIngest = typeof note === "string" && note.startsWith("ingest:failed");
     const currentBuilder = (typeof builderVersion === "number" ? builderVersion : 1) === LEDGER_BUILDER_VERSION;
-    if (resumeFresh && profileFresh && currentBuilder && !awaitsModel) {
-      return { ...stored.ledger, rebuilt: false, ingest: ingest(resume ? "ready" : "not_required", "", stored.ledger) };
+    if (resumeFresh && profileFresh && currentBuilder && !failedIngest) {
+      return {
+        ...stored.ledger,
+        rebuilt: false,
+        ingest: ingest(note === "structure:model" ? "ready" : "not_required", "", [], stored.ledger),
+      };
     }
   }
+
+  if (resume && !canModel) {
+    return recordFailure("A configured model is required to interpret this resume.", [], { persistNote: false });
+  }
+
   /** @type {{ structure?: import("./materials-resume-structure.mjs").ResumeStructure, note?: string }} */
   let structured = {};
+  /** @type {{ status?: string, reason?: string, rejected?: Array<{kind:string,text:string,reason:string}>, notes?: Array<{kind:string,reason:string}> }} */
+  let modelIngest = ingest("not_required");
   if (canModel && pin && typeof fetchImpl === "function") {
-    const result = await structureResumeWithModel({ resumeText: resume, pin, fetchImpl, callStage });
+    const result = await structureResumeWithModel({
+      resumeText: resume,
+      document,
+      pin,
+      fetchImpl: /** @type {typeof globalThis.fetch} */ (fetchImpl),
+      ...(typeof callStage === "function"
+        ? { callStage: /** @type {(input: Record<string, unknown>) => Promise<unknown> | unknown} */ (callStage) }
+        : {}),
+    });
+    modelIngest = result.ingest;
     if (result.ingest.status !== "ready" || !result.structure) {
-      return failed(result.ingest.code || "invalid_structure", result.rejected.filter((entry) => entry.kind === "claim").length);
+      return recordFailure(result.ingest.reason || "The model did not return a grounded resume structure.", result.rejected, { notes: result.ingest.notes });
     }
     structured = { structure: result.structure, note: result.note };
+  } else if (
+    stored.ok &&
+    Array.isArray(stored.ledger.sources) &&
+    /** @type {Array<{ kind?: unknown }>} */ (stored.ledger.sources).some((source) => source.kind === "resume")
+  ) {
+    /* Do not replace model-grounded resume facts with an empty profile-only
+     * rebuild when the caller no longer has the source text. */
+    return recordFailure("Resume text is required to rebuild this ledger.");
   }
   let built;
   try {
     built = buildLedger({ profile, resumeText: resume, resumeSource, ...structured });
-  } catch (err) {
-    if (canModel && err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") return failed("model_empty");
-    throw err;
+  } catch (error) {
+    if (resume && isRecord(error) && error.code === "ledger_empty") {
+      return recordFailure("The model structure produced no usable ledger claims.", modelIngest.rejected, { notes: modelIngest.notes });
+    }
+    throw error;
   }
-  if (canModel && coverageFor(built).employersWithClaims === 0) return failed("unsupported_attribution");
+  if (canModel && coverageFor(built).employersWithClaims === 0) {
+    return recordFailure("The model returned no employer-attributed resume claims.", modelIngest.rejected, { notes: modelIngest.notes });
+  }
   if (canModel && stored.ok) {
-    const oldSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []);
-    const sameSource = oldSources.some((source) => source?.kind === "resume" && source.hash === sourceHash);
-    if (sameSource) {
-      const oldCoverage = coverageFor(stored.ledger);
-      const newCoverage = coverageFor(built);
-      const oldClaims = /** @type {Array<{ id?: unknown }>} */ (stored.ledger.claims);
-      const oldResumeClaims = oldClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
-      const newResumeClaims = built.claims.filter((claim) => claim.id.startsWith("resume-")).length;
-      if (newCoverage.totalEmployers < oldCoverage.totalEmployers || newResumeClaims < oldResumeClaims) return failed("model_sparse");
+    const oldSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
+      Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []
+    );
+    const sameResumeSource = oldSources.some((source) => source?.kind === "resume" && source.hash === sha(resume));
+    if (sameResumeSource) {
+      const previousEmployers = Array.isArray(stored.ledger.employers) ? stored.ledger.employers.length : 0;
+      const previousClaims = /** @type {Array<{id?: unknown}>} */ (
+        Array.isArray(stored.ledger.claims) ? stored.ledger.claims : []
+      );
+      const previousResumeClaims = previousClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
+      const rebuiltClaims = /** @type {Array<{id?: unknown}>} */ (built.claims);
+      const rebuiltResumeClaims = rebuiltClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
+      if (built.employers.length < previousEmployers) {
+        return recordFailure("The model returned fewer grounded employers than the saved ledger.", modelIngest.rejected, { notes: modelIngest.notes });
+      }
+      if (rebuiltResumeClaims < previousResumeClaims) {
+        return recordFailure("The model returned fewer grounded resume claims than the saved ledger.", modelIngest.rejected, { notes: modelIngest.notes });
+      }
     }
   }
   const { ledgerHash } = await writeLedgerAtomic(built);
-  return { ...built, ledgerHash, rebuilt: true, ingest: ingest(resume ? "ready" : "not_required", "", built) };
+  return { ...built, ledgerHash, rebuilt: true, ingest: ingest(modelIngest.status === "ready" ? "ready" : "not_required", modelIngest.reason, modelIngest.rejected, built, modelIngest.notes) };
 }

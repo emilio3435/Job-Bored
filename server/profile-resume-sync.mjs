@@ -29,7 +29,7 @@ import {
   readCanonicalResume,
 } from "./materials-resume-source.mjs";
 import { resolveProfilePath } from "./user-profile.mjs";
-import { buildResumeRead, readSavedResumeRead } from "./resume-read.mjs";
+import { readSavedResumeRead } from "./resume-read.mjs";
 
 /** Same cap every other resume reader uses. */
 export const MAX_RESUME_SYNC_CHARS = 60_000;
@@ -87,15 +87,15 @@ export async function writeCanonicalResume(text, options = {}) {
 
 /**
  * GET /profile/resume/read → { ok, read } for the "What JobBored read from
- * your resume" panel: the last AI read of the saved resume when it was made
- * from that exact text, otherwise a rules-only read of it (read.by is null).
- * read is null when no usable resume is saved. Never calls a model.
+ * your resume" panel: the last quote-grounded model read of the saved resume
+ * when it was made from that exact text. Missing or stale reads return null.
+ * Never calls a model.
  * @param {{ readSaved?: () => Promise<string>, readSavedRead?: typeof readSavedResumeRead }} [deps]
  */
 export async function currentResumeRead(deps = {}) {
   const text = await (deps.readSaved || readUsableSavedResume)();
   if (!text) return null;
-  return (await (deps.readSavedRead || readSavedResumeRead)(text)) || buildResumeRead(text);
+  return (await (deps.readSavedRead || readSavedResumeRead)(text)) || null;
 }
 
 /** @typedef {(path: string, handler: (req: import("express").Request, res: import("express").Response) => unknown) => unknown} RouteMount */

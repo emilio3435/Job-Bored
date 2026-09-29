@@ -24,6 +24,7 @@ import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
 import { judgeMaterials, splitSentences } from "./materials-judge.mjs";
 import { readLedger } from "./materials-ledger.mjs";
+import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { targetCompanyOf } from "./materials-monogram.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
@@ -231,6 +232,10 @@ async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, ru
  * @property {(company: string) => Promise<import("./materials-render.mjs").Logo | null>} [targetLogoLoader]
  *   The addressed company's mark; defaults to the offline cache
  *   (readTargetMark), so a regenerate never waits on the network
+ * @property {(input: Record<string, unknown>) => Promise<{ marks?: import("./materials-render-model-adapter.mjs").ResolvedMark[], targetMark?: import("./materials-render.mjs").Logo | null }>} [materialLogoResolver]
+ * @property {string} [logoHome]
+ * @property {boolean} [forceLogoRefresh]
+ * @property {(input: Record<string, any>) => Promise<any[]>} [resolveLogoAssets]
  * @property {() => Promise<unknown>} [profileIdentityLoader]
  *   The saved profile's `identity`. Its confirmed name, headline and
  *   contact ("Your details") replace the stored model's, so a package
@@ -367,14 +372,49 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     const resumePdfPath = join(stagingDir, "resume.pdf");
     const coverLetterPdfPath = join(stagingDir, "cover-letter.pdf");
     const started = Date.now();
+    let jdText = "";
+    try {
+      jdText = (await readFile(join(dir, "job-description.md"), "utf8")).replace(/<!--[\s\S]*?-->/g, "").trim();
+    } catch {
+      jdText = "";
+    }
+    const packageManifest = await readJson(join(sourceDir, "manifest.json")) || await readJson(join(dir, "manifest.json")) || {};
+    let logoLedger = null;
+    try {
+      const loadedLedger = await readLedger();
+      if (loadedLedger.ok) logoLedger = loadedLedger.ledger;
+    } catch {
+      logoLedger = null;
+    }
     /** @type {Awaited<ReturnType<typeof renderPackage>>} */
     let rendered;
     try {
       const company = targetCompanyOf(model);
-      const loadTarget = deps.targetLogoLoader || ((/** @type {string} */ name) => readTargetMark(name));
-      const targetMark = company ? await loadTarget(company).catch(() => null) : null;
-      const loadEmployers = deps.employerLogoLoader || ((/** @type {string[]} */ names) => loadEmployerMarks(names));
-      const employerMarks = source === "regenerate" ? await loadEmployers(employersWithoutMarks(model)).catch(() => []) : [];
+      let targetMark = null;
+      let employerMarks = [];
+      if (deps.materialLogoResolver || (!deps.targetLogoLoader && !deps.employerLogoLoader)) {
+        const resolve = deps.materialLogoResolver || resolveMaterialLogos;
+        const logos = await resolve({
+          model,
+          ledger: logoLedger,
+          sourceRefs: packageManifest.sourceRefs || packageManifest.source_refs,
+          company: String(packageManifest.company || company || ""),
+          companyDomain: packageManifest.company_domain || packageManifest.companyDomain,
+          jobUrl: packageManifest.job_url || packageManifest.jobUrl || packageManifest.url,
+          postingText: jdText,
+          home: deps.logoHome,
+          force: deps.forceLogoRefresh,
+          backgroundRemote: Boolean(deps.forceLogoRefresh),
+          resolveAssets: deps.resolveLogoAssets,
+        }).catch(() => null);
+        targetMark = logos?.targetMark || null;
+        employerMarks = Array.isArray(logos?.marks) ? logos.marks : [];
+      } else {
+        const loadTarget = deps.targetLogoLoader || ((/** @type {string} */ name) => readTargetMark(name));
+        targetMark = company ? await loadTarget(company).catch(() => null) : null;
+        const loadEmployers = deps.employerLogoLoader || ((/** @type {string[]} */ names) => loadEmployerMarks(names));
+        employerMarks = source === "regenerate" ? await loadEmployers(employersWithoutMarks(model)).catch(() => []) : [];
+      }
       rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath }, targetMark, employerMarks, header });
     } finally {
       await session.close();
@@ -384,12 +424,6 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     const renderMs = Date.now() - started;
 
     /* QA: the same deterministic checks a draft gets, no model involved. */
-    let jdText = "";
-    try {
-      jdText = (await readFile(join(dir, "job-description.md"), "utf8")).replace(/<!--[\s\S]*?-->/g, "").trim();
-    } catch {
-      jdText = "";
-    }
     const snapshot = await readResumeSnapshot(dir);
     const critic = deps.critic || ((/** @type {Record<string, unknown>} */ args) => critiqueMaterials(args));
     const card = await critic({

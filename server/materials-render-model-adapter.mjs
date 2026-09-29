@@ -367,24 +367,14 @@ function captionFor(runs, index) {
 
 /**
  * @param {ResolvedMark[]} marks
- * @param {{ employerId: string, org: string }} target
+ * @param {{ employerId?: string, org: string }} target
  * @returns {import("./materials-render.mjs").Logo | undefined}
  */
-export function matchMark(marks, { employerId, org }) {
-  const orgSlug = slugify(org);
-  /* The company's own name, without "(formerly …)" or "(domain)" asides. */
+export function matchMark(marks, { org }) {
+  /* Logo identity is the company's exact normalized name. IDs and prefixes
+     can point at a different employer/client and must not borrow its mark. */
   const orgKey = companyKey(org);
-  const mark = marks.find((m) => {
-    const labelSlug = slugify(m.label || "");
-    return (
-      (orgKey && (m.slug === orgKey || companyKey(m.label) === orgKey)) ||
-      m.slug === employerId ||
-      m.slug === orgSlug ||
-      (labelSlug && labelSlug === orgSlug) ||
-      (labelSlug.length >= 4 && (orgSlug.startsWith(`${labelSlug}-`) || orgSlug === labelSlug)) ||
-      (m.slug.length >= 4 && orgSlug.startsWith(`${m.slug}-`))
-    );
-  });
+  const mark = marks.find((m) => orgKey && (companyKey(m.label) === orgKey || m.slug === orgKey));
   if (!mark) return undefined;
   /** @type {import("./materials-render.mjs").Logo} */
   const logo = { src: mark.src, alt: mark.alt || `${org} logo`, shape: mark.shape };

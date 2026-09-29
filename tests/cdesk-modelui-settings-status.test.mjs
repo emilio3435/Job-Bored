@@ -20,6 +20,7 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
+const judgePickerJs = readFileSync(join(repoRoot, "judge-picker.js"), "utf8");
 
 const NOW = Date.parse("2026-09-27T12:00:00.000Z");
 
@@ -72,11 +73,19 @@ class FakeElement {
     child.parentNode = null;
     return child;
   }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parentNode = null;
+    this.children = [];
+    for (const child of children) this.appendChild(child);
+  }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
   }
   getAttribute(name) {
     return name in this.attributes ? this.attributes[name] : null;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
   }
   addEventListener(type, fn) {
     (this.listeners[type] ||= []).push(fn);
@@ -169,6 +178,7 @@ function loadSettings(opts = {}) {
     Date,
   };
   vm.createContext(ctx);
+  vm.runInContext(judgePickerJs, ctx, { filename: "judge-picker.js" });
   vm.runInContext(settingsModalJs, ctx, { filename: "settings-modal.js" });
   return { settings: window.JobBoredApp.settings, document, calls, consoleCalls, patches, toasts };
 }

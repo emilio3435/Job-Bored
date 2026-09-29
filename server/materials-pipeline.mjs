@@ -1,6 +1,6 @@
 /** One materials funnel: prepare, write, validate, render, judge, save. */
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildOutline, summarizeRenderedResumeSelection } from "./materials-outline.mjs";
 import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs";
@@ -18,6 +18,7 @@ import { formatProvenanceLine, runResumeBlock } from "./materials-resume-source.
 import { extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
+import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
 import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { buildQaRecord, repairInstructionsFromQa } from "./materials-qa.mjs";
@@ -167,6 +168,7 @@ function matchingSentenceIds(sentences, needle) {
 function draftFieldText(field, draft) {
   if (field === "statement") return draft.statement || "";
   if (field.startsWith("letter.")) return draft.letter?.[field.slice(7)] || "";
+  if (field.startsWith("earlier:")) return draft.earlier.find((/** @type {any} */ line) => `earlier:${line.claimId}` === field)?.text || "";
   if (field.startsWith("bullet:")) return draft.bullets.find((/** @type {any} */ bullet) => `bullet:${bullet.claimId}` === field)?.text || "";
   if (field.startsWith("bullets.")) return draft.bullets.find((/** @type {any} */ bullet) => `bullets.${bullet.claimId}` === field)?.text || "";
   return "";
@@ -187,7 +189,7 @@ function documentAdvisory(document, sentences, draft, delintResult, tagged, ledg
       if (fieldText) sentenceIds = sentences.filter((sentence) => comparableText(fieldText).includes(comparableText(sentence.text))).map((sentence) => sentence.id);
     }
     if (!sentenceIds.length && span.field === "letter") sentenceIds = sentences.map((sentence) => sentence.id);
-    if (sentenceIds.length) advisory.push({ id: `voice:${index + 1}`, kind: "voice", sentenceIds, detail: `${span.code}: ${span.text}` });
+    if (sentenceIds.length) advisory.push({ id: `voice:${index + 1}`, kind: "voice", sentenceIds, detail: `${span.code}: ${String(span.text || "").replace(/\s+/gu, " ").trim()}` });
   }
   for (const [index, issue] of tagged.issues.entries()) {
     if (fieldDocument(String(issue.field || "")) !== document) continue;
@@ -271,7 +273,7 @@ async function runPipelineBody(input, assertBase) {
   const {
     dir, payload, pin, fetchImpl, jdText, jdSource, gate, ledger, resumeText, profileIdentity,
     voice = [], now, runId = `run-${Date.now()}`, openSession = null,
-    readMarks = async () => [], readEmployerMarks = async () => [], readTargetMark = async () => null,
+    readMarks = async () => [],
     onStage = () => {}, executor = "local-inprocess", requirePdf = false,
     voiceProfile, intel, repair = null, services = {},
   } = input;
@@ -388,11 +390,6 @@ async function runPipelineBody(input, assertBase) {
     .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text }));
   const researchSources = research.map((fact) => ({ id: fact.id, text: fact.text, url: fact.url }));
   const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources };
-  const marks = [
-    ...(await readMarks()),
-    ...(await readEmployerMarks((ledger.employers || []).map((/** @type {any} */ employer) => String(employer?.name || "")).filter(Boolean)).catch(() => [])),
-  ];
-  const targetMark = payload.company ? await readTargetMark(String(payload.company)) : null;
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
@@ -438,9 +435,9 @@ async function runPipelineBody(input, assertBase) {
     const sourceRefs = {};
     /** @type {Array<any>} */
     const writerCalls = [];
-    /** @type {string[]} */
-    const writtenFeatures = [];
-    for (const document of documents) {
+  /** @type {string[]} */
+  const writtenFeatures = [];
+  for (const document of documents) {
       const feature = document === "letter" ? "cover_letter" : "resume";
       if (passIndex === 1 && !automaticIssues.has(document)) {
         drafts[feature] = previous.drafts[feature];
@@ -451,12 +448,40 @@ async function runPipelineBody(input, assertBase) {
       const issues = manualIssues.filter((issue) => issueBelongsToDocument(issue, document));
       const repairPrompt = passIndex === 1 ? automaticPrompts.get(document) : repair
         ? await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, sourceText: source }) : "";
-      const written = await withExecutor("write", () => (services.draftSlots || draftSlots)({
+      const draftWriter = services.draftSlots || draftSlots;
+      const writeInput = {
         outline, ledger, extract, feature, voice: voiceSamples, voiceProfile: profileVoice,
         echoBans: Array.isArray(extract.echoBans) ? extract.echoBans : [], letterWords: [...band],
         enrichment: payload.enrichment || null, jdText, pin, fetchImpl, intelFacts: research,
+        signal: input.signal,
         rankedClaimIds: shortlist.map((entry) => entry.claimId), repairPrompt,
-      }));
+      };
+      let written = await withExecutor("write", () => draftWriter(writeInput));
+      if (feature === "resume" && llmAvailable && !written.degraded && Array.isArray(written.missingEmployerIds)) {
+        const targetEmployerIds = [...new Set(written.missingEmployerIds.filter((/** @type {unknown} */ id) => typeof id === "string"))];
+        if (targetEmployerIds.length) {
+          const retry = await withExecutor("write", () => draftWriter({ ...writeInput, targetEmployerIds }));
+          const targetSet = new Set(targetEmployerIds);
+          const targetClaimIds = new Set((outline.featured || [])
+            .filter((group) => targetSet.has(group.employerId))
+            .flatMap((group) => Array.isArray(group.claimIds) ? group.claimIds : []));
+          const bulletsById = new Map((written.draft.bullets || []).map((/** @type {any} */ bullet) => [bullet.claimId, bullet]));
+          for (const bullet of retry.draft?.bullets || []) {
+            if (targetClaimIds.has(bullet.claimId)) bulletsById.set(bullet.claimId, bullet);
+          }
+          const orderedClaimIds = (outline.featured || []).flatMap((group) => Array.isArray(group.claimIds) ? group.claimIds : []);
+          written = {
+            ...written,
+            draft: { ...written.draft, bullets: orderedClaimIds.map((id) => bulletsById.get(id)).filter(Boolean) },
+            sourceRefs: [...(Array.isArray(written.sourceRefs) ? written.sourceRefs : []), ...(Array.isArray(retry.sourceRefs) ? retry.sourceRefs : [])],
+            missingEmployerIds: Array.isArray(retry.missingEmployerIds) ? retry.missingEmployerIds : [],
+            degraded: Boolean(written.degraded || retry.degraded),
+          };
+          if (retry.call) writerCalls.push(retry.call);
+          if (retry.rawReply) await writeRawReply(runDir, retry.rawReply);
+          if (retry.degraded) degraded.push("resume employer retry unavailable");
+        }
+      }
       drafts[feature] = written.draft;
       sourceRefs[feature] = Array.isArray(written.sourceRefs) ? written.sourceRefs : [];
       writtenFeatures.push(feature);
@@ -496,11 +521,34 @@ async function runPipelineBody(input, assertBase) {
     const validateStarted = Date.now();
     const tagged = tagDraftMetrics({ draft, ledger: groundingLedger, postingText: jdText });
     const delintResult = delint({
-      fields: { statement: draft.statement, ...Object.fromEntries(draft.bullets.map((/** @type {any} */ bullet) => [`bullet:${bullet.claimId}`, bullet.text])) },
+      fields: {
+        statement: draft.statement,
+        ...Object.fromEntries(draft.bullets.map((/** @type {any} */ bullet) => [`bullet:${bullet.claimId}`, bullet.text])),
+      },
+      voiceFields: {
+        ...Object.fromEntries(draft.earlier.map((/** @type {any} */ line) => [`earlier:${line.claimId}`, line.text])),
+        ...Object.fromEntries(Object.entries(draft.letter || {}).map(([beat, text]) => [`letter.${beat}`, String(text || "")])),
+      },
       letterText: Object.values(draft.letter).join(" "), jdText,
       echoBans: Array.isArray(extract.echoBans) ? extract.echoBans : [],
+      voiceReferences: [
+        ...voiceSamples,
+        ...(Array.isArray(profileVoice?.examples) ? profileVoice.examples.flatMap((/** @type {any} */ example) => [example.generic, example.better]) : []),
+        ...(Array.isArray(profileVoice?.hookPatterns) ? profileVoice.hookPatterns : []),
+        ...(Array.isArray(profileVoice?.signatureLines) ? profileVoice.signatureLines : []),
+        ...(typeof profileVoice?.guideText === "string" ? profileVoice.guideText.split(/\r?\n/) : []),
+      ].filter((line) => typeof line === "string" && line.trim()),
       letter: documents.includes("letter") ? draft.letter : null, company: roleCompany, pack,
     });
+    const materialLogos = await (services.resolveMaterialLogos || resolveMaterialLogos)({
+      ledger, sourceRefs, draft, company: payload.company || roleCompany,
+      companyDomain: payload.companyDomain, jobUrl: payload.jobUrl, postingText: jdText,
+      home: services.logoHome, resolveAssets: services.resolveLogoAssets,
+      force: Boolean(services.refreshLogos),
+    });
+    const previousMarks = await readMarks().catch(() => []);
+    const marks = [...(materialLogos.marks || []), ...previousMarks];
+    const targetMark = materialLogos.targetMark || null;
     const model = buildRenderModelFromDraft({
       draft, outline, ledger, links: profileVoice?.links || [], resumeText, profile: profileIdentity,
       request: { company: payload.company, title: payload.title }, family, roleHeadline, marks, nowIso: isoNow(),
@@ -532,7 +580,8 @@ async function runPipelineBody(input, assertBase) {
       texts[document] = finalText;
       hashes[document] = hash;
       const sentences = deps.splitSentences(finalText, document);
-      const gates = [...await deps.runHardGates({ document, finalText, draft, ledger: groundingLedger, posting: jdText })];
+      const feature = document === "letter" ? "cover_letter" : "resume";
+      const gates = [...await deps.runHardGates({ document, finalText, draft, ledger: groundingLedger, posting: jdText, sourceRefs: sourceRefs[feature] || [] })];
       for (const issue of rendered.issues) {
         const isLetter = /^cover letter/i.test(issue.message || "") || String(issue.code).startsWith("cover_letter");
         if ((document === "letter") === isLetter) gates.push({ id: issue.code, kind: issue.severity === "fail" ? "hard" : "advisory", pass: false, reason: issue.message, sentenceIds: [] });
@@ -701,6 +750,13 @@ async function runPipelineBody(input, assertBase) {
       } else {
         await copyFile(join(runDir, name), join(dir, name));
       }
+    }
+    const renderedPdfs = new Set([
+      ...(documents.includes("resume") && chosen.rendered.pdf.resume ? ["resume.pdf"] : []),
+      ...(documents.includes("letter") && chosen.rendered.pdf.coverLetter ? ["cover-letter.pdf"] : []),
+    ]);
+    for (const name of ["resume.pdf", "cover-letter.pdf"]) {
+      if (!renderedPdfs.has(name)) await rm(join(dir, name), { force: true });
     }
   }
   return {

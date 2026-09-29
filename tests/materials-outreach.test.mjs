@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 import { buildIntelPack } from "../server/materials-intel.mjs";
 import { normalizeRequestBody } from "../server/materials-request.mjs";
 import {
@@ -51,10 +52,10 @@ const VOICE_MD = [
 const NOTE = {
   greeting: "Hi Jane,",
   contactName: "Jane",
-  linkedin: "Hi Jane, I grew Austin to a top-4 national ranking on a $12M+ book and built an SEM forecast tool on Gemini. Saw Acme Analytics is hiring a Data Platform Engineer. Worth a 15-minute call?",
+  linkedin: "Hi Jane, I grew Austin to a top-3 national ranking on a $10M+ book and built an SEM forecast tool on Gemini. Saw Acme Analytics is hiring a Data Platform Engineer. Worth a 15-minute call?",
   email: {
     subject: "Pipeline math for Acme Analytics",
-    body: "Hi Jane,\n\nI grew Austin to a top-4 national ranking on a $12M+ book, and I built streaming ingestion for analytics events with Kafka and Postgres. I'd bring both to the Data Platform Engineer seat at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan",
+    body: "Hi Jane,\n\nI grew Austin to a top-3 national ranking on a $10M+ book, and I built streaming ingestion for analytics events with Kafka and Postgres. I'd bring both to the Data Platform Engineer seat at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan",
   },
 };
 
@@ -159,8 +160,8 @@ describe("outreach · greeting, rules and QA", () => {
       company: "Acme Analytics",
       title: "Data Platform Engineer",
       contact: "",
-      letter: { hook: "I grew Austin to a top-4 national ranking.", ask: "Worth a call?" },
-      claims: [{ id: "c1", text: "Grew Austin to a top-4 national ranking on a $12M+ book." }],
+      letter: { hook: "I grew Austin to a top-3 national ranking.", ask: "Worth a call?" },
+      claims: [{ id: "c1", text: "Grew Austin to a top-3 national ranking on a $10M+ book." }],
       voiceProfile: null,
       pin: PIN,
       fetchImpl,
@@ -190,11 +191,11 @@ const RESUME_TEXT = [
   "Jordan Rivera",
   "Austin, TX · jordan.rivera@example.com · 555-010-2030",
   "Northwind — Digital Sales Manager, 2021–2026",
-  "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
-  "- Drove 125% YoY paid-search conversion growth on a flagship account.",
+  "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
+  "- Drove 130% YoY paid-search conversion growth on a flagship account.",
   "- Led the market to a 60% digital revenue mix with clear weekly readouts.",
   "Example App — Founder, 2024–present",
-  "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
+  "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
   "- Built streaming ingestion for analytics events with Kafka and Postgres.",
 ].join("\n");
 
@@ -206,7 +207,7 @@ const PROFILE = {
     primaryNarrative: "Performance marketer and AI product builder who ships measurable growth.",
     fullName: "Jordan Rivera",
   },
-  strengths: [{ name: "Growth", rank: 1, evidence: "Grew Austin to a top-4 national ranking on a $12M+ book.", keywords: ["Google Ads"] }],
+  strengths: [{ name: "Growth", rank: 1, evidence: "Grew Austin to a top-3 national ranking on a $10M+ book.", keywords: ["Google Ads"] }],
   experiences: [{ slug: "northwind", company: "Northwind", title: "Digital Sales Manager" }],
   hardConstraints: { workMode: "any" },
 };
@@ -240,10 +241,10 @@ const INTEL_NEWS = {
 const INTEL_COMPANY = { text: '```json\n{"domain":"acmeanalytics.com","products":[]}\n```', sources: [{ uri: "https://acmeanalytics.com/about", title: "acmeanalytics.com" }], supports: [] };
 
 const LETTER = {
-  hook: "I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
+  hook: "I grew Austin to a top-3 national ranking on a $10M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
   companyInsight: "In August 2026 Acme Analytics launched Spend Graph for retail media measurement.",
-  proof1: "At Northwind I drove 125% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
-  proof2: "I also shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
+  proof1: "At Northwind I drove 130% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
+  proof2: "I also shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
   ask: "I want to own the spend reporting at Acme Analytics next. Could we compare one live account plan?",
 };
 
@@ -271,12 +272,33 @@ function stageFetch() {
     } else if (/outreach note/.test(system)) {
       calls.push("outreach");
       content = JSON.stringify({
-        linkedin: "Hi Jane, I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. Saw Acme Analytics is hiring a Growth Marketing Lead. Worth a 15-minute call?",
-        email: { subject: "Paid acquisition at Acme Analytics", body: "Hi Jane,\n\nI grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. I want to run paid acquisition at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan" },
+        linkedin: "Hi Jane, I grew Austin to a top-3 national ranking on a $10M+ book with Google Ads. Saw Acme Analytics is hiring a Growth Marketing Lead. Worth a 15-minute call?",
+        email: { subject: "Paid acquisition at Acme Analytics", body: "Hi Jane,\n\nI grew Austin to a top-3 national ranking on a $10M+ book with Google Ads. I want to run paid acquisition at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan" },
       });
     } else if (system.startsWith("Goal: Write truthful")) {
       calls.push("write");
-      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: [], earlier: [], letter: LETTER });
+      const writerClaims = [...user.matchAll(/^- ([a-zA-Z0-9_-]+): (.+)$/gm)].map((match) => {
+        let text = match[2];
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed === "string") text = parsed;
+        } catch {
+          /* Keep older raw-text prompt rows readable in this stub. */
+        }
+        return { claimId: match[1], text };
+      });
+      const claimIdMatching = (predicate) => writerClaims.find((claim) => predicate(claim.text))?.claimId;
+      const northwindRank = claimIdMatching((text) => text.includes("top-3") && text.includes("$10M+"));
+      const northwindGrowth = claimIdMatching((text) => text.includes("130%"));
+      const northwindMix = claimIdMatching((text) => text.includes("60%"));
+      const forecast = claimIdMatching((text) => text.includes("21+") && text.includes("$2.4M"));
+      const streaming = claimIdMatching((text) => text.includes("Kafka") && text.includes("Postgres"));
+      const refs = [
+        { sentence: LETTER.hook, claimIds: northwindRank ? [northwindRank] : [] },
+        { sentence: LETTER.proof1, claimIds: [northwindGrowth, northwindMix].filter(Boolean) },
+        { sentence: LETTER.proof2, claimIds: [forecast, streaming].filter(Boolean) },
+      ];
+      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: [], earlier: [], letter: LETTER, sourceRefs: refs });
     } else {
       calls.push("extract");
       content = JSON.stringify({
@@ -329,7 +351,7 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
       jdText: JD_TEXT,
       jdSource: "paste",
       gate: { verdict: "usable", confidence: 0.9, signals: {} },
-      ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT }),
+      ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) }),
       resumeText: RESUME_TEXT,
       profileIdentity: PROFILE.identity,
       voiceProfile: VOICE,
@@ -365,12 +387,13 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
 
     const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(validateRunRecord(run).ok, true, JSON.stringify(validateRunRecord(run).errors));
+    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
     const stageNames = run.stages.map((s) => s.stage);
-    assert.deepEqual(stageNames.filter((stage) => stage !== "outreach"), ["prepare", "write", "validate", "render", "judge", "save"]);
+    assert.deepEqual(stageNames.filter((stage) => stage !== "outreach"), ["prepare", "write", "validate", "render", "judge", "save"],
+      JSON.stringify({ disposition: qa.disposition, failedGates: qa.gates.filter((gate) => gate.kind === "hard" && !gate.pass) }));
     assert.ok(stageNames.includes("outreach"));
     assert.match(run.stages.find((s) => s.stage === "prepare").detail, /intel cache hit/);
 
-    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
     assert.equal(qa.judge.status, "ok", JSON.stringify(qa.judge));
     assert.ok(qa.sentences.some((sentence) => sentence.citations.some((citation) => citation.sourceId === "intel-1")), "the judge cites cached research");
 

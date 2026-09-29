@@ -13,6 +13,7 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   lstat,
   mkdir,
+  open,
   readdir,
   realpath,
   readFile,
@@ -38,6 +39,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_ASSET_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 45_000;
 
 /** @typedef {{ slug: string, label: string, domain?: string, upload?: string, shape?: LogoShape }} LogoEntry */
@@ -254,6 +256,18 @@ async function readManifest(templateRoot = getBrandLogosTemplateRoot()) {
     : { logos: [] };
 }
 
+/** @param {string} manifestPath @returns {Promise<LogoManifest>} */
+async function readManifestAtPath(manifestPath) {
+  try {
+    const parsed = JSON.parse(await readFile(manifestPath, "utf8"));
+    return parsed && typeof parsed === "object" && Array.isArray(parsed.logos)
+      ? parsed
+      : { logos: [] };
+  } catch {
+    return { logos: [] };
+  }
+}
+
 /**
  * @param {string} path
  * @param {unknown} value
@@ -324,7 +338,7 @@ async function resolveWithoutPython(root, manifest, { force, reason }) {
     const uploadPath = entry.upload
       ? await safeTemplatePath(root, String(entry.upload))
       : "";
-    const upload = uploadPath && existsSync(uploadPath) ? await readFile(uploadPath) : null;
+    const upload = uploadPath && existsSync(uploadPath) ? await readBoundedFile(uploadPath, MAX_UPLOAD_BYTES) : null;
     if (upload && looksLikeImage(upload)) {
       const assetPath = await safeTemplatePath(root, join("assets", `logo-${slug}.png`), {
         ensureParent: true,
@@ -339,18 +353,21 @@ async function resolveWithoutPython(root, manifest, { force, reason }) {
 }
 
 /**
- * @param {{ force?: boolean, templateRoot?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean }} [options]
+ * @param {{ force?: boolean, templateRoot?: string, manifestPath?: string, timeoutMs?: number, pythonExecutable?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean }} [options]
  * @returns {Promise<ResolverRow[]>}
  */
 export async function runResolver({
   force = false,
   templateRoot,
+  manifestPath,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  pythonExecutable = "python3",
   env,
   platform,
   probeDeveloperTools,
 } = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
-  const manifest = await readManifest(root);
+  const manifest = manifestPath ? await readManifestAtPath(manifestPath) : await readManifest(root);
   if (!manifest.logos.length) return [];
 
   const gate = logoResolverGate({ env, platform, probeDeveloperTools });
@@ -369,8 +386,9 @@ export async function runResolver({
     throw unavailable;
   }
   const args = [script, "--template-dir", root];
+  if (manifestPath) args.push("--manifest", manifestPath);
   if (force) args.push("--force");
-  return spawnResolver(args, DEFAULT_TIMEOUT_MS);
+  return spawnResolver(args, timeoutMs, pythonExecutable);
 }
 
 /**
@@ -379,12 +397,12 @@ export async function runResolver({
  * @param {number} timeoutMs
  * @returns {Promise<ResolverRow[]>}
  */
-function spawnResolver(args, timeoutMs) {
+function spawnResolver(args, timeoutMs, pythonExecutable = "python3") {
   return new Promise((resolveFn, rejectFn) => {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const child = spawn("python3", args, {
+    const child = spawn(pythonExecutable, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
@@ -424,12 +442,50 @@ function isSvg(buffer) {
   return /^<svg[\s>]/i.test(body);
 }
 
+/** @param {Buffer} buffer */
+function isSafeSvg(buffer) {
+  if (!isSvg(buffer) || buffer.length > MAX_ASSET_BYTES || buffer.includes(0)) return false;
+  const source = buffer.toString("utf8");
+  if (/<!doctype|<!entity|<\?xml-stylesheet|\son[a-z0-9:_-]+\s*=|\b(?:style|src|xml:base)\s*=/i.test(source)) return false;
+  const allowedTags = new Set([
+    "svg", "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect",
+    "text", "tspan", "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask",
+  ]);
+  const tags = [...source.matchAll(/<\/?\s*([a-z][\w:-]*)\b[^>]*>/gi)];
+  if (!tags.length || tags[0][1].toLowerCase() !== "svg" || tags.some((tag) => !allowedTags.has(tag[1].toLowerCase()))) return false;
+  if (source.replace(/<!--(?:.|\n|\r)*?-->|<\?xml[^>]*\?>|<\/?\s*[a-z][\w:-]*\b[^>]*>/gi, "").includes("<")) return false;
+  const hrefs = [...source.matchAll(/\b(?:xlink:)?href\s*=\s*(["'])(.*?)\1/gi)];
+  if (/\b(?:xlink:)?href\s*=\s*[^"'\s>]/i.test(source)) return false;
+  if (hrefs.some((match) => match[2].trim() && !match[2].trim().startsWith("#"))) return false;
+  if (/url\(\s*(["']?)(?!#)/i.test(source)) return false;
+  if (/\bjavascript:/i.test(source)) return false;
+  const namespaces = [...source.matchAll(/\b(xmlns(?::[\w-]+)?)\s*=\s*(["'])(.*?)\2/gi)];
+  return namespaces.every((match) =>
+    (match[1].toLowerCase() === "xmlns" && match[3] === "http://www.w3.org/2000/svg") ||
+    (match[1].toLowerCase() === "xmlns:xlink" && match[3] === "http://www.w3.org/1999/xlink"));
+}
+
+/** @param {string} path @param {number} [maxBytes] */
+async function readBoundedFile(path, maxBytes = MAX_ASSET_BYTES) {
+  let file;
+  try {
+    file = await open(path, "r");
+    const buffer = Buffer.alloc(maxBytes + 1);
+    const { bytesRead } = await file.read(buffer, 0, maxBytes + 1, 0);
+    return bytesRead > maxBytes ? null : buffer.subarray(0, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    await file?.close().catch(() => {});
+  }
+}
+
 /** @param {Buffer | Uint8Array | string | number[] | null | undefined} data */
 export function looksLikeImage(data) {
   const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data || []);
   if (buffer.length < 16) return false;
   if (buffer.subarray(8, 12).equals(Buffer.from("WEBP"))) return true;
-  if (isSvg(buffer)) return true;
+  if (isSvg(buffer)) return isSafeSvg(buffer);
   return IMAGE_MAGIC.some((magic) => buffer.subarray(0, magic.length).equals(magic));
 }
 
@@ -524,8 +580,8 @@ export async function readResolvedMarks({ templateRoot } = {}) {
     if (!isValidSlug(slug)) continue;
     const assetPath = join(root, "assets", `logo-${slug}.png`);
     if (!existsSync(assetPath)) continue;
-    const data = await readFile(assetPath);
-    if (!looksLikeImage(data)) continue;
+    const data = await readBoundedFile(assetPath);
+    if (!data || !looksLikeImage(data)) continue;
     const label = String(entry.label || slug);
     /** @type {{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape, source?: "upload" }} */
     const mark = {
@@ -645,8 +701,8 @@ export async function readTargetMark(company, { templateRoot } = {}) {
   const root = templateRoot || getBrandLogosTemplateRoot();
   const assetPath = join(root, TARGET_DIR, "assets", `logo-${slug}.png`);
   if (!existsSync(assetPath)) return null;
-  const data = await readFile(assetPath);
-  if (!looksLikeImage(data)) return null;
+  const data = await readBoundedFile(assetPath);
+  if (!data || !looksLikeImage(data)) return null;
   return {
     src: `data:${imageMime(data)};base64,${data.toString("base64")}`,
     alt: `${String(company).trim()} logo`,
@@ -815,7 +871,7 @@ function normalizeLogoUpload(value, slug) {
     return `uploads/logo-${slug}.png`;
   }
   if (typeof value === "string") {
-    const filename = basename(value.trim());
+    const filename = basename(value.trim().replace(/\\/g, "/"));
     return filename ? join("uploads", filename) : "";
   }
   return "";
@@ -871,7 +927,7 @@ export function buildLogoManifestFromProfile(profile, priorManifest = null) {
     const prior = priorBySlug.get(slug) || null;
     const upload =
       normalizeLogoUpload(record.logoUpload, slug) ||
-      (prior && typeof prior.upload === "string" ? prior.upload : "");
+      normalizeLogoUpload(prior?.upload, slug);
     if (upload) entry.upload = upload;
     const declaredShape = record.logoShape || (prior && prior.shape);
     if (declaredShape === "mark" || declaredShape === "wordmark" || declaredShape === "lockup") {
@@ -897,6 +953,59 @@ export async function writeLogoManifestFromProfile(profile, { templateRoot } = {
   const manifest = buildLogoManifestFromProfile(profile, priorManifest);
   await writeJsonAtomic(await safeTemplatePath(root, "logos.json", { ensureParent: true }), manifest);
   return { templateRoot: root, manifest };
+}
+
+/**
+ * @param {unknown[]} orgs
+ * @param {LogoManifest | null} [priorManifest]
+ * @returns {LogoManifest}
+ */
+export function buildLogoManifestFromOrganizations(orgs, priorManifest = null) {
+  /** @type {Map<string, LogoEntry>} */
+  const priorBySlug = new Map();
+  if (priorManifest && Array.isArray(priorManifest.logos)) {
+    for (const entry of priorManifest.logos) {
+      if (entry && isValidSlug(entry.slug)) priorBySlug.set(entry.slug, entry);
+    }
+  }
+  /** @type {LogoEntry[]} */
+  const logos = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(orgs) ? orgs : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const record = /** @type {Record<string, unknown>} */ (raw);
+    const label = String(record.name || record.label || "").trim();
+    const slug = isValidSlug(record.slug) ? String(record.slug) : slugify(label);
+    if (!slug || !isValidSlug(slug) || seen.has(slug)) continue;
+    seen.add(slug);
+    /** @type {LogoEntry} */
+    const entry = { slug, label: label || slug };
+    const domain = normalizeDomain(record.domain) || companyDomainHint(label);
+    if (domain) entry.domain = domain;
+    const prior = priorBySlug.get(slug) || null;
+    const upload = normalizeLogoUpload(record.upload ?? record.logoUpload, slug) ||
+      normalizeLogoUpload(prior?.upload, slug);
+    if (upload) entry.upload = upload;
+    const shape = record.shape || record.logoShape || (prior && prior.shape);
+    if (shape === "mark" || shape === "wordmark" || shape === "lockup") entry.shape = shape;
+    logos.push(entry);
+  }
+  return {
+    $comment: "Generated from the current materials ledger organizations; resolved assets live beside this registry.",
+    logos,
+  };
+}
+
+/**
+ * @param {unknown[]} orgs
+ * @param {{ templateRoot?: string }} [options]
+ */
+export async function writeLogoManifestFromOrganizations(orgs, { templateRoot } = {}) {
+  const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
+  const priorManifest = await readManifest(root);
+  const manifest = buildLogoManifestFromOrganizations(orgs, priorManifest);
+  await writeJsonAtomic(await safeTemplatePath(root, "logos.json", { ensureParent: true }), manifest);
+  return { templateRoot: root, manifest, priorManifest };
 }
 
 /**
@@ -970,7 +1079,19 @@ export async function listLogos({ templateRoot } = {}) {
     /** @type {LogoShape} */
     let shape = logoShape(Buffer.alloc(0), entry.shape);
     if (existsSync(assetPath)) {
-      const data = await readFile(assetPath);
+      const data = await readBoundedFile(assetPath);
+      if (!data || !looksLikeImage(data)) {
+        logos.push({
+          slug,
+          label: String(entry.label || slug),
+          domain: entry.domain ? String(entry.domain) : "",
+          upload: entry.upload ? String(entry.upload) : "",
+          source: "missing",
+          shape,
+          mark: null,
+        });
+        continue;
+      }
       shape = logoShape(data, entry.shape);
       mark = {
         path: `assets/logo-${slug}.png`,

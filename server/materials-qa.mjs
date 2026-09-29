@@ -71,7 +71,8 @@ export function buildQaRecord({ document, runId, finalText, textHash, gates = []
       const sentence = judgedSentences.get(id);
       return unsupported.has(id) && sentence?.citations?.length;
     });
-    addIssue(item.kind, citedUnsupported ? "hard" : item.action === "none" ? "note" : "review", item.sentenceIds, item.reason, item.action, "judge");
+    const severity = citedUnsupported ? "hard" : item.kind === "scope" || item.action === "none" ? "note" : "review";
+    addIssue(item.kind, severity, item.sentenceIds, item.reason, item.action, "judge");
   }
   for (const sentence of sentences.filter((item) => item.status === "unsupported")) {
     if (issues.some((issue) => issue.severity === "hard" && issue.sentenceIds.includes(sentence.id))) continue;

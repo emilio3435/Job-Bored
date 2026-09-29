@@ -1,60 +1,16 @@
 /**
- * A scripted stub for resume structure and the three pipeline model calls
- * (extract → select → draft). In-process drafter tests share it so each draft
- * behaves the same way.
+ * A scripted stub for the pipeline's three narrow model calls (extract →
+ * select → draft). In-process tests for the drafter, FIFO, resume-required
+ * and letter-budget suites share it so each draft behaves the same way.
  */
 
 import { EXAMPLE_RESUME_SOURCE } from "./materials-example-writer.mjs";
-import { parseHeaderLine, parseResumeStructure } from "../../server/materials-resume-structure.mjs";
+import { modelReplyFixture } from "./materials-model-structure.mjs";
+import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../../server/materials-resume-structure-model.mjs";
 
 export { EXAMPLE_RESUME_SOURCE };
 
 const SPELLED = ["one", "two", "three", "four", "five", "six", "seven", "eight"];
-
-/**
- * Return a source-quoted model reply for the resume supplied to the pipeline.
- * The parser is used only to shape this fictional in-process fixture; every
- * fact returned below is copied from the request's resume text.
- * @param {string} userText
- */
-function quotedResumeStructure(userText) {
-  const source = String(userText).split("<untrusted-resume>\n")[1]?.split("\n</untrusted-resume>")[0] || "";
-  const lines = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const parsed = parseResumeStructure(source);
-  const employerLine = (name) => lines.find((line) => parseHeaderLine(line)?.name === name)
-    || lines.find((line) => line.startsWith(name))
-    || lines.find((line) => line.includes(name))
-    || name;
-  return {
-    employers: parsed.employers.map((employer) => {
-      const header = employerLine(employer.name);
-      const headerAt = lines.indexOf(header);
-      return {
-        name: employer.name,
-        sourceQuote: header,
-        start: null,
-        startSourceQuote: null,
-        end: null,
-        endSourceQuote: null,
-        roles: employer.roles.map((role, roleIndex) => ({
-          title: role.title,
-          sourceQuote: lines.slice(Math.max(0, headerAt)).find((line) => parseHeaderLine(line)?.title === role.title) || header,
-          start: null,
-          end: null,
-          claims: employer.claims
-            .filter((claim) => claim.roleIndex === roleIndex)
-            .map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
-        })),
-        claims: employer.claims
-          .filter((claim) => claim.roleIndex === null)
-          .map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
-      };
-    }),
-    looseClaims: parsed.looseClaims.map((text) => ({ text, sourceQuote: text })),
-    education: parsed.education.map((text) => ({ text, sourceQuote: text })),
-    credentials: parsed.credentials.map((text) => ({ text, sourceQuote: text })),
-  };
-}
 
 /**
  * @param {{ gate?: Promise<unknown>, gateAt?: number }} [extra]
@@ -88,21 +44,19 @@ export function scriptedPipelineFetch(extra = {}) {
         ? (body.messages || []).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")
         : (body.messages && body.messages[1] && body.messages[1].content) || "";
     calls.push({ system: String(system), user: String(user) });
-    if (extra.gate && calls.length === (extra.gateAt || 1)) await extra.gate;
+    const pipelineCallCount = calls.filter((call) => call.system !== RESUME_STRUCTURE_SYSTEM_PROMPT).length;
+    if (extra.gate && pipelineCallCount === (extra.gateAt || 1)) await extra.gate;
     let content;
     /* The letter support check (voice v5) answers by prompt, not by call
      * index: every sentence supported. */
     const supportCall = String(system).startsWith("You check a cover letter's facts");
-    const structureCall = String(system).startsWith("Interpret the resume source itself");
-    const stageIndex = calls.filter((c) =>
-      !c.system.startsWith("You check a cover letter's facts")
-      && !c.system.startsWith("Interpret the resume source itself")
-    ).length;
-    if (supportCall) {
+    const stageIndex = calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT && !c.system.startsWith("You check a cover letter's facts")).length;
+    if (String(system) === RESUME_STRUCTURE_SYSTEM_PROMPT) {
+      const resumeText = String(user).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || "";
+      content = JSON.stringify(modelReplyFixture(resumeText));
+    } else if (supportCall) {
       const count = [...String(user).split("Letter sentences:")[1]?.matchAll(/^(\d+)\. /gm) || []].length;
       content = JSON.stringify({ verdicts: Array.from({ length: count }, (_, i) => ({ i: i + 1, factual: true, supported: true, source: "stub" })) });
-    } else if (structureCall) {
-      content = JSON.stringify(quotedResumeStructure(user));
     } else if (stageIndex === 1) {
       content = JSON.stringify({
         outcomes: [{ id: "pipe-math", text: "Own pipeline math with analysts", weight: 0.9 }],

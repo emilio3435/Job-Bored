@@ -184,6 +184,23 @@
   }
 
   const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  const MAX_RESUME_FILE_BYTES = 10 * 1024 * 1024;
+  const PDF_MIME = "application/pdf";
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const INVALID_RESUME_FILE_MESSAGE =
+    "That file doesn't match a supported PDF or DOCX. Choose a valid file or paste the text instead.";
+  const LEGACY_DOC_FILE_MESSAGE =
+    "Word .doc files aren't supported. Save as .docx or paste the text instead.";
+  // Compatibility for the older Settings profile tab: this cache is populated
+  // only after bytes were sniffed, so metadata never chooses a document type.
+  const sniffedMimeByFile = new WeakMap();
+
+  function assertResumeFileSize(file) {
+    const size = Number(file && file.size);
+    if (Number.isFinite(size) && size > MAX_RESUME_FILE_BYTES) {
+      throw new Error("This file is over the 10 MB limit. Choose a smaller file or paste the text instead.");
+    }
+  }
 
   /**
    * Word HTML (from mammoth.convertToHtml) to plain lines: each list item
@@ -302,57 +319,55 @@
     return normalizeExtractedText(result.value || "");
   }
 
-  function guessMime(file) {
-    const n = (file.name || "").toLowerCase();
-    const t = file.type || "";
-    if (t.includes("pdf") || n.endsWith(".pdf")) return "application/pdf";
+  function sniffDocumentMime(buffer) {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     if (
-      t.includes("wordprocessingml") ||
-      t.includes("msword") ||
-      n.endsWith(".docx")
-    ) {
-      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      bytes.length >= 5 &&
+      bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 &&
+      bytes[3] === 0x46 && bytes[4] === 0x2d
+    ) return PDF_MIME;
+    if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+      return DOCX_MIME;
     }
-    if (n.endsWith(".doc")) return "application/msword";
-    if (n.endsWith(".txt") || n.endsWith(".md")) return "text/plain";
-    return t || "application/octet-stream";
+    return null;
   }
 
-  async function dispatchExtraction(file, buf) {
-    const mime = guessMime(file);
-    const name = (file.name || "").toLowerCase();
+  function guessMime(file) {
+    return file && typeof file === "object" ? sniffedMimeByFile.get(file) || "text/plain" : "text/plain";
+  }
 
-    // GFX B3-2: an old Word file has no parser here. guessMime folds
-    // application/msword into .docx, so check the name and raw type first.
-    if (
-      name.endsWith(".doc") ||
-      (file.type === "application/msword" && !name.endsWith(".docx"))
-    ) {
-      throw new Error(
-        "That's an older Word file (.doc), which JobBored can't read. In " +
-          "Word, choose File → Save As → Word Document (.docx) and drop " +
-          "that in, or paste the text below.",
-      );
-    }
+  function metadataClaimsDocument(file) {
+    const name = String(file && file.name || "").toLowerCase();
+    const type = String(file && file.type || "").toLowerCase();
+    return /\.pdf$|\.docx?$/.test(name) || /pdf|wordprocessingml|msword/.test(type);
+  }
 
-    if (mime === "application/pdf" || name.endsWith(".pdf")) {
-      return extractTextFromPdf(buf);
-    }
-    if (mime.includes("wordprocessingml") || name.endsWith(".docx")) {
-      return extractTextFromDocx(buf);
-    }
-    if (
-      mime.startsWith("text/") ||
-      name.endsWith(".txt") ||
-      name.endsWith(".md")
-    ) {
-      const dec = new TextDecoder("utf-8", { fatal: false });
-      return normalizeExtractedText(dec.decode(buf));
-    }
+  function invalidDocumentMessage(file) {
+    const name = String(file && file.name || "").toLowerCase();
+    const type = String(file && file.type || "").toLowerCase();
+    return /\.doc$/.test(name) || type === "application/msword"
+      ? LEGACY_DOC_FILE_MESSAGE
+      : INVALID_RESUME_FILE_MESSAGE;
+  }
 
-    throw new Error(
-      "Unsupported file type. Use PDF, DOCX, or plain text (.txt / .md).",
-    );
+  function decodePlainText(file, buffer) {
+    if (metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      throw new Error("Unsupported file type. Use PDF, DOCX, or plain text (.txt / .md).");
+    }
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)) {
+      throw new Error("Unsupported file type. Use PDF, DOCX, or plain text (.txt / .md).");
+    }
+    return normalizeExtractedText(text);
+  }
+
+  async function dispatchExtraction(file, buf, mime) {
+    if (mime === PDF_MIME) return extractTextFromPdf(buf);
+    if (mime === DOCX_MIME) return extractTextFromDocx(buf);
+    return decodePlainText(file, buf);
   }
 
   /**
@@ -361,15 +376,25 @@
    * @returns {Promise<string>}
    */
   async function extractTextFromFile(file, options = {}) {
-    // Pull pdf.js + mammoth on demand. After the first call they're cached;
-    // subsequent uploads pay nothing here.
-    await loadResumeReaders();
+    assertResumeFileSize(file);
     const tRead = nowMs();
     const buf = await file.arrayBuffer();
+    if (buf.byteLength > MAX_RESUME_FILE_BYTES) {
+      throw new Error("This file is over the 10 MB limit. Choose a smaller file or paste the text instead.");
+    }
     console.info(
       `[JobBored] resume parse: file read in ${Math.round(nowMs() - tRead)}ms ` +
-        `(${buf.byteLength}B, "${file.name || "unnamed"}")`,
+        `(${buf.byteLength}B)`,
     );
+    const mime = sniffDocumentMime(buf);
+    if (file && typeof file === "object") {
+      if (mime) sniffedMimeByFile.set(file, mime);
+      else sniffedMimeByFile.delete(file);
+    }
+    if (!mime && metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
+    // Pull pdf.js + mammoth on demand only after size and signature checks.
+    // After the first call they're cached; subsequent uploads pay nothing here.
+    if (mime) await loadResumeReaders();
     // Watchdog: parsing must never out-wait the user. pdf.js (and a wedged
     // worker) can stall without rejecting; after the deadline we surface an
     // actionable error — the paste fallback is right there on the step.
@@ -388,10 +413,45 @@
     });
     watchdog.catch(() => {}); // observed via race; avoid a stray rejection
     try {
-      return await Promise.race([dispatchExtraction(file, buf), watchdog]);
+      return await Promise.race([dispatchExtraction(file, buf, mime), watchdog]);
     } finally {
       if (timeoutId !== null) clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * Return a request-only base64 document for supported model file inputs.
+   * Text-only formats continue through the extracted-text path.
+   * @param {File} file
+   */
+  async function documentForModel(file) {
+    assertResumeFileSize(file);
+    const buffer = await file.arrayBuffer();
+    if (buffer.byteLength > MAX_RESUME_FILE_BYTES) {
+      throw new Error("This file is over the 10 MB limit. Choose a smaller file or paste the text instead.");
+    }
+    const mimeType = sniffDocumentMime(buffer);
+    if (file && typeof file === "object") {
+      if (mimeType) sniffedMimeByFile.set(file, mimeType);
+      else sniffedMimeByFile.delete(file);
+    }
+    if (!mimeType) {
+      if (metadataClaimsDocument(file)) throw new Error(invalidDocumentMessage(file));
+      return null;
+    }
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const end = Math.min(offset + chunkSize, bytes.length);
+      for (let index = offset; index < end; index += 1) binary += String.fromCharCode(bytes[index]);
+    }
+    const encode = typeof btoa === "function" ? btoa : window.btoa.bind(window);
+    return {
+      mimeType,
+      filename: String(file.name || (mimeType === PDF_MIME ? "resume.pdf" : "resume.docx")).replace(/[\r\n]/g, " ").slice(0, 180),
+      data: encode(binary),
+    };
   }
 
   // ---------------------------------------------------------------
@@ -477,12 +537,13 @@
   window.CommandCenterResumeIngest = {
     detectGarbledText,
     normalizeExtractedText,
+    guessMime,
     extractTextFromFile,
+    documentForModel,
     extractTextFromPdf,
     extractTextFromDocx,
     linesFromPdfTextItems,
     textFromDocxHtml,
-    guessMime,
     loadResumeReaders,
   };
 })();

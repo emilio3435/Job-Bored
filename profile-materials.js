@@ -102,7 +102,7 @@
    * browser's text extraction; this is the step the user needs to see.
    * @param {string} text
    */
-  async function readResumeWithAi(text) {
+  async function readResumeWithAi(text, document) {
     const hosts = resumeReadHosts();
     if (!hosts) return null;
     const { reader, status, panel } = hosts;
@@ -114,7 +114,7 @@
     /* No provider: say so now, never "Reading…" for a read that cannot
      * happen (Grok review, running-without-provider). */
     if (provider) reader.renderReadStatus(status, "running", reader.readingLine(provider));
-    const result = await reader.readWithAi(text);
+    const result = await reader.readWithAi(text, document);
     if (result.ok) {
       reader.renderReadStatus(status, "done", reader.summaryLine(result.read));
       reader.renderReadPanel(panel, result.read);
@@ -124,7 +124,7 @@
       status,
       "failed",
       reader.failedLine(result.message),
-      result.locked ? undefined : () => void readResumeWithAi(text),
+      result.locked ? undefined : () => void readResumeWithAi(text, document),
     );
     return null;
   }
@@ -140,6 +140,9 @@
       return;
     }
     try {
+      const document = typeof ingest.documentForModel === "function"
+        ? await ingest.documentForModel(file)
+        : null;
       const text = await ingest.extractTextFromFile(file);
       if (!String(text).trim()) {
         showToast("No text could be extracted from that file", "error");
@@ -149,7 +152,7 @@
         (file.name || "Resume").replace(/\.[^/.]+$/, "") || "My resume";
       const saved = await UC.savePrimaryResumeChecked({
         source: "file",
-        rawMime: ingest.guessMime(file),
+        rawMime: document ? document.mimeType : "text/plain",
         label,
         extractedText: text,
       });
@@ -159,7 +162,7 @@
       }
       await refreshMaterialsUI();
       await showResumeSavedToast(UC, saved, "Resume updated");
-      await readResumeWithAi(text);
+      await readResumeWithAi(text, document);
     } catch (err) {
       console.error(err);
       showToast(err.message || "Could not read file", "error");
