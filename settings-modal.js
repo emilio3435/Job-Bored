@@ -1302,6 +1302,9 @@ async function openCommandCenterSettingsModal(opts) {
   if (modal) modal.style.display = "flex";
   if (modal) applySettingsInertBackground(modal);
   snapshotSettingsForm();
+  // Keep the writer's open-time baseline separate: async hydration below
+  // refreshes the general form snapshot, but must not absorb a writer edit.
+  settingsWriterSnapshot = readSettingsWriterState();
   // The drafting-model block reads the local API; it never blocks opening.
   void refreshLlmStatus({ resetJudge: true });
   // Escape-to-close + auto-focus the close button. The brief asks for both:
@@ -1373,6 +1376,25 @@ async function openCommandCenterSettingsModal(opts) {
    ask before throwing away a pasted key or Sheet link. Save and the
    programmatic closes skip the question. */
 let settingsFormSnapshot = null;
+let settingsWriterSnapshot = null;
+
+function readSettingsWriterState() {
+  const value = (id) => String(document.getElementById(id)?.value || "").trim();
+  const provider = value("settingsResumeProvider");
+  const def = SETTINGS_PROVIDER_DEFS[provider];
+  return {
+    provider,
+    model: def ? value(def.modelSelectId) || defaultModelFor(provider) : "",
+    apiKey: def ? value(def.keyInputId) : "",
+    baseUrl: def?.baseUrlInputId ? value(def.baseUrlInputId) : "",
+  };
+}
+
+function settingsWriterWasEdited() {
+  if (!settingsWriterSnapshot) return false;
+  const current = readSettingsWriterState();
+  return Object.keys(current).some((key) => current[key] !== settingsWriterSnapshot[key]);
+}
 
 function readSettingsFormState() {
   const modal = document.getElementById("settingsModal");
@@ -1470,6 +1492,7 @@ function showSettingsClearConfirmBar() {
 
 function closeCommandCenterSettingsModal() {
   settingsFormSnapshot = null;
+  settingsWriterSnapshot = null;
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
@@ -1753,7 +1776,7 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
-  if (selectedDef) {
+  if (selectedDef && settingsWriterWasEdited()) {
     const pin = {
       provider,
       model: payload[selectedDef.configModelField],

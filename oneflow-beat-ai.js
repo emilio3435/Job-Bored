@@ -215,6 +215,7 @@
     // is still in flight bumps this, and the older one's answer is dropped
     // rather than allowed to complete the beat behind the newer attempt.
     checkRun: 0,
+    busySeq: 0,
     stalled: false,
     // "key" (pick + paste + check) → "consent" (Save it / Not now, GFX
     // B2-4) → "saved" (only when a save on this computer failed, so the
@@ -333,7 +334,13 @@
 
   function setStages(ctx, stages) {
     state.stages = stages;
-    if (ctx && typeof ctx.setBusy === "function") ctx.setBusy(ACTION_CHECK, stages);
+    claimBusy(ctx, ACTION_CHECK, stages);
+  }
+
+  function claimBusy(ctx, action, stages) {
+    const owner = ++state.busySeq;
+    if (ctx && typeof ctx.setBusy === "function") ctx.setBusy(action, stages);
+    return owner;
   }
 
   let checkWatch = null;
@@ -1000,11 +1007,9 @@
     const pending = state.pending;
     if (!pending) return;
     const { def, value } = pending;
-    if (ctx && typeof ctx.setBusy === "function") {
-      ctx.setBusy(ACTION_CONSENT_SAVE, [
-        { label: "Saving on this computer…", state: "active" },
-      ]);
-    }
+    claimBusy(ctx, ACTION_CONSENT_SAVE, [
+      { label: "Saving on this computer…", state: "active" },
+    ]);
     const pinned = await postLlmConfigPin(def, value);
     if (def.id === "gemini") {
       state.geminiWroteThrough = await writeGeminiKeyThrough(value);
@@ -1064,9 +1069,7 @@
       return;
     }
     judge.saving = true;
-    if (ctx && typeof ctx.setBusy === "function") {
-      ctx.setBusy(ACTION_JUDGE_SAVE, [{ label: "Saving your grading model…", state: "active" }]);
-    }
+    const busyOwner = claimBusy(ctx, ACTION_JUDGE_SAVE, [{ label: "Saving your grading model…", state: "active" }]);
     let saved = false;
     let why = "";
     let testError = "";
@@ -1105,7 +1108,7 @@
       if (testing) testError = "Couldn't test the grading model. Press Save & continue to try again, or Skip for now.";
     } finally {
       judge.saving = false;
-      if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
+      if (state.busySeq === busyOwner && ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
     }
     if (state.judge !== judge) return;
     if (testError) {

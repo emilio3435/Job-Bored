@@ -210,6 +210,92 @@ async function typeKey(document, value = "fictional-xai-key") {
   return key;
 }
 
+async function openWriterModal(env, hydration) {
+  const { settings, window, document } = env;
+  const cfg = { resumeProvider: "openrouter", resumeOpenRouterModel: "fictional-browser-writer", resumeOpenRouterApiKey: "fictional-browser-key", resumeOpenRouterBaseUrl: "https://fictional.example/v1" };
+  Object.assign(window.COMMAND_CENTER_CONFIG, cfg);
+  const modal = document.body.appendChild(document.createElement("div"));
+  modal.id = "settingsModal";
+  const panel = el(document, "settings-panel-ai");
+  document.body.removeChild(panel);
+  modal.appendChild(panel);
+  for (const [id, value, tag] of [
+    ["settingsResumeOpenRouterModel", cfg.resumeOpenRouterModel, "select"],
+    ["settingsResumeOpenRouterApiKey", cfg.resumeOpenRouterApiKey, "input"],
+    ["settingsResumeOpenRouterBaseUrl", cfg.resumeOpenRouterBaseUrl, "input"],
+    ["settingsResumeOpenAIModel", "fictional-openai-writer", "select"],
+    ["settingsResumeOpenAIApiKey", "fictional-openai-key", "input"],
+  ]) {
+    const field = panel.appendChild(document.createElement(tag));
+    field.id = id;
+    field.value = value;
+  }
+  modal.querySelectorAll = () => {
+    const fields = [];
+    modal.walk((node) => { if (["INPUT", "SELECT", "TEXTAREA"].includes(node.tagName)) fields.push(node); });
+    return fields;
+  };
+  modal.contains = (node) => { for (; node; node = node.parentNode) if (node === modal) return true; return false; };
+  const core = window.JobBoredApp.core;
+  if (hydration) core.host.populateAppsScriptDeployStateIntoSettingsForm = () => hydration;
+  core.host = new Proxy(core.host, { get: (target, key) => key in target ? target[key] : () => false });
+  const opening = settings.openCommandCenterSettingsModal();
+  if (hydration) return opening;
+  await opening;
+  await settle();
+}
+
+describe("FIX2 P1 · modal Save preserves an untouched server writer", () => {
+  it("a grader-only edit sends exactly one POST: the judge-only body", async () => {
+    const env = loadSettings(storingServer({ ...WRITER, judge: null }));
+    await openWriterModal(env);
+    await openEditor(env.document);
+    await typeKey(env.document);
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.deepEqual(llmPosts(env.calls).map((call) => call.body), [{ judge: {
+      provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key",
+    } }]);
+  });
+
+  it("an untouched modal sends no writer or grader POST", async () => {
+    const env = loadSettings(storingServer());
+    await openWriterModal(env);
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(env.calls).length, 0);
+  });
+
+  for (const [suffix, value, field] of [
+    ["Provider", "openai", "provider"],
+    ["OpenRouterModel", "fictional-new-writer", "model"],
+    ["OpenRouterApiKey", "fictional-new-key", "apiKey"],
+    ["OpenRouterBaseUrl", "https://new-fictional.example/v1", "baseUrl"],
+  ]) {
+    it(`an explicit ${field} edit still posts the writer once`, async () => {
+      const env = loadSettings(storingServer());
+      await openWriterModal(env);
+      el(env.document, `settingsResume${suffix}`).value = value;
+      await env.settings.saveCommandCenterSettingsFromForm();
+      const posts = llmPosts(env.calls);
+      assert.equal(posts.length, 1);
+      assert.equal(posts[0].body[field], value);
+    });
+  }
+
+  it("async modal hydration does not absorb a real writer edit", async () => {
+    let release;
+    const hydration = new Promise((resolve) => { release = resolve; });
+    const env = loadSettings(storingServer());
+    const opening = openWriterModal(env, hydration);
+    await settle();
+    el(env.document, "settingsResumeOpenRouterModel").value = "fictional-edited-during-hydration";
+    release();
+    await opening;
+    await env.settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(env.calls).length, 1);
+    assert.equal(llmPosts(env.calls)[0].body.model, "fictional-edited-during-hydration");
+  });
+});
+
 describe("J-FE2 · Settings → AI grading model row", () => {
   it("J-FE2a · sits directly under the writer Provider block, above the provider panels", async () => {
     const { settings, document } = loadSettings(storingServer());
