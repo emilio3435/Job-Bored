@@ -68,6 +68,8 @@ it("T-K4-05 numbered letter-spaced headings open sections including unknown vent
     assert.equal(at(found, "employer_header", 6).length, 0, heading);
     assert.equal(at(found, "employer_header", 5).length, 0, heading);
   }
+  const identity = await scan("JORDAN RIVERA\nSpringfield, IL · jordan@example.com\nPROFESSIONAL EXPERIENCE\nContoso Media\nJan 2020 – Present");
+  assert.equal(at(identity, "section_heading", 1).length, 0, "an uppercase identity above contact details is not a section");
 });
 
 it("T-K4-07 domain suffix headers keep the employer name without the site", async () => {
