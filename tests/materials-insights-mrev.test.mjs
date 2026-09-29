@@ -99,15 +99,61 @@ describe("D1 · scorecard v2 reads the K3 record", () => {
     assert.doesNotMatch(gaps, /mat-issue--hard|fail/i);
   });
 
-  it("should say which judge graded it", () => {
-    assert.match(mi.scorecardHtml(V2_LETTER_FAIL, "cover_letter"), /data-judge="independent">Judged by grok-judge-1</);
-    assert.match(mi.scorecardHtml(V2_RESUME_READY_SAME_MODEL, "resume"), /data-judge="same">Judged by the same model that wrote it</);
+  /* J-FE4: who graded it, and when nobody did, why, with the two ways out. */
+  const judgeDown = (judge) => ({ ...V2_LETTER_JUDGE_DOWN, qa: { ...V2_LETTER_JUDGE_DOWN.qa, judge: { ...V2_LETTER_JUDGE_DOWN.qa.judge, ...judge } } });
+  const verdictLine = (html) => {
+    const at = html.indexOf('class="mat-verdict__judge"');
+    return at < 0 ? "" : html.slice(at, html.indexOf("</p>", at));
+  };
+  /* The words a reader sees in the line: tags and attributes dropped. */
+  const visible = (line) => line.replace(/<[^>]*>/g, " ").replace(/^[^>]*>/, "");
+
+  it("should say which grading model graded it, never 'judge'", () => {
+    assert.match(mi.scorecardHtml(V2_LETTER_FAIL, "cover_letter"), /data-judge="independent">Graded by grok-judge-1</);
     const down = mi.scorecardHtml(V2_LETTER_JUDGE_DOWN, "cover_letter");
-    assert.match(down, /data-judge="unavailable">Judge unavailable, so this needs your review</);
     assert.doesNotMatch(down, /Writing quality ·/, "no score to show");
-    /* An invalid judgment is not a grade either, even from an independent judge. */
-    const invalid = { ...V2_LETTER_JUDGE_DOWN, qa: { ...V2_LETTER_JUDGE_DOWN.qa, judge: { ...V2_LETTER_JUDGE_DOWN.qa.judge, status: "invalid" } } };
-    assert.match(mi.scorecardHtml(invalid, "cover_letter"), /Judge unavailable, so this needs your review/);
+    for (const html of [mi.scorecardHtml(V2_LETTER_FAIL, "cover_letter"), mi.scorecardHtml(V2_RESUME_READY_SAME_MODEL, "resume"), down]) {
+      assert.doesNotMatch(visible(verdictLine(html)), /judge/i);
+    }
+  });
+
+  it("J-FE4a · a timeout names the model and how long it waited, with Try again and Change", () => {
+    const line = verdictLine(mi.scorecardHtml(judgeDown({ status: "unavailable", errorCode: "timeout", latencyMs: 240000 }), "cover_letter"));
+    assert.match(line, /data-judge="unavailable"/);
+    assert.match(line, /Grading by grok-judge-1 didn(’|&#39;|')t finish: it timed out after 240 s\./);
+    assert.match(line, /<button[^>]*data-action="materials-retry"[^>]*data-feature="cover_letter"[^>]*>Try again<\/button>/);
+    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*>Change grading model<\/button>/);
+  });
+
+  it("J-FE4b · a rejected key says so and links to the grading model settings", () => {
+    const line = verdictLine(mi.scorecardHtml(judgeDown({ status: "unavailable", errorCode: "auth" }), "resume"));
+    assert.match(line, /the key was rejected\./);
+    assert.match(line, /data-action="settings-open-grading"[^>]*>Change grading model</);
+    assert.match(line, /data-feature="resume"[^>]*>Try again</);
+    const noKey = verdictLine(mi.scorecardHtml(judgeDown({ status: "unavailable", errorCode: "unconfigured" }), "resume"));
+    assert.match(noKey, /no key is saved for it\./);
+    const busy = verdictLine(mi.scorecardHtml(judgeDown({ status: "unavailable", errorCode: "rate_limited" }), "resume"));
+    assert.match(busy, /the provider was busy\./);
+  });
+
+  it("J-FE4c · an unusable grade reads differently from an unavailable model", () => {
+    const invalid = verdictLine(mi.scorecardHtml(judgeDown({ status: "invalid", errorCode: "invalid_judgment" }), "cover_letter"));
+    const unavailable = verdictLine(mi.scorecardHtml(judgeDown({ status: "unavailable" }), "cover_letter"));
+    assert.match(invalid, /data-judge="invalid"/);
+    assert.match(invalid, /it returned a grade we couldn(’|&#39;|')t use\./);
+    assert.match(unavailable, /data-judge="unavailable"/);
+    assert.match(unavailable, /it didn(’|&#39;|')t answer\./);
+    assert.notEqual(visible(invalid), visible(unavailable));
+    /* A pre-BE2 invalid record with no errorCode still reads as unusable. */
+    assert.match(verdictLine(mi.scorecardHtml(judgeDown({ status: "invalid" }), "cover_letter")), /couldn(’|&#39;|')t use/);
+  });
+
+  it("J-FE4d · a self-graded document names the writer and offers a second opinion", () => {
+    const line = verdictLine(mi.scorecardHtml(V2_RESUME_READY_SAME_MODEL, "resume"));
+    assert.match(line, /data-judge="same"/);
+    assert.match(line, /Graded by your writing model \(gemini-writer-1\)\./);
+    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*>Add a second opinion<\/button>/);
+    assert.doesNotMatch(line, /Try again/);
   });
 
   it("should never lose an unsupported sentence or a failed hard gate the issues list left out", () => {
@@ -303,13 +349,13 @@ describe("D6 · the stage timeline speaks K7", () => {
 
   it("should name the K7 steps in plain words", () => {
     const steps = mi.stageTimeline({ phase: "drafting", stages: k7(["prepare", "ok"], ["write", "ok"]) }, "cover_letter");
-    assert.deepEqual(labels(steps), ["Prepare", "Write", "Check & render", "Judge", "Save"]);
+    assert.deepEqual(labels(steps), ["Prepare", "Write", "Check & render", "Grade", "Save"]);
     assert.deepEqual(states(steps), { prepare: "done", write: "done", check: "running", judge: "next", save: "next" });
   });
 
   it("should add a Repair pass only when the run made one, before Save, without skipping ahead", () => {
     const early = mi.stageTimeline({ phase: "drafting", stages: k7(["repair", "ok"], ["prepare", "ok"]) }, "cover_letter");
-    assert.deepEqual(labels(early), ["Prepare", "Write", "Check & render", "Judge", "Repair pass", "Save"]);
+    assert.deepEqual(labels(early), ["Prepare", "Write", "Check & render", "Grade", "Repair pass", "Save"]);
     assert.equal(states(early).write, "running", "a repair record does not mark later steps done");
     assert.equal(states(early).judge, "next");
     const late = mi.stageTimeline({ phase: "drafting", stages: k7(["prepare", "ok"], ["write", "ok"], ["validate", "ok"], ["render", "ok"], ["judge", "ok"], ["repair", "ok"]) }, "cover_letter");
@@ -325,7 +371,7 @@ describe("D6 · the stage timeline speaks K7", () => {
   });
 
   it("should use the K7 names for a run that has not reported a stage yet", () => {
-    assert.deepEqual(labels(mi.stageTimeline({ phase: "queued" }, "resume")), ["Prepare", "Write", "Check & render", "Judge", "Save"]);
+    assert.deepEqual(labels(mi.stageTimeline({ phase: "queued" }, "resume")), ["Prepare", "Write", "Check & render", "Grade", "Save"]);
   });
 
   it("should keep an old run's old labels", () => {

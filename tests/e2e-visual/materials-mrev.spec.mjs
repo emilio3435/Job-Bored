@@ -336,7 +336,7 @@ for (const width of [1440, 375]) {
       const letter = section.locator('[data-doc="cover_letter"]');
       await expect(letter.locator(".case__docst")).toHaveText(/fail · 64 \/ 100/i);
       await expect(letter.locator(".mat-verdict__why")).toHaveText("One sentence claims a result your background doesn't support.");
-      await expect(letter.locator(".mat-verdict__judge")).toHaveText("Judged by grok-judge-1");
+      await expect(letter.locator(".mat-verdict__judge")).toHaveText("Graded by grok-judge-1");
 
       const blockers = letter.locator('[data-group="facts"]');
       const writing = letter.locator('[data-group="writing"]');
@@ -359,7 +359,7 @@ for (const width of [1440, 375]) {
 
       const resume = section.locator('[data-doc="resume"]');
       await expect(resume.locator(".case__docst")).toHaveText(/ready · 86 \/ 100/i);
-      await expect(resume.locator(".mat-verdict__judge")).toHaveText("Judged by the same model that wrote it");
+      await expect(resume.locator(".mat-verdict__judge")).toContainText("Graded by your writing model");
 
       /* The component's own type, not `body.jb-v2 p` (the cascade trap). */
       const weight = await letter.locator(".mat-verdict__why").evaluate((el) => globalThis.getComputedStyle(el).fontWeight);
@@ -414,7 +414,7 @@ for (const width of [1440, 375]) {
       /* D6: the rewrite runs under the K7 names. */
       const steps = letter.locator(".mat-tl__step");
       await expect(steps).toHaveCount(6, { timeout: 15_000 });
-      await expect(steps.locator(".mat-tl__label")).toContainText(["Prepare", "Write", "Check & render", "Judge", "Repair pass", "Save"]);
+      await expect(steps.locator(".mat-tl__label")).toContainText(["Prepare", "Write", "Check & render", "Grade", "Repair pass", "Save"]);
       await expect(letter.locator('[data-step="check"]')).toHaveAttribute("data-state", "running");
 
       phase = "done";
