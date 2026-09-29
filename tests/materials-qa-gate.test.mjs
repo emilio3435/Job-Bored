@@ -31,6 +31,19 @@ function qa({ gates = [], constraints = [], judge = makeJudgment(), degraded = [
   return buildQaRecord({ document: "letter", runId: "fictional-run", finalText, textHash, gates, constraints, judge, degraded });
 }
 
+it("J-BE2d: QA v2 preserves the judge errorCode and model under its strict schema", () => {
+  const record = qa({ judge: { status: "unavailable", meta: {
+    provider: "openai_compatible", model: "grok-example", independent: true,
+    promptVersion: "materials-judge-v2", latencyMs: 12, errorCode: "rate_limited",
+  } } });
+  assert.equal(record.judge.model, "grok-example");
+  assert.equal(record.judge.errorCode, "rate_limited");
+  const schema = JSON.parse(readFileSync(new URL("../schemas/materials-qa.v2.schema.json", import.meta.url), "utf8"));
+  const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type {unknown} */ (Ajv2020));
+  const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  assert.equal(validate(record), true, JSON.stringify(validate.errors));
+});
+
 it("K3/G4: verdict precedence is table-driven, including every review rule", () => {
   const dim = (name, score) => makeJudgment({ ratings: dimensions.map((dimension) => ({ dimension, score: dimension === name ? score : 4, reason: "Rated.", sentenceIds: ["L1"] })) });
   const below80 = makeJudgment({ ratings: dimensions.map((dimension) => ({ dimension, score: 3, reason: "Rated.", sentenceIds: ["L1"] })) });
