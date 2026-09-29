@@ -1,4 +1,4 @@
-/** MREV JUDGEUX · public behavior of the independent grading-model setup. */
+/** JUDGEUX FE2 · the optional "Grading model" row in Settings → AI. */
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -10,6 +10,7 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
 const judgePickerJs = readFileSync(join(repoRoot, "judge-picker.js"), "utf8");
+const settingsPartial = readFileSync(join(repoRoot, "partials/settings-modal.html"), "utf8");
 
 class FakeElement {
   constructor(tagName, doc) {
@@ -26,6 +27,7 @@ class FakeElement {
     this.disabled = false;
     this.hidden = false;
     this.open = false;
+    this.style = {};
     this._text = "";
   }
   get firstChild() { return this.children[0] || null; }
@@ -93,10 +95,16 @@ function makeDocument() {
   const receipt = panel.appendChild(new FakeElement("div", doc));
   receipt.setAttribute("data-receipt", "ai");
   panel.appendChild(new FakeElement("select", doc)).id = "settingsResumeProvider";
+  for (const id of ["settingsPanelOpenRouter", "settingsPanelGemini", "settingsPanelLocal"]) {
+    const providerPanel = panel.appendChild(new FakeElement("div", doc));
+    providerPanel.id = id;
+    providerPanel.className = "settings-provider-panel";
+  }
   return doc;
 }
 
 const WRITER = { provider: "gemini", alias: "", model: "gemini-3.8-flash", baseUrl: "", keyPresent: true, updatedAt: "2026-09-28T08:00:00.000Z" };
+const NO_WRITER = { provider: "", alias: "", model: "", baseUrl: "", keyPresent: false };
 const XAI_JUDGE = { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", keyPresent: true };
 const CATALOG = {
   models: [
@@ -155,465 +163,276 @@ function loadSettings(respond) {
   vm.createContext(ctx);
   vm.runInContext(judgePickerJs, ctx, { filename: "judge-picker.js" });
   vm.runInContext(settingsModalJs, ctx, { filename: "settings-modal.js" });
-  return { settings: window.JobBoredApp.settings, document, calls, toasts, activeTabs };
+  return { settings: window.JobBoredApp.settings, window, document, calls, toasts, activeTabs };
 }
 
 const el = (document, id) => document.getElementById(id);
 const text = (node) => (node ? node.textContent.replace(/\s+/g, " ").trim() : "");
+const settle = async () => { for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
+const llmPosts = (calls) => calls.filter((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
 
-function defaultRespond(url, method, body) {
-  if (url.endsWith("/api/llm-config/judge-models")) return { body: CATALOG };
-  if (method === "POST") {
-    return { body: { ...WRITER, judge: body.judge ? {
-      provider: body.judge.provider,
-      model: body.judge.model,
-      baseUrl: body.judge.baseUrl,
-      keyPresent: Boolean(body.judge.apiKey) || true,
-    } : null } };
-  }
-  return { body: { ...WRITER, judge: null } };
+/** A server that stores whatever judge the page posts, like BE3's judge-only save. */
+function storingServer(initial = { ...WRITER, judge: null }, overrides = {}) {
+  let pin = initial;
+  return (url, method, body) => {
+    if (url.endsWith("/judge-models")) return overrides.models ? overrides.models(body) : { body: CATALOG };
+    if (url.endsWith("/judge-test")) return { body: { ok: true, structured: true, model: body.model, ms: 900 } };
+    if (method === "POST" && url.endsWith("/api/llm-config")) {
+      if (overrides.save) { const answer = overrides.save(body); if (answer) return answer; }
+      const prev = pin.judge;
+      pin = {
+        ...pin,
+        judge: body.judge
+          ? {
+            provider: body.judge.provider,
+            model: body.judge.model,
+            baseUrl: body.judge.baseUrl || "",
+            keyPresent: Boolean(body.judge.apiKey) || Boolean(prev && prev.keyPresent),
+          }
+          : null,
+      };
+      return { body: pin };
+    }
+    return { body: pin };
+  };
 }
 
-async function fetchCatalog(document) {
+async function openEditor(document) {
+  await el(document, "settingsJudgeChange").dispatch("click");
+}
+
+async function typeKey(document, value = "fictional-xai-key") {
   const key = el(document, "settingsJudgeApiKey");
-  key.value = "fictional-xai-key";
+  key.value = value;
   await key.dispatch("input");
   await key.dispatch("change");
+  await settle();
+  return key;
 }
 
-describe("MREV JUDGEUX · xAI grading model setup", () => {
-  it("U1 · recommends xAI with the key link, password input, and model dropdown", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
+describe("J-FE2 · Settings → AI grading model row", () => {
+  it("J-FE2a · sits directly under the writer Provider block, above the provider panels", async () => {
+    const { settings, document } = loadSettings(storingServer());
     await settings.refreshLlmStatus();
-    const group = el(document, "settingsJudgeGroup");
-    assert.ok(group, "the card is in the AI settings pane");
-    assert.match(text(group), /A different company's model grades your writing more honestly\./);
-    assert.match(text(group), /Sign in → API Keys → Create/);
-    const link = el(document, "settingsJudgeKeyLink");
-    assert.equal(link.textContent, "Create an xAI API key");
-    assert.equal(link.getAttribute("href"), "https://console.x.ai/");
-    assert.equal(link.getAttribute("target"), "_blank");
-    assert.match(link.getAttribute("rel"), /noopener/);
-    assert.equal(el(document, "settingsJudgeApiKey").type, "password");
-    assert.equal(el(document, "settingsJudgeXaiModel").tagName, "SELECT");
-    assert.equal(el(document, "settingsJudgeXaiModel").disabled, true, "models wait for an xAI key");
-    assert.equal(el(document, "settingsJudgeOtherProviders").open, false);
-    assert.equal(settings.judgeFormIsDirty(), false);
+    const panel = el(document, "settings-panel-ai");
+    const order = panel.children.map((child) => child.id);
+    const row = order.indexOf("settingsJudgeGroup");
+    assert.ok(row >= 0, "the row is a direct child of the AI panel");
+    assert.equal(order[row - 1], "settingsResumeProvider", "right after the writer Provider select");
+    assert.ok(row < order.indexOf("settingsPanelOpenRouter"), "above every provider panel");
+    assert.ok(row < order.indexOf("settingsPanelLocal"));
   });
 
-  it("U2 · sends the typed key to the local model-list route and selects its recommendation", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
+  it("J-FE2b · empty state says it is optional and that the writer grades its own work", async () => {
+    const { settings, document } = loadSettings(storingServer());
     await settings.refreshLlmStatus();
-    await fetchCatalog(document);
-    const request = calls.find((call) => call.url.endsWith("/api/llm-config/judge-models"));
-    assert.deepEqual(request.body, { provider: "xai", apiKey: "fictional-xai-key" });
-    const model = el(document, "settingsJudgeXaiModel");
-    assert.deepEqual(model.options.map((option) => option.value), ["grok-4.2", "grok-4-mini", "grok-4.1"]);
-    assert.equal(model.value, "grok-4.2");
-    assert.equal(model.disabled, false);
+    assert.equal(text(el(document, "settingsJudgeTitle")), "Grading model (optional)");
+    assert.equal(text(el(document, "settingsJudgeStatus")), "Not set. Your writing model grades its own work.");
+    const change = el(document, "settingsJudgeChange");
+    assert.equal(change.tagName, "BUTTON");
+    assert.equal(text(change), "Change");
+    assert.equal(change.getAttribute("aria-expanded"), "false");
+    assert.equal(el(document, "settingsJudgeEditor").hidden, true, "the editor waits for Change");
+    await openEditor(document);
+    assert.equal(el(document, "settingsJudgeEditor").hidden, false);
+    assert.equal(change.getAttribute("aria-expanded"), "true");
+    assert.equal(el(document, "settingsJudgeProvider").value, "xai", "xAI is the default");
+    assert.doesNotMatch(text(el(document, "settingsJudgeGroup")), /judge/i, "user copy says grading model");
   });
 
-  it("U1 · shows a saved xAI key only as Key saved and never echoes the stored value", async () => {
-    const secret = "fictional-stored-xai-key";
-    const { settings, document } = loadSettings((url, _method) => url.endsWith("/judge-models")
-      ? { body: CATALOG }
-      : { body: { ...WRITER, judge: { ...XAI_JUDGE, apiKey: secret } } });
+  it("J-FE2c · the footnote says where each key lives, and the panel lede no longer claims keys stay in the browser", async () => {
+    const { settings, document } = loadSettings(storingServer());
     await settings.refreshLlmStatus();
-    assert.equal(el(document, "settingsJudgeApiKey").value, "");
-    assert.equal(text(el(document, "settingsJudgeKeyState")), "Key saved");
-    let leaked = false;
-    document.body.walk((node) => {
-      if (String(node.value).includes(secret) || node._text.includes(secret)
-        || Object.values(node.attributes).some((value) => value.includes(secret))) leaked = true;
-    });
-    assert.equal(leaked, false);
+    assert.equal(
+      text(el(document, "settingsJudgeFootnote")),
+      "Check connection tests the key in this browser. Drafting and grading use the keys saved on this computer (~/.jobbored).",
+    );
+    const ids = [];
+    el(document, "settingsJudgeGroup").walk((node) => ids.push(node.id));
+    assert.ok(ids.includes("settingsJudgeFootnote"), "the footnote belongs to the grading row");
+    const aiPanel = settingsPartial.slice(settingsPartial.indexOf('id="settings-panel-ai"'));
+    const lede = aiPanel.slice(0, aiPanel.indexOf("</p>"));
+    assert.doesNotMatch(lede.replace(/\s+/g, " "), /keys stay in this browser/i);
+    assert.doesNotMatch(settingsPartial.replace(/\s+/g, " "), /Drafting keys stay in this browser/);
   });
 
-  it("U1 · saves xAI through K1 with the fixed endpoint and removes it with judge null", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await fetchCatalog(document);
-    assert.equal(await settings.saveJudgeModel(), true);
-    const saved = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(saved.body, {
-      provider: "gemini", model: "gemini-3.8-flash", baseUrl: "",
-      judge: { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key" },
-    });
-    assert.equal(el(document, "settingsJudgeApiKey").value, "");
-    assert.match(text(el(document, "settingsJudgeKeyState")), /Key saved/);
-    assert.equal(text(el(document, "settingsJudgeStatus")), "Grading with Grok (grok-4.2)");
-    await el(document, "settingsJudgeRemove").dispatch("click");
-    const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.equal(posts.at(-1).body.judge, null);
-    assert.equal(text(el(document, "settingsJudgeStatus")), "Grading with your writing model: less independent");
-  });
-
-  it("U1 · returns to xAI mode when the alternate-provider disclosure closes", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await fetchCatalog(document);
-
-    const other = el(document, "settingsJudgeOtherProviders");
-    other.open = true;
-    await other.dispatch("toggle");
-    other.open = false;
-    await other.dispatch("toggle");
-
+  it("J-FE2d · a saved choice survives reopening, key shown only as Key saved", async () => {
+    const server = storingServer();
+    const { settings, document, calls } = loadSettings(server);
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await openEditor(document);
+    await typeKey(document);
+    assert.equal(el(document, "settingsJudgeModel").value, "grok-4.2");
     assert.equal(settings.judgeFormIsDirty(), true);
     assert.equal(await settings.saveJudgeModel(), true);
-    const saved = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(saved.body.judge, {
-      provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key",
+
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    assert.equal(text(el(document, "settingsJudgeTitle")), "Grading model");
+    assert.equal(text(el(document, "settingsJudgeStatus")), "Grok · grok-4.2 · key saved");
+    await openEditor(document);
+    assert.equal(el(document, "settingsJudgeProvider").value, "xai");
+    assert.equal(el(document, "settingsJudgeModel").value, "grok-4.2");
+    assert.equal(el(document, "settingsJudgeApiKey").value, "");
+    assert.equal(el(document, "settingsJudgeKeyState").hidden, false);
+    assert.equal(text(el(document, "settingsJudgeKeyState")), "Key saved");
+    assert.equal(settings.judgeFormIsDirty(), false);
+    let leaked = false;
+    document.body.walk((node) => {
+      if (String(node.value).includes("fictional-xai-key") || node._text.includes("fictional-xai-key")
+        || Object.values(node.attributes).some((value) => value.includes("fictional-xai-key"))) leaked = true;
     });
+    assert.equal(leaked, false, "the stored key is never echoed");
+    assert.equal(llmPosts(calls).length, 1);
   });
+});
 
-  it("U1 · closing the disclosure selects xAI even after a generic provider was chosen", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
+describe("J-FE2 · judge-only save (BE3 contract)", () => {
+  it("posts only {judge}, and needs no writer pin", async () => {
+    const { settings, document, calls } = loadSettings(storingServer({ ...NO_WRITER, judge: null }));
     await settings.refreshLlmStatus();
-    await fetchCatalog(document);
-
-    const other = el(document, "settingsJudgeOtherProviders");
-    const provider = el(document, "settingsJudgeProvider");
-    other.open = true;
-    await other.dispatch("toggle");
-    provider.value = "openrouter";
-    await provider.dispatch("change");
-    el(document, "settingsJudgeModel").value = "fictional/generic-model";
-    other.open = false;
-    await other.dispatch("toggle");
-
+    await openEditor(document);
+    await typeKey(document);
     assert.equal(await settings.saveJudgeModel(), true);
-    const saved = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(saved.body.judge, {
-      provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key",
+    assert.deepEqual(llmPosts(calls).at(-1).body, {
+      judge: { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key" },
     });
   });
 
-  it("U2 · attaches a key error to the password field and never echoes the key", async () => {
-    const respond = (url, method) => url.endsWith("/judge-models")
-      ? { status: 401, body: { error: "That key didn't work: check it on the xAI console." } }
-      : defaultRespond(url, method, undefined);
-    const { settings, document, calls } = loadSettings(respond);
-    await settings.refreshLlmStatus();
-    await fetchCatalog(document);
-    const key = el(document, "settingsJudgeApiKey");
-    assert.equal(text(el(document, "settingsJudgeError")), "That key didn't work: check it on the xAI console.");
-    assert.match(key.getAttribute("aria-describedby"), /settingsJudgeError/);
-    assert.equal(key.getAttribute("aria-invalid"), "true");
-    assert.equal(key.value, "fictional-xai-key");
-    assert.equal(el(document, "settingsJudgeXaiModel").disabled, false, "the model control remains reachable in tab order");
-    assert.equal(await settings.saveJudgeModel(), false, "a failed key check cannot be saved");
-    assert.equal(calls.filter((call) => call.method === "POST" && call.url.endsWith("/api/llm-config")).length, 0);
-    assert.equal(text(el(document, "settingsJudgeStatus")), "Grading with your writing model: less independent");
+  it("Remove posts {judge:null} and returns the row to its empty state", async () => {
+    const { settings, document, calls } = loadSettings(storingServer({ ...WRITER, judge: XAI_JUDGE }));
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    await openEditor(document);
+    assert.equal(el(document, "settingsJudgeRemove").disabled, false);
+    await el(document, "settingsJudgeRemove").dispatch("click");
+    await settle();
+    assert.deepEqual(llmPosts(calls).at(-1).body, { judge: null });
+    assert.equal(text(el(document, "settingsJudgeStatus")), "Not set. Your writing model grades its own work.");
   });
 
-  it("P3 · focuses the first invalid judge field after a failed Settings Save", async () => {
-    const respond = (url, method, body) => {
-      if (url.endsWith("/judge-models")) return { body: CATALOG };
-      if (method === "POST" && url.endsWith("/api/llm-config") && body && body.judge) {
-        return { status: 401, body: { error: "That key didn't work: check it on the xAI console." } };
-      }
-      return defaultRespond(url, method, body);
-    };
-    const { settings, document, activeTabs } = loadSettings(respond);
-    await settings.refreshLlmStatus();
-    await fetchCatalog(document);
+  it("a blank key keeps the saved key: an edited model posts without apiKey", async () => {
+    const { settings, document, calls } = loadSettings(storingServer({ ...WRITER, judge: XAI_JUDGE }));
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    await openEditor(document);
+    const model = el(document, "settingsJudgeModel");
+    model.value = "grok-4-mini";
+    await model.dispatch("change");
+    assert.equal(await settings.saveJudgeModel(), true);
+    assert.deepEqual(llmPosts(calls).at(-1).body, {
+      judge: { provider: "openai_compatible", model: "grok-4-mini", baseUrl: "https://api.x.ai/v1" },
+    });
+  });
 
+  it("an untouched open saves nothing", async () => {
+    const { settings, document, calls } = loadSettings(storingServer({ ...WRITER, judge: XAI_JUDGE }));
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    await openEditor(document);
+    assert.equal(settings.judgeFormIsDirty(), false);
     await settings.saveCommandCenterSettingsFromForm();
+    assert.equal(llmPosts(calls).filter((call) => "judge" in call.body).length, 0);
+  });
 
+  it("a refused save names the grading model and focuses the invalid field after Settings Save", async () => {
+    const respond = storingServer(undefined, {
+      save: (body) => body.judge ? { status: 401, body: { error: "That key didn't work: check it on the xAI console." } } : null,
+    });
+    const { settings, document, activeTabs, toasts } = loadSettings(respond);
+    await settings.refreshLlmStatus();
+    await openEditor(document);
+    await typeKey(document);
+    await settings.saveCommandCenterSettingsFromForm();
     assert.deepEqual(activeTabs, ["ai"]);
+    assert.match(text(el(document, "settingsJudgeError")), /grading model wasn.t saved/i);
     assert.equal(el(document, "settingsJudgeApiKey").getAttribute("aria-invalid"), "true");
     assert.equal(document.activeElement, el(document, "settingsJudgeApiKey"));
+    assert.ok(toasts.some((args) => /grading model isn.t/i.test(String(args[0]))));
+    assert.ok(!toasts.some((args) => /judge/i.test(String(args[0]))));
   });
 
-  it("U3 · keeps the generic provider, model, URL, and key controls behind a disclosure", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
+  it("a missing key blocks the save with a named field", async () => {
+    const { settings, document, calls } = loadSettings(storingServer());
     await settings.refreshLlmStatus();
-    const other = el(document, "settingsJudgeOtherProviders");
-    assert.equal(other.tagName, "DETAILS");
-    assert.equal(other.open, false);
-    assert.equal(el(document, "settingsJudgeProvider").tagName, "SELECT");
-    assert.equal(el(document, "settingsJudgeModel").tagName, "INPUT");
-    assert.equal(el(document, "settingsJudgeBaseUrl").type, "url");
-    assert.equal(el(document, "settingsJudgeOtherApiKey").type, "password");
-    other.open = true;
-    await other.dispatch("toggle");
-    el(document, "settingsJudgeProvider").value = "openrouter";
-    await el(document, "settingsJudgeProvider").dispatch("change");
-    assert.equal(el(document, "settingsJudgeBaseUrl").value, "https://openrouter.ai/api/v1");
-    el(document, "settingsJudgeModel").value = "fictional/grok-reviewer";
-    el(document, "settingsJudgeOtherApiKey").value = "fictional-provider-key";
-    assert.equal(await settings.saveJudgeModel(), true);
-    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(post.body.judge, {
-      provider: "openrouter", model: "fictional/grok-reviewer", baseUrl: "https://openrouter.ai/api/v1", apiKey: "fictional-provider-key",
-    });
-  });
-
-  it("U4 · says when grading uses the writing model and when Grok is saved", async () => {
-    const empty = loadSettings(defaultRespond);
-    await empty.settings.refreshLlmStatus();
-    assert.equal(text(el(empty.document, "settingsJudgeStatus")), "Grading with your writing model: less independent");
-
-    const saved = loadSettings((url, method, body) => {
-      if (url.endsWith("/judge-models")) return { body: CATALOG };
-      return { body: { ...WRITER, judge: method === "POST" ? body.judge : XAI_JUDGE } };
-    });
-    await saved.settings.refreshLlmStatus();
-    assert.equal(text(el(saved.document, "settingsJudgeStatus")), "Grading with Grok (grok-4.2)");
-  });
-
-  it("U5 · exposes ordered labels, a visible error, and keyboard-focusable actions", async () => {
-    const { settings, document } = loadSettings((url, method) => url.endsWith("/judge-models")
-      ? { status: 500, body: { error: "Couldn't reach xAI: try again." } }
-      : defaultRespond(url, method));
-    await settings.refreshLlmStatus();
-    const key = el(document, "settingsJudgeApiKey");
-    const model = el(document, "settingsJudgeXaiModel");
-    assert.equal(key.getAttribute("autocomplete"), "new-password");
-    assert.ok(key.getAttribute("aria-describedby"));
-    assert.equal(el(document, "settingsJudgeKeyLink").getAttribute("rel"), "noopener");
-    assert.equal(el(document, "settingsJudgeRemove").tagName, "BUTTON");
-    assert.match(text(el(document, "settingsJudgeStatus")), /Grading with your writing model/);
-    const labels = [];
-    const order = [];
-    document.body.walk((node) => {
-      order.push(node.id);
-      if (node.tagName === "LABEL") labels.push(node.getAttribute("for"));
-    });
-    assert.ok(labels.includes("settingsJudgeApiKey"));
-    assert.ok(labels.includes("settingsJudgeXaiModel"));
-    assert.ok(order.indexOf("settingsJudgeKeyLink") < order.indexOf("settingsJudgeApiKey"));
-    assert.ok(order.indexOf("settingsJudgeApiKey") < order.indexOf("settingsJudgeXaiModel"));
-    assert.ok(order.indexOf("settingsJudgeXaiModel") < order.indexOf("settingsJudgeRemove"));
-    key.value = "fictional-network-key";
-    await key.dispatch("change");
-    assert.equal(text(el(document, "settingsJudgeError")), "Couldn't reach xAI: try again.");
-    assert.match(model.getAttribute("aria-describedby"), /settingsJudgeError/);
-    assert.equal(el(document, "settingsJudgeError").getAttribute("role"), "alert");
+    await openEditor(document);
+    const provider = el(document, "settingsJudgeProvider");
+    provider.value = "openrouter";
+    await provider.dispatch("change");
+    assert.equal(await settings.saveJudgeModel(), false);
+    assert.match(text(el(document, "settingsJudgeError")), /Paste your OpenRouter API key first/);
+    assert.equal(llmPosts(calls).length, 0);
   });
 });
 
-describe("MREV JUDGEUX · generic live model list (shared with onboarding)", () => {
-  const OPENROUTER_ROWS = {
-    models: [
-      { id: "openai/gpt-4o-mini", label: "OpenAI: GPT 4o Mini" },
-      { id: "x-ai/grok-4", label: "xAI: Grok 4" },
-    ],
-    recommended: "openai/gpt-4o-mini",
-  };
-
-  async function openGeneric(document, provider) {
-    const other = el(document, "settingsJudgeOtherProviders");
-    other.open = true;
-    await other.dispatch("toggle");
-    el(document, "settingsJudgeProvider").value = provider;
-    await el(document, "settingsJudgeProvider").dispatch("change");
-  }
-
-  it("fills each provider's fixed endpoint and locks it, except local and custom", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-
-    await openGeneric(document, "openrouter");
-    assert.equal(el(document, "settingsJudgeBaseUrl").value, "https://openrouter.ai/api/v1");
-    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
-
-    el(document, "settingsJudgeProvider").value = "anthropic";
-    await el(document, "settingsJudgeProvider").dispatch("change");
-    assert.equal(el(document, "settingsJudgeBaseUrl").value, "");
-    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
-
-    el(document, "settingsJudgeProvider").value = "local";
-    await el(document, "settingsJudgeProvider").dispatch("change");
-    assert.equal(el(document, "settingsJudgeBaseUrl").value, "http://127.0.0.1:11434/v1");
-    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, false);
-
-    el(document, "settingsJudgeProvider").value = "openai_compatible";
-    await el(document, "settingsJudgeProvider").dispatch("change");
-    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, false);
-  });
-
-  it("offers the provider's live models in the model field and prefills its pick", async () => {
-    const { settings, document, calls } = loadSettings((url, method, body) => url.endsWith("/judge-models")
-      ? { body: OPENROUTER_ROWS }
-      : defaultRespond(url, method, body));
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "openrouter");
-
-    const request = calls.find((call) => call.url.endsWith("/api/llm-config/judge-models"));
-    assert.deepEqual(request.body, { provider: "openrouter" });
-    const list = el(document, "settingsJudgeModelList");
-    assert.equal(list.tagName, "DATALIST");
-    assert.deepEqual(list.options.map((option) => option.value), ["openai/gpt-4o-mini", "x-ai/grok-4"]);
-    assert.equal(el(document, "settingsJudgeModel").value, "openai/gpt-4o-mini");
-    assert.match(text(el(document, "settingsJudgeGenericModelsHint")), /Loaded 2 models from OpenRouter/);
-  });
-
-  it("loads a keyed provider's list once its key is entered", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "anthropic");
-    assert.equal(calls.filter((call) => call.url.endsWith("/judge-models")).length, 0);
-
-    const otherKey = el(document, "settingsJudgeOtherApiKey");
-    otherKey.value = "fictional-anthropic-key";
-    await otherKey.dispatch("change");
-    const request = calls.find((call) => call.url.endsWith("/api/llm-config/judge-models"));
-    assert.deepEqual(request.body, { provider: "anthropic", apiKey: "fictional-anthropic-key" });
-    assert.ok(el(document, "settingsJudgeModelList").options.length > 0);
-  });
-
-  it("keeps a typed model and editable URL for a self-hosted compatible endpoint", async () => {
-    const { settings, document, calls } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "openai_compatible");
-    el(document, "settingsJudgeModel").value = "fictional/self-hosted";
-    el(document, "settingsJudgeBaseUrl").value = "https://self-hosted.example/v1";
-    el(document, "settingsJudgeOtherApiKey").value = "fictional-self-key";
-    await el(document, "settingsJudgeOtherApiKey").dispatch("change");
-
-    assert.equal(calls.filter((call) => call.url.endsWith("/judge-models")).length, 0);
-    assert.equal(await settings.saveJudgeModel(), true);
-    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(post.body.judge, {
-      provider: "openai_compatible",
-      model: "fictional/self-hosted",
-      baseUrl: "https://self-hosted.example/v1",
-      apiKey: "fictional-self-key",
-    });
-  });
-
-  it("names a failed generic list in the hint without blocking a typed save", async () => {
-    const { settings, document, calls } = loadSettings((url, method, body) => url.endsWith("/judge-models")
-      ? { status: 401, body: { error: "That key didn't work: check it on OpenAI." } }
-      : defaultRespond(url, method, body));
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "openai");
-    const otherKey = el(document, "settingsJudgeOtherApiKey");
-    otherKey.value = "fictional-rejected-key";
-    await otherKey.dispatch("change");
-
-    assert.equal(text(el(document, "settingsJudgeGenericModelsHint")), "That key didn't work: check it on OpenAI.");
-    el(document, "settingsJudgeModel").value = "gpt-4o-mini";
-    assert.equal(await settings.saveJudgeModel(), true);
-    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.equal(post.body.judge.model, "gpt-4o-mini");
-  });
-});
-
-describe("MREV JUDGEUX · saved generic judges fill verbatim (P1: no fabricated edits)", () => {
-  const BLANK_OPENAI_JUDGE = { provider: "openai", model: "gpt-4o-mini", baseUrl: "", keyPresent: true };
-
-  function savedGenericRespond(url, method, body) {
-    if (url.endsWith("/judge-models")) return { body: CATALOG };
-    if (method === "POST") {
-      return { body: { ...WRITER, judge: body.judge ? { ...body.judge, keyPresent: true } : null } };
-    }
-    return { body: { ...WRITER, judge: BLANK_OPENAI_JUDGE } };
-  }
-
-  it("leaves a saved blank endpoint blank, locked, and clean", async () => {
-    const { settings, document } = loadSettings(savedGenericRespond);
-    await settings.refreshLlmStatus();
+describe("J-FE2 · saved generic and local judges fill verbatim (P1, P2 kept)", () => {
+  it("leaves a saved blank endpoint blank and clean, and saves it untouched", async () => {
+    const judge = { provider: "openai", model: "gpt-4o-mini", baseUrl: "", keyPresent: true };
+    const { settings, document, calls } = loadSettings(storingServer({ ...WRITER, judge }, {
+      models: () => ({ body: { models: [{ id: "gpt-4o-mini" }], recommended: "gpt-4o-mini" } }),
+    }));
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    assert.equal(text(el(document, "settingsJudgeStatus")), "OpenAI · gpt-4o-mini · key saved");
+    await openEditor(document);
     assert.equal(el(document, "settingsJudgeProvider").value, "openai");
-    assert.equal(el(document, "settingsJudgeBaseUrl").value, "", "fill never writes the fixed URL over a blank");
-    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
     assert.equal(settings.judgeFormIsDirty(), false, "an untouched fill is not an edit");
-  });
-
-  it("saves the untouched fill without moving the endpoint or the key", async () => {
-    const { settings, calls } = loadSettings(savedGenericRespond);
-    await settings.refreshLlmStatus();
+    const model = el(document, "settingsJudgeModel");
+    await model.dispatch("change");
     assert.equal(await settings.saveJudgeModel(), true);
-    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
-    assert.deepEqual(post.body.judge, { provider: "openai", model: "gpt-4o-mini", baseUrl: "" });
+    assert.deepEqual(llmPosts(calls).at(-1).body.judge, { provider: "openai", model: "gpt-4o-mini", baseUrl: "" });
   });
-});
 
-describe("MREV JUDGEUX · saved local judge round-trips (P2)", () => {
-  const LOCAL_JUDGE = {
-    provider: "openai_compatible", alias: "local", model: "qwen3:8b",
-    baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false,
-  };
-  const TAGS = { models: [{ id: "qwen3:8b", label: "qwen3:8b" }], recommended: "qwen3:8b" };
-
-  function localRespond(url, method, body) {
-    if (url.endsWith("/judge-models")) {
-      assert.equal(body.provider, "local");
-      return { body: TAGS };
-    }
-    if (method === "POST") {
-      return { body: { ...WRITER, judge: body.judge ? { ...body.judge, keyPresent: false } : null } };
-    }
-    return { body: { ...WRITER, judge: LOCAL_JUDGE } };
-  }
-
-  it("fills local with its Ollama guide and reloads its tags", async () => {
-    const { settings, document, calls } = loadSettings(localRespond);
-    await settings.refreshLlmStatus();
-    // The saved-judge auto-load is fire-and-forget, like the xAI card's: let it land.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  it("round-trips a saved local model and reloads its tags", async () => {
+    const judge = { provider: "openai_compatible", alias: "local", model: "qwen3:8b", baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false };
+    const { settings, document, calls } = loadSettings(storingServer({ ...WRITER, judge }, {
+      models: (body) => {
+        assert.equal(body.provider, "local");
+        return { body: { models: [{ id: "qwen3:8b", label: "qwen3:8b" }], recommended: "qwen3:8b" } };
+      },
+    }));
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await settle();
+    assert.equal(text(el(document, "settingsJudgeStatus")), "Local · qwen3:8b");
     assert.equal(el(document, "settingsJudgeProvider").value, "local");
-    assert.equal(el(document, "settingsJudgeKeyGuideLink").getAttribute("href"), "https://ollama.com");
-    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /usually need no key/);
-    assert.equal(el(document, "settingsJudgeStatus").textContent, "Grading with your local model (qwen3:8b)");
-    assert.ok(calls.some((call) => call.url.endsWith("/api/llm-config/judge-models")), "the Ollama list loads again");
-    assert.deepEqual(
-      el(document, "settingsJudgeModelList").options.map((option) => option.value),
-      ["qwen3:8b"],
-    );
+    assert.ok(calls.some((call) => call.url.endsWith("/judge-models")), "the Ollama list loads again");
+    assert.equal(el(document, "settingsJudgeModel").value, "qwen3:8b");
+    assert.equal(el(document, "settingsJudgeKeyLink").getAttribute("href"), "https://ollama.com");
     assert.equal(settings.judgeFormIsDirty(), false);
   });
+
+  it("an unreachable server says so in grading-model words", async () => {
+    const { settings, document } = loadSettings(() => { throw new TypeError("Failed to fetch"); });
+    await settings.refreshLlmStatus();
+    assert.match(text(el(document, "settingsJudgeError")), /Can.t reach the JobBored server/);
+    assert.doesNotMatch(text(el(document, "settingsJudgeGroup")), /judge/i);
+  });
 });
 
-describe("MREV JUDGEUX · generic key guide (shared with onboarding)", () => {
-  async function openGeneric(document, provider) {
-    const other = el(document, "settingsJudgeOtherProviders");
-    other.open = true;
-    await other.dispatch("toggle");
-    el(document, "settingsJudgeProvider").value = provider;
-    await el(document, "settingsJudgeProvider").dispatch("change");
-  }
-
-  it("shows the selected provider's key link and cost note", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
+describe("J-FE4 · the scorecard's grading links open Settings → AI", () => {
+  it("a click on [data-action=settings-open-grading] opens the AI tab and focuses Change", async () => {
+    const { settings, window, document } = loadSettings(storingServer());
+    // Any host call the modal makes on open is a no-op here.
+    const core = window.JobBoredApp.core;
+    core.host = new Proxy(core.host, { get: (t, k) => (k in t ? t[k] : () => false) });
+    const tabs = [];
+    window.JobBoredSettingsTabSchema = { DEFAULT_TAB: "sheet" };
+    window.JobBoredSettingsTabs.initSettingsTabs = (_modal, options) => tabs.push(options.defaultTab);
+    const listeners = [];
+    document.addEventListener = (type, fn) => listeners.push({ type, fn });
+    const modal = document.body.appendChild(document.createElement("div"));
+    modal.id = "settingsModal";
     await settings.refreshLlmStatus();
-    await openGeneric(document, "openrouter");
-    const link = el(document, "settingsJudgeKeyGuideLink");
-    assert.equal(link.getAttribute("href"), "https://openrouter.ai/keys");
-    assert.match(text(link), /Create an OpenRouter key/);
-    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Pay-as-you-go/);
-  });
-
-  it("updates the guide when the provider changes", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "openrouter");
-    el(document, "settingsJudgeProvider").value = "gemini";
-    await el(document, "settingsJudgeProvider").dispatch("change");
-    assert.equal(
-      el(document, "settingsJudgeKeyGuideLink").getAttribute("href"),
-      "https://aistudio.google.com/app/apikey",
-    );
-    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /Free tier/);
-  });
-
-  it("tells local users no key is needed, with an Ollama link", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    await openGeneric(document, "local");
-    assert.equal(el(document, "settingsJudgeKeyGuideLink").getAttribute("href"), "https://ollama.com");
-    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /usually need no key/);
-  });
-
-  it("lives inside the Other disclosure, so it hides with it", async () => {
-    const { settings, document } = loadSettings(defaultRespond);
-    await settings.refreshLlmStatus();
-    const other = el(document, "settingsJudgeOtherProviders");
-    const ids = [];
-    other.walk((node) => ids.push(node.id));
-    assert.ok(ids.includes("settingsJudgeKeyGuideLink"));
-    assert.ok(ids.includes("settingsJudgeKeyGuideNote"));
+    settings.initCommandCenterSettings();
+    const link = document.createElement("button");
+    link.closest = (selector) => (selector === '[data-action="settings-open-grading"]' ? link : null);
+    const clicks = listeners.filter((l) => l.type === "click");
+    assert.ok(clicks.length > 0, "Settings listens for the scorecard's link");
+    let prevented = false;
+    for (const l of clicks) l.fn({ target: link, preventDefault() { prevented = true; } });
+    await settle();
+    assert.equal(prevented, true);
+    assert.deepEqual(tabs, ["ai"]);
+    assert.equal(document.activeElement, el(document, "settingsJudgeChange"));
   });
 });

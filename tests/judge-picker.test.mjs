@@ -280,3 +280,154 @@ describe("judge-picker · fetchJudgeModels", () => {
     assert.equal(result.error, "Couldn't reach OpenAI: try again.");
   });
 });
+
+/* ============================================================
+   JUDGEUX FE1 · the one shared "Grading model" field.
+
+   Settings and the onboarding AI beat both mount
+   JobBoredJudgePicker.mount(host, { surface }). These probes drive that
+   component against a fake DOM, so the two surfaces share one behavior.
+   ============================================================ */
+
+import { makeFakeDocument } from "./oneflow-l0-harness.mjs";
+
+function loadPickerWithDom() {
+  const document = makeFakeDocument();
+  const window = {};
+  const ctx = { window, document, console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, Date, Promise };
+  vm.createContext(ctx);
+  vm.runInContext(pickerJs, ctx, { filename: "judge-picker.js" });
+  return { picker: window.JobBoredJudgePicker, document };
+}
+
+const XAI_ROWS = { models: [{ id: "grok-4.7", label: "Grok 4.7" }, { id: "grok-4.6", label: "Grok 4.6" }], recommended: "grok-4.7" };
+
+function mountField(handler, opts = {}) {
+  const { picker, document } = loadPickerWithDom();
+  const host = document.createElement("div");
+  const fetchImpl = stubFetch(handler);
+  const field = picker.mount(host, {
+    surface: "settings",
+    apiBaseUrl: "http://127.0.0.1:3847",
+    fetchImpl,
+    ...opts,
+  });
+  const q = (suffix) => host.querySelector(`#settingsJudge${suffix}`);
+  return { picker, document, host, field, fetchImpl, q };
+}
+
+async function settle() {
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field", () => {
+  it("J-FE1a · lists xAI first and selects it by default", () => {
+    const { q, field } = mountField(() => okJson(XAI_ROWS));
+    const provider = q("Provider");
+    assert.equal(provider.tagName, "SELECT");
+    const values = provider.children.map((option) => option.value);
+    assert.equal(values[0], "xai", "xAI is the first choice");
+    assert.deepEqual(values.slice(0, 6), ["xai", "openrouter", "openai", "anthropic", "gemini", "local"]);
+    assert.match(provider.children[0].textContent, /xAI/);
+    assert.match(provider.children[0].textContent, /recommended/i);
+    assert.equal(provider.value, "xai");
+    assert.equal(field.read().provider, "openai_compatible");
+    assert.equal(field.read().baseUrl, "https://api.x.ai/v1");
+    const link = q("KeyLink");
+    assert.equal(link.getAttribute("href"), "https://console.x.ai/");
+    assert.equal(link.getAttribute("target"), "_blank");
+    assert.match(link.getAttribute("rel"), /noopener/);
+  });
+
+  it("J-FE1b · Test posts the candidate to judge-test and paints the answer time", async () => {
+    const { q, fetchImpl } = mountField((call) => call.url.endsWith("/judge-models")
+      ? okJson(XAI_ROWS)
+      : okJson({ ok: true, structured: true, provider: "openai_compatible", model: "grok-4.7", ms: 1234 }));
+    const key = q("ApiKey");
+    key.value = "fictional-xai-key";
+    key.dispatch("input", { target: key });
+    key.dispatch("change", { target: key });
+    await settle();
+    assert.equal(q("Model").value, "grok-4.7");
+    q("Test").dispatch("click", {});
+    await settle();
+    const test = fetchImpl.calls.find((call) => call.url.endsWith("/api/llm-config/judge-test"));
+    assert.ok(test, "Test posts to the judge-test route");
+    assert.equal(test.url, "http://127.0.0.1:3847/api/llm-config/judge-test");
+    assert.deepEqual(plain(test.body), {
+      provider: "openai_compatible",
+      model: "grok-4.7",
+      baseUrl: "https://api.x.ai/v1",
+      apiKey: "fictional-xai-key",
+    });
+    const result = q("TestResult");
+    assert.match(result.textContent, /1\.2 s/);
+    assert.match(result.textContent, /grok-4\.7/);
+    assert.equal(result.getAttribute("role"), "status");
+  });
+
+  it("J-FE1b · a model that cannot return a grade fails the Test in plain words", async () => {
+    const { q } = mountField((call) => call.url.endsWith("/judge-models")
+      ? okJson(XAI_ROWS)
+      : okJson({ ok: false, structured: false, ms: 800, code: "judge_no_structured_output", retryable: false }));
+    const key = q("ApiKey");
+    key.value = "fictional-xai-key";
+    key.dispatch("change", { target: key });
+    await settle();
+    q("Test").dispatch("click", {});
+    await settle();
+    assert.match(q("TestResult").textContent, /couldn.t return a grade/i);
+    assert.doesNotMatch(q("TestResult").textContent, /judge/i);
+  });
+
+  it("J-FE1c · a blank key keeps the saved key: no apiKey in the pin or the Test", async () => {
+    const { q, field, fetchImpl } = mountField((call) => call.url.endsWith("/judge-models")
+      ? okJson(XAI_ROWS)
+      : okJson({ ok: true, structured: true, model: "grok-4.6", ms: 400 }));
+    field.setSaved({ provider: "openai_compatible", model: "grok-4.6", baseUrl: "https://api.x.ai/v1", keyPresent: true });
+    await settle();
+    assert.equal(q("ApiKey").value, "");
+    assert.equal(q("KeyState").hidden, false);
+    assert.match(q("KeyState").textContent, /Key saved/);
+    assert.equal(q("Model").value, "grok-4.6", "the saved model stays picked");
+    const pin = plain(field.pin());
+    assert.equal("apiKey" in pin, false);
+    assert.deepEqual(pin, { provider: "openai_compatible", model: "grok-4.6", baseUrl: "https://api.x.ai/v1" });
+    const list = fetchImpl.calls.find((call) => call.url.endsWith("/judge-models"));
+    assert.deepEqual(plain(list.body), { provider: "xai" }, "the saved key lists models without being re-typed");
+    q("Test").dispatch("click", {});
+    await settle();
+    const test = fetchImpl.calls.find((call) => call.url.endsWith("/judge-test"));
+    assert.equal("apiKey" in test.body, false, "the server falls back to the saved key");
+    assert.equal(field.isDirty(), false);
+  });
+
+  it("J-FE1d · a failed model list shows a Retry button that reloads it", async () => {
+    let calls = 0;
+    const { q, fetchImpl } = mountField((call) => {
+      if (!call.url.endsWith("/judge-models")) return okJson({});
+      calls += 1;
+      return calls === 1 ? okJson({ error: "Couldn't reach xAI: try again." }, 502) : okJson(XAI_ROWS);
+    });
+    const retry = q("Retry");
+    assert.equal(retry.tagName, "BUTTON");
+    assert.equal(retry.hidden, true, "no Retry before anything failed");
+    const key = q("ApiKey");
+    key.value = "fictional-xai-key";
+    key.dispatch("change", { target: key });
+    await settle();
+    assert.equal(retry.hidden, false);
+    assert.match(q("Error").textContent, /Couldn't reach xAI/);
+    retry.dispatch("click", {});
+    await settle();
+    assert.equal(fetchImpl.calls.filter((call) => call.url.endsWith("/judge-models")).length, 2);
+    assert.equal(retry.hidden, true);
+    assert.equal(q("Model").value, "grok-4.7");
+    assert.equal(q("Error").textContent, "");
+  });
+
+  it("names every visible label 'Grading model', never 'judge'", () => {
+    const { host } = mountField(() => okJson(XAI_ROWS));
+    assert.doesNotMatch(host.textContent, /judge/i);
+  });
+});

@@ -1010,43 +1010,28 @@ async function refreshLlmStatus(opts) {
 }
 
 /* ============================================================
-   Independent grading model (MREV K1 + JUDGEUX).
+   Grading model row (MREV K1 + JUDGEUX FE2).
 
-   The recommended xAI path asks the local API for the current Grok catalog.
-   The key is sent only to that local route, and the server uses it for the
-   xAI request. The optional generic controls stay behind a disclosure.
+   One optional row directly under the writer Provider select: a summary
+   plus Change, which opens the shared field from judge-picker.js inline.
+   It saves with the modal Save as a judge-only body ({ judge } or
+   { judge: null }, BE3), so it no longer needs a writer pin. User copy
+   says "Grading model"; the ids keep "Judge".
    ============================================================ */
 
 const JUDGE_GROUP_ID = "settingsJudgeGroup";
-const JUDGE_FIELD_IDS = Object.freeze([
-  "settingsJudgeApiKey",
-  "settingsJudgeXaiModel",
-  "settingsJudgeProvider",
-  "settingsJudgeModel",
-  "settingsJudgeBaseUrl",
-  "settingsJudgeOtherApiKey",
-]);
-const JUDGE_PROVIDERS = Object.freeze([
-  ["", "Choose a provider"],
-  ["openai_compatible", "OpenAI-compatible (including xAI)"],
-  ["openrouter", "OpenRouter"],
-  ["openai", "OpenAI"],
-  ["anthropic", "Anthropic"],
-  ["gemini", "Google Gemini"],
-  ["local", "Local"],
-]);
+const JUDGE_EMPTY_STATUS = "Not set. Your writing model grades its own work.";
+const JUDGE_FOOTNOTE =
+  "Check connection tests the key in this browser. Drafting and grading use the keys saved on this computer (~/.jobbored).";
 /** What the server holds: { provider, model, baseUrl, keyPresent } or null. */
 let judgeLoaded = null;
-let judgeMode = "xai";
-let judgeModelsRequestSeq = 0;
-let judgeModelsAvailable = false;
-let genericModelsRequestSeq = 0;
-let judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
+/** The shared field's controller, built once per page. */
+let judgeField = null;
 
 /**
  * The shared grading-model picker (judge-picker.js, loaded before this
  * file). Read lazily so a misordered load fails loudly here instead of
- * silently forking the xAI endpoint, the pick rule, or the saved shape.
+ * silently forking the endpoints, the pick rule, or the saved shape.
  */
 function judgePicker() {
   const picker = window.JobBoredJudgePicker;
@@ -1054,621 +1039,111 @@ function judgePicker() {
   return picker;
 }
 
-function judgeFromServer(body) {
-  return judgePicker().judgeFromServer(body);
-}
-
-function isXaiJudge(judge) {
-  return judgePicker().isXaiJudge(judge);
-}
-
-/**
- * Point the generic path at the selected provider's key page, with its cost
- * note. The entries come from the shared picker, so Settings and onboarding
- * can never disagree about where a key comes from or what it costs.
- */
-function updateJudgeKeyGuide() {
-  if (typeof document === "undefined" || !document.getElementById) return;
-  const link = document.getElementById("settingsJudgeKeyGuideLink");
-  const note = document.getElementById("settingsJudgeKeyGuideNote");
-  const provider = document.getElementById("settingsJudgeProvider");
-  if (!link || !note || !provider) return;
-  const guide = judgePicker().OTHER_PROVIDER_KEYS[provider.value] || null;
-  if (!guide) {
-    link.hidden = true;
-    note.hidden = true;
-    return;
-  }
-  link.hidden = false;
-  note.hidden = false;
-  link.setAttribute("href", guide.keyUrl);
-  link.setAttribute("target", "_blank");
-  link.setAttribute("rel", "noopener");
-  link.textContent = guide.keyLabel;
-  note.textContent = guide.keyNote;
-}
-
-/**
- * Point the generic URL field at the chosen provider's fixed endpoint from
- * the shared picker, and lock it: nothing typed from memory. Local keeps
- * its editable default for a remote server, and a custom compatible URL
- * stays typed. On fill (reset false) only the lock syncs — the stored value
- * is shown verbatim, even blank. Writing the fixed URL over a blank would
- * read as an edit, and the next save would post the pin without its key on
- * a moved target, clearing the stored key server-side (P1).
- */
-function syncGenericEndpoint(reset) {
-  const provider = document.getElementById("settingsJudgeProvider");
-  const baseUrl = document.getElementById("settingsJudgeBaseUrl");
-  const model = document.getElementById("settingsJudgeModel");
-  if (!provider || !baseUrl) return;
-  const fixed = judgePicker().PROVIDER_BASE_URLS[provider.value];
-  const locked = fixed !== undefined && provider.value !== "local";
-  if (reset) {
-    if (provider.value === "local") baseUrl.value = fixed || "";
-    else if (locked) baseUrl.value = fixed;
-    else baseUrl.value = "";
-    if (model) model.value = "";
-    clearGenericModels();
-  }
-  baseUrl.disabled = locked;
-}
-
-function clearGenericModels() {
-  const list = document.getElementById("settingsJudgeModelList");
-  if (list) list.replaceChildren();
-  const hint = document.getElementById("settingsJudgeGenericModelsHint");
-  if (hint) hint.textContent = "";
-}
-
-/** OpenRouter and local lists answer without a key; the rest need one. */
-function genericCatalogNeedsKey(catalog) {
-  return Boolean(catalog) && catalog !== "local" && catalog !== "openrouter";
-}
-
-function genericProviderLabel(providerId) {
-  const found = JUDGE_PROVIDERS.find((entry) => entry[0] === providerId);
-  return found ? found[1] : "the provider";
-}
-
-/**
- * Fill the generic datalist from the shared picker. Advisory only: a
- * failed list names itself in the hint and the typed model still saves.
- * A saved same-provider key stands in server-side, like the xAI card.
- */
-async function loadGenericJudgeModels() {
-  const provider = document.getElementById("settingsJudgeProvider");
-  const model = document.getElementById("settingsJudgeModel");
-  const baseUrl = document.getElementById("settingsJudgeBaseUrl");
-  const otherKey = document.getElementById("settingsJudgeOtherApiKey");
-  const list = document.getElementById("settingsJudgeModelList");
-  const hint = document.getElementById("settingsJudgeGenericModelsHint");
-  if (!provider || !model || !list) return false;
-  const catalog = judgePicker().judgeCatalogId(provider.value, baseUrl ? baseUrl.value : "");
-  const apiKey = otherKey ? String(otherKey.value || "").trim() : "";
-  const savedKey = Boolean(
-    judgeLoaded && !isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent
-      && judgeLoaded.provider === provider.value,
-  );
-  if (!catalog || (genericCatalogNeedsKey(catalog) && !apiKey && !savedKey)) {
-    clearGenericModels();
-    if (hint && catalog) hint.textContent = "Enter your key to load the latest models.";
-    return false;
-  }
-  const seq = ++genericModelsRequestSeq;
-  if (hint) hint.textContent = "Loading the latest models…";
-  const result = await judgePicker().fetchJudgeModels({
-    provider: catalog,
-    baseUrl: resolveJobBoredApiUrl(),
-    fetchImpl: apiFetch,
-    apiKey,
-    judgeBaseUrl: catalog === "local" && baseUrl ? String(baseUrl.value || "").trim() : "",
-  });
-  if (seq !== genericModelsRequestSeq) return false;
-  if (!result.ok) {
-    clearGenericModels();
-    if (hint) hint.textContent = result.error;
-    return false;
-  }
-  list.replaceChildren();
-  for (const item of result.models) {
-    const option = llmStatusEl("option", "", item.label);
-    option.value = item.id;
-    list.appendChild(option);
-  }
-  if (!model.value.trim()) {
-    model.value = judgePicker().pickJudgeModel({ models: result.models, recommended: result.recommended, saved: "" });
-  }
-  if (hint) {
-    hint.textContent = result.models.length
-      ? `Loaded ${result.models.length} model${result.models.length === 1 ? "" : "s"} from ${genericProviderLabel(provider.value)}.`
-      : "The provider returned no models.";
-  }
-  return result.models.length > 0;
-}
-
-function appendJudgeField(group, labelText, control) {
-  const label = llmStatusEl("label", "field-label", labelText);
-  label.setAttribute("for", control.id);
-  group.appendChild(label);
-  group.appendChild(control);
-}
-
-function judgeInput(id, type, placeholder) {
-  const input = llmStatusEl("input", "modal-input");
-  input.id = id;
-  input.type = type;
-  input.placeholder = placeholder;
-  input.setAttribute("autocomplete", type === "password" ? "new-password" : "off");
-  input.setAttribute("spellcheck", "false");
-  return input;
-}
-
-function judgeSelect(id) {
-  const select = llmStatusEl("select", "status-select settings-select");
-  select.id = id;
-  return select;
-}
-
-function appendJudgeOption(select, value, label) {
-  const option = llmStatusEl("option", "", label);
-  option.value = value;
-  select.appendChild(option);
-  return option;
-}
-
-function renderJudgeStatus(judge) {
+function renderJudgeSummary(judge, message) {
+  const title = document.getElementById("settingsJudgeTitle");
   const status = document.getElementById("settingsJudgeStatus");
-  if (!status) return;
-  if (!judge) {
-    status.textContent = "Grading with your writing model: less independent";
-    return;
-  }
-  if (isXaiJudge(judge)) {
-    status.textContent = `Grading with Grok (${judge.model})`;
-    return;
-  }
-  const labels = {
-    openai_compatible: "your compatible model",
-    openrouter: "OpenRouter",
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    gemini: "Google Gemini",
-    local: "your local model",
-  };
-  const label = labels[judge.provider] || judge.provider || "your independent model";
-  status.textContent = `Grading with ${label} (${judge.model})`;
+  const line = judgePicker().describeJudge(judge);
+  if (title) title.textContent = line ? "Grading model" : "Grading model (optional)";
+  if (status) status.textContent = message || line || JUDGE_EMPTY_STATUS;
 }
 
-function showJudgeError(message, fieldIds = judgeErrorFieldIds) {
-  const error = document.getElementById("settingsJudgeError");
-  if (!error) return;
-  const text = message || "";
-  error.textContent = text;
-  error.hidden = !text;
-  for (const id of fieldIds) {
-    const field = document.getElementById(id);
-    if (!field) continue;
-    if (text) {
-      field.setAttribute("aria-invalid", "true");
-      field.setAttribute("aria-errormessage", "settingsJudgeError");
-      const describedBy = String(field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
-      if (!describedBy.includes("settingsJudgeError")) describedBy.push("settingsJudgeError");
-      field.setAttribute("aria-describedby", describedBy.join(" "));
-    } else {
-      field.removeAttribute("aria-invalid");
-      field.removeAttribute("aria-errormessage");
-    }
-  }
-}
-
-function clearXaiModels() {
-  judgeModelsAvailable = false;
-  const select = document.getElementById("settingsJudgeXaiModel");
-  const hint = document.getElementById("settingsJudgeModelsHint");
-  if (select) {
-    select.replaceChildren();
-    appendJudgeOption(select, "", "Enter your key to load Grok models");
-    select.value = "";
-    select.disabled = true;
-  }
-  if (hint) hint.textContent = "Enter your key to load the latest Grok models.";
-}
-
-function fillJudgeForm(judge) {
-  const j = judge || null;
-  judgeModelsAvailable = false;
-  const provider = document.getElementById("settingsJudgeProvider");
-  const model = document.getElementById("settingsJudgeModel");
-  const baseUrl = document.getElementById("settingsJudgeBaseUrl");
-  const otherKey = document.getElementById("settingsJudgeOtherApiKey");
-  const xaiKey = document.getElementById("settingsJudgeApiKey");
-  const keyState = document.getElementById("settingsJudgeKeyState");
-  const otherKeyState = document.getElementById("settingsJudgeOtherKeyState");
-  const other = document.getElementById("settingsJudgeOtherProviders");
-  const xaiModel = document.getElementById("settingsJudgeXaiModel");
-
-  judgeMode = !j || isXaiJudge(j) ? "xai" : "generic";
-  judgeErrorFieldIds = judgeMode === "generic"
-    ? ["settingsJudgeProvider", "settingsJudgeModel", "settingsJudgeBaseUrl", "settingsJudgeOtherApiKey"]
-    : ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
-  if (other) other.open = Boolean(j && !isXaiJudge(j));
-  if (provider) provider.value = j && !isXaiJudge(j) ? j.provider : "";
-  if (model) model.value = j && !isXaiJudge(j) ? j.model : "";
-  if (baseUrl) baseUrl.value = j && !isXaiJudge(j) ? j.baseUrl : "";
-  if (otherKey) otherKey.value = "";
-  if (xaiKey) xaiKey.value = "";
-  if (keyState) keyState.textContent = isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
-  if (otherKeyState) otherKeyState.textContent = j && !isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
-  updateJudgeKeyGuide();
-  syncGenericEndpoint(false);
-
-  if (xaiModel) {
-    const selected = j && isXaiJudge(j) ? j.model : "";
-    if (!selected) {
-      clearXaiModels();
-    } else {
-      xaiModel.replaceChildren();
-      appendJudgeOption(xaiModel, selected, `${selected} (saved model)`);
-      xaiModel.value = selected;
-      xaiModel.disabled = true;
-    }
-  }
-  if (settingsFormSnapshot) {
-    for (const id of JUDGE_FIELD_IDS) {
-      const field = document.getElementById(id);
-      if (field) settingsFormSnapshot[id] = String(field.value || "");
-    }
-  }
-  renderJudgeStatus(j);
+function setJudgeEditorOpen(open) {
+  const editor = document.getElementById("settingsJudgeEditor");
+  const change = document.getElementById("settingsJudgeChange");
+  if (editor) editor.hidden = !open;
+  if (change) change.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
 function ensureJudgeGroup() {
   if (typeof document === "undefined" || !document.getElementById) return null;
   const existing = document.getElementById(JUDGE_GROUP_ID);
   if (existing) return existing;
-  const receipt = document.querySelector('[data-receipt="ai"]');
-  const pane = receipt && receipt.parentNode;
-  if (!pane) return null;
-
+  const writer = document.getElementById("settingsResumeProvider");
+  if (!writer || !writer.parentNode) return null;
   const group = llmStatusEl("section", "settings-judge");
   group.id = JUDGE_GROUP_ID;
   group.setAttribute("aria-labelledby", "settingsJudgeTitle");
-  const title = llmStatusEl("h4", "settings-judge__title", "Grading model");
+  const head = llmStatusEl("div", "settings-judge__head");
+  const title = llmStatusEl("h4", "settings-judge__title", "Grading model (optional)");
   title.id = "settingsJudgeTitle";
-  group.appendChild(title);
-  group.appendChild(llmStatusEl(
-    "p",
-    "settings-judge__lede",
-    "Recommended: xAI (Grok). A different company's model grades your writing more honestly.",
-  ));
-
-  const steps = llmStatusEl("ol", "settings-judge__steps");
-  const linkStep = llmStatusEl("li", "settings-judge__step");
-  linkStep.appendChild(llmStatusEl("span", "settings-judge__step-label", "Step 1 · Create a key"));
-  const link = llmStatusEl("a", "settings-judge__key-link", judgePicker().XAI_KEY_LINK_LABEL);
-  link.id = "settingsJudgeKeyLink";
-  link.setAttribute("href", judgePicker().XAI_KEY_URL);
-  link.setAttribute("target", "_blank");
-  link.setAttribute("rel", "noopener");
-  linkStep.appendChild(link);
-  const linkHint = llmStatusEl("p", "settings-judge__hint", "Sign in → API Keys → Create");
-  linkStep.appendChild(linkHint);
-  steps.appendChild(linkStep);
-
-  const keyStep = llmStatusEl("li", "settings-judge__step");
-  const key = judgeInput("settingsJudgeApiKey", "password", "Paste your xAI API key");
-  key.setAttribute("aria-describedby", "settingsJudgeKeyHint settingsJudgeError");
-  keyStep.appendChild(llmStatusEl("span", "settings-judge__step-label", "Step 2 · API key"));
-  appendJudgeField(keyStep, "xAI API key", key);
-  const keyHint = llmStatusEl("p", "settings-judge__hint", "Your key stays hidden after it is saved.");
-  keyHint.id = "settingsJudgeKeyHint";
-  keyStep.appendChild(keyHint);
-  steps.appendChild(keyStep);
-
-  const modelStep = llmStatusEl("li", "settings-judge__step");
-  const model = judgeSelect("settingsJudgeXaiModel");
-  model.disabled = true;
-  model.setAttribute("aria-describedby", "settingsJudgeModelsHint settingsJudgeError");
-  appendJudgeOption(model, "", "Enter your key to load Grok models");
-  modelStep.appendChild(llmStatusEl("span", "settings-judge__step-label", "Step 3 · Grok model"));
-  appendJudgeField(modelStep, "Grok model", model);
-  const modelsHint = llmStatusEl("p", "settings-judge__hint", "Enter your key to load the latest Grok models.");
-  modelsHint.id = "settingsJudgeModelsHint";
-  modelsHint.setAttribute("aria-live", "polite");
-  modelStep.appendChild(modelsHint);
-  steps.appendChild(modelStep);
-  group.appendChild(steps);
-
-  const keyState = llmStatusEl("p", "settings-judge__key-state", "No key saved");
-  keyState.id = "settingsJudgeKeyState";
-  group.appendChild(keyState);
-  const error = llmStatusEl("p", "settings-judge__error");
-  error.id = "settingsJudgeError";
-  error.setAttribute("role", "alert");
-  error.setAttribute("aria-live", "assertive");
-  error.hidden = true;
-  group.appendChild(error);
-
-  const actions = llmStatusEl("div", "settings-judge__actions");
-  const remove = llmStatusEl("button", "settings-judge__remove", "Remove");
-  remove.id = "settingsJudgeRemove";
-  remove.type = "button";
-  remove.disabled = true;
-  remove.setAttribute("aria-label", "Remove grading model");
-  remove.addEventListener("click", () => removeJudgeModel());
-  actions.appendChild(remove);
-  group.appendChild(actions);
-
-  const other = llmStatusEl("details", "settings-judge__other");
-  other.id = "settingsJudgeOtherProviders";
-  const summary = llmStatusEl("summary", "settings-judge__other-summary", "Use a different provider");
-  other.appendChild(summary);
-  other.addEventListener("toggle", () => {
-    if (other.open && provider.value) judgeMode = "generic";
-    else judgeMode = "xai";
+  head.appendChild(title);
+  const change = llmStatusEl("button", "btn-modal-secondary settings-judge__change", "Change");
+  change.id = "settingsJudgeChange";
+  change.type = "button";
+  change.setAttribute("aria-controls", "settingsJudgeEditor");
+  change.setAttribute("aria-expanded", "false");
+  change.addEventListener("click", () => {
+    const editor = document.getElementById("settingsJudgeEditor");
+    setJudgeEditorOpen(Boolean(editor && editor.hidden));
   });
-  other.appendChild(llmStatusEl("p", "settings-judge__hint", "Keep the current provider, model, URL, and key fields here."));
-  const provider = judgeSelect("settingsJudgeProvider");
-  provider.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
-  for (const [value, label] of JUDGE_PROVIDERS) appendJudgeOption(provider, value, label);
-  provider.value = "";
-  provider.addEventListener("change", async () => {
-    updateJudgeKeyGuide();
-    syncGenericEndpoint(true);
-    if (provider.value) {
-      judgeMode = "generic";
-      await loadGenericJudgeModels();
-      return;
-    }
-    judgeMode = "xai";
-    const otherKey = document.getElementById("settingsJudgeOtherApiKey");
-    if (otherKey) otherKey.value = "";
-    showJudgeError("");
-  });
-  provider.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
-  appendJudgeField(other, "Provider", provider);
-  const genericModel = judgeInput("settingsJudgeModel", "text", "Model name");
-  genericModel.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
-  genericModel.setAttribute("list", "settingsJudgeModelList");
-  genericModel.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
-  appendJudgeField(other, "Model name", genericModel);
-  const genericList = llmStatusEl("datalist", "");
-  genericList.id = "settingsJudgeModelList";
-  other.appendChild(genericList);
-  const genericHint = llmStatusEl("p", "settings-judge__hint", "");
-  genericHint.id = "settingsJudgeGenericModelsHint";
-  other.appendChild(genericHint);
-  const genericBaseUrl = judgeInput("settingsJudgeBaseUrl", "url", "https://provider.example/v1");
-  genericBaseUrl.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
-  genericBaseUrl.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
-  genericBaseUrl.addEventListener("change", () => {
-    if (provider.value === "local") void loadGenericJudgeModels();
-  });
-  appendJudgeField(other, "Base URL", genericBaseUrl);
-  const genericKey = judgeInput("settingsJudgeOtherApiKey", "password", "Paste a key to save or replace it");
-  genericKey.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
-  genericKey.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
-  genericKey.addEventListener("input", () => { clearGenericModels(); });
-  genericKey.addEventListener("change", () => loadGenericJudgeModels());
-  appendJudgeField(other, "API key", genericKey);
-  const otherKeyState = llmStatusEl("p", "settings-judge__key-state", "No key saved");
-  otherKeyState.id = "settingsJudgeOtherKeyState";
-  other.appendChild(otherKeyState);
-  const keyGuideLink = llmStatusEl("a", "settings-judge__key-link", "");
-  keyGuideLink.id = "settingsJudgeKeyGuideLink";
-  keyGuideLink.hidden = true;
-  other.appendChild(keyGuideLink);
-  const keyGuideNote = llmStatusEl("p", "settings-judge__hint", "");
-  keyGuideNote.id = "settingsJudgeKeyGuideNote";
-  keyGuideNote.hidden = true;
-  other.appendChild(keyGuideNote);
-  group.appendChild(other);
-
-  key.addEventListener("focus", () => { judgeMode = "xai"; });
-  model.addEventListener("focus", () => { judgeMode = "xai"; });
-  key.addEventListener("input", () => {
-    judgeMode = "xai";
-    judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
-    judgeModelsAvailable = false;
-    if (String(key.value || "").trim()) {
-      model.replaceChildren();
-      appendJudgeOption(model, "", "Leave the key field to load models");
-      model.value = "";
-      model.disabled = true;
-    } else {
-      clearXaiModels();
-    }
-    showJudgeError("");
-  });
-  key.addEventListener("change", () => loadJudgeModels());
-
-  const status = llmStatusEl("p", "settings-judge__status", "Grading with your writing model: less independent");
+  head.appendChild(change);
+  group.appendChild(head);
+  const status = llmStatusEl("p", "settings-judge__status", JUDGE_EMPTY_STATUS);
   status.id = "settingsJudgeStatus";
-  status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
   group.appendChild(status);
-  pane.appendChild(group);
+  const editor = llmStatusEl("div", "settings-judge__editor");
+  editor.id = "settingsJudgeEditor";
+  editor.hidden = true;
+  group.appendChild(editor);
+  const footnote = llmStatusEl("p", "settings-judge__footnote", JUDGE_FOOTNOTE);
+  footnote.id = "settingsJudgeFootnote";
+  group.appendChild(footnote);
+  writer.parentNode.insertBefore(group, writer.nextSibling);
+  judgeField = judgePicker().mount(editor, {
+    surface: "settings",
+    apiBaseUrl: () => resolveJobBoredApiUrl(),
+    fetchImpl: apiFetch,
+    showRemove: true,
+    onRemove: () => { void removeJudgeModel(); },
+  });
   return group;
 }
 
-function readJudgeForm() {
-  const value = (id) => {
-    const field = document.getElementById(id);
-    return field ? String(field.value || "").trim() : "";
-  };
-  if (judgeMode === "generic") {
-    judgeErrorFieldIds = ["settingsJudgeProvider", "settingsJudgeModel", "settingsJudgeBaseUrl", "settingsJudgeOtherApiKey"];
-    return {
-      mode: "generic",
-      provider: value("settingsJudgeProvider"),
-      model: value("settingsJudgeModel"),
-      baseUrl: value("settingsJudgeBaseUrl"),
-      apiKey: value("settingsJudgeOtherApiKey"),
-    };
-  }
-  judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
-  return {
-    mode: "xai",
-    provider: "openai_compatible",
-    model: value("settingsJudgeXaiModel"),
-    baseUrl: judgePicker().XAI_BASE_URL,
-    apiKey: value("settingsJudgeApiKey"),
-  };
-}
-
-/** True once the user typed a key or changed the saved judge choice. */
+/** True once the user changed the grading model's fields. */
 function judgeFormIsDirty() {
-  if (typeof document === "undefined" || !document.getElementById(JUDGE_GROUP_ID)) return false;
-  const form = readJudgeForm();
-  if (form.mode === "generic") {
-    if (!form.provider) return Boolean(judgeLoaded && !isXaiJudge(judgeLoaded));
-    return Boolean(form.apiKey)
-      || !judgeLoaded
-      || isXaiJudge(judgeLoaded)
-      || form.provider !== judgeLoaded.provider
-      || form.model !== judgeLoaded.model
-      || form.baseUrl !== judgeLoaded.baseUrl;
-  }
-  return Boolean(form.apiKey)
-    || Boolean(judgeLoaded && !isXaiJudge(judgeLoaded))
-    || form.model !== String(isXaiJudge(judgeLoaded) ? judgeLoaded.model : "");
+  return Boolean(judgeField && judgeField.isDirty());
 }
 
-function judgeFormError(form) {
-  if (form.mode === "generic") {
-    if (!form.provider) return "Choose a provider, or use the recommended xAI setup.";
-    if (!form.model) return "Enter the model name for this provider.";
-    if (form.baseUrl && !/^https?:\/\//i.test(form.baseUrl)) return "The base URL must start with http:// or https://.";
-    return "";
-  }
-  if (form.apiKey && !judgeModelsAvailable) {
-    const error = document.getElementById("settingsJudgeError");
-    return error && !error.hidden && error.textContent
-      ? error.textContent
-      : "Load Grok models with this key before saving.";
-  }
-  if (!form.model) return "Enter your xAI API key to load a Grok model.";
-  if (!judgeModelsAvailable && !(isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent && !form.apiKey && form.model === judgeLoaded.model)) {
-    return "Load Grok models before saving this choice.";
-  }
-  if (!form.apiKey && !(isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent)) return "Enter your xAI API key to load models.";
-  return "";
+/** BE3's judge-only POST body: the pin, or null when Remove is chosen. */
+function buildJudgeRequestBody(pin, options = {}) {
+  return { judge: options.remove || !pin ? null : pin };
 }
 
-/**
- * K1 POST body: the server's writer pin as it stands (no apiKey, so its key
- * is kept) plus `judge`, or null when Remove is chosen.
- */
-function buildJudgeRequestBody(server, form, options = {}) {
-  const s = server && typeof server === "object" ? server : {};
-  const provider = String(s.alias || s.provider || "").trim();
-  const model = String(s.model || "").trim();
-  if (!provider || !model) return null;
-  let judge = null;
-  if (!options.remove && form.provider) {
-    judge = judgePicker().buildJudgePin(form);
-  }
-  return { provider, model, baseUrl: String(s.baseUrl || "").trim(), judge };
-}
-
-/** Load the live xAI list through the local API; the key never goes to this page's xAI connection. */
-async function loadJudgeModels() {
-  judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
-  const key = document.getElementById("settingsJudgeApiKey");
-  const select = document.getElementById("settingsJudgeXaiModel");
-  const hint = document.getElementById("settingsJudgeModelsHint");
-  if (!key || !select) return false;
-  const apiKey = String(key.value || "").trim();
-  if (!apiKey && !(isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent)) {
-    showJudgeError("Enter your xAI API key to load models.", ["settingsJudgeApiKey"]);
-    if (hint) hint.textContent = "Enter your key to load the latest Grok models.";
-    return false;
-  }
-  const seq = ++judgeModelsRequestSeq;
-  judgeModelsAvailable = false;
-  select.replaceChildren();
-  appendJudgeOption(select, "", "Loading Grok models…");
-  select.value = "";
-  select.disabled = false;
-  if (hint) hint.textContent = "Loading the latest Grok models from xAI…";
-  showJudgeError("");
-  const result = await judgePicker().fetchJudgeModels({
-    baseUrl: resolveJobBoredApiUrl(),
-    fetchImpl: apiFetch,
-    apiKey,
-  });
-  if (seq !== judgeModelsRequestSeq) return false;
-  if (!result.ok) {
-    // Status 0 is the transport itself (the old catch block); anything else
-    // answered and refused, usually the key (the old !resp.ok block).
-    const unreachable = result.status === 0;
-    showJudgeError(result.error, [apiKey ? "settingsJudgeApiKey" : "settingsJudgeXaiModel"]);
-    select.replaceChildren();
-    appendJudgeOption(select, "", unreachable ? "Models unavailable — check your connection" : "Models unavailable — check your key");
-    select.value = "";
-    select.disabled = false;
-    if (hint) hint.textContent = unreachable
-      ? "Check your connection, then enter the key again to reload models."
-      : "Check the key, then enter it again to reload models.";
-    return false;
-  }
-  const models = result.models;
-  const selected = isXaiJudge(judgeLoaded) ? judgeLoaded.model : "";
-  select.replaceChildren();
-  for (const item of models) {
-    appendJudgeOption(select, item.id, item.label);
-  }
-  if (selected && !models.some((item) => item.id === selected)) {
-    appendJudgeOption(select, selected, `${selected} (saved model)`);
-  }
-  if (models.length === 0 && !selected) appendJudgeOption(select, "", "No text-capable Grok models found");
-  select.value = judgePicker().pickJudgeModel({ models, recommended: result.recommended, saved: selected });
-  select.disabled = false;
-  judgeModelsAvailable = models.length > 0;
-  if (hint) hint.textContent = models.length
-    ? "Model list loaded from xAI. The newest recommended Grok model is selected."
-    : "xAI did not return any text-capable Grok models.";
-  return models.length > 0;
+function loadJudgeModels() {
+  return judgeField ? judgeField.loadModels() : Promise.resolve(false);
 }
 
 function renderJudgeModel(status, reset) {
-  if (!ensureJudgeGroup()) return;
-  const dirty = judgeFormIsDirty();
+  if (!ensureJudgeGroup() || !judgeField) return;
   if (!status || !status.reachable) {
-    showJudgeError("Can’t reach the JobBored server on this computer, so the judge model can’t be changed here.");
+    const message = "Can’t reach the JobBored server on this computer, so the grading model can’t be changed here.";
+    renderJudgeSummary(judgeLoaded, message);
+    judgeField.showError(message);
     return;
   }
-  judgeLoaded = judgeFromServer(status.server);
-  renderJudgeStatus(judgeLoaded);
-  const remove = document.getElementById("settingsJudgeRemove");
-  if (remove) remove.disabled = !judgeLoaded;
-  if (reset || !dirty) {
-    fillJudgeForm(judgeLoaded);
-    showJudgeError("");
-    if (isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent) void loadJudgeModels();
-    else if (judgeLoaded && !isXaiJudge(judgeLoaded)) void loadGenericJudgeModels();
+  judgeLoaded = judgePicker().judgeFromServer(status.server);
+  renderJudgeSummary(judgeLoaded);
+  if (reset || !judgeFormIsDirty()) {
+    judgeField.setSaved(judgeLoaded);
+    if (reset) setJudgeEditorOpen(false);
   }
 }
 
-/** Save the judge group. Resolves true when the server took it. */
+/** Save the grading model. Resolves true when the server took it. */
 async function saveJudgeModel(options = {}) {
-  const form = readJudgeForm();
-  const invalid = options.remove ? "" : judgeFormError(form);
-  if (invalid) {
-    showJudgeError(invalid, judgeErrorFieldIds);
-    return false;
+  if (!ensureJudgeGroup() || !judgeField) return false;
+  if (!options.remove) {
+    const invalid = judgeField.validate();
+    if (invalid) {
+      setJudgeEditorOpen(true);
+      judgeField.showError(invalid.message, invalid.fields);
+      return false;
+    }
   }
-  const status = await fetchLlmStatus();
-  if (!status.reachable) {
-    showJudgeError("Can’t reach the JobBored server on this computer, so the judge model wasn’t saved.");
-    return false;
-  }
-  const body = buildJudgeRequestBody(status.server, form, options);
-  if (!body) {
-    showJudgeError("Set a drafting model first: the judge is saved alongside it.");
-    return false;
-  }
+  const pin = options.remove ? null : judgeField.pin();
+  const typedKey = Boolean(pin && pin.apiKey);
+  const body = buildJudgeRequestBody(pin, options);
   let answer = null;
   try {
     const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
@@ -1679,28 +1154,36 @@ async function saveJudgeModel(options = {}) {
     try { answer = await resp.json(); } catch (_) { answer = null; }
     if (!resp || resp.ok === false) {
       const why = answer && answer.error ? String(answer.error) : `the server answered ${resp ? resp.status : "nothing"}`;
-      showJudgeError(`The judge model wasn’t saved: ${why}`);
+      setJudgeEditorOpen(true);
+      judgeField.showError(`The grading model wasn’t saved: ${why}`, typedKey ? ["ApiKey"] : ["Model"]);
       return false;
     }
-  } catch (err) {
-    const message = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
-    showJudgeError(`The judge model wasn’t saved: ${message}`);
+  } catch (_) {
+    setJudgeEditorOpen(true);
+    judgeField.showError("Can’t reach the JobBored server on this computer, so the grading model wasn’t saved.");
     return false;
   }
   judgeLoaded = answer && typeof answer === "object" && "judge" in answer
-    ? judgeFromServer(answer)
+    ? judgePicker().judgeFromServer(answer)
     : body.judge
-      ? { provider: body.judge.provider, model: body.judge.model, baseUrl: body.judge.baseUrl, keyPresent: Boolean(form.apiKey) }
+      ? { provider: body.judge.provider, model: body.judge.model, baseUrl: body.judge.baseUrl, keyPresent: typedKey }
       : null;
-  fillJudgeForm(judgeLoaded);
-  const remove = document.getElementById("settingsJudgeRemove");
-  if (remove) remove.disabled = !judgeLoaded;
-  showJudgeError("");
+  judgeField.setSaved(judgeLoaded);
+  renderJudgeSummary(judgeLoaded);
   return true;
 }
 
 function removeJudgeModel() {
   return saveJudgeModel({ remove: true });
+}
+
+/** Open Settings on the AI tab with the grading row in view and focused. */
+async function openGradingSettings() {
+  await openCommandCenterSettingsModal({ tab: "ai" });
+  const group = document.getElementById(JUDGE_GROUP_ID);
+  if (group && typeof group.scrollIntoView === "function") group.scrollIntoView({ block: "center" });
+  const change = document.getElementById("settingsJudgeChange");
+  if (change && typeof change.focus === "function") change.focus();
 }
 
 /**
@@ -1901,6 +1384,8 @@ function readSettingsFormState() {
     )
     .forEach((el) => {
       if (!el.id || el.type === "file" || el.type === "button") return;
+      // The grading model row tracks its own edits (judgeFormIsDirty).
+      if (el.id.startsWith("settingsJudge")) return;
       out[el.id] =
         el.type === "checkbox" || el.type === "radio" ? !!el.checked : String(el.value || "");
     });
@@ -1912,6 +1397,7 @@ function snapshotSettingsForm() {
 }
 
 function settingsFormIsDirty() {
+  if (judgeFormIsDirty()) return true;
   if (!settingsFormSnapshot) return false;
   const now = readSettingsFormState();
   for (const k of Object.keys(now)) {
@@ -2287,7 +1773,7 @@ async function saveCommandCenterSettingsFromForm() {
   // the drawer's Connection tab now — a Settings save cannot change it, so
   // there is nothing here to re-record (GREENFIELD D5).
   host().syncDiscoveryButtonState();
-  // MREV K1: the judge group posts only when its own fields changed.
+  // MREV K1: the grading model row posts only when its own fields changed.
   if (judgeFormIsDirty() && !(await saveJudgeModel())) {
     const Tabs = window.JobBoredSettingsTabs;
     if (Tabs && typeof Tabs.setActiveSettingsTab === "function") Tabs.setActiveSettingsTab("ai", { silent: true });
@@ -2296,7 +1782,7 @@ async function saveCommandCenterSettingsFromForm() {
       ? judgeGroup.querySelector('[aria-invalid="true"]')
       : null;
     if (invalidJudgeField && typeof invalidJudgeField.focus === "function") invalidJudgeField.focus();
-    showToast("Your other settings are saved; the judge model isn’t. See the AI tab.", "error", true);
+    showToast("Your other settings are saved; the grading model isn’t. See the AI tab.", "error", true);
     return;
   }
   finishSettingsSave(beforeSave, payload, sheetId);
@@ -2456,6 +1942,16 @@ function initCommandCenterSettings() {
     ?.addEventListener("click", () => {
       void openCommandCenterSettingsModal();
     });
+  // JUDGEUX FE4: the scorecard's "Change grading model" and "Add a second
+  // opinion" land on the grading row in Settings → AI.
+  document.addEventListener("click", (event) => {
+    const target = event && event.target && typeof event.target.closest === "function"
+      ? event.target.closest('[data-action="settings-open-grading"]')
+      : null;
+    if (!target) return;
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    void openGradingSettings();
+  });
   document
     .getElementById("settingsModalClose")
     ?.addEventListener("click", () => {
@@ -2576,6 +2072,7 @@ function initCommandCenterSettings() {
     loadJudgeModels,
     saveJudgeModel,
     removeJudgeModel,
+    openGradingSettings,
     settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,

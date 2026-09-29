@@ -122,7 +122,7 @@
     { id: "prepare", label: "Prepare", stages: ["prepare"] },
     { id: "write", label: "Write", stages: ["write"] },
     { id: "check", label: "Check & render", stages: ["validate", "render"] },
-    { id: "judge", label: "Judge", stages: ["judge"] },
+    { id: "judge", label: "Grade", stages: ["judge"] },
     { id: "repair", label: "Repair pass", stages: ["repair"] },
     { id: "save", label: "Save", stages: ["save"] },
   ];
@@ -435,7 +435,7 @@
     }
     return '<div class="mat-score mat-score--' + tone + '" data-qa-disposition="' + esc(d) + '" data-qa-contract="v1">'
       + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
-      + '<p class="mat-score__old">Graded by the old checker. Draft it again for the judge\u2019s read and Repair.</p>'
+      + '<p class="mat-score__old">Graded by the old checker. Draft it again for the grading model\u2019s read and Repair.</p>'
       + banner
       + rubricHtml(qa, tone === "fail")
       + "</div>";
@@ -453,7 +453,7 @@
   var ISSUE_KIND_WORDS = { fact: "Fact", scope: "Scope", voice: "Voice", relevance: "Relevance", clarity: "Clarity", format: "Format" };
   var ISSUE_GROUPS = [
     { id: "facts", head: "Factual blockers", sub: "Fix these before you send it: nothing in your background or the posting supports them." },
-    { id: "check", head: "Facts to confirm", sub: "The judge couldn\u2019t confirm these from your background or the posting." },
+    { id: "check", head: "Facts to confirm", sub: "The grading model couldn\u2019t confirm these from your background or the posting." },
     { id: "writing", head: "Writing feedback", sub: "" },
   ];
 
@@ -525,14 +525,57 @@
     }).join("");
   }
 
-  /* Who graded it: an independent judge by name, the writer's own model, or
-     nobody (the judge was down or its answer failed validation). */
-  function judgeLine(qa) {
+  /* Who graded it: an independent grading model by name, the writer's own
+     model, or nobody — and then why, from the record's errorCode (BE2),
+     with Try again (the draft retry path) and Change grading model
+     (Settings → AI). A failed grade never falls back to the writer. */
+  var GRADE_REASONS = {
+    auth: "the key was rejected.",
+    rate_limited: "the provider was busy.",
+    unconfigured: "no key is saved for it.",
+    invalid_json: "it returned a grade we couldn’t use.",
+    invalid_judgment: "it returned a grade we couldn’t use.",
+  };
+
+  function gradeFailureReason(j) {
+    var code = String(j.errorCode || "");
+    if (code === "timeout") {
+      var s = Math.round(Number(j.latencyMs) / 1000);
+      return s > 0 ? "it timed out after " + s + " s." : "it timed out.";
+    }
+    if (GRADE_REASONS[code]) return GRADE_REASONS[code];
+    return j.status === "invalid" ? GRADE_REASONS.invalid_judgment : "it didn’t answer.";
+  }
+
+  function judgeLine(qa, type) {
     var j = qa.judge && typeof qa.judge === "object" ? qa.judge : null;
     if (!j) return null;
-    if (j.status && j.status !== "ok") return { kind: "unavailable", text: "Judge unavailable, so this needs your review" };
-    if (j.independent === false) return { kind: "same", text: "Judged by the same model that wrote it" };
-    return { kind: "independent", text: "Judged by " + (j.model || j.provider || "an independent model") };
+    var change = { action: "settings-open-grading", label: "Change grading model" };
+    if (j.status && j.status !== "ok") {
+      return {
+        kind: j.status === "invalid" ? "invalid" : "unavailable",
+        text: "Grading" + (j.model ? " by " + j.model : "") + " didn’t finish: " + gradeFailureReason(j),
+        acts: [{ action: "materials-retry", feature: type, label: "Try again" }, change],
+      };
+    }
+    if (j.independent === false) {
+      return {
+        kind: "same",
+        text: "Graded by your writing model" + (j.model ? " (" + j.model + ")" : "") + ".",
+        acts: [{ action: "settings-open-grading", label: "Add a second opinion" }],
+      };
+    }
+    return { kind: "independent", text: "Graded by " + (j.model || j.provider || "an independent model"), acts: [] };
+  }
+
+  function judgeLineHtml(judge) {
+    var acts = judge.acts.map(function (a) {
+      return '<button type="button" class="case__link mat-verdict__judge-act" data-action="' + esc(a.action) + '"'
+        + (a.feature ? ' data-feature="' + esc(a.feature) + '"' : "")
+        + ">" + esc(a.label) + "</button>";
+    }).join(" ");
+    return '<p class="mat-verdict__judge" data-judge="' + judge.kind + '">' + esc(judge.text)
+      + (acts ? ' <span class="mat-verdict__judge-acts">' + acts + "</span>" : "") + "</p>";
   }
 
   function dimensionsHtml(qa, open) {
@@ -568,12 +611,12 @@
     var d = dispositionOf(qualityDoc);
     var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : "ready");
     var reason = String(qa.dispositionReason || "").trim();
-    var judge = judgeLine(qa);
+    var judge = judgeLine(qa, type);
     return '<div class="mat-score mat-score--' + tone + ' mat-score--v2" data-qa-disposition="' + esc(d) + '" data-qa-contract="v2">'
       + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
       + '<div class="mat-verdict mat-verdict--' + tone + '">'
       + (reason ? '<p class="mat-verdict__why">' + esc(reason) + "</p>" : "")
-      + (judge ? '<p class="mat-verdict__judge" data-judge="' + judge.kind + '">' + esc(judge.text) + "</p>" : "")
+      + (judge ? judgeLineHtml(judge) : "")
       + "</div>"
       + issueGroupsHtml(qaIssues(qa))
       + dimensionsHtml(qa, tone !== "ready")
