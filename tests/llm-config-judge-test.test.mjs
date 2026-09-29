@@ -40,7 +40,7 @@ function providerStub({ ok = true, status = 200, payload = null, onCall } = {}) 
       status,
       json: async () => payload !== null && payload !== undefined
         ? payload
-        : { choices: [{ message: { content: "ok" } }] },
+        : { choices: [{ message: { content: '{"grade":3}' } }] },
     };
   };
   fetchImpl.calls = calls;
@@ -135,7 +135,7 @@ describe("POST /api/llm-config/judge-test", () => {
     assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
     assert.equal(call.body.model, "openai/gpt-5.4-mini");
     assert.equal(call.init.headers.authorization, "Bearer sk-or-test-key");
-    assert.deepEqual(call.body.messages, [{ role: "user", content: "Reply with the word ok." }]);
+    assert.match(call.body.messages[0].content, /Grade this fictional sentence/);
   });
 
   it("answers ok:false with the cause on a 401, and never echoes the key", async () => {
@@ -236,7 +236,7 @@ describe("POST /api/llm-config/judge-test", () => {
 
   it("calls Gemini on the wire model with the key in a header", async () => {
     const fetchImpl = providerStub({
-      payload: { candidates: [{ content: { parts: [{ text: "ok" }] } }] },
+      payload: { candidates: [{ content: { parts: [{ text: '{"grade":3}' }] } }] },
     });
     const res = mockRes();
     await handleJudgeTest(

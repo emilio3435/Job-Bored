@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   chat,
   isHttpUrl,
@@ -18,6 +19,13 @@ import {
   routeDeadlineSignal,
 } from "./ai/provider.mjs";
 import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlashWireModel } from "./model-family.mjs";
+
+const JUDGE_PROBE_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["grade"],
+  properties: { grade: { type: "integer", minimum: 0, maximum: 4 } },
+};
+const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type {unknown} */ (Ajv2020));
+const validJudgeProbe = new Ajv({ allErrors: true, strict: false }).compile(JUDGE_PROBE_SCHEMA);
 
 /**
  * @typedef {object} LlmConfig
@@ -562,21 +570,29 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
     apiKey,
     baseUrl,
   };
+  const startedAt = Date.now();
   const resolved = resolveProvider(pin);
   if (!resolved.configured) {
-    res.json({ ok: false, error: resolved.reason, code: "judge_unconfigured", retryable: false });
+    res.json({ ok: false, ms: Date.now() - startedAt, structured: false, error: resolved.reason, code: "judge_unconfigured", retryable: false });
     return;
   }
-  const startedAt = Date.now();
   try {
     const answer = await chat({
       pin,
-      messages: [{ role: "user", content: "Reply with the word ok." }],
-      signal: routeDeadlineSignal(req, res),
-      timeoutMs: 30_000,
+      messages: [{ role: "user", content: "Grade this fictional sentence for clarity from 0 to 4: I built the dispatch forecast. Return only a JSON object with the integer field grade." }],
+      schema: JUDGE_PROBE_SCHEMA,
+      schemaName: "materials_grade_probe",
+      signal: routeDeadlineSignal(req, res, 60_000),
+      timeoutMs: 60_000,
       ...(options && typeof options.fetchImpl === "function" ? { fetchImpl: options.fetchImpl } : {}),
     });
-    res.json({ ok: true, provider, model: answer && answer.model ? answer.model : model, ms: Date.now() - startedAt });
+    let probe;
+    try { probe = JSON.parse(answer.text); } catch { /* free text is not a structured grade */ }
+    if (!validJudgeProbe(probe)) {
+      res.json({ ok: false, ms: Date.now() - startedAt, structured: false, code: "judge_no_structured_output", retryable: false });
+      return;
+    }
+    res.json({ ok: true, structured: true, provider, model: answer && answer.model ? answer.model : model, ms: Date.now() - startedAt });
   } catch (error) {
     const fields = error && typeof error === "object" ? /** @type {Record<string, unknown>} */ (error) : {};
     const retryable = fields.retryable !== false;
@@ -584,6 +600,8 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
     const upstreamStatus = typeof fields.upstreamStatus === "number" ? fields.upstreamStatus : undefined;
     res.json({
       ok: false,
+      ms: Date.now() - startedAt,
+      structured: false,
       error: error instanceof Error && error.message ? error.message : "The judge test failed.",
       code,
       retryable,
