@@ -10,7 +10,7 @@ import { parseStageJson } from "./materials-writer.mjs";
 import { createHash } from "node:crypto";
 import { censusResume } from "./resume-ingest-census.mjs";
 import { foldForMatch, findNumberTokens } from "./resume-text-fold.mjs";
-import { employerKey, normalizeReadDate, reconcileRead } from "./resume-ingest-reconcile.mjs";
+import { employerAliases, employerKey, normalizeReadDate, reconcileRead } from "./resume-ingest-reconcile.mjs";
 
 export const RESUME_STRUCTURE_STAGE = "resume.structure";
 
@@ -772,7 +772,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (kind === "employer" && range[1] - range[0] + 1 > 3) {
       const included = headers.filter((anchor) => anchor.lines[0] >= range[0] && anchor.lines[0] <= range[1]);
       const anchored = included.length === 1 && included[0].lines[0] === range[0] &&
-        aliasesFor(included[0].text).some((alias) => aliasesFor(String(raw.name || "")).includes(alias));
+        employerAliases(included[0].text).some((alias) => employerAliases(String(raw.name || "")).includes(alias));
       if (!anchored) { reject(kind, raw?.name, range, included.length > 1 ? "pointer_crosses_employer_header" : "pointer_too_wide"); return null; }
       return included[0].lines;
     }
@@ -825,11 +825,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         if (Array.isArray(rawEmployer.lines) && /^\s*[-•*]/u.test(sourceLines[rawEmployer.lines[0] - 1] || "")) reject("employer", rawEmployer.name, rawEmployer.lines, "needs_confirmation");
         continue;
       }
-      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && aliasesFor(anchor.text).some((alias) => aliasesFor(found.text).includes(alias)));
+      const matchingHeader = headers.find((anchor) => anchor.lines[0] >= found.lines[0] && anchor.lines[0] <= found.lines[1] && employerAliases(anchor.text).some((alias) => employerAliases(found.text).includes(alias)));
       const nearDate = census.anchors.some((anchor) => anchor.kind === "date_range" && Math.abs(anchor.lines[0] - found.lines[0]) <= 2);
       if (!matchingHeader && (!nearDate || /^\s*[-•*]/u.test(sourceLines[found.lines[0] - 1]))) { reject("employer", rawEmployer.name, found.lines, "needs_confirmation"); continue; }
       /** @type {any} */
-      const employer = { name: found.text, lines: found.lines, aliases: aliasesFor(found.text), roles: [], claims: [] };
+      const employer = { name: found.text, lines: found.lines, aliases: employerAliases(found.text), roles: [], claims: [] };
       for (const field of ["site", "location", "aliasClause"]) if (typeof rawEmployer[field] === "string") {
         if (sourceLines.slice(found.lines[0] - 1, found.lines[1]).join("\n").includes(rawEmployer[field])) employer[field] = rawEmployer[field];
         else reject(field, rawEmployer[field], found.lines, "value_not_in_source_quote");
@@ -894,10 +894,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const allLines = sourceLines.map((_, index) => index + 1);
   if (pin) await call(allLines, false);
   let reconciled = initialResult();
-  if (pin && (reconciled.unaccounted.length || reconciled.residual.length || rejected.length || !parseable)) {
+  let blockingSetAside = reconciled.setAside.filter((item) => item.kind === "employer_header" || item.kind === "formerly_clause");
+  if (pin && (reconciled.unaccounted.length || reconciled.residual.length || blockingSetAside.length || rejected.length || !parseable)) {
     const target = new Set();
-    const missingHeaders = reconciled.unaccounted.filter((item) => item.kind === "employer_header");
-    const repairItems = missingHeaders.length ? missingHeaders : [...reconciled.unaccounted, ...reconciled.residual, ...rejected];
+    const missingHeaders = [...reconciled.unaccounted, ...blockingSetAside].filter((item) => item.kind === "employer_header");
+    const repairItems = missingHeaders.length ? missingHeaders : [...reconciled.unaccounted, ...blockingSetAside, ...reconciled.residual, ...rejected];
     for (const item of repairItems) if (Array.isArray(item.lines)) {
       for (let n = item.lines[0]; n <= item.lines[1]; n += 1) if (n >= 1 && n <= sourceLines.length) target.add(n);
       if (item.kind === "employer_header") {
@@ -910,8 +911,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (!target.size && !parseable) for (const number of allLines) target.add(number);
     if (target.size) await call([...target].sort((a, b) => a - b), true);
     reconciled = initialResult();
+    blockingSetAside = reconciled.setAside.filter((item) => item.kind === "employer_header" || item.kind === "formerly_clause");
   }
-  const unread = [...reconciled.unaccounted, ...reconciled.residual];
+  const unread = [...reconciled.unaccounted, ...blockingSetAside, ...reconciled.residual];
   for (const number of withheld) if (!unread.some((item) => item.lines?.[0] === number)) {
     const section = census.sections.find((item) => item.lines[0] <= number && item.lines[1] >= number);
     if (section && ["experience", "unknown"].includes(section.kind)) unread.push({ id: `withheld-${number}`, kind: "employer_header", lines: [number, number], excerpt: sourceLines[number - 1].trim(), aliasKey: employerKey(sourceLines[number - 1]), reason: "looks_like_instructions" });
@@ -923,7 +925,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   if (source.trim() && !census.anchors.length) reconciled.reconciliation.failures.push("census_empty");
   const uniqueRejected = [...new Map(rejected.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview}`, item])).values()];
   const uniqueReview = [...new Map(reviewClaims.map((item) => [`${item.kind}:${item.reason}:${item.lines.join("-")}:${item.valuePreview || ""}`, item])).values()];
-  const partial = unread.length > 0 || reconciled.setAside.length > 0 || reconciled.reconciliation.failures.length > 0;
+  const partial = unread.length > 0 || reconciled.reconciliation.failures.length > 0;
   const status = !pin ? "needs_model" : !parseable ? "failed" : partial ? "ready_with_review" : "ready";
   return { schema: "ingest-result/1", status, sourceMode: "text", originalSha256: sha256, textSha256: sha256, model: { provider: pin?.provider || "", id: pin?.resolvedModel || pin?.model || "" }, reads, stopReasons, chunks: 1, anchors: census.anchors.length, employers, structure: { source: "model", employers, education: [], credentials: [], looseClaims: [] }, coverage: reconciled.coverage, reconciliation: reconciled.reconciliation, unread, setAside: reconciled.setAside, review: { claims: uniqueReview }, rejected: uniqueRejected, carried: [], missingEmployers, resolutions: [], notes };
 }

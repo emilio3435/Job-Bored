@@ -1,11 +1,14 @@
 import { aliasesFor } from "./materials-resume-structure.mjs";
 import { foldForMatch } from "./resume-text-fold.mjs";
 
-/** The source header, not the model, supplies an employer's alias key. @param {string} name */
-export function employerKey(name) {
+/** Strip a source-site suffix before comparing either census or model names. @param {string} name */
+export function employerAliases(name) {
   const bare = String(name || "").replace(/\s+[—–-]\s+[\w.-]+\.[a-z]{2,}(?=\s|$).*$/iu, "").replace(/\s+\([\w.-]+\.[a-z]{2,}\)\s*$/iu, "").trim();
-  return aliasesFor(bare)[0] || "";
+  return aliasesFor(bare);
 }
+
+/** The source header, not the model, supplies an employer's alias key. @param {string} name */
+export const employerKey = (name) => employerAliases(name)[0] || "";
 
 /** @param {unknown} value */
 export function normalizeReadDate(value) {
@@ -88,7 +91,7 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
   /** @param {import('./resume-ingest-census.mjs').CensusAnchor} anchor @param {string} reason */
   const visible = (anchor, reason) => ({ id: anchor.id, kind: anchor.kind, lines: anchor.lines, ck: anchor.ck, excerpt: lines[anchor.lines[0] - 1]?.trim() || anchor.text, ...(anchor.kind === "employer_header" ? { aliasKey: employerKey(anchor.text) } : {}), reason });
   const associated = employers.map((employer) => {
-    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && aliasesFor(anchor.text).some((alias) => aliasesFor(employer.name).includes(alias)));
+    const head = headers.find((anchor) => overlap(anchor.lines, employer.lines) && employerAliases(anchor.text).some((alias) => employerAliases(employer.name).includes(alias)));
     return { employer, head };
   });
   for (const { employer, head } of associated) {
@@ -107,7 +110,12 @@ export function reconcileRead({ lsrc, census, employers, nonJob = [], quarantine
     }
     let closed = false;
     if (anchor.kind === "employer_header") closed = associated.some(({ head }) => head?.id === anchor.id);
-    if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => head?.lines[0] === number && typeof employer.aliasClause === "string" && employer.aliasClause && folded(anchor.text).includes(folded(employer.aliasClause)));
+    if (anchor.kind === "formerly_clause") closed = associated.some(({ employer, head }) => {
+      if (head?.lines[0] !== number || typeof employer.aliasClause !== "string" || !employer.aliasClause) return false;
+      const clause = folded(employer.aliasClause);
+      const anchorClause = folded(anchor.text);
+      return clause.includes(anchorClause) || anchorClause.includes(clause);
+    });
     if (dated(anchor)) {
       const date = anchor.dateRange;
       if (date) closed = associated.some(({ employer, head }) => {

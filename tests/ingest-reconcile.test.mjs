@@ -106,11 +106,12 @@ it("T-K7-09 a two-line residual block is visible and partial", async () => {
   const datedWork = reconcile.reconcileRead({ lsrc: withYearRange, census: censusResume(withYearRange), employers: [{ ...employer, roles: [], claims: [] }] });
   assert.ok(datedWork.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 8), "an ungrounded year range stays visible");
 });
-it("T-K7-10 model non_job date notes stay visible without downgrading a complete read", async () => {
+it("T-K7-10 model non_job employer anchors stay partial while date notes do not", async () => {
   const reply = fixture("read-full"); reply.nonJob = [{ lines: [34, 34], reason: "user_asserted" }];
   const { result } = await run(SOURCE, [reply, reply]);
-  assert.equal(result.status, "ready");
+  assert.equal(result.status, "ready_with_review");
   assert.ok(result.setAside.some((item) => item.lines[0] === 34));
+  assert.ok(result.missingEmployers.some((item) => item.lines[0] === 34));
 
   const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2022 — Present • Research Lead", "Built a planning tool for local teams.", "2018 — 2019 • background tenure note"].join("\n");
   const complete = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2022", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "background note, not a separate role" }] };
