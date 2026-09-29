@@ -8,20 +8,14 @@ import {
 } from "./oneflow-l1-harness.mjs";
 
 /* ============================================================
-   B2's optional grading model — the judge offer after a landed save.
+   B2's optional grading model — the offer after a landed save (JUDGEUX FE3).
 
-   A passed writer check plus "Save it" earns one more question: a second
-   model to grade the writing (MREV K1). The offer is recommended but never
-   a gate — Skip for now finishes exactly as "Not now" did, and the offer
-   appears ONLY after a save that landed (no server, no offer; a declined
-   or failed save, no offer).
-
-   The offer shares the Settings card's judge picker: xAI recommended, a
-   key link to the xAI console, and a Grok dropdown filled live from
-   POST /api/llm-config/judge-models — no typed slug on the xAI path.
-   Other providers stay behind an "Other providers" disclosure. A Test
-   button live-checks the candidate against POST /api/llm-config/judge-test
-   before anything is saved.
+   A passed writer check plus "Save it" earns one more line: "Want a
+   second opinion? (optional)". It stays collapsed until "Add a grading
+   model" opens the SAME field Settings mounts (judge-picker.js mount()),
+   with the same labels and id suffixes. Skip for now finishes exactly as
+   "Not now" did and posts nothing. Save & continue tests the candidate
+   first (POST /api/llm-config/judge-test) and saves a judge-only body.
    ============================================================ */
 
 const BEAT_ID = "ai";
@@ -141,96 +135,69 @@ function judgeSection(env) {
   return env.mount().querySelector(".oneflow-judge");
 }
 
-function xaiSelect(env) {
-  return env.mount().querySelector("#oneFlowJudgeXaiModel");
+function field(env, suffix) {
+  return env.mount().querySelector(`#oneFlowJudge${suffix}`);
 }
 
-function xaiOptions(env) {
-  return [...(xaiSelect(env).children || [])].map((option) => option.value);
+async function openOffer(env) {
+  await checkWriter(env);
+  await saveWriter(env);
 }
 
-async function typeXaiKey(env, key = "xai-test-key-000") {
-  const field = env.mount().querySelector("#oneFlowJudgeKeyInput");
-  field.value = key;
-  field.dispatch("input", { target: field });
-  field.dispatch("change", { target: field });
+async function expand(env) {
+  field(env, "Toggle").dispatch("click", {});
   await flush();
-  return field;
 }
 
-async function openOtherProviders(env) {
-  const details = env.mount().querySelector("#oneFlowJudgeOther");
-  details.open = true;
-  return details;
-}
-
-function otherCard(env, provider) {
-  const details = env.mount().querySelector("#oneFlowJudgeOther");
-  return details.querySelector(`[data-judge-provider="${provider}"]`);
-}
-
-function otherSelect(env) {
-  return env.mount().querySelector("#oneFlowJudgeOtherModel");
-}
-
-function otherOptions(env) {
-  return [...(otherSelect(env).children || [])].map((option) => option.value);
-}
-
-async function typeOtherKey(env, key = "or-test-key-1") {
-  const field = env.mount().querySelector("#oneFlowJudgeKeyInput");
-  field.value = key;
-  field.dispatch("input", { target: field });
-  field.dispatch("change", { target: field });
+async function typeJudgeKey(env, key = "fictional-xai-key") {
+  const input = field(env, "ApiKey");
+  input.value = key;
+  input.dispatch("input", { target: input });
+  input.dispatch("change", { target: input });
   await flush();
-  return field;
+  await flush();
+  return input;
 }
 
-function setJudgeField(env, id, value) {
-  const field = env.mount().querySelector(`#${id}`);
-  field.value = value;
-  field.dispatch("input", { target: field });
-  return field;
+function writerPins(env) {
+  return callsTo(env, PIN_PATH).filter((c) => c.body && !("judge" in c.body) && c.body.provider);
 }
 
-describe("B2 judge offer — placement (optional, never a gate)", () => {
-  it("appears after Save it with the xAI path first and Test/Skip actions", async () => {
+function judgeSaves(env) {
+  return callsTo(env, PIN_PATH).filter((c) => c.body && "judge" in c.body);
+}
+
+/** Every id under the shared field, prefix stripped, with its label text. */
+function fieldShape(root, prefix) {
+  const ids = [];
+  const labels = [];
+  const walk = (n) => {
+    if (n.id && n.id.startsWith(prefix)) ids.push(n.id.slice(prefix.length));
+    if (n.tagName === "LABEL") labels.push(n.textContent.trim());
+    for (const c of n.children || []) walk(c);
+  };
+  walk(root);
+  return { ids, labels };
+}
+
+describe("B2 grading model offer — placement (optional, never a gate)", () => {
+  it("never appears before the save, and appears after Save it", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
     await checkWriter(env);
     assert.equal(judgeSection(env), null, "no offer before the save");
     await saveWriter(env);
-
-    const section = judgeSection(env);
-    assert.ok(section, "the grading-model offer renders after a landed save");
-    assert.match(section.textContent, /Want a second opinion on your letters\?/);
-    assert.match(section.textContent, /Recommended, but optional/);
+    assert.ok(judgeSection(env), "the grading-model offer renders after a landed save");
     assert.equal(completed(env), false);
-
-    const link = section.querySelector("#oneFlowJudgeXaiKeyLink");
-    assert.equal(link.textContent, "Create an xAI API key");
-    assert.equal(link.getAttribute("href"), XAI_KEY_URL);
-    const select = xaiSelect(env);
-    assert.equal(select.tagName, "SELECT");
-    assert.equal(select.disabled, true);
-    assert.deepEqual(xaiOptions(env), [""], "one placeholder option before the key loads the list");
-    assert.match(section.textContent, /Enter your key to load the latest Grok models\./);
-    assert.equal(otherSelect(env), null, "no other-provider dropdown on the xAI path");
-    assert.equal(actionButton(env.mount(), "ai_judge_test").textContent, "Test judge key");
-    assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
   });
 
   it("leaves the writer cards exactly as spec'd", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    const order = env
-      .mount()
-      .querySelectorAll("[data-provider]")
-      .map((node) => node.dataset.provider);
+    await openOffer(env);
+    const order = env.mount().querySelectorAll("[data-provider]").map((node) => node.dataset.provider);
     assert.deepEqual(order, ["gemini", "openrouter", "openai", "anthropic", "local"]);
   });
 
-  it("never appears after Not now, and Skip-free completion is unchanged", async () => {
+  it("never appears after Not now, and completion is unchanged", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
     await checkWriter(env);
     await env.beats.ai.handleAction("ai_consent_skip");
@@ -247,8 +214,7 @@ describe("B2 judge offer — placement (optional, never a gate)", () => {
 
   it("never appears after a failed pin", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch({ pin: { ok: false, status: 500 } }) });
-    await checkWriter(env);
-    await saveWriter(env);
+    await openOffer(env);
     assert.equal(judgeSection(env), null);
     await env.beats.ai.handleAction("ai_continue");
     assert.ok(completed(env));
@@ -256,8 +222,7 @@ describe("B2 judge offer — placement (optional, never a gate)", () => {
 
   it("a writer-card click abandons the offer and restarts writer input", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
+    await openOffer(env);
     assert.ok(judgeSection(env));
     env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
     assert.equal(judgeSection(env), null);
@@ -265,490 +230,162 @@ describe("B2 judge offer — placement (optional, never a gate)", () => {
   });
 });
 
-describe("B2 judge offer — the live Grok dropdown", () => {
-  it("fills the dropdown from the endpoint once the key is entered", async () => {
+describe("J-FE3 · the offer is one collapsed line", () => {
+  it("J-FE3a · collapsed by default: one question, an Add toggle, and Skip", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-
-    const loads = callsTo(env, JUDGE_MODELS_PATH);
-    assert.equal(loads.length, 1);
-    assert.deepEqual(loads[0].body, { provider: "xai", apiKey: "xai-test-key-000" });
-    assert.deepEqual(xaiOptions(env), ["grok-4.7", "grok-4.6", "grok-4.5"]);
-    assert.equal(xaiSelect(env).disabled, false);
-    assert.equal(xaiSelect(env).value, "grok-4.7");
-    assert.match(judgeSection(env).textContent, /Model list loaded from xAI/);
-  });
-
-  it("preselects whatever the endpoint recommends, not a hardcoded slug", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({ judgeModels: { ok: true, json: { ...XAI_CATALOG, recommended: "grok-4.6" } } }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    assert.equal(xaiSelect(env).value, "grok-4.6");
-  });
-
-  it("a rejected key names the fix and leaves the dropdown unusable", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({
-        judgeModels: { ok: false, status: 401, json: { error: "That key didn't work: check it on the xAI console." } },
-      }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env, "xai-wrong-key-1");
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /That key didn't work/,
-    );
-    assert.equal(xaiSelect(env).value, "");
-    assert.match(judgeSection(env).textContent, /Check the key, then enter it again to reload models/);
-    assert.equal(completed(env), false);
-  });
-
-  it("a dead catalog server names the connection, not the key", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({ judgeModels: new TypeError("Failed to fetch") }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /Couldn't reach xAI: try again\./,
-    );
-    assert.equal(xaiSelect(env).value, "");
-    assert.equal(xaiSelect(env).children[0].textContent, "Models unavailable — check your connection");
-    assert.match(judgeSection(env).textContent, /Check your connection, then enter the key again to reload models/);
-    assert.equal(completed(env), false);
-  });
-
-  it("an empty catalog names Test as the retry path", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({ judgeModels: { ok: true, json: { models: [], recommended: null } } }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    assert.match(judgeSection(env).textContent, /Press Test to try loading the list again/);
-    assert.equal(completed(env), false);
-  });
-
-  it("Test refetches an empty catalog instead of dead-ending", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({ judgeModels: { ok: true, json: { models: [], recommended: null } } }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 2, "Test retries the empty list");
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /Pick a Grok model first\./,
-    );
-    assert.equal(completed(env), false);
-  });
-
-  it("Test recovers when the catalog retry fills the list", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({
-        judgeModels: (n) => (n === 0 ? { ok: true, json: { models: [], recommended: null } } : { ok: true, json: XAI_CATALOG }),
-      }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 2);
-    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 1, "the refilled pick is tested");
-    assert.equal(actionButton(env.mount(), "ai_judge_save").textContent, "Save & continue");
-  });
-
-  it("choosing another Grok model tests and saves that model", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    const select = xaiSelect(env);
-    select.value = "grok-4.6";
-    select.dispatch("change", { target: select });
-    await env.beats.ai.handleAction("ai_judge_test");
-    await env.beats.ai.handleAction("ai_judge_save");
-
-    const tests = callsTo(env, JUDGE_TEST_PATH);
-    assert.equal(tests.length, 1);
-    assert.deepEqual(tests[0].body, {
-      provider: "openai_compatible",
-      model: "grok-4.6",
-      baseUrl: XAI_BASE_URL,
-      apiKey: "xai-test-key-000",
-    });
-    const pins = callsTo(env, PIN_PATH);
-    assert.equal(pins.length, 2);
-    assert.deepEqual(Object.keys(pins[1].body.judge).sort(), ["apiKey", "baseUrl", "model", "provider"]);
-    assert.equal(pins[1].body.judge.model, "grok-4.6");
-    assert.ok(completed(env));
-  });
-});
-
-describe("B2 judge offer — Test, Save, Skip on the xAI path", () => {
-  it("refuses to test with no key pasted, and calls nothing", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await env.beats.ai.handleAction("ai_judge_test");
+    await openOffer(env);
+    const section = judgeSection(env);
+    assert.match(section.textContent, /Want a second opinion\? \(optional\)/);
+    const toggle = field(env, "Toggle");
+    assert.equal(toggle.tagName, "BUTTON");
+    assert.equal(toggle.textContent, "Add a grading model");
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(field(env, "Provider"), null, "no field until the user asks for one");
+    assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
+    assert.equal(actionButton(env.mount(), "ai_judge_save"), null, "nothing to save while collapsed");
+    assert.equal(actionButton(env.mount(), "ai_judge_test"), null, "Test lives in the field now");
     assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 0);
-    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 0);
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /Paste your xAI key first/,
-    );
-    assert.equal(completed(env), false);
+    assert.doesNotMatch(section.textContent, /judge/i, "user copy says grading model");
   });
 
-  it("a passed test swaps the primary to Save & continue", async () => {
+  it("J-FE3a · Add opens the shared field with xAI preselected and Save & continue", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-
-    const tests = callsTo(env, JUDGE_TEST_PATH);
-    assert.equal(tests.length, 1);
-    assert.equal(tests[0].body.provider, "openai_compatible");
-    assert.equal(tests[0].body.model, "grok-4.7");
-    assert.equal(tests[0].body.baseUrl, XAI_BASE_URL);
-    assert.equal(tests[0].body.apiKey, "xai-test-key-000");
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /answered\. Press Save & continue/,
-    );
-    assert.match(env.mount().querySelector(".oneflow-judge__ok").textContent, /grok-4\.7 answered/);
+    await openOffer(env);
+    await expand(env);
+    assert.equal(field(env, "Toggle").getAttribute("aria-expanded"), "true");
+    assert.equal(field(env, "Provider").value, "xai");
+    assert.equal(field(env, "KeyLink").getAttribute("href"), XAI_KEY_URL);
+    assert.equal(field(env, "Remove").hidden, true, "nothing saved yet, nothing to remove");
     assert.equal(actionButton(env.mount(), "ai_judge_save").textContent, "Save & continue");
-    assert.equal(actionButton(env.mount(), "ai_judge_test"), null);
-    assert.equal(completed(env), false, "a test is not a save");
-
-    const [check] = stepEvents(env.events, "key_check").filter((d) => d.role === "judge");
-    assert.ok(check, "the judge test is measured apart from the writer check");
-    assert.equal(check.ok, true);
-    assert.equal(check.provider, "openai_compatible");
+    assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
+    assert.doesNotMatch(judgeSection(env).textContent, /judge/i);
   });
 
-  it("Save posts the writer pin untouched plus the judge, then completes", async () => {
+  it("J-FE3b · Skip completes the beat and posts nothing", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    await env.beats.ai.handleAction("ai_judge_save");
-
-    const pins = callsTo(env, PIN_PATH);
-    assert.equal(pins.length, 2);
-    const [writerSave, judgeSave] = pins.map((c) => c.body);
-    assert.equal("judge" in writerSave, false, "the first save carries no judge");
-    for (const key of ["provider", "model", "apiKey", "baseUrl"]) {
-      assert.equal(judgeSave[key], writerSave[key], `the writer pin's ${key} is re-posted untouched`);
-    }
-    assert.deepEqual(judgeSave.judge, {
-      provider: "openai_compatible",
-      model: "grok-4.7",
-      baseUrl: XAI_BASE_URL,
-      apiKey: "xai-test-key-000",
-    });
-    assert.ok(completed(env));
-    assert.equal(env.flow.getState().beat, "resume");
-  });
-
-  it("Save re-tests after the key or the pick changes", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    const select = xaiSelect(env);
-    select.value = "grok-4.5";
-    select.dispatch("change", { target: select });
-    await env.beats.ai.handleAction("ai_judge_save");
-
-    const tests = callsTo(env, JUDGE_TEST_PATH);
-    assert.equal(tests.length, 2, "the changed pick is tested, not trusted");
-    assert.equal(tests[1].body.model, "grok-4.5");
-    const pins = callsTo(env, PIN_PATH);
-    assert.equal(pins.length, 2);
-    assert.equal(pins[1].body.judge.model, "grok-4.5");
-    assert.ok(completed(env));
-  });
-
-  it("a rejected key fails on screen with a recovery block and stays put", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({
-        judgeTest: {
-          ok: true,
-          json: { ok: false, error: "OpenAI-compatible HTTP 401", code: "invalid_api_key", retryable: false, upstreamStatus: 401 },
-        },
-      }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env, "xai-wrong-key-1");
-    await env.beats.ai.handleAction("ai_judge_test");
-
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /That key was rejected\. Re-copy the whole key/,
-    );
-    const help = judgeSection(env).querySelector(".oneflow-ai__trouble");
-    assert.ok(help, "each failure case names its fix");
-    assert.match(help.textContent, /no credit/);
-    assert.equal(completed(env), false);
-    assert.equal(actionButton(env.mount(), "ai_judge_test").textContent, "Test judge key");
-    const [check] = stepEvents(env.events, "key_check").filter((d) => d.role === "judge");
-    assert.equal(check.ok, false);
-  });
-
-  it("a dead server on Test fails on screen, and Skip still finishes", async () => {
-    const env = await openBeat({
-      fetchImpl: judgeFetch({ judgeTest: new TypeError("Failed to fetch") }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /Couldn't reach JobBored on this computer/,
-    );
-    assert.equal(completed(env), false);
+    await openOffer(env);
+    const pinsBefore = callsTo(env, PIN_PATH).length;
+    await expand(env);
     await env.beats.ai.handleAction("ai_judge_skip");
     assert.ok(completed(env));
-    assert.equal(callsTo(env, PIN_PATH).length, 1, "Skip saves no judge");
-  });
-
-  it("Skip finishes without testing or saving anything", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await env.beats.ai.handleAction("ai_judge_skip");
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 0);
+    assert.equal(callsTo(env, PIN_PATH).length, pinsBefore, "no POST after the writer's own save");
     assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 0);
-    assert.equal(callsTo(env, PIN_PATH).length, 1);
-    assert.ok(completed(env));
-    assert.equal(env.flow.getState().beat, "resume");
+    assert.equal(judgeSaves(env).length, 0);
   });
 
-  it("a failed judge save says so and waits, without losing the test", async () => {
-    const env = await openBeat({
-      // The writer save lands; only the judge save fails.
-      fetchImpl: judgeFetch({ pin: (n) => (n === 0 ? { ok: true } : { ok: false, status: 500, error: "disk full" }) }),
-    });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
-    await env.beats.ai.handleAction("ai_judge_save");
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /The judge model wasn't saved: disk full/,
-    );
-    assert.equal(completed(env), false);
-    assert.equal(actionButton(env.mount(), "ai_judge_save").textContent, "Save & continue");
-  });
-
-  it("says where the judge key is saved and who it is sent to", async () => {
+  it("J-FE3c · the wizard field has the same labels and ids as Settings", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    assert.match(
-      judgeSection(env).textContent,
-      /Saved on this computer in ~\/\.jobbored\/llm\.json, readable only by your account\. It's only ever sent to xAI\./,
-    );
+    await openOffer(env);
+    await expand(env);
+    const wizard = fieldShape(judgeSection(env).querySelector(".jb-grading"), "oneFlowJudge");
+    const host = env.document.createElement("div");
+    env.window.JobBoredJudgePicker.mount(host, { surface: "settings", apiBaseUrl: "http://127.0.0.1:3847", fetchImpl: env.fetchImpl, showRemove: true });
+    const settings = fieldShape(host, "settingsJudge");
+    assert.deepEqual(wizard.ids, settings.ids);
+    assert.deepEqual(wizard.labels, settings.labels);
+    assert.ok(wizard.ids.includes("Provider") && wizard.ids.includes("ApiKey") && wizard.ids.includes("Model"));
   });
 });
 
-describe("B2 judge offer — Other providers", () => {
-  it("hides five providers behind an Other providers disclosure, xAI not among them", async () => {
+describe("B2 grading model offer — Save & continue", () => {
+  it("tests first, then saves a judge-only body and completes", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    const details = await openOtherProviders(env);
-    assert.match(details.textContent, /Other providers/);
-    const order = details
-      .querySelectorAll("[data-judge-provider]")
-      .map((node) => node.dataset.judgeProvider);
-    assert.deepEqual(order, ["openrouter", "openai", "anthropic", "gemini", "local"]);
-    assert.match(details.textContent, /A self-hosted endpoint\? Set it in Settings\./);
-  });
-
-  it("an other provider shows a model dropdown with its key link and cost note", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    assert.equal(otherSelect(env).tagName, "SELECT");
-    assert.equal(env.mount().querySelector("#oneFlowJudgeModelInput"), null, "no typed slug on any path now");
-    const signup = judgeSection(env).querySelector(".oneflow-ai__signup");
-    assert.equal(signup.textContent, "Create an OpenRouter key ↗");
-    assert.equal(signup.getAttribute("href"), "https://openrouter.ai/keys");
-    assert.match(judgeSection(env).textContent, /Pay-as-you-go/);
-    assert.doesNotMatch(
-      otherCard(env, "openrouter").textContent,
-      /Recommended/,
-      "xAI is the one recommended path now",
-    );
-  });
-
-  it("an other provider tests and saves through the same shape", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    await typeOtherKey(env);
-    await env.beats.ai.handleAction("ai_judge_test");
+    await openOffer(env);
+    const writerSaves = writerPins(env).length;
+    await expand(env);
+    await typeJudgeKey(env);
+    assert.equal(field(env, "Model").value, "grok-4.7");
     await env.beats.ai.handleAction("ai_judge_save");
-    const pins = callsTo(env, PIN_PATH);
-    assert.equal(pins.length, 2);
-    assert.deepEqual(Object.keys(pins[1].body.judge).sort(), ["apiKey", "baseUrl", "model", "provider"]);
-    assert.equal(pins[1].body.judge.provider, "openrouter");
-    assert.equal(pins[1].body.judge.model, "openai/gpt-4o-mini");
-    assert.equal(pins[1].body.judge.baseUrl, "https://openrouter.ai/api/v1");
-    assert.ok(completed(env));
-  });
-
-  it("Local asks for no key and saves without one", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "local").dispatch("click");
-    assert.equal(env.mount().querySelector("#oneFlowJudgeKeyInput"), null);
-    assert.equal(
-      env.mount().querySelector("#oneFlowJudgeBaseUrlInput").value,
-      "http://127.0.0.1:11434/v1",
-    );
-    await env.beats.ai.handleAction("ai_judge_test");
-    await env.beats.ai.handleAction("ai_judge_save");
-    const pins = callsTo(env, PIN_PATH);
-    assert.equal(pins.length, 2);
-    assert.equal(pins[1].body.judge.provider, "local");
-    assert.equal(pins[1].body.judge.model, "qwen3:8b");
-    assert.equal("apiKey" in pins[1].body.judge, false, "no empty key is sent");
-    assert.ok(completed(env));
-  });
-
-  it("a back link returns to the recommended xAI setup", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
-    await checkWriter(env);
-    await saveWriter(env);
-    await typeXaiKey(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    assert.ok(otherSelect(env), "the other path picks its model from a list");
-    env.mount().querySelector("#oneFlowJudgeXaiBack").dispatch("click");
-    assert.ok(xaiSelect(env), "the xAI dropdown is back");
-    assert.equal(otherSelect(env), null);
-    assert.equal(env.mount().querySelector("#oneFlowJudgeKeyInput").value, "xai-test-key-000", "the xAI key draft survives the detour");
-    assert.deepEqual(xaiOptions(env), ["grok-4.7", "grok-4.6", "grok-4.5"], "the loaded list survives too");
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 1, "no refetch");
-  });
-});
-
-describe("B2 judge offer — Other providers' live lists", () => {
-  it("fills the dropdown from that provider's catalog once the key is entered", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    assert.equal(otherSelect(env).disabled, true);
-    assert.match(otherSelect(env).children[0].textContent, /Enter your key to load/);
-    await typeOtherKey(env);
-
-    const loads = callsTo(env, JUDGE_MODELS_PATH);
-    assert.equal(loads.length, 1);
-    assert.deepEqual(loads[0].body, { provider: "openrouter", apiKey: "or-test-key-1" });
-    assert.deepEqual(otherOptions(env), ["openai/gpt-4o-mini", "x-ai/grok-4"]);
-    assert.equal(otherSelect(env).disabled, false);
-    assert.equal(otherSelect(env).value, "openai/gpt-4o-mini");
-    assert.match(judgeSection(env).textContent, /Model list loaded from OpenRouter/);
-  });
-
-  it("Test loads the list when the key never left the field, then tests the pick", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    setJudgeField(env, "oneFlowJudgeKeyInput", "or-test-" + "key-2");
-    await env.beats.ai.handleAction("ai_judge_test");
-
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 1);
     const tests = callsTo(env, JUDGE_TEST_PATH);
-    assert.equal(tests.length, 1);
-    assert.deepEqual(tests[0].body, {
-      provider: "openrouter",
-      model: "openai/gpt-4o-mini",
-      baseUrl: "https://openrouter.ai/api/v1",
-      apiKey: "or-test-key-2",
+    assert.equal(tests.length, 1, "an untested pick is tested before it is saved");
+    assert.deepEqual(tests[0].body, { provider: "openai_compatible", model: "grok-4.7", baseUrl: XAI_BASE_URL, apiKey: "fictional-xai-key" });
+    assert.deepEqual(judgeSaves(env).at(-1).body, {
+      judge: { provider: "openai_compatible", model: "grok-4.7", baseUrl: XAI_BASE_URL, apiKey: "fictional-xai-key" },
     });
+    assert.equal(writerPins(env).length, writerSaves, "the writer pin is not re-posted");
+    assert.ok(completed(env));
   });
 
-  it("refuses to test with no key pasted, and calls nothing", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "openrouter").dispatch("click");
-    await env.beats.ai.handleAction("ai_judge_test");
-    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 0);
-    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 0);
-    assert.match(
-      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
-      /Paste your OpenRouter key first/,
-    );
+  it("a passed Test in the field is not repeated by Save", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch() });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    field(env, "Test").dispatch("click", {});
+    await flush();
+    await flush();
+    assert.match(field(env, "TestResult").textContent, /grok-4\.7/);
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 1);
+    assert.ok(completed(env));
+  });
+
+  it("a failed test stays on screen and saves nothing", async () => {
+    const env = await openBeat({
+      fetchImpl: judgeFetch({ judgeTest: { ok: true, json: { ok: false, code: "judge_no_structured_output", ms: 700 } } }),
+    });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(judgeSaves(env).length, 0);
     assert.equal(completed(env), false);
+    assert.match(field(env, "TestResult").textContent, /couldn.t return a grade/i);
+    await env.beats.ai.handleAction("ai_judge_skip");
+    assert.ok(completed(env));
   });
 
-  it("a rejected key names the key and a dead list names the connection", async () => {
-    const rejected = await openBeat({
-      fetchImpl: judgeFetch({
-        judgeModels: { ok: false, status: 401, json: { error: "That key didn't work: check it on OpenRouter." } },
-      }),
-    });
-    await checkWriter(rejected);
-    await saveWriter(rejected);
-    await openOtherProviders(rejected);
-    otherCard(rejected, "openrouter").dispatch("click");
-    await typeOtherKey(rejected, "or-wrong-key-1");
-    assert.equal(otherSelect(rejected).value, "");
-    assert.equal(otherSelect(rejected).children[0].textContent, "Models unavailable — check your key");
-    assert.match(judgeSection(rejected).textContent, /Check the key, then enter it again to reload models/);
-
-    const dead = await openBeat({ fetchImpl: judgeFetch({ judgeModels: new TypeError("Failed to fetch") }) });
-    await checkWriter(dead);
-    await saveWriter(dead);
-    await openOtherProviders(dead);
-    otherCard(dead, "openrouter").dispatch("click");
-    await typeOtherKey(dead);
-    assert.equal(otherSelect(dead).children[0].textContent, "Models unavailable — check your connection");
-    assert.match(judgeSection(dead).textContent, /Check your connection, then enter the key again to reload models/);
+  it("no key names the field and calls nothing", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch() });
+    await openOffer(env);
+    await expand(env);
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 0);
+    assert.equal(judgeSaves(env).length, 0);
+    assert.match(field(env, "Error").textContent, /Paste your xAI API key first/);
+    assert.equal(field(env, "ApiKey").getAttribute("aria-invalid"), "true");
   });
 
-  it("Local sends its server address with a keyless tag list", async () => {
+  it("a refused save says so and waits", async () => {
+    const pin = (n, call) => (call.body && "judge" in call.body ? { ok: false, status: 500, error: "disk full" } : { ok: true });
+    const env = await openBeat({ fetchImpl: judgeFetch({ pin }) });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(completed(env), false);
+    assert.match(env.mount().textContent, /grading model wasn.t saved: disk full/);
+    assert.doesNotMatch(env.mount().textContent, /judge/i);
+  });
+
+  it("a repaint keeps what the user typed", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch() });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const provider = field(env, "Provider");
+    provider.value = "openrouter";
+    provider.dispatch("change", {});
+    await flush();
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.equal(field(env, "Provider").value, "openrouter", "the field survives the beat's repaint");
+    assert.match(field(env, "Error").textContent, /Paste your OpenRouter API key first/);
+  });
+
+  it("Local tests and saves without a key", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
-    await checkWriter(env);
-    await saveWriter(env);
-    await openOtherProviders(env);
-    otherCard(env, "local").dispatch("click");
-    await env.beats.ai.handleAction("ai_judge_test");
-    const loads = callsTo(env, JUDGE_MODELS_PATH);
-    assert.equal(loads.length, 1);
-    assert.deepEqual(loads[0].body, { provider: "local", baseUrl: "http://127.0.0.1:11434/v1" });
-    assert.deepEqual(otherOptions(env), ["qwen3:8b"]);
+    await openOffer(env);
+    await expand(env);
+    const provider = field(env, "Provider");
+    provider.value = "local";
+    provider.dispatch("change", {});
+    await flush();
+    await flush();
+    assert.equal(field(env, "Model").value, "qwen3:8b");
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.deepEqual(judgeSaves(env).at(-1).body, {
+      judge: { provider: "local", model: "qwen3:8b", baseUrl: "http://127.0.0.1:11434/v1" },
+    });
+    assert.ok(completed(env));
   });
 });

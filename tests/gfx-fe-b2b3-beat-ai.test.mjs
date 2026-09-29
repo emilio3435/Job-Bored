@@ -220,7 +220,7 @@ describe("GFX B2-4 · B2-5 · the key reaches this computer only after an inline
       "the Gemini ✓ receipt rides the judge offer",
     );
     assert.ok(env.mount().querySelector(".oneflow-judge"), "the grading-model offer renders");
-    assert.equal(actionButton(env.mount(), "ai_judge_test").textContent, "Test judge key");
+    assert.equal(actionButton(env.mount(), "ai_judge_test"), null, "the grading offer starts collapsed");
     assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
     await env.beats.ai.handleAction("ai_judge_skip");
     assert.ok(completed(env));
