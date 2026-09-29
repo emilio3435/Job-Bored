@@ -676,6 +676,10 @@ test("VAL-ONEFLOW-001: every beat reaches the payoff on a fresh install", async 
   expect(state.calls.llmConfigPins).toHaveLength(0);
   expect(state.calls.geminiEnvWrites).toHaveLength(0);
   await page.getByRole("button", { name: "Save it", exact: true }).click();
+  await expect(
+    beat(page, "ai").getByText("Want a second opinion on your letters?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Skip for now", exact: true }).click();
   await expect(beat(page, "resume")).toBeVisible();
   expect(state.calls.llmConfigPins).toHaveLength(1);
   expect(state.calls.llmConfigPins[0].provider).toBe("gemini");

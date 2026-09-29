@@ -34,12 +34,24 @@ import { setTimeout as sleep } from "node:timers/promises";
 const PORT = 38470 + Math.floor(Math.random() * 100);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const PROFILE_RESUME_TEXT =
-  "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.";
+  "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.\n\nEXPERIENCE\nExample Systems\nPlatform Operations Lead\nBuilt internal platform tools with Node.js APIs and automation.";
 const STRUCTURE_DRAFT = {
-  employers: [],
+  employers: [{
+    name: "Example Systems",
+    sourceQuote: "Example Systems",
+    roles: [{
+      title: "Platform Operations Lead",
+      sourceQuote: "Platform Operations Lead",
+      claims: [{
+        text: "Built internal platform tools with Node.js APIs and automation.",
+        sourceQuote: "Built internal platform tools with Node.js APIs and automation.",
+      }],
+    }],
+    claims: [],
+  }],
   looseClaims: [{
-    text: "Senior backend engineer with Node.js APIs",
-    sourceQuote: "Senior backend engineer with Node.js APIs",
+    text: "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.",
+    sourceQuote: "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.",
   }],
   education: [],
   credentials: [],

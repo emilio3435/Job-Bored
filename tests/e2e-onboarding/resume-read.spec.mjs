@@ -59,7 +59,7 @@ const FACTS = {
   ],
   certifications: [
     { text: "Lean Six Sigma Green Belt", sourceQuote: "Lean Six Sigma Green Belt" },
-    { text: "PMP", sourceQuote: "PMP" },
+    { text: "PMP", sourceQuote: "CERTIFICATIONS\nLean Six Sigma Green Belt\nPMP" },
   ],
   awards: [{ text: "Tucson Business Journal 40 Under 40, 2021", sourceQuote: "Tucson Business Journal 40 Under 40, 2021" }],
   projects: [],
@@ -91,7 +91,7 @@ const MODEL_STRUCTURE_REPLY = {
   education: [{ text: "MBA | Example Business School — Phoenix, AZ 2014", sourceQuote: "MBA | Example Business School — Phoenix, AZ 2014" }],
   credentials: [
     { text: "Lean Six Sigma Green Belt", sourceQuote: "Lean Six Sigma Green Belt" },
-    { text: "PMP", sourceQuote: "PMP" },
+    { text: "PMP", sourceQuote: "CERTIFICATIONS\nLean Six Sigma Green Belt\nPMP" },
   ],
 };
 const MODEL_INTERPRETATION = await structureResumeWithModel({
