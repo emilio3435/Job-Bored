@@ -256,6 +256,23 @@ describe("J-FE2 · Settings → AI grading model row", () => {
     assert.doesNotMatch(settingsPartial.replace(/\s+/g, " "), /Drafting keys stay in this browser/);
   });
 
+  it("FIX1 P2-6: the modal lede does not claim all settings stay in the browser", () => {
+    const lede = settingsPartial.match(/<p class="modal-lede settings-modal-lede settings-modal__full">([\s\S]*?)<\/p>/)[1].replace(/\s+/g, " ").trim();
+    assert.equal(lede, "Fill in what you use — everything else can stay blank.");
+  });
+
+  it("FIX1 P2-3: Settings restores a grader from the unconfigured-writer 404 response", async () => {
+    const { settings, document } = loadSettings((url) => url.endsWith("/judge-models")
+      ? { body: CATALOG }
+      : { status: 404, body: { code: "llm_unconfigured", judge: XAI_JUDGE } });
+    await settings.refreshLlmStatus({ resetJudge: true });
+    await openEditor(document);
+    await settle();
+    assert.equal(el(document, "settingsJudgeModel").value, XAI_JUDGE.model);
+    assert.equal(el(document, "settingsJudgeKeyState").hidden, false);
+    assert.match(text(el(document, "settingsJudgeKeyState")), /Key saved/);
+  });
+
   it("J-FE2d · a saved choice survives reopening, key shown only as Key saved", async () => {
     const server = storingServer();
     const { settings, document, calls } = loadSettings(server);

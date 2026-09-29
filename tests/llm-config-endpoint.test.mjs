@@ -10,11 +10,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   handleGetLlmConfig,
+  handleJudgeTest,
   handlePostLlmConfig,
   loadLlmConfig,
+  migrateLlmConfigFromEnv,
   resolveActivePin,
   writeLlmConfig,
 } from "../server/llm-config.mjs";
+import { handlePostJudgeModels } from "../server/judge-models.mjs";
 
 function mockRes() {
   return {
@@ -52,6 +55,83 @@ describe("/api/llm-config", () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.judge.keyPresent, true);
     assert.equal(JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8")).judge.apiKey, "example-judge-key");
+  });
+
+  it("FIX1 P2-3: a grading-only pin stays unconfigured for writing, reuses its key, and permits env migration", async () => {
+    const judge = { provider: "openai_compatible", model: "grok-fictional", apiKey: "fictional-grading-key", baseUrl: "https://api.x.ai/v1" };
+    const post = mockRes();
+    await handlePostLlmConfig({ body: { judge } }, post, env);
+    assert.equal(post.statusCode, 200);
+    const disk = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
+    for (const field of ["provider", "model", "apiKey", "baseUrl"]) assert.equal(Object.hasOwn(disk, field), false, field);
+    assert.equal(loadLlmConfig(env), null);
+    const get = mockRes();
+    await handleGetLlmConfig({}, get, env);
+    assert.equal(get.statusCode, 404);
+    assert.equal(get.body.code, "llm_unconfigured");
+    assert.equal(get.body.judge.keyPresent, true);
+    assert.doesNotMatch(JSON.stringify(get.body), /fictional-grading-key|apiKey/);
+    const blank = mockRes();
+    await handlePostLlmConfig({ body: { judge: { ...judge, apiKey: " \t " } } }, blank, env);
+    assert.equal(blank.body.judge.keyPresent, true);
+    const auth = [];
+    const fetchImpl = async (url, init) => {
+      auth.push(new Headers(init.headers).get("authorization"));
+      return { ok: true, json: async () => String(url).endsWith("/models")
+        ? { data: [{ id: "grok-fictional", created: 1 }] }
+        : { choices: [{ message: { content: '{"grade":3}' } }] } };
+    };
+    const test = mockRes();
+    await handleJudgeTest({ body: { ...judge, apiKey: undefined } }, test, env, { fetchImpl });
+    assert.equal(test.body.ok, true);
+    const models = mockRes();
+    await handlePostJudgeModels({ body: { provider: "xai" } }, models, env, { fetchImpl });
+    assert.equal(models.statusCode, 200);
+    assert.deepEqual(auth, ["Bearer fictional-grading-key", "Bearer fictional-grading-key"]);
+    const migrated = migrateLlmConfigFromEnv({ ...env, ATS_PROVIDER: "openai", ATS_OPENAI_MODEL: "fictional-writer", ATS_OPENAI_API_KEY: "fictional-env-key" });
+    assert.equal(migrated.provider, "openai");
+    assert.equal(migrated.apiKey, "fictional-env-key");
+    assert.equal(migrated.judge.apiKey, judge.apiKey);
+  });
+
+  it("FIX1 P2-3: a legacy empty provider permits env migration; a later writer save keeps the grader", async () => {
+    const judge = { provider: "openai", model: "fictional-grader", apiKey: "fictional-grading-key" };
+    await writeFile(env.JOBBORED_LLM_CONFIG_PATH, JSON.stringify({ provider: " \t ", model: "", judge }));
+    assert.equal(loadLlmConfig(env), null);
+    const migrated = migrateLlmConfigFromEnv({ ...env, ATS_PROVIDER: "openai", ATS_OPENAI_MODEL: "fictional-writer", ATS_OPENAI_API_KEY: "fictional-env-key" });
+    assert.equal(migrated.provider, "openai");
+    assert.equal(migrated.judge.apiKey, judge.apiKey);
+    await writeFile(env.JOBBORED_LLM_CONFIG_PATH, JSON.stringify({ judge }));
+    const writer = mockRes();
+    await handlePostLlmConfig({ body: { provider: "openai", model: "fictional-writer", apiKey: "fictional-writer-key" } }, writer, env);
+    assert.equal(writer.body.judge.keyPresent, true);
+  });
+
+  it("FIX1 P2-4: whitespace grading keys keep the same-target key, null explicitly clears it", async () => {
+    const judge = { provider: "openai", model: "fictional-grader", apiKey: "fictional-grading-key" };
+    await writeLlmConfig({ provider: "openai", model: "fictional-writer", apiKey: "fictional-writer-key", judge }, env);
+    for (const apiKey of ["", " \t\n ", null]) {
+      const res = mockRes();
+      await handlePostLlmConfig({ body: { judge: { ...judge, apiKey } } }, res, env);
+      assert.equal(res.body.judge.keyPresent, apiKey !== null);
+      assert.equal(loadLlmConfig(env).judge.apiKey, apiKey === null ? "" : judge.apiKey);
+    }
+    const moved = mockRes();
+    await handlePostLlmConfig({ body: { judge: { ...judge, apiKey: "   ", baseUrl: "https://fictional.example/v1" } } }, moved, env);
+    assert.equal(moved.body.judge.keyPresent, false);
+  });
+
+  it("FIX1 P2-5: invalid grading-model requests never display judge in 400 copy", async () => {
+    for (const body of [{ provider: "unsupported", model: "fictional" }, { provider: "openai" }]) {
+      const post = mockRes();
+      await handlePostLlmConfig({ body: { judge: body } }, post, env);
+      assert.equal(post.statusCode, 400);
+      assert.doesNotMatch(post.body.error, /judge/i);
+      const test = mockRes();
+      await handleJudgeTest({ body }, test, env);
+      assert.equal(test.statusCode, 400);
+      assert.doesNotMatch(test.body.error, /judge/i);
+    }
   });
 
   it("J-BE3b: judge-only updates preserve writer fields and fallback on disk, including a blank judge key", async () => {

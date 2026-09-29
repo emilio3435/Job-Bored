@@ -428,7 +428,7 @@ for (const width of [1440, 390]) {
       const resume = section.locator('[data-doc="resume"]');
       const steps = resume.locator(".mat-tl__step");
       await expect(steps).toHaveCount(5);
-      await expect(steps.locator(".mat-tl__label")).toContainText(["Prepare", "Write", "Check & render", "Judge", "Save"]);
+      await expect(steps.locator(".mat-tl__label")).toHaveText(["Prepare", "Write", "Check & render", "Grade", "Save"]);
       await expect(resume.locator('[data-step="write"]')).toHaveAttribute("data-state", "degraded");
       await expect(resume.locator('[data-step="write"]')).toContainText("Fallback");
       await expect(resume.locator('[data-step="write"]')).toContainText("the AI’s answer was cut off");

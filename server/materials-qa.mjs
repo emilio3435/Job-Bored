@@ -42,7 +42,7 @@ export function buildQaRecord({ document, runId, finalText, textHash, gates = []
   const judgedSentences = new Map((judgedDocument?.sentences || []).map((/** @type {any} */ item) => [item.id, item]));
   const sentences = sourceSentences.map(({ id, text }) => {
     const judged = judgedSentences.get(id);
-    return { id, text, status: judged?.status || "uncertain", reason: judged?.reason || "The judge did not assess this sentence.", citations: judged?.citations || [] };
+    return { id, text, status: judged?.status || "uncertain", reason: judged?.reason || "The grading model did not assess this sentence.", citations: judged?.citations || [] };
   });
   const ratings = (judgedDocument?.ratings || []).map((/** @type {any} */ rating) => ({
     dimension: rating.dimension, score: rating.score, weight: QUALITY_WEIGHTS[/** @type {keyof typeof QUALITY_WEIGHTS} */ (rating.dimension)],
@@ -88,10 +88,10 @@ export function buildQaRecord({ document, runId, finalText, textHash, gates = []
   const failedConstraint = normalizedGates.find((gate) => gate.kind === "constraint" && !gate.pass);
   const lowDimension = ratings.find((/** @type {any} */ rating) => rating.score < 2 || (["role_relevance", "voice"].includes(rating.dimension) && rating.score < 3));
   let disposition = "READY";
-  let dispositionReason = "Hard gates pass and the judge found supported, strong materials.";
+  let dispositionReason = "Hard gates pass and the grading model found supported, strong materials.";
   if (failedHard) { disposition = "FAIL"; dispositionReason = failedHard.reason || `Hard gate ${failedHard.id} failed.`; }
-  else if (unsupported.size) { disposition = "FAIL"; dispositionReason = sentences.find((sentence) => sentence.status === "unsupported")?.reason || "The judge found an unsupported sentence."; }
-  else if (judgeStatus !== "ok") { disposition = "REVIEW"; dispositionReason = `Judge ${judgeStatus}; review the document manually.`; }
+  else if (unsupported.size) { disposition = "FAIL"; dispositionReason = sentences.find((sentence) => sentence.status === "unsupported")?.reason || "The grading model found an unsupported sentence."; }
+  else if (judgeStatus !== "ok") { disposition = "REVIEW"; dispositionReason = `Grading model ${judgeStatus}; review the document manually.`; }
   else if (uncertain) { disposition = "REVIEW"; dispositionReason = uncertain.reason; }
   else if (failedConstraint) { disposition = "REVIEW"; dispositionReason = failedConstraint.reason || `Constraint ${failedConstraint.id} is unmet.`; }
   else if (score === null || score < 80) { disposition = "REVIEW"; dispositionReason = `Quality score ${score ?? "unavailable"} is below 80.`; }

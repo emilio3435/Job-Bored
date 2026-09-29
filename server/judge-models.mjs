@@ -1,4 +1,4 @@
-import { loadLlmConfig } from "./llm-config.mjs";
+import { loadStoredLlmConfig } from "./llm-config.mjs";
 import { GEMINI_API_BASE, geminiHeaders, normalizeProvider } from "./ai/provider.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
@@ -266,7 +266,7 @@ function normalizeCatalog(spec, pages) {
  * @returns {string}
  */
 function savedJudgeKey(provider, env) {
-  const judge = /** @type {{ provider?: string, baseUrl?: string, apiKey?: string } | undefined} */ (loadLlmConfig(env)?.judge);
+  const judge = /** @type {{ provider?: string, baseUrl?: string, apiKey?: string } | undefined} */ (loadStoredLlmConfig(env)?.judge);
   if (!judge) return "";
   if (provider === "xai") {
     const baseUrl = string(judge.baseUrl).replace(/\/+$/, "");

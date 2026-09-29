@@ -256,9 +256,9 @@
       return '<li class="mat-tl__step mat-tl__step--' + step.state + '" data-step="' + esc(step.id) + '" data-state="' + esc(step.state) + '"'
         + (step.state === "running" ? ' aria-current="step"' : "") + ">"
         + '<span class="mat-tl__state">' + esc(word) + "</span>"
-        + '<span class="mat-tl__label">' + esc(step.label)
+        + '<span class="mat-tl__label">' + esc(step.label) + "</span>"
         + (why ? '<span class="mat-tl__why">' + esc(why) + "</span>" : "")
-        + "</span></li>";
+        + "</li>";
     }).join("");
     return '<ol class="mat-tl" aria-label="Drafting steps">' + items + "</ol>";
   }

@@ -80,7 +80,7 @@ function judgeFetch({ ping = CURRENT_PING, pin = { ok: true }, judgeModels = nul
       return answer instanceof Error ? answer : answer;
     }
     if (call.url.endsWith(JUDGE_TEST_PATH)) {
-      return testAnswer instanceof Error ? testAnswer : testAnswer;
+      return typeof testAnswer === "function" ? testAnswer(call) : testAnswer;
     }
     if (call.url.endsWith(PIN_PATH)) {
       const answer = typeof pin === "function" ? pin(pinCalls++, call) : pin;
@@ -287,6 +287,115 @@ describe("J-FE3 · the offer is one collapsed line", () => {
 });
 
 describe("B2 grading model offer — Save & continue", () => {
+  for (const edit of ["none", "model", "provider", "key"]) {
+    it(`FIX1 P1-2: Save awaits an in-flight Test and retests a changed ${edit} combo`, async () => {
+      let release;
+      let n = 0;
+      const pending = new Promise((resolve) => { release = resolve; });
+      const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider(), judgeTest: () => ++n === 1 ? pending : { json: { ok: true, ms: 9 } } }) });
+      await openOffer(env);
+      await expand(env);
+      await typeJudgeKey(env);
+      const state = env.beats.ai._internal.state.judge;
+      const first = state.field.test();
+      const save = env.beats.ai.handleAction("ai_judge_save");
+      const settled = Promise.allSettled([first, save]);
+      await flush();
+      if (edit === "model") { field(env, "Model").value = "grok-4.6"; field(env, "Model").dispatch("change", {}); }
+      if (edit === "provider") { field(env, "Provider").value = "openrouter"; field(env, "Provider").dispatch("change", {}); await typeJudgeKey(env, "fictional-router-key"); }
+      if (edit === "key") { field(env, "ApiKey").value = "fictional-new-key"; field(env, "ApiKey").dispatch("input", {}); }
+      release({ json: { ok: true, ms: 9 } });
+      const results = await settled;
+      assert.equal(results[1].status, "fulfilled", "Save must await Test without a null-result crash");
+      const tests = callsTo(env, JUDGE_TEST_PATH);
+      assert.equal(tests.length, edit === "none" ? 1 : 2);
+      assert.equal(judgeSaves(env).length, 1);
+      assert.deepEqual(judgeSaves(env)[0].body.judge, tests.at(-1).body);
+      assert.equal(state.saving, false);
+      assert.ok(completed(env));
+    });
+  }
+
+  it("FIX1 P1-2: a prior pass never substitutes for a different in-flight model", async () => {
+    let release;
+    let n = 0;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeTest: () => ++n === 1 ? { json: { ok: true, ms: 9 } } : pending }) });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const state = env.beats.ai._internal.state.judge;
+    await state.field.test();
+    field(env, "Model").value = "grok-4.6";
+    field(env, "Model").dispatch("change", {});
+    const test = state.field.test();
+    const save = env.beats.ai.handleAction("ai_judge_save");
+    await flush();
+    assert.equal(judgeSaves(env).length, 0, "the old pass cannot authorize this model");
+    release({ json: { ok: false, code: "judge_no_structured_output", ms: 9 } });
+    await Promise.all([test, save]);
+    assert.equal(judgeSaves(env).length, 0);
+    assert.equal(state.saving, false);
+    assert.equal(completed(env), false);
+  });
+
+  it("FIX1 P1-2: an unexpected Test failure clears saving and busy so Save can retry", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch() });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const state = env.beats.ai._internal.state.judge;
+    const test = state.field.test;
+    state.field.test = async () => { throw new Error("fictional test failure"); };
+    const result = await Promise.allSettled([env.beats.ai.handleAction("ai_judge_save")]);
+    assert.equal(result[0].status, "fulfilled");
+    assert.equal(state.saving, false);
+    assert.equal(actionButton(env.mount(), "ai_judge_save").disabled, false);
+    assert.equal(judgeSaves(env).length, 0);
+    state.field.test = test;
+    await env.beats.ai.handleAction("ai_judge_save");
+    assert.ok(completed(env));
+  });
+
+  it("FIX1 P1-2: Save awaits a new Test even when the same combo passed earlier", async () => {
+    let release;
+    let n = 0;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeTest: () => ++n === 1 ? { json: { ok: true, ms: 9 } } : pending }) });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const state = env.beats.ai._internal.state.judge;
+    await state.field.test();
+    const test = state.field.test();
+    const save = env.beats.ai.handleAction("ai_judge_save");
+    await flush();
+    const savesBeforeAnswer = judgeSaves(env).length;
+    release({ json: { ok: false, code: "judge_no_structured_output", ms: 9 } });
+    await Promise.all([test, save]);
+    assert.equal(savesBeforeAnswer, 0);
+    assert.equal(judgeSaves(env).length, 0);
+    assert.equal(state.saving, false);
+    assert.equal(actionButton(env.mount(), "ai_judge_save").disabled, false);
+  });
+
+  it("FIX1 P1-2: leaving the offer during Test clears saving and never saves the stale pin", async () => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeTest: () => pending }) });
+    await openOffer(env);
+    await expand(env);
+    await typeJudgeKey(env);
+    const state = env.beats.ai._internal.state.judge;
+    const save = env.beats.ai.handleAction("ai_judge_save");
+    await flush();
+    env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
+    release({ json: { ok: true, ms: 9 } });
+    await save;
+    assert.equal(judgeSaves(env).length, 0);
+    assert.equal(state.saving, false);
+    assert.equal(actionButton(env.mount(), "ai_check").disabled, false);
+  });
   it("tests first, then saves a judge-only body and completes", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
     await openOffer(env);

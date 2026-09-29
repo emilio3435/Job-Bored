@@ -1067,36 +1067,51 @@
     if (ctx && typeof ctx.setBusy === "function") {
       ctx.setBusy(ACTION_JUDGE_SAVE, [{ label: "Saving your grading model…", state: "active" }]);
     }
-    const tested = field.testedCurrent() ? field.lastTest : await field.test();
-    emit(steps().KEY_CHECK, { beat: "ai", provider: field.read().provider, ok: tested.ok, ms: tested.ms, role: "grading" });
-    if (!tested.ok) {
-      judge.saving = false;
-      if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
-      repaint(ctx, tested.error, "error");
-      return;
-    }
     let saved = false;
     let why = "";
+    let testError = "";
+    let testing = true;
     try {
-      const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ judge: field.pin() }),
-      });
-      let answer = null;
-      try {
-        answer = resp ? await resp.json() : null;
-      } catch (_) {
-        answer = null;
+      // Await any running Test, then check again: its candidate may have
+      // changed while the provider was answering. Only the current pass
+      // authorizes the pin we send below.
+      while (!field.testedCurrent()) {
+        const tested = await field.test();
+        if (state.judge !== judge) return;
+        emit(steps().KEY_CHECK, { beat: "ai", provider: field.read().provider, ok: !!(tested && tested.ok), ms: tested && tested.ms, role: "grading" });
+        if (!tested || !tested.ok) {
+          testError = (tested && tested.error) || "Couldn't test the grading model. Press Save & continue to try again, or Skip for now.";
+          break;
+        }
       }
-      saved = !!(resp && resp.ok !== false);
-      if (!saved) why = (answer && typeof answer.error === "string" && answer.error.trim()) || "";
+      testing = false;
+      if (!testError) {
+        const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ judge: field.pin() }),
+        });
+        let answer = null;
+        try {
+          answer = resp ? await resp.json() : null;
+        } catch (_) {
+          answer = null;
+        }
+        saved = !!(resp && resp.ok !== false);
+        if (!saved) why = (answer && typeof answer.error === "string" && answer.error.trim()) || "";
+      }
     } catch (_) {
       saved = false;
+      if (testing) testError = "Couldn't test the grading model. Press Save & continue to try again, or Skip for now.";
+    } finally {
+      judge.saving = false;
+      if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
     }
-    judge.saving = false;
-    if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
     if (state.judge !== judge) return;
+    if (testError) {
+      repaint(ctx, testError, "error");
+      return;
+    }
     if (!saved) {
       repaint(
         ctx,

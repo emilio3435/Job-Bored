@@ -169,7 +169,7 @@ it("J3: judge failure metadata keeps the sanitized upstream cause", async () => 
   assert.doesNotMatch(JSON.stringify(result.meta), /secret prompt text/);
   const record = buildQaRecord({ document: "letter", runId: "fictional-run", finalText: text, textHash, gates: [], constraints: [], judge: result });
   assert.equal(record.disposition, "REVIEW");
-  assert.equal(record.dispositionReason, "Judge unavailable; review the document manually.");
+  assert.equal(record.dispositionReason, "Grading model unavailable; review the document manually.");
   assert.doesNotMatch(record.dispositionReason, /Gemini|400/);
 });
 
