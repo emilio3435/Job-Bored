@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { it } from "node:test";
-import { JUDGE_PROMPT_VERSION, JUDGE_SCHEMA, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
+import { JUDGE_PROMPT_VERSION, JUDGE_TIMEOUT_MS, JUDGE_SCHEMA, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
 import { DEFAULT_ROUTE_DEADLINE_MS, MAX_PROVIDER_TIMEOUT_MS, chat, clampTimeoutMs, routeDeadlineSignal, toGeminiSchema } from "../server/ai/provider.mjs";
 import { buildQaRecord } from "../server/materials-qa.mjs";
 import { MATERIALS_DRAFT_DEADLINE_MS } from "../server/materials-drafter.mjs";
@@ -201,7 +201,7 @@ it("S2: judge prompt treats grounded spin as supported and rewards a warm, confi
   assert.equal(JUDGE_PROMPT_VERSION, "materials-judge-v2");
 });
 
-it("S4: judge gets 110 seconds within the materials job deadline and provider ceiling", async () => {
+it("S4: judge gets 240 seconds within the materials job deadline and provider ceiling", async () => {
   const timeouts = [];
   const originalTimeout = AbortSignal.timeout;
   AbortSignal.timeout = (ms) => {
@@ -214,10 +214,13 @@ it("S4: judge gets 110 seconds within the materials job deadline and provider ce
   } finally {
     AbortSignal.timeout = originalTimeout;
   }
-  assert.ok(timeouts.includes(110_000), `timeouts: ${timeouts.join(", ")}`);
-  assert.equal(clampTimeoutMs(110_000), 110_000);
+  assert.ok(timeouts.includes(240_000), `timeouts: ${timeouts.join(", ")}`);
+  assert.equal(JUDGE_TIMEOUT_MS, 240_000);
+  assert.equal(clampTimeoutMs(240_000, JUDGE_TIMEOUT_MS), 240_000);
+  assert.equal(clampTimeoutMs(240_000), MAX_PROVIDER_TIMEOUT_MS, "the generic ceiling stays 120 s");
   assert.equal(clampTimeoutMs(MAX_PROVIDER_TIMEOUT_MS + 1), MAX_PROVIDER_TIMEOUT_MS);
-  assert.ok(MATERIALS_DRAFT_DEADLINE_MS > 2 * 110_000, `materials deadline: ${MATERIALS_DRAFT_DEADLINE_MS}`);
+  /* two documents x two passes, plus 240 s for write and repair stages */
+  assert.ok(MATERIALS_DRAFT_DEADLINE_MS >= 4 * JUDGE_TIMEOUT_MS + 240_000, `materials deadline: ${MATERIALS_DRAFT_DEADLINE_MS}`);
 });
 
 it("generic provider routes keep the 45-second default deadline", () => {

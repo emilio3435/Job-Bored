@@ -8,6 +8,8 @@ const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
 const ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
 const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434";
+/** A runaway cursor never costs more than five upstream lists. */
+const MAX_CATALOG_PAGES = 5;
 
 /** @typedef {Record<string, unknown>} CatalogModel */
 
@@ -111,7 +113,15 @@ function takeLocal(model) {
  * @property {TakeRow} take
  * @property {boolean} newestFirst
  * @property {(models: Array<{ id: string }>) => string | null} recommend
+ * @property {(url: string, payload: unknown) => string} nextUrl the next page's URL, or "" when done
  */
+
+/** @param {unknown} payload @returns {Record<string, unknown> | null} */
+function pageObject(payload) {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? /** @type {Record<string, unknown>} */ (payload)
+    : null;
+}
 
 /** @param {unknown} baseUrl @returns {string} */
 function ollamaTagsUrl(baseUrl) {
@@ -135,6 +145,7 @@ const CATALOGS = {
     take: takeXai,
     newestFirst: true,
     recommend: (models) => models.find((model) => /^grok-\d/i.test(model.id) && !/mini/i.test(model.id))?.id || null,
+    nextUrl: () => "",
   },
   openrouter: {
     label: "OpenRouter",
@@ -152,6 +163,7 @@ const CATALOGS = {
     recommend: (models) => models.some((model) => model.id === "openai/gpt-4o-mini")
       ? "openai/gpt-4o-mini"
       : models[0]?.id || null,
+    nextUrl: () => "",
   },
   openai: {
     label: "OpenAI",
@@ -162,26 +174,47 @@ const CATALOGS = {
     take: takeOpenAI,
     newestFirst: true,
     recommend: (models) => recommendCheapOrFirst(models, /mini/i),
+    nextUrl: () => "",
   },
   anthropic: {
     label: "Anthropic",
     keyWords: "check it on Anthropic",
     keyRequired: true,
-    listUrl: () => ANTHROPIC_MODELS_URL,
+    listUrl: () => `${ANTHROPIC_MODELS_URL}?limit=100`,
     headers: (apiKey) => ({ "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION }),
     take: takeAnthropic,
     newestFirst: true,
     recommend: (models) => recommendCheapOrFirst(models, /haiku/i),
+    nextUrl: (url, payload) => {
+      const page = pageObject(payload);
+      if (!page || page.has_more !== true) return "";
+      const rows = Array.isArray(page.data) ? page.data : [];
+      const tail = rows.length ? rows[rows.length - 1] : null;
+      const last = tail && typeof tail === "object" && !Array.isArray(tail)
+        ? string(/** @type {Record<string, unknown>} */ (tail).id)
+        : "";
+      if (!last) return "";
+      const next = new URL(url);
+      next.searchParams.set("after_id", last);
+      return next.toString();
+    },
   },
   gemini: {
     label: "Gemini",
     keyWords: "check it on Gemini",
     keyRequired: true,
-    listUrl: () => `${GEMINI_API_BASE}/models`,
+    listUrl: () => `${GEMINI_API_BASE}/models?pageSize=100`,
     headers: (apiKey) => geminiHeaders(apiKey),
     take: takeGemini,
     newestFirst: false,
     recommend: (models) => recommendCheapOrFirst(models, /flash/i),
+    nextUrl: (url, payload) => {
+      const token = string(pageObject(payload)?.nextPageToken);
+      if (!token) return "";
+      const next = new URL(url);
+      next.searchParams.set("pageToken", token);
+      return next.toString();
+    },
   },
   local: {
     label: "Ollama",
@@ -192,33 +225,34 @@ const CATALOGS = {
     take: takeLocal,
     newestFirst: false,
     recommend: (models) => models[0]?.id || null,
+    nextUrl: () => "",
   },
 };
 
 /**
  * @param {CatalogSpec} spec
- * @param {unknown} payload
+ * @param {unknown[]} pages every fetched page, in order
  * @returns {Array<{ id: string, label: string, created: number }>}
  */
-function normalizeCatalog(spec, payload) {
-  const source = payload && typeof payload === "object" && !Array.isArray(payload)
-    ? /** @type {Record<string, unknown>} */ (payload)
-    : {};
-  /** @type {unknown[]} */
-  const rows = Array.isArray(source.data)
-    ? source.data
-    : Array.isArray(source.models)
-      ? source.models
-      : [];
+function normalizeCatalog(spec, pages) {
   const seen = new Set();
   /** @type {Array<{ id: string, label: string, created: number }>} */
   const models = [];
-  for (const value of rows) {
-    if (!value || typeof value !== "object") continue;
-    const taken = spec.take(/** @type {CatalogModel} */ (value));
-    if (!taken || seen.has(taken.id)) continue;
-    seen.add(taken.id);
-    models.push(taken);
+  for (const payload of pages) {
+    const source = pageObject(payload) || {};
+    /** @type {unknown[]} */
+    const rows = Array.isArray(source.data)
+      ? source.data
+      : Array.isArray(source.models)
+        ? source.models
+        : [];
+    for (const value of rows) {
+      if (!value || typeof value !== "object") continue;
+      const taken = spec.take(/** @type {CatalogModel} */ (value));
+      if (!taken || seen.has(taken.id)) continue;
+      seen.add(taken.id);
+      models.push(taken);
+    }
   }
   if (spec.newestFirst) models.sort((a, b) => b.created - a.created || a.id.localeCompare(b.id));
   return models;
@@ -278,33 +312,45 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   }
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
-  let upstream;
-  try {
-    upstream = await fetchImpl(spec.listUrl(baseUrl), {
-      method: "GET",
-      headers: spec.headers(apiKey),
-    });
-  } catch {
-    res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
-    return;
-  }
+  // The first page failing is an error; a later page failing returns the
+  // partial list — a shorter working list beats a dead dropdown.
+  /** @type {unknown[]} */
+  const pages = [];
+  let url = spec.listUrl(baseUrl);
+  for (let page = 0; page < MAX_CATALOG_PAGES && url; page += 1) {
+    let upstream;
+    try {
+      upstream = await fetchImpl(url, {
+        method: "GET",
+        headers: spec.headers(apiKey),
+      });
+    } catch {
+      if (page > 0) break;
+      res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
+      return;
+    }
 
-  if (upstream.status === 401) {
-    res.status(401).json({ error: `That key didn't work: ${spec.keyWords}.` });
-    return;
-  }
-  if (!upstream.ok) {
-    res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
-    return;
-  }
+    if (upstream.status === 401 && page === 0) {
+      res.status(401).json({ error: `That key didn't work: ${spec.keyWords}.` });
+      return;
+    }
+    if (!upstream.ok) {
+      if (page > 0) break;
+      res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
+      return;
+    }
 
-  let payload;
-  try {
-    payload = await upstream.json();
-  } catch {
-    res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
-    return;
+    let payload;
+    try {
+      payload = await upstream.json();
+    } catch {
+      if (page > 0) break;
+      res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
+      return;
+    }
+    pages.push(payload);
+    url = spec.nextUrl(url, payload);
   }
-  const models = normalizeCatalog(spec, payload);
+  const models = normalizeCatalog(spec, pages);
   res.json({ models, recommended: spec.recommend(models) });
 }

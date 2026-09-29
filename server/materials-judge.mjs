@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
-import { chat, MAX_PROVIDER_TIMEOUT_MS, ProviderApiError, resolveProvider } from "./ai/provider.mjs";
+import { chat, ProviderApiError, resolveProvider } from "./ai/provider.mjs";
 import { parseStageJson } from "./materials-writer.mjs";
 
 export const JUDGE_PROMPT_VERSION = "materials-judge-v2";
-export const JUDGE_TIMEOUT_MS = 110_000;
+export const JUDGE_TIMEOUT_MS = 240_000;
 export const JUDGE_DIMENSIONS = ["role_relevance", "evidence_quality", "voice", "coherence", "economy"];
 
 // ASTRA-ADV §2: keep this wire schema independent of the host's QA record.
@@ -215,7 +215,7 @@ export async function judgeMaterials({ writer, judge, documents, sources, signal
     const packet = { documents, sources };
     const result = await chat({
       pin, signal, fetchImpl, temperature: 0.1, schema: JUDGE_SCHEMA, schemaName: "materials_judge",
-      timeoutMs: Math.min(JUDGE_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS),
+      timeoutMs: JUDGE_TIMEOUT_MS, timeoutCeilingMs: JUDGE_TIMEOUT_MS,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `<untrusted-data type="materials-evidence">\n${JSON.stringify(packet)}\n</untrusted-data>` },
