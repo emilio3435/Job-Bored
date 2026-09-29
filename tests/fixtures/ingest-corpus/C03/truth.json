@@ -1,0 +1,37 @@
+{
+  "employers": [
+    {
+      "name": "Contoso Media (formerly Litware Radio)",
+      "aliasKeys": ["contoso media (formerly litware radio)", "contoso media", "litware radio"],
+      "block": [6, 10],
+      "roles": [
+        { "title": "Digital Sales Manager", "start": "2021-05", "end": "2026", "lines": [8, 8] },
+        { "title": "Senior Account Executive", "start": "2019-05", "end": "2021-05", "lines": [9, 9] },
+        { "title": "Account Executive", "start": "2017-03", "end": "2019-05", "lines": [10, 10] }
+      ]
+    },
+    {
+      "name": "Fabrikam Labs",
+      "aliasKeys": ["fabrikam labs"],
+      "block": [12, 12],
+      "roles": [{ "title": "Founder & AI Engineer", "start": "2025-01", "end": "present", "lines": [12, 12] }]
+    },
+    {
+      "name": "Northwind Trading",
+      "aliasKeys": ["northwind trading"],
+      "block": [13, 33],
+      "roles": [{ "title": "Co-founder", "start": "2025", "end": "present", "lines": [13, 13] }]
+    },
+    {
+      "name": "Tailspin Studio",
+      "aliasKeys": ["tailspin studio"],
+      "block": [34, 34],
+      "roles": [{ "title": "Founder", "start": "2026", "end": "present", "lines": [34, 34] }]
+    }
+  ],
+  "education": [
+    { "name": "Fictional State University", "start": "2013", "end": "2017", "lines": [36, 36] },
+    { "name": "Example Community College", "start": "2011", "end": "2012", "lines": [37, 37] }
+  ],
+  "datedEmployerBlocks": 4
+}
