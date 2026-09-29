@@ -99,6 +99,9 @@ it("T-K4-17 title-only dated lines stay in the Contoso block and C03 has four da
   }
   const employerLines = result.anchors.filter((anchor) => anchor.kind === "employer_header" && anchor.sectionGuess !== "education").map((anchor) => anchor.lines[0]);
   assert.deepEqual(employerLines, truth.employers.map((employer) => employer.block[0]));
+  for (const employer of truth.employers) {
+    assert.ok(result.anchors.some((anchor) => anchor.kind === "date_range" && anchor.lines[0] >= employer.block[0] && anchor.lines[0] <= employer.block[1]), employer.name);
+  }
   assert.equal(employerLines.length, truth.datedEmployerBlocks);
 });
 

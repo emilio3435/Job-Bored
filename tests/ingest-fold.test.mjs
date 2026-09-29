@@ -77,10 +77,13 @@ it("T-K6-12 wrap joining requires lowercase continuation", async () => {
   const { joinSoftWrap } = await load();
   assert.equal(joinSoftWrap("transfor-\nmation"), "transformation");
   assert.equal(joinSoftWrap("Fabrikam-\nLabs"), "Fabrikam-\nLabs");
+  assert.equal(joinSoftWrap("Northwind-\ntrading"), "Northwind-\ntrading");
   assert.equal(joinSoftWrap("10-\n20"), "10-\n20");
 });
 
 it("T-K6-17 compatibility digits inside numeric tokens stay distinct", async () => {
   assert.equal((await fold("1²M 2①M")).text, "1²m 2①m");
   assert.notEqual((await fold("1²M")).text, (await fold("12M")).text);
+  assert.equal((await load()).containsNumberToken("1²M", "1"), false);
+  assert.equal((await load()).containsNumberToken("2①M", "21M"), false);
 });
