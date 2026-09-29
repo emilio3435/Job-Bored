@@ -187,3 +187,34 @@ it("T-K7-13 unexplained experience coverage gap cannot be ready", async () => {
   assert.equal(gap.result.status, "ready_with_review", "a set-aside elsewhere cannot excuse a separate work line");
   assert.ok(gap.result.reconciliation.failures.includes("reconciliation_failed") || gap.result.unread.some((item) => item.kind === "residual" && item.lines[0] === 6));
 });
+it("T-K7-14 non-job cannot hide unfamiliar or bare dated roles", async () => {
+  for (const tail of [" • Solutions Architect", " • Program Coordinator", ""]) {
+    const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", `May 2019 — May 2021${tail}`].join("\n");
+    const reply = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "not another role" }] };
+    const { result, calls } = await run(source, [reply, reply]);
+    assert.equal(calls, 2, `repair read for ${tail || "bare date"}`);
+    assert.equal(result.status, "ready_with_review", `dated role stays visible for ${tail || "bare date"}`);
+    assert.ok(result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 5), `unread date for ${tail || "bare date"}`);
+    assert.ok(result.setAside.some((item) => item.lines[0] === 5 && item.reviewLevel === "role"));
+    assert.ok(result.review.claims.some((item) => item.lines[0] === 5 && item.kind === "set_aside"));
+  }
+  const noteSource = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams.", "2018 — 2019 • background tenure note"].join("\n");
+  const noteReply = { employers: [{ name: "Contoso Media", lines: [2, 2], roles: [{ title: "Research Lead", start: "Jan 2020", end: "Present", lines: [3, 3] }], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] }], nonJob: [{ lines: [5, 5], reason: "background note" }] };
+  const note = await run(noteSource, [noteReply]);
+  assert.equal(note.result.status, "ready", "an explicit background tenure note remains claim-level review");
+  assert.equal(note.result.setAside.find((item) => item.lines[0] === 5)?.reviewLevel, "claim");
+});
+it("T-K7-15 employer dates cannot close a titled date anchor", async () => {
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Research Lead", "Built a planning tool for local teams."].join("\n");
+  const employer = { name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] };
+  const missing = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.equal(missing.result.status, "ready_with_review");
+  assert.ok(missing.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+  const twoDates = `${source}\nJan 2020 — Present • Sales Manager`;
+  const laterRole = { ...employer, roles: [{ title: "Sales Manager", start: "Jan 2020", end: "Present", lines: [5, 5] }] };
+  const partial = await run(twoDates, [{ employers: [laterRole] }, { employers: [laterRole] }]);
+  assert.equal(partial.result.status, "ready_with_review");
+  assert.deepEqual(partial.result.employers[0].roles.map((role) => role.title), ["Sales Manager"]);
+  assert.ok(partial.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+  assert.equal(partial.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 5), false);
+});
