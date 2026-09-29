@@ -104,7 +104,7 @@ describe("/api/llm-config", () => {
       judge: { provider: "openai_compatible", model: "grok-example", apiKey: "judge-example-key", baseUrl: "https://api.x.ai/v1" },
     } }, first, env);
     assert.equal(first.statusCode, 200);
-    assert.deepEqual(first.body.judge, { provider: "openai_compatible", model: "grok-example", baseUrl: "https://api.x.ai/v1", keyPresent: true });
+    assert.deepEqual(first.body.judge, { provider: "openai_compatible", alias: "", model: "grok-example", baseUrl: "https://api.x.ai/v1", keyPresent: true });
     assert.ok(!JSON.stringify(first.body).includes("example-key"));
     const pin = await resolveActivePin(loadLlmConfig(env));
     assert.equal(pin.provider, "gemini");
@@ -122,5 +122,56 @@ describe("/api/llm-config", () => {
     await handlePostLlmConfig({ body: { provider: "gemini", model: "gemini-3.8-flash", judge: null } }, clear, env);
     assert.equal(clear.body.judge, null);
     assert.equal((await resolveActivePin(loadLlmConfig(env))).judge, undefined);
+  });
+
+  it("keeps an omitted judge key on the same target and clears it when the target moves", async () => {
+    const first = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash", apiKey: "writer-key", baseUrl: "",
+      judge: { provider: "openai", model: "gpt-4o-mini", apiKey: "judge-key", baseUrl: "" },
+    } }, first, env);
+    assert.equal(first.body.judge.keyPresent, true);
+
+    const same = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash",
+      judge: { provider: "openai", model: "gpt-4o-mini", baseUrl: "" },
+    } }, same, env);
+    assert.equal(same.body.judge.keyPresent, true, "same target + omitted key keeps the stored key");
+
+    const moved = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash",
+      judge: { provider: "openai", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" },
+    } }, moved, env);
+    assert.equal(moved.body.judge.keyPresent, false, "moved target + omitted key clears the stored key");
+  });
+
+  it("P2 · keeps a Local judge alias so it round-trips, and drops a mismatched one", async () => {
+    const first = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash", apiKey: "writer-key", baseUrl: "",
+      judge: { provider: "local", model: "qwen3:8b", baseUrl: "http://127.0.0.1:11434/v1" },
+    } }, first, env);
+    assert.equal(first.statusCode, 200);
+    assert.deepEqual(first.body.judge, {
+      provider: "openai_compatible", alias: "local", model: "qwen3:8b",
+      baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false,
+    });
+
+    const get = mockRes();
+    await handleGetLlmConfig({}, get, env);
+    assert.equal(get.body.judge.alias, "local", "the alias survives a reload");
+
+    const pin = await resolveActivePin(loadLlmConfig(env));
+    assert.equal(pin.judge.provider, "openai_compatible", "grading still uses the normalized provider");
+    assert.equal(pin.judge.baseUrl, "http://127.0.0.1:11434/v1");
+
+    const mismatch = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash",
+      judge: { provider: "openai", model: "gpt-4o-mini", baseUrl: "", alias: "local" },
+    } }, mismatch, env);
+    assert.equal(mismatch.body.judge.alias, "", "an alias that disagrees with the provider is dropped");
   });
 });

@@ -502,6 +502,71 @@ describe("MREV JUDGEUX · generic live model list (shared with onboarding)", () 
   });
 });
 
+describe("MREV JUDGEUX · saved generic judges fill verbatim (P1: no fabricated edits)", () => {
+  const BLANK_OPENAI_JUDGE = { provider: "openai", model: "gpt-4o-mini", baseUrl: "", keyPresent: true };
+
+  function savedGenericRespond(url, method, body) {
+    if (url.endsWith("/judge-models")) return { body: CATALOG };
+    if (method === "POST") {
+      return { body: { ...WRITER, judge: body.judge ? { ...body.judge, keyPresent: true } : null } };
+    }
+    return { body: { ...WRITER, judge: BLANK_OPENAI_JUDGE } };
+  }
+
+  it("leaves a saved blank endpoint blank, locked, and clean", async () => {
+    const { settings, document } = loadSettings(savedGenericRespond);
+    await settings.refreshLlmStatus();
+    assert.equal(el(document, "settingsJudgeProvider").value, "openai");
+    assert.equal(el(document, "settingsJudgeBaseUrl").value, "", "fill never writes the fixed URL over a blank");
+    assert.equal(el(document, "settingsJudgeBaseUrl").disabled, true);
+    assert.equal(settings.judgeFormIsDirty(), false, "an untouched fill is not an edit");
+  });
+
+  it("saves the untouched fill without moving the endpoint or the key", async () => {
+    const { settings, calls } = loadSettings(savedGenericRespond);
+    await settings.refreshLlmStatus();
+    assert.equal(await settings.saveJudgeModel(), true);
+    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/llm-config"));
+    assert.deepEqual(post.body.judge, { provider: "openai", model: "gpt-4o-mini", baseUrl: "" });
+  });
+});
+
+describe("MREV JUDGEUX · saved local judge round-trips (P2)", () => {
+  const LOCAL_JUDGE = {
+    provider: "openai_compatible", alias: "local", model: "qwen3:8b",
+    baseUrl: "http://127.0.0.1:11434/v1", keyPresent: false,
+  };
+  const TAGS = { models: [{ id: "qwen3:8b", label: "qwen3:8b" }], recommended: "qwen3:8b" };
+
+  function localRespond(url, method, body) {
+    if (url.endsWith("/judge-models")) {
+      assert.equal(body.provider, "local");
+      return { body: TAGS };
+    }
+    if (method === "POST") {
+      return { body: { ...WRITER, judge: body.judge ? { ...body.judge, keyPresent: false } : null } };
+    }
+    return { body: { ...WRITER, judge: LOCAL_JUDGE } };
+  }
+
+  it("fills local with its Ollama guide and reloads its tags", async () => {
+    const { settings, document, calls } = loadSettings(localRespond);
+    await settings.refreshLlmStatus();
+    // The saved-judge auto-load is fire-and-forget, like the xAI card's: let it land.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(el(document, "settingsJudgeProvider").value, "local");
+    assert.equal(el(document, "settingsJudgeKeyGuideLink").getAttribute("href"), "https://ollama.com");
+    assert.match(text(el(document, "settingsJudgeKeyGuideNote")), /usually need no key/);
+    assert.equal(el(document, "settingsJudgeStatus").textContent, "Grading with your local model (qwen3:8b)");
+    assert.ok(calls.some((call) => call.url.endsWith("/api/llm-config/judge-models")), "the Ollama list loads again");
+    assert.deepEqual(
+      el(document, "settingsJudgeModelList").options.map((option) => option.value),
+      ["qwen3:8b"],
+    );
+    assert.equal(settings.judgeFormIsDirty(), false);
+  });
+});
+
 describe("MREV JUDGEUX · generic key guide (shared with onboarding)", () => {
   async function openGeneric(document, provider) {
     const other = el(document, "settingsJudgeOtherProviders");
