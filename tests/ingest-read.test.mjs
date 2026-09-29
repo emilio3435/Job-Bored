@@ -60,6 +60,32 @@ it("T-K5-08 in-employer claim outside all role spans uses latest role with check
   assert.equal(result.employers[0].claims[0].roleAttribution, "inferred");
   assert.ok(result.review.claims.some((item) => item.kind === "check_role"));
 });
+it("R2 keeps sidebar-orphaned employer bullets but quarantines a different employer's claim", async () => {
+  const bullets = Array.from({ length: 11 }, (_, index) => `- Improved fictional local campaign ${index + 1} with weekly planning and reporting.`);
+  const source = [
+    "Jordan Rivera", "", "EXPERIENCE", "Contoso Media", "Research Lead • Jan 2022 — Present",
+    "", "", "", "", "", "", "", "", "", "", "",
+    "— Jordan Rivera • Research Lead", "Jordan Rivera", "Research Lead for local teams", "jordan@example.com",
+    "P O R T F O L I O", ...bullets.slice(0, 10), "", bullets[10], "",
+    "Northwind Trading", "Analyst • Jan 2020 — Dec 2021",
+    "- Built a fictional weekly inventory report for regional planners and store leads.",
+  ].join("\n");
+  assert.equal(source.split("\n").indexOf(bullets[0]) + 1, 22);
+  assert.equal(source.split("\n").indexOf(bullets[10]) + 1, 33);
+  const raw = { employers: [
+    { name: "Contoso Media", lines: [4, 4], roles: [{ title: "Research Lead", lines: [5, 5], start: "Jan 2022", end: "Present" }], claims: [
+      ...bullets.map((text, index) => ({ text: text.slice(2), lines: [index < 10 ? index + 22 : 33, index < 10 ? index + 22 : 33] })),
+      { text: "Built a fictional weekly inventory report for regional planners and store leads.", lines: [37, 37] },
+    ] },
+    { name: "Northwind Trading", lines: [35, 35], roles: [{ title: "Analyst", lines: [36, 36], start: "Jan 2020", end: "Dec 2021" }], claims: [] },
+  ] };
+  const { result } = await run(source, [raw, raw]);
+  assert.equal(result.status, "ready");
+  assert.equal(result.employers[0].claims.filter((claim) => !claim.quarantined).length, 11);
+  assert.ok(result.employers[0].claims.some((claim) => claim.roleAttribution === "inferred"));
+  assert.equal(result.employers[1].claims.filter((claim) => claim.quarantined).length, 1);
+  assert.ok(result.review.claims.some((claim) => claim.reason === "misattributed_out_of_span"));
+});
 it("T-K5-09 a six-line pointer stores only its matched extent", async () => {
   const source = `${simple.split("\n").slice(0, 3).join("\n")}\nA first local note.\nA second local note.\nA third local note.\nA fourth local note.\nBuilt a planning tool for local teams and their weekly goals.`;
   const raw = reply(); raw.employers[0].claims[0].lines = [3, 8];
