@@ -342,7 +342,10 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--review { border-l
 body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--fail { border-left-color: var(--jb-err); background: var(--jb-err-tint); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__why { margin: 0; font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="unavailable"] { color: var(--jb-warn); font-weight: 600; }
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="unavailable"],
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="invalid"] { color: var(--jb-warn); font-weight: 600; }
+/* JUDGEUX FE4: Try again · Change grading model · Add a second opinion. */
+body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge-acts { display: inline-flex; flex-wrap: wrap; gap: var(--jb-space-2); margin-left: var(--jb-space-1); font-weight: 400; }
 
 /* Blockers, facts to confirm and writing feedback: three boxes, never one list. */
 body.jb-v2 [data-region="role"] .brief-materials .mat-issues {
