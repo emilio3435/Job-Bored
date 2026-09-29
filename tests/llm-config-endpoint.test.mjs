@@ -76,6 +76,20 @@ describe("/api/llm-config", () => {
     assert.equal(after.judge.model, "grok-new");
   });
 
+  it("J-BE3c: judge:null removes only the judge from the stored config", async () => {
+    await writeLlmConfig({
+      provider: "gemini", model: "gemini-flash", apiKey: "writer-example-key", baseUrl: "",
+      judge: { provider: "openai", model: "gpt-example", apiKey: "judge-example-key" },
+    }, env);
+    const res = mockRes();
+    await handlePostLlmConfig({ body: { judge: null } }, res, env);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.judge, null);
+    const stored = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
+    assert.equal(stored.judge, undefined);
+    assert.equal(stored.apiKey, "writer-example-key");
+  });
+
   it("GET returns 404 llm_unconfigured when the pin file is missing", async () => {
     const res = mockRes();
     await handleGetLlmConfig({}, res, env);
