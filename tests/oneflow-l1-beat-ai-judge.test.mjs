@@ -44,6 +44,27 @@ const XAI_CATALOG = {
   ],
   recommended: "grok-4.7",
 };
+const OPENROUTER_CATALOG = {
+  models: [
+    { id: "openai/gpt-4o-mini", label: "OpenAI: GPT 4o Mini" },
+    { id: "x-ai/grok-4", label: "xAI: Grok 4" },
+  ],
+  recommended: "openai/gpt-4o-mini",
+};
+const LOCAL_CATALOG = {
+  models: [{ id: "qwen3:8b", label: "qwen3:8b" }],
+  recommended: "qwen3:8b",
+};
+
+/** Answer each catalog call with the fixture for its requested provider. */
+function catalogByProvider() {
+  return (n, call) => {
+    const provider = call.body && call.body.provider;
+    if (provider === "openrouter") return { ok: true, json: OPENROUTER_CATALOG };
+    if (provider === "local") return { ok: true, json: LOCAL_CATALOG };
+    return { ok: true, json: XAI_CATALOG };
+  };
+}
 
 /**
  * The whole beat's fetch: ping, pin, judge models, judge test, env write.
@@ -148,6 +169,23 @@ function otherCard(env, provider) {
   return details.querySelector(`[data-judge-provider="${provider}"]`);
 }
 
+function otherSelect(env) {
+  return env.mount().querySelector("#oneFlowJudgeOtherModel");
+}
+
+function otherOptions(env) {
+  return [...(otherSelect(env).children || [])].map((option) => option.value);
+}
+
+async function typeOtherKey(env, key = "or-test-key-1") {
+  const field = env.mount().querySelector("#oneFlowJudgeKeyInput");
+  field.value = key;
+  field.dispatch("input", { target: field });
+  field.dispatch("change", { target: field });
+  await flush();
+  return field;
+}
+
 function setJudgeField(env, id, value) {
   const field = env.mount().querySelector(`#${id}`);
   field.value = value;
@@ -176,7 +214,7 @@ describe("B2 judge offer — placement (optional, never a gate)", () => {
     assert.equal(select.disabled, true);
     assert.deepEqual(xaiOptions(env), [""], "one placeholder option before the key loads the list");
     assert.match(section.textContent, /Enter your key to load the latest Grok models\./);
-    assert.equal(env.mount().querySelector("#oneFlowJudgeModelInput"), null, "no typed slug on the xAI path");
+    assert.equal(otherSelect(env), null, "no other-provider dropdown on the xAI path");
     assert.equal(actionButton(env.mount(), "ai_judge_test").textContent, "Test judge key");
     assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
   });
@@ -545,16 +583,14 @@ describe("B2 judge offer — Other providers", () => {
     assert.match(details.textContent, /A self-hosted endpoint\? Set it in Settings\./);
   });
 
-  it("an other provider keeps its typed model, key link and cost note", async () => {
+  it("an other provider shows a model dropdown with its key link and cost note", async () => {
     const env = await openBeat({ fetchImpl: judgeFetch() });
     await checkWriter(env);
     await saveWriter(env);
     await openOtherProviders(env);
     otherCard(env, "openrouter").dispatch("click");
-    assert.equal(
-      env.mount().querySelector("#oneFlowJudgeModelInput").value,
-      env.window.JobBoredModelCatalog.DEFAULT_MODEL_BY_PROVIDER.openrouter,
-    );
+    assert.equal(otherSelect(env).tagName, "SELECT");
+    assert.equal(env.mount().querySelector("#oneFlowJudgeModelInput"), null, "no typed slug on any path now");
     const signup = judgeSection(env).querySelector(".oneflow-ai__signup");
     assert.equal(signup.textContent, "Create an OpenRouter key ↗");
     assert.equal(signup.getAttribute("href"), "https://openrouter.ai/keys");
@@ -567,23 +603,25 @@ describe("B2 judge offer — Other providers", () => {
   });
 
   it("an other provider tests and saves through the same shape", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
     await checkWriter(env);
     await saveWriter(env);
     await openOtherProviders(env);
     otherCard(env, "openrouter").dispatch("click");
-    setJudgeField(env, "oneFlowJudgeKeyInput", "[REDACTED]");
+    await typeOtherKey(env);
     await env.beats.ai.handleAction("ai_judge_test");
     await env.beats.ai.handleAction("ai_judge_save");
     const pins = callsTo(env, PIN_PATH);
     assert.equal(pins.length, 2);
     assert.deepEqual(Object.keys(pins[1].body.judge).sort(), ["apiKey", "baseUrl", "model", "provider"]);
     assert.equal(pins[1].body.judge.provider, "openrouter");
+    assert.equal(pins[1].body.judge.model, "openai/gpt-4o-mini");
+    assert.equal(pins[1].body.judge.baseUrl, "https://openrouter.ai/api/v1");
     assert.ok(completed(env));
   });
 
   it("Local asks for no key and saves without one", async () => {
-    const env = await openBeat({ fetchImpl: judgeFetch() });
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
     await checkWriter(env);
     await saveWriter(env);
     await openOtherProviders(env);
@@ -598,6 +636,7 @@ describe("B2 judge offer — Other providers", () => {
     const pins = callsTo(env, PIN_PATH);
     assert.equal(pins.length, 2);
     assert.equal(pins[1].body.judge.provider, "local");
+    assert.equal(pins[1].body.judge.model, "qwen3:8b");
     assert.equal("apiKey" in pins[1].body.judge, false, "no empty key is sent");
     assert.ok(completed(env));
   });
@@ -609,12 +648,107 @@ describe("B2 judge offer — Other providers", () => {
     await typeXaiKey(env);
     await openOtherProviders(env);
     otherCard(env, "openrouter").dispatch("click");
-    assert.ok(env.mount().querySelector("#oneFlowJudgeModelInput"), "the other path types its model");
+    assert.ok(otherSelect(env), "the other path picks its model from a list");
     env.mount().querySelector("#oneFlowJudgeXaiBack").dispatch("click");
     assert.ok(xaiSelect(env), "the xAI dropdown is back");
-    assert.equal(env.mount().querySelector("#oneFlowJudgeModelInput"), null);
+    assert.equal(otherSelect(env), null);
     assert.equal(env.mount().querySelector("#oneFlowJudgeKeyInput").value, "xai-test-key-000", "the xAI key draft survives the detour");
     assert.deepEqual(xaiOptions(env), ["grok-4.7", "grok-4.6", "grok-4.5"], "the loaded list survives too");
     assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 1, "no refetch");
+  });
+});
+
+describe("B2 judge offer — Other providers' live lists", () => {
+  it("fills the dropdown from that provider's catalog once the key is entered", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
+    await checkWriter(env);
+    await saveWriter(env);
+    await openOtherProviders(env);
+    otherCard(env, "openrouter").dispatch("click");
+    assert.equal(otherSelect(env).disabled, true);
+    assert.match(otherSelect(env).children[0].textContent, /Enter your key to load/);
+    await typeOtherKey(env);
+
+    const loads = callsTo(env, JUDGE_MODELS_PATH);
+    assert.equal(loads.length, 1);
+    assert.deepEqual(loads[0].body, { provider: "openrouter", apiKey: "or-test-key-1" });
+    assert.deepEqual(otherOptions(env), ["openai/gpt-4o-mini", "x-ai/grok-4"]);
+    assert.equal(otherSelect(env).disabled, false);
+    assert.equal(otherSelect(env).value, "openai/gpt-4o-mini");
+    assert.match(judgeSection(env).textContent, /Model list loaded from OpenRouter/);
+  });
+
+  it("Test loads the list when the key never left the field, then tests the pick", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
+    await checkWriter(env);
+    await saveWriter(env);
+    await openOtherProviders(env);
+    otherCard(env, "openrouter").dispatch("click");
+    setJudgeField(env, "oneFlowJudgeKeyInput", "or-test-" + "key-2");
+    await env.beats.ai.handleAction("ai_judge_test");
+
+    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 1);
+    const tests = callsTo(env, JUDGE_TEST_PATH);
+    assert.equal(tests.length, 1);
+    assert.deepEqual(tests[0].body, {
+      provider: "openrouter",
+      model: "openai/gpt-4o-mini",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiKey: "or-test-key-2",
+    });
+  });
+
+  it("refuses to test with no key pasted, and calls nothing", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
+    await checkWriter(env);
+    await saveWriter(env);
+    await openOtherProviders(env);
+    otherCard(env, "openrouter").dispatch("click");
+    await env.beats.ai.handleAction("ai_judge_test");
+    assert.equal(callsTo(env, JUDGE_MODELS_PATH).length, 0);
+    assert.equal(callsTo(env, JUDGE_TEST_PATH).length, 0);
+    assert.match(
+      env.mount().querySelector(".discovery-setup-wizard__message").textContent,
+      /Paste your OpenRouter key first/,
+    );
+    assert.equal(completed(env), false);
+  });
+
+  it("a rejected key names the key and a dead list names the connection", async () => {
+    const rejected = await openBeat({
+      fetchImpl: judgeFetch({
+        judgeModels: { ok: false, status: 401, json: { error: "That key didn't work: check it on OpenRouter." } },
+      }),
+    });
+    await checkWriter(rejected);
+    await saveWriter(rejected);
+    await openOtherProviders(rejected);
+    otherCard(rejected, "openrouter").dispatch("click");
+    await typeOtherKey(rejected, "or-wrong-key-1");
+    assert.equal(otherSelect(rejected).value, "");
+    assert.equal(otherSelect(rejected).children[0].textContent, "Models unavailable — check your key");
+    assert.match(judgeSection(rejected).textContent, /Check the key, then enter it again to reload models/);
+
+    const dead = await openBeat({ fetchImpl: judgeFetch({ judgeModels: new TypeError("Failed to fetch") }) });
+    await checkWriter(dead);
+    await saveWriter(dead);
+    await openOtherProviders(dead);
+    otherCard(dead, "openrouter").dispatch("click");
+    await typeOtherKey(dead);
+    assert.equal(otherSelect(dead).children[0].textContent, "Models unavailable — check your connection");
+    assert.match(judgeSection(dead).textContent, /Check your connection, then enter the key again to reload models/);
+  });
+
+  it("Local sends its server address with a keyless tag list", async () => {
+    const env = await openBeat({ fetchImpl: judgeFetch({ judgeModels: catalogByProvider() }) });
+    await checkWriter(env);
+    await saveWriter(env);
+    await openOtherProviders(env);
+    otherCard(env, "local").dispatch("click");
+    await env.beats.ai.handleAction("ai_judge_test");
+    const loads = callsTo(env, JUDGE_MODELS_PATH);
+    assert.equal(loads.length, 1);
+    assert.deepEqual(loads[0].body, { provider: "local", baseUrl: "http://127.0.0.1:11434/v1" });
+    assert.deepEqual(otherOptions(env), ["qwen3:8b"]);
   });
 });

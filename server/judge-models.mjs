@@ -1,9 +1,15 @@
 import { loadLlmConfig } from "./llm-config.mjs";
+import { GEMINI_API_BASE, geminiHeaders, normalizeProvider } from "./ai/provider.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
 const XAI_BASE_URL = "https://api.x.ai/v1";
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
+const ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
+const ANTHROPIC_VERSION = "2023-06-01";
+const DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434";
 
-/** @typedef {Record<string, unknown>} XaiModel */
+/** @typedef {Record<string, unknown>} CatalogModel */
 
 /** @param {unknown} value @returns {string} */
 function string(value) {
@@ -22,7 +28,7 @@ function createdValue(value) {
   return 0;
 }
 
-/** @param {XaiModel} model @returns {string[]} */
+/** @param {CatalogModel} model @returns {string[]} */
 function modalitiesOf(model) {
   const values = [model.input_modalities, model.output_modalities, model.modalities, model.capabilities]
     .flatMap((value) => Array.isArray(value) ? value : typeof value === "string" ? [value] : [])
@@ -31,7 +37,7 @@ function modalitiesOf(model) {
   return values;
 }
 
-/** @param {XaiModel} model @returns {boolean} */
+/** @param {CatalogModel} model @returns {boolean} */
 function isTextCapableGrok(model) {
   const id = string(model && model.id);
   const nonTextFamily = /(imagine|image|video|voice|audio|stt|tts|embed)/i;
@@ -42,8 +48,159 @@ function isTextCapableGrok(model) {
   return modalities.length === 0 || modalities.some((modality) => /(^|[^a-z])text([^a-z]|$)/i.test(modality));
 }
 
-/** @param {unknown} payload @returns {Array<{ id: string, label: string, created: number }>} */
-function normalizeModels(payload) {
+const NON_TEXT_OPENAI = /(audio|realtime|image|embed|tts|transcribe|whisper|moderation)/i;
+
+/**
+ * One row extractor per catalog: the upstream id, a display label, and a
+ * created stamp for newest-first lists. Null drops the row.
+ * @typedef {(model: CatalogModel) => { id: string, label: string, created: number } | null} TakeRow
+ */
+
+/** @type {TakeRow} */
+function takeXai(model) {
+  if (!isTextCapableGrok(model)) return null;
+  const id = string(model.id);
+  if (!id) return null;
+  return { id, label: string(model.label) || id, created: createdValue(model.created) };
+}
+
+/** @type {TakeRow} */
+function takeOpenRouter(model) {
+  const id = string(model.id);
+  if (!id.includes("/")) return null;
+  return { id, label: string(model.name) || id, created: 0 };
+}
+
+/** @type {TakeRow} */
+function takeOpenAI(model) {
+  const id = string(model.id);
+  if (!/^gpt-/i.test(id) || NON_TEXT_OPENAI.test(id)) return null;
+  return { id, label: id, created: createdValue(model.created) };
+}
+
+/** @type {TakeRow} */
+function takeAnthropic(model) {
+  const id = string(model.id);
+  if (!id) return null;
+  return { id, label: string(model.display_name) || id, created: createdValue(model.created_at) };
+}
+
+/** @type {TakeRow} */
+function takeGemini(model) {
+  const name = string(model.name);
+  const id = name.includes("/") ? name.slice(name.lastIndexOf("/") + 1) : name;
+  const methods = Array.isArray(model.supportedGenerationMethods) ? model.supportedGenerationMethods : [];
+  if (!id || !methods.includes("generateContent")) return null;
+  return { id, label: string(model.displayName) || id, created: 0 };
+}
+
+/** @type {TakeRow} */
+function takeLocal(model) {
+  const id = string(model.name);
+  if (!id) return null;
+  return { id, label: id, created: 0 };
+}
+
+/**
+ * @typedef {object} CatalogSpec
+ * @property {string} label words for errors ("OpenAI")
+ * @property {string} keyWords where a rejected key gets checked ("check it on OpenAI")
+ * @property {boolean} keyRequired false for keyless lists (OpenRouter, local)
+ * @property {(baseUrl: string) => string} listUrl
+ * @property {(apiKey: string) => Record<string, string>} headers
+ * @property {TakeRow} take
+ * @property {boolean} newestFirst
+ * @property {(models: Array<{ id: string }>) => string | null} recommend
+ */
+
+/** @param {unknown} baseUrl @returns {string} */
+function ollamaTagsUrl(baseUrl) {
+  const raw = string(baseUrl).replace(/\/+$/, "").replace(/\/v1$/i, "").replace(/\/+$/, "");
+  return `${raw || DEFAULT_OLLAMA_HOST}/api/tags`;
+}
+
+/** @param {Array<{ id: string }>} models @param {RegExp} cheap @returns {string | null} */
+function recommendCheapOrFirst(models, cheap) {
+  return models.find((model) => cheap.test(model.id))?.id || models[0]?.id || null;
+}
+
+/** @type {Record<string, CatalogSpec>} */
+const CATALOGS = {
+  xai: {
+    label: "xAI",
+    keyWords: "check it on the xAI console",
+    keyRequired: true,
+    listUrl: () => XAI_MODELS_URL,
+    headers: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
+    take: takeXai,
+    newestFirst: true,
+    recommend: (models) => models.find((model) => /^grok-\d/i.test(model.id) && !/mini/i.test(model.id))?.id || null,
+  },
+  openrouter: {
+    label: "OpenRouter",
+    keyWords: "check it on OpenRouter",
+    keyRequired: false,
+    listUrl: () => OPENROUTER_MODELS_URL,
+    headers: (apiKey) => {
+      /** @type {Record<string, string>} */
+      const headers = {};
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      return headers;
+    },
+    take: takeOpenRouter,
+    newestFirst: false,
+    recommend: (models) => models.some((model) => model.id === "openai/gpt-4o-mini")
+      ? "openai/gpt-4o-mini"
+      : models[0]?.id || null,
+  },
+  openai: {
+    label: "OpenAI",
+    keyWords: "check it on OpenAI",
+    keyRequired: true,
+    listUrl: () => OPENAI_MODELS_URL,
+    headers: (apiKey) => ({ Authorization: `Bearer ${apiKey}` }),
+    take: takeOpenAI,
+    newestFirst: true,
+    recommend: (models) => recommendCheapOrFirst(models, /mini/i),
+  },
+  anthropic: {
+    label: "Anthropic",
+    keyWords: "check it on Anthropic",
+    keyRequired: true,
+    listUrl: () => ANTHROPIC_MODELS_URL,
+    headers: (apiKey) => ({ "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION }),
+    take: takeAnthropic,
+    newestFirst: true,
+    recommend: (models) => recommendCheapOrFirst(models, /haiku/i),
+  },
+  gemini: {
+    label: "Gemini",
+    keyWords: "check it on Gemini",
+    keyRequired: true,
+    listUrl: () => `${GEMINI_API_BASE}/models`,
+    headers: (apiKey) => geminiHeaders(apiKey),
+    take: takeGemini,
+    newestFirst: false,
+    recommend: (models) => recommendCheapOrFirst(models, /flash/i),
+  },
+  local: {
+    label: "Ollama",
+    keyWords: "check that Ollama is running",
+    keyRequired: false,
+    listUrl: (baseUrl) => ollamaTagsUrl(baseUrl),
+    headers: () => ({}),
+    take: takeLocal,
+    newestFirst: false,
+    recommend: (models) => models[0]?.id || null,
+  },
+};
+
+/**
+ * @param {CatalogSpec} spec
+ * @param {unknown} payload
+ * @returns {Array<{ id: string, label: string, created: number }>}
+ */
+function normalizeCatalog(spec, payload) {
   const source = payload && typeof payload === "object" && !Array.isArray(payload)
     ? /** @type {Record<string, unknown>} */ (payload)
     : {};
@@ -58,21 +215,31 @@ function normalizeModels(payload) {
   const models = [];
   for (const value of rows) {
     if (!value || typeof value !== "object") continue;
-    const model = /** @type {XaiModel} */ (value);
-    if (!isTextCapableGrok(model)) continue;
-    const id = string(model.id);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    models.push({ id, label: string(model.label) || id, created: createdValue(model.created) });
+    const taken = spec.take(/** @type {CatalogModel} */ (value));
+    if (!taken || seen.has(taken.id)) continue;
+    seen.add(taken.id);
+    models.push(taken);
   }
-  return models.sort((a, b) => b.created - a.created || a.id.localeCompare(b.id));
+  if (spec.newestFirst) models.sort((a, b) => b.created - a.created || a.id.localeCompare(b.id));
+  return models;
 }
 
-/** @param {NodeJS.ProcessEnv} [env] @returns {string} */
-function savedXaiKey(env) {
+/**
+ * The stored judge key when the saved judge grades with this catalog's
+ * provider: the xAI shape needs its endpoint too, the rest match by provider.
+ * @param {string} provider
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+function savedJudgeKey(provider, env) {
   const judge = /** @type {{ provider?: string, baseUrl?: string, apiKey?: string } | undefined} */ (loadLlmConfig(env)?.judge);
-  const baseUrl = string(judge && judge.baseUrl).replace(/\/+$/, "");
-  if (!judge || judge.provider !== "openai_compatible" || baseUrl !== XAI_BASE_URL) return "";
+  if (!judge) return "";
+  if (provider === "xai") {
+    const baseUrl = string(judge.baseUrl).replace(/\/+$/, "");
+    if (judge.provider !== "openai_compatible" || baseUrl !== XAI_BASE_URL) return "";
+    return string(judge.apiKey);
+  }
+  if (normalizeProvider(judge.provider) !== provider) return "";
   return string(judge.apiKey);
 }
 
@@ -86,36 +253,48 @@ function savedXaiKey(env) {
  */
 export async function handlePostJudgeModels(req, res, env = process.env, options = {}) {
   const body = req && req.body && typeof req.body === "object" && !Array.isArray(req.body)
-    ? /** @type {{ provider?: unknown, apiKey?: unknown }} */ (req.body)
+    ? /** @type {{ provider?: unknown, apiKey?: unknown, baseUrl?: unknown }} */ (req.body)
     : null;
-  if (!body || typeof body !== "object" || Array.isArray(body) || body.provider !== "xai") {
-    res.status(400).json({ error: "Choose xAI to load Grok models." });
+  const provider = body ? string(body.provider).toLowerCase() : "";
+  const spec = CATALOGS[provider];
+  if (!body || !spec) {
+    res.status(400).json({ error: "That provider can't list models: type the model name instead." });
     return;
   }
-  const apiKey = string(body.apiKey) || savedXaiKey(env);
-  if (!apiKey) {
-    res.status(400).json({ error: "Add your xAI API key to load models." });
+  const baseUrl = string(body.baseUrl);
+  if (provider === "local" && baseUrl) {
+    try {
+      const url = new URL(baseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("non-http base URL");
+    } catch {
+      res.status(400).json({ error: "The base URL must start with http:// or https://." });
+      return;
+    }
+  }
+  const apiKey = provider === "local" ? "" : string(body.apiKey) || savedJudgeKey(provider, env);
+  if (spec.keyRequired && !apiKey) {
+    res.status(400).json({ error: `Add your ${spec.label} API key to load models.` });
     return;
   }
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   let upstream;
   try {
-    upstream = await fetchImpl(XAI_MODELS_URL, {
+    upstream = await fetchImpl(spec.listUrl(baseUrl), {
       method: "GET",
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: spec.headers(apiKey),
     });
   } catch {
-    res.status(502).json({ error: "Couldn't reach xAI: try again." });
+    res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
     return;
   }
 
   if (upstream.status === 401) {
-    res.status(401).json({ error: "That key didn't work: check it on the xAI console." });
+    res.status(401).json({ error: `That key didn't work: ${spec.keyWords}.` });
     return;
   }
   if (!upstream.ok) {
-    res.status(502).json({ error: "Couldn't load xAI models: try again." });
+    res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
     return;
   }
 
@@ -123,10 +302,9 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   try {
     payload = await upstream.json();
   } catch {
-    res.status(502).json({ error: "Couldn't load xAI models: try again." });
+    res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
     return;
   }
-  const models = normalizeModels(payload);
-  const recommended = models.find((model) => /^grok-\d/i.test(model.id) && !/mini/i.test(model.id))?.id || null;
-  res.json({ models, recommended });
+  const models = normalizeCatalog(spec, payload);
+  res.json({ models, recommended: spec.recommend(models) });
 }

@@ -80,6 +80,33 @@ describe("judge-picker · shared constants", () => {
   });
 });
 
+describe("judge-picker · fixed base URLs and catalog ids", () => {
+  it("pins the endpoint each provider grades against", () => {
+    const picker = loadPicker();
+    assert.deepEqual(plain(picker.PROVIDER_BASE_URLS), {
+      openrouter: "https://openrouter.ai/api/v1",
+      openai: "https://api.openai.com/v1",
+      anthropic: "",
+      gemini: "",
+      local: "http://127.0.0.1:11434/v1",
+    });
+  });
+
+  it("maps a judge form to its catalog token, or to none for custom endpoints", () => {
+    const picker = loadPicker();
+    assert.equal(picker.judgeCatalogId("openai_compatible", "https://api.x.ai/v1"), "xai");
+    assert.equal(picker.judgeCatalogId("openai_compatible", "https://api.x.ai/v1/"), "xai");
+    assert.equal(picker.judgeCatalogId("openrouter", ""), "openrouter");
+    assert.equal(picker.judgeCatalogId("openai", ""), "openai");
+    assert.equal(picker.judgeCatalogId("anthropic", ""), "anthropic");
+    assert.equal(picker.judgeCatalogId("gemini", ""), "gemini");
+    assert.equal(picker.judgeCatalogId("local", "http://127.0.0.1:11434/v1"), "local");
+    assert.equal(picker.judgeCatalogId("openai_compatible", "https://self-hosted.example/v1"), "");
+    assert.equal(picker.judgeCatalogId("webhook", ""), "");
+    assert.equal(picker.judgeCatalogId("", ""), "");
+  });
+});
+
 describe("judge-picker · judgeFromServer / isXaiJudge", () => {
   it("normalizes the server judge and spots the xAI shape", () => {
     const picker = loadPicker();
@@ -181,5 +208,46 @@ describe("judge-picker · fetchJudgeModels", () => {
     const result = await picker.fetchJudgeModels({ baseUrl: "http://127.0.0.1:3847", fetchImpl, apiKey: "xai-key" });
     assert.equal(result.ok, false);
     assert.equal(result.error, "Couldn't reach xAI: try again.");
+  });
+
+  it("POSTs the requested provider token instead of always xai", async () => {
+    const picker = loadPicker();
+    const fetchImpl = stubFetch(() => okJson({ models: [{ id: "gpt-4o-mini" }], recommended: "gpt-4o-mini" }));
+    const result = await picker.fetchJudgeModels({
+      provider: "openai",
+      baseUrl: "http://127.0.0.1:3847",
+      fetchImpl,
+      apiKey: "openai-key",
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(plain(fetchImpl.calls[0].body), { provider: "openai", apiKey: "openai-key" });
+  });
+
+  it("sends the local base URL override with a local catalog request", async () => {
+    const picker = loadPicker();
+    const fetchImpl = stubFetch(() => okJson({ models: [{ id: "qwen3:8b" }], recommended: "qwen3:8b" }));
+    await picker.fetchJudgeModels({
+      provider: "local",
+      baseUrl: "http://127.0.0.1:3847",
+      fetchImpl,
+      judgeBaseUrl: "http://nas:11434/v1",
+    });
+    assert.deepEqual(
+      plain(fetchImpl.calls[0].body),
+      { provider: "local", baseUrl: "http://nas:11434/v1" },
+    );
+  });
+
+  it("names the provider in the dead-server retry copy", async () => {
+    const picker = loadPicker();
+    const fetchImpl = stubFetch(() => { throw new TypeError("Failed to fetch"); });
+    const result = await picker.fetchJudgeModels({
+      provider: "openai",
+      baseUrl: "http://127.0.0.1:3847",
+      fetchImpl,
+      apiKey: "openai-key",
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "Couldn't reach OpenAI: try again.");
   });
 });
