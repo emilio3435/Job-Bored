@@ -50,7 +50,7 @@
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
   const BASE_URL_INPUT_ID = "oneFlowAiBaseUrlInput";
   const JUDGE_KEY_INPUT_ID = "oneFlowJudgeKeyInput";
-  const JUDGE_MODEL_INPUT_ID = "oneFlowJudgeModelInput";
+  const JUDGE_OTHER_MODEL_SELECT_ID = "oneFlowJudgeOtherModel";
   const JUDGE_BASE_URL_INPUT_ID = "oneFlowJudgeBaseUrlInput";
   const JUDGE_XAI_MODEL_SELECT_ID = "oneFlowJudgeXaiModel";
   const JUDGE_XAI_KEY_LINK_ID = "oneFlowJudgeXaiKeyLink";
@@ -207,7 +207,9 @@
    * this computer. xAI is the recommended path and renders first, with its
    * key link and a live Grok dropdown from the shared picker — there is no
    * None card because Skip for now IS the None path. Anything else lives
-   * behind the "Other providers" disclosure below.
+   * behind the "Other providers" disclosure below, each with its own live
+   * model list: nothing here is typed from memory, and only a local server
+   * keeps an editable address.
    */
   const JUDGE_OTHER_PROVIDERS = [
     {
@@ -215,39 +217,24 @@
       label: "OpenRouter",
       note: "One key grades with any model. Pay-as-you-go.",
       keyPlaceholder: "sk-or-…",
-      signupUrl: "https://openrouter.ai/keys",
-      signupLabel: "Create an OpenRouter key ↗",
-      keyHelp: "Pay-as-you-go — a few dollars of credit grades a lot of letters.",
-      modelHelp: "Any OpenRouter model id. Free options end in :free.",
-      modelHelpUrl: "https://openrouter.ai/models",
-      modelHelpLabel: "Browse OpenRouter models ↗",
     },
     {
       id: "openai",
       label: "OpenAI",
       note: "Paid. Uses your OpenAI API credit.",
       keyPlaceholder: "sk-…",
-      signupUrl: "https://platform.openai.com/api-keys",
-      signupLabel: "Create an OpenAI key ↗",
-      keyHelp: "Paid — the test fails without API credit.",
     },
     {
       id: "anthropic",
       label: "Anthropic",
       note: "Paid. Uses your Anthropic API credit.",
       keyPlaceholder: "sk-ant-…",
-      signupUrl: "https://console.anthropic.com/settings/keys",
-      signupLabel: "Create an Anthropic key ↗",
-      keyHelp: "Paid — the test fails without API credit.",
     },
     {
       id: "gemini",
       label: "Gemini",
       note: "Free tier — no card needed.",
       keyPlaceholder: "AIza…",
-      signupUrl: "https://aistudio.google.com/app/apikey",
-      signupLabel: "Create a free Gemini key ↗",
-      keyHelp: "Free tier, no card needed.",
     },
     {
       id: "local",
@@ -256,9 +243,6 @@
       defaultBaseUrl: "http://127.0.0.1:11434/v1",
       baseUrlField: true,
       keyless: true,
-      signupUrl: "https://ollama.com",
-      signupLabel: "Get Ollama ↗",
-      modelHelp: "The model name Ollama serves (ollama list shows yours).",
     },
   ];
 
@@ -270,7 +254,16 @@
     "in Settings.";
 
   function judgeOtherById(id) {
-    return JUDGE_OTHER_PROVIDERS.find((p) => p.id === id) || JUDGE_OTHER_PROVIDERS[0];
+    const def = JUDGE_OTHER_PROVIDERS.find((p) => p.id === id) || JUDGE_OTHER_PROVIDERS[0];
+    // Key pages and cost notes come from the shared picker, never from a
+    // second table, so onboarding and Settings cannot disagree about them.
+    const guide = judgePicker().OTHER_PROVIDER_KEYS[def.id] || {};
+    return {
+      ...def,
+      signupUrl: guide.keyUrl || "",
+      signupLabel: guide.keyLabel || "",
+      keyHelp: guide.keyNote || "",
+    };
   }
 
   function isXaiJudgePath(providerId) {
@@ -614,11 +607,16 @@
         baseUrl: judgePicker().XAI_BASE_URL,
       };
     }
+    // Every Other provider grades at a fixed endpoint from the shared
+    // picker — only a local server keeps an editable address.
+    const other = judgeOtherById(provider);
     return {
       provider,
       key: read(fields.judgeKey, j.keyDraft),
-      model: read(fields.judgeModel, j.modelDraft),
-      baseUrl: read(fields.judgeBaseUrl, j.baseUrlDraft),
+      model: read(fields.judgeModel, j.otherSelected),
+      baseUrl: other.baseUrlField
+        ? read(fields.judgeBaseUrl, j.baseUrlDraft)
+        : judgePicker().PROVIDER_BASE_URLS[provider] || "",
     };
   }
 
@@ -630,7 +628,7 @@
       return;
     }
     state.judge.keyDraft = String(form.key || "");
-    state.judge.modelDraft = String(form.model || "");
+    state.judge.otherSelected = String(form.model || "");
     state.judge.baseUrlDraft = String(form.baseUrl || "");
   }
 
@@ -651,8 +649,8 @@
       if (!form.model) return "Pick a Grok model first.";
       return "";
     }
-    if (!form.model) return "Name the judge model first — the suggestion above is a safe default.";
     if (!def.keyless && !form.key) return `Paste your ${def.label.split(" — ")[0]} key first.`;
+    if (!form.model) return "Pick a model first.";
     if (def.baseUrlField && !form.baseUrl) return "Paste the base URL first.";
     if (form.baseUrl && !/^https?:\/\//i.test(form.baseUrl)) {
       return "The base URL must start with http:// or https://.";
@@ -938,7 +936,12 @@
         // copy can't explain. The xAI drafts survive the detour, so coming
         // back never refetches the list.
         state.judge.keyDraft = "";
-        state.judge.modelDraft = judgeDefaultModel(def);
+        state.judge.otherModels = [];
+        state.judge.otherSelected = "";
+        state.judge.otherLoaded = false;
+        state.judge.otherLoading = false;
+        state.judge.otherError = "";
+        state.judge.otherStatus = 0;
         state.judge.baseUrlDraft = def.defaultBaseUrl || "";
         state.judge.testedCombo = "";
         state.judge.testedModel = "";
@@ -957,7 +960,7 @@
     details.appendChild(el("summary", "", {}, "Other providers"));
     details.appendChild(renderJudgeOtherCards(ctx));
     if (other) {
-      details.appendChild(renderJudgeOtherFields());
+      details.appendChild(renderJudgeOtherFields(ctx));
       const back = el("button", "", { id: JUDGE_XAI_BACK_ID, type: "button" }, "← Use the recommended xAI setup");
       back.addEventListener("click", () => {
         if (!state.judge) return;
@@ -975,44 +978,66 @@
     return details;
   }
 
-  function renderJudgeOtherFields() {
+  function renderJudgeOtherFields(ctx) {
     const form = judgeReadForm();
     const def = judgeOtherById(form.provider);
+    const short = def.label.split(" — ")[0];
     const wrap = el("div", "oneflow-ai__key");
 
-    const modelLabel = el("label", "oneflow-judge__field-label", { for: JUDGE_MODEL_INPUT_ID }, "Grading model");
-    wrap.appendChild(modelLabel);
-    const model = el("input", "oneflow-ai__field", {
-      id: JUDGE_MODEL_INPUT_ID,
-      type: "text",
-      autocomplete: "off",
-      spellcheck: false,
-      value: form.model || judgeDefaultModel(def),
-      "aria-label": "Grading model name",
-    });
-    model.addEventListener("input", () => {
+    // The live model list, mirroring the xAI dropdown: a stale answer never
+    // overwrites a newer key's list, and status 0 names the connection.
+    wrap.appendChild(
+      el("label", "oneflow-judge__field-label", { for: JUDGE_OTHER_MODEL_SELECT_ID }, "Grading model"),
+    );
+    const selectAttrs = { id: JUDGE_OTHER_MODEL_SELECT_ID, "aria-label": `${short} grading model` };
+    const loaded = state.judge.otherLoaded && state.judge.otherModels.length > 0;
+    if (!loaded) selectAttrs.disabled = true;
+    const select = el("select", "oneflow-ai__field", selectAttrs);
+    if (!loaded) {
+      const unreachable = state.judge.otherStatus === 0;
+      const placeholder = state.judge.otherLoading
+        ? `Loading ${short} models…`
+        : state.judge.otherError
+          ? unreachable
+            ? "Models unavailable — check your connection"
+            : "Models unavailable — check your key"
+          : state.judge.otherLoaded
+            ? `No ${short} models found`
+            : def.keyless
+              ? "Press Test to load your served models"
+              : `Enter your key to load ${short} models`;
+      select.appendChild(el("option", "", { value: "" }, placeholder));
+      select.value = "";
+    } else {
+      for (const item of state.judge.otherModels) {
+        select.appendChild(el("option", "", { value: item.id }, item.label));
+      }
+      select.value = state.judge.otherSelected;
+    }
+    select.addEventListener("change", () => {
       if (state.judge) {
-        state.judge.modelDraft = model.value;
+        state.judge.otherSelected = select.value;
         state.judge.testedCombo = "";
       }
     });
-    fields.judgeModel = model;
-    wrap.appendChild(model);
-    if (def.modelHelp) {
-      wrap.appendChild(el("p", "oneflow-ai__privacy", {}, def.modelHelp));
-    }
-    if (def.modelHelpUrl) {
-      const linkRow = el("p", "oneflow-judge__link-row");
-      linkRow.appendChild(
-        el(
-          "a",
-          "oneflow-ai__trouble-link",
-          { href: def.modelHelpUrl, target: "_blank", rel: "noopener" },
-          def.modelHelpLabel || "Model list ↗",
-        ),
-      );
-      wrap.appendChild(linkRow);
-    }
+    fields.judgeModel = select;
+    wrap.appendChild(select);
+
+    const hint = el("p", "oneflow-ai__privacy", { role: "status" });
+    hint.textContent = state.judge.otherLoading
+      ? `Loading the latest ${short} models…`
+      : state.judge.otherError
+        ? state.judge.otherStatus === 0
+          ? "Check your connection, then enter the key again to reload models."
+          : "Check the key, then enter it again to reload models."
+        : !state.judge.otherLoaded
+          ? def.keyless
+            ? "Press Test to load the models your server has."
+            : `Enter your key to load the latest ${short} models.`
+          : state.judge.otherModels.length
+            ? `Model list loaded from ${short}. The recommended model is selected.`
+            : `${short} returned no models. Press Test to try loading the list again.`;
+    wrap.appendChild(hint);
 
     if (def.baseUrlField) {
       const baseLabel = el(
@@ -1034,6 +1059,8 @@
         if (state.judge) {
           state.judge.baseUrlDraft = baseUrl.value;
           state.judge.testedCombo = "";
+          // A new address invalidates the loaded tags: Test re-loads them.
+          state.judge.otherLoaded = false;
         }
       });
       fields.judgeBaseUrl = baseUrl;
@@ -1099,8 +1126,15 @@
       if (state.judge) {
         state.judge.keyDraft = input.value;
         state.judge.testedCombo = "";
+        // A changed key invalidates the loaded list: the Test re-loads it.
+        state.judge.otherLoaded = false;
       }
       paintShape();
+    });
+    input.addEventListener("change", () => {
+      if (!state.judge) return;
+      state.judge.keyDraft = input.value;
+      void loadOtherJudgeModels(ctx);
     });
     paintShape();
     fields.judgeKey = input;
@@ -1157,8 +1191,8 @@
         "li",
         "",
         {},
-        "Wrong model or address: the model name must match the provider's " +
-          "list exactly, and a local server must actually be running.",
+        "Wrong model or address: re-pick the model from the list, and a local " +
+          "server must actually be running.",
       ),
     );
     if (xai) {
@@ -1310,13 +1344,6 @@
         ? cfg[def.modelField].trim()
         : "";
     const selected = fromCfg || defaultModelFor(def.id);
-    if (def.id !== "gemini") return selected;
-    return normalizeGeminiDefault(selected);
-  }
-
-  /** The prefilled judge model on the Other path: the catalog default. */
-  function judgeDefaultModel(def) {
-    const selected = defaultModelFor(def.id);
     if (def.id !== "gemini") return selected;
     return normalizeGeminiDefault(selected);
   }
@@ -1591,7 +1618,13 @@
       xaiSelected: "",
       xaiSeq: 0,
       keyDraft: "",
-      modelDraft: "",
+      otherModels: [],
+      otherSelected: "",
+      otherLoaded: false,
+      otherLoading: false,
+      otherError: "",
+      otherStatus: 0,
+      otherSeq: 0,
       baseUrlDraft: "",
       testedCombo: "",
       testedModel: "",
@@ -1646,6 +1679,58 @@
     return result.models.length > 0;
   }
 
+  /**
+   * Fill the Other provider's dropdown from the shared picker. Only one
+   * Other provider is ever active, so one flat list state covers them all —
+   * switching cards clears it. Seq-guarded like the xAI loader.
+   * @returns {Promise<boolean>} whether a usable list is now loaded
+   */
+  async function loadOtherJudgeModels(ctx) {
+    if (!state.judge || isXaiJudgePath(state.judge.provider)) return false;
+    const def = judgeOtherById(state.judge.provider);
+    const key = String(state.judge.keyDraft || "").trim();
+    if (!def.keyless && !key) return false;
+    const judgeBaseUrl = def.baseUrlField
+      ? String(state.judge.baseUrlDraft || def.defaultBaseUrl || "").trim()
+      : "";
+    const catalog = judgePicker().judgeCatalogId(def.id, judgeBaseUrl);
+    if (!catalog) return false;
+    const seq = ++state.judge.otherSeq;
+    state.judge.otherLoading = true;
+    state.judge.otherError = "";
+    state.judge.testedCombo = "";
+    repaint(ctx, "");
+    const result = await judgePicker().fetchJudgeModels({
+      provider: catalog,
+      baseUrl: resolveJobBoredApiUrl(),
+      fetchImpl: apiFetch,
+      apiKey: key,
+      judgeBaseUrl,
+    });
+    if (!state.judge || seq !== state.judge.otherSeq) return false;
+    state.judge.otherLoading = false;
+    if (!result.ok) {
+      state.judge.otherLoaded = false;
+      state.judge.otherModels = [];
+      state.judge.otherSelected = "";
+      state.judge.otherError = result.error;
+      state.judge.otherStatus = result.status;
+      repaint(ctx, result.error, "error");
+      return false;
+    }
+    state.judge.otherLoaded = true;
+    state.judge.otherModels = result.models;
+    state.judge.otherSelected = judgePicker().pickJudgeModel({
+      models: result.models,
+      recommended: result.recommended,
+      saved: "",
+    });
+    state.judge.otherError = "";
+    state.judge.otherStatus = result.status;
+    repaint(ctx, "");
+    return result.models.length > 0;
+  }
+
   /** Test the judge form against POST /api/llm-config/judge-test. Saves nothing. */
   async function testJudgeKey(ctx) {
     if (!state.judge || state.judge.testing) return;
@@ -1662,6 +1747,19 @@
       // A failed load already put its message on screen: stop. An empty but
       // answered load falls through to validation, which names what is missing.
       if (state.judge.xaiModelsError) {
+        state.judge.testing = false;
+        return;
+      }
+      form = judgeReadForm();
+      judgeRememberForm(form);
+    }
+    // The Other path loads the same way: a keyed provider needs its key,
+    // a keyless one just needs Test, and an empty list gets another fetch.
+    if (!isXaiJudgePath(form.provider) && (def.keyless || form.key)
+        && (!state.judge.otherLoaded || state.judge.otherModels.length === 0)) {
+      await loadOtherJudgeModels(ctx);
+      if (!state.judge) return;
+      if (state.judge.otherError) {
         state.judge.testing = false;
         return;
       }

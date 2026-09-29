@@ -1,9 +1,9 @@
 /* ============================================
    The shared grading-model picker (MREV K1 + JUDGEUX).
 
-   One xAI catalog client for the Settings grading card and the onboarding
-   AI beat's judge offer, so the two can never disagree about the endpoint,
-   the recommended pick, or the saved shape. Rendering stays per-surface —
+   One model-catalog client for the Settings grading card and the onboarding
+   AI beat's judge offer, so the two can never disagree about the endpoints,
+   the recommended picks, or the saved shape. Rendering stays per-surface —
    only the constants, the fetch, the pick rule, and the pin shape live here.
 
    No DOM at parse time: classic-global IIFE under
@@ -16,6 +16,67 @@
   const XAI_KEY_URL = "https://console.x.ai/";
   const XAI_KEY_LINK_LABEL = "Create an xAI API key";
   const XAI_KEY_STEPS_HINT = "Sign in → API Keys → Create";
+
+  /**
+   * The endpoint each judge provider grades against. "" means the pin
+   * carries no base URL (Anthropic and Gemini fix theirs server-side); local
+   * is the Ollama default and stays editable for a remote server.
+   */
+  const PROVIDER_BASE_URLS = {
+    openrouter: "https://openrouter.ai/api/v1",
+    openai: "https://api.openai.com/v1",
+    anthropic: "",
+    gemini: "",
+    local: "http://127.0.0.1:11434/v1",
+  };
+
+  /** Error-copy labels for the catalog tokens the server accepts. */
+  const CATALOG_LABELS = {
+    xai: "xAI",
+    openrouter: "OpenRouter",
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    gemini: "Gemini",
+    local: "Ollama",
+  };
+
+  /**
+   * One key page and cost note per non-xAI provider, shared by the Settings
+   * generic path and the onboarding Other disclosure so the two can never
+   * disagree about where a key comes from or what it costs.
+   */
+  const OTHER_PROVIDER_KEYS = {
+    openrouter: {
+      keyUrl: "https://openrouter.ai/keys",
+      keyLabel: "Create an OpenRouter key ↗",
+      keyNote: "Pay-as-you-go — a few dollars of credit grades a lot of letters.",
+    },
+    openai: {
+      keyUrl: "https://platform.openai.com/api-keys",
+      keyLabel: "Create an OpenAI key ↗",
+      keyNote: "Paid — requests fail without API credit.",
+    },
+    anthropic: {
+      keyUrl: "https://console.anthropic.com/settings/keys",
+      keyLabel: "Create an Anthropic key ↗",
+      keyNote: "Paid — requests fail without API credit.",
+    },
+    gemini: {
+      keyUrl: "https://aistudio.google.com/app/apikey",
+      keyLabel: "Create a free Gemini key ↗",
+      keyNote: "Free tier, no card needed.",
+    },
+    local: {
+      keyUrl: "https://ollama.com",
+      keyLabel: "Get Ollama ↗",
+      keyNote: "Local servers usually need no key.",
+    },
+    openai_compatible: {
+      keyUrl: "https://console.x.ai/",
+      keyLabel: "Create an xAI key ↗",
+      keyNote: "For xAI the API is prepaid: add credit first. A self-hosted endpoint uses its own key page.",
+    },
+  };
 
   function asTrimmed(value) {
     return String(value == null ? "" : value).trim();
@@ -43,6 +104,21 @@
         && judge.provider === "openai_compatible"
         && asTrimmed(judge.baseUrl).replace(/\/+$/, "") === XAI_BASE_URL,
     );
+  }
+
+  /**
+   * The catalog token for a judge form: "xai" only for the recommended xAI
+   * shape, the provider id for the live lists, "" when no list exists (a
+   * self-hosted compatible endpoint keeps its typed model).
+   */
+  function judgeCatalogId(provider, baseUrl) {
+    const token = asTrimmed(provider).toLowerCase();
+    if (token === "openai_compatible") {
+      return asTrimmed(baseUrl).replace(/\/+$/, "") === XAI_BASE_URL ? "xai" : "";
+    }
+    if (token === "openrouter" || token === "openai" || token === "anthropic" || token === "gemini") return token;
+    if (token === "local" || token === "ollama") return "local";
+    return "";
   }
 
   /**
@@ -79,25 +155,31 @@
   }
 
   /**
-   * POST /api/llm-config/judge-models ({ provider: "xai", apiKey? }) and
+   * POST /api/llm-config/judge-models ({ provider, apiKey?, baseUrl? }) and
    * normalize the catalog to { ok, models: [{ id, label }], recommended,
-   * error, status }. Never throws and never returns the key: a transport
-   * failure, a non-JSON answer, and an error status all come back as
-   * { ok: false } with the server's own copy when it gave any.
+   * error, status }. `provider` defaults to "xai"; `judgeBaseUrl` rides
+   * along only for the local list, so a remote Ollama can be listed.
+   * Never throws and never returns the key: a transport failure, a
+   * non-JSON answer, and an error status all come back as { ok: false }
+   * with the server's own copy when it gave any.
    */
   async function fetchJudgeModels(input) {
     const record = input && typeof input === "object" ? input : {};
+    const provider = asTrimmed(record.provider) || "xai";
+    const fallback = `Couldn't reach ${CATALOG_LABELS[provider] || "xAI"}: try again.`;
     const fetchImpl = typeof record.fetchImpl === "function"
       ? record.fetchImpl
       : typeof fetch === "function"
         ? fetch
         : null;
     if (!fetchImpl) {
-      return { ok: false, models: [], recommended: "", error: "Couldn't reach xAI: try again.", status: 0 };
+      return { ok: false, models: [], recommended: "", error: fallback, status: 0 };
     }
-    const body = { provider: "xai" };
+    const body = { provider };
     const apiKey = asTrimmed(record.apiKey);
     if (apiKey) body.apiKey = apiKey;
+    const judgeBaseUrl = asTrimmed(record.judgeBaseUrl);
+    if (provider === "local" && judgeBaseUrl) body.baseUrl = judgeBaseUrl;
     let resp = null;
     try {
       resp = await fetchImpl(
@@ -109,7 +191,7 @@
         },
       );
     } catch (_) {
-      return { ok: false, models: [], recommended: "", error: "Couldn't reach xAI: try again.", status: 0 };
+      return { ok: false, models: [], recommended: "", error: fallback, status: 0 };
     }
     let answer = null;
     try {
@@ -121,7 +203,7 @@
     if (!resp || resp.ok === false) {
       const error = answer && typeof answer.error === "string" && answer.error.trim()
         ? answer.error.trim()
-        : "Couldn't reach xAI: try again.";
+        : fallback;
       return { ok: false, models: [], recommended: "", error, status };
     }
     const rows = answer && Array.isArray(answer.models) ? answer.models : [];
@@ -146,8 +228,11 @@
     XAI_KEY_URL,
     XAI_KEY_LINK_LABEL,
     XAI_KEY_STEPS_HINT,
+    OTHER_PROVIDER_KEYS,
+    PROVIDER_BASE_URLS,
     judgeFromServer,
     isXaiJudge,
+    judgeCatalogId,
     buildJudgePin,
     pickJudgeModel,
     fetchJudgeModels,

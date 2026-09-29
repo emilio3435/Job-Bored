@@ -1040,6 +1040,7 @@ let judgeLoaded = null;
 let judgeMode = "xai";
 let judgeModelsRequestSeq = 0;
 let judgeModelsAvailable = false;
+let genericModelsRequestSeq = 0;
 let judgeErrorFieldIds = ["settingsJudgeApiKey", "settingsJudgeXaiModel"];
 
 /**
@@ -1059,6 +1060,131 @@ function judgeFromServer(body) {
 
 function isXaiJudge(judge) {
   return judgePicker().isXaiJudge(judge);
+}
+
+/**
+ * Point the generic path at the selected provider's key page, with its cost
+ * note. The entries come from the shared picker, so Settings and onboarding
+ * can never disagree about where a key comes from or what it costs.
+ */
+function updateJudgeKeyGuide() {
+  if (typeof document === "undefined" || !document.getElementById) return;
+  const link = document.getElementById("settingsJudgeKeyGuideLink");
+  const note = document.getElementById("settingsJudgeKeyGuideNote");
+  const provider = document.getElementById("settingsJudgeProvider");
+  if (!link || !note || !provider) return;
+  const guide = judgePicker().OTHER_PROVIDER_KEYS[provider.value] || null;
+  if (!guide) {
+    link.hidden = true;
+    note.hidden = true;
+    return;
+  }
+  link.hidden = false;
+  note.hidden = false;
+  link.setAttribute("href", guide.keyUrl);
+  link.setAttribute("target", "_blank");
+  link.setAttribute("rel", "noopener");
+  link.textContent = guide.keyLabel;
+  note.textContent = guide.keyNote;
+}
+
+/**
+ * Point the generic URL field at the chosen provider's fixed endpoint from
+ * the shared picker, and lock it: nothing typed from memory. Local keeps
+ * its editable default for a remote server, and a custom compatible URL
+ * stays typed. On fill (reset false) a stored URL is respected and only a
+ * legacy blank heals to the fixed endpoint.
+ */
+function syncGenericEndpoint(reset) {
+  const provider = document.getElementById("settingsJudgeProvider");
+  const baseUrl = document.getElementById("settingsJudgeBaseUrl");
+  const model = document.getElementById("settingsJudgeModel");
+  if (!provider || !baseUrl) return;
+  const fixed = judgePicker().PROVIDER_BASE_URLS[provider.value];
+  const locked = fixed !== undefined && provider.value !== "local";
+  if (reset) {
+    if (provider.value === "local") baseUrl.value = fixed || "";
+    else if (locked) baseUrl.value = fixed;
+    else baseUrl.value = "";
+    if (model) model.value = "";
+    clearGenericModels();
+  } else if (locked && !String(baseUrl.value || "").trim()) {
+    baseUrl.value = fixed;
+  }
+  baseUrl.disabled = locked;
+}
+
+function clearGenericModels() {
+  const list = document.getElementById("settingsJudgeModelList");
+  if (list) list.replaceChildren();
+  const hint = document.getElementById("settingsJudgeGenericModelsHint");
+  if (hint) hint.textContent = "";
+}
+
+/** OpenRouter and local lists answer without a key; the rest need one. */
+function genericCatalogNeedsKey(catalog) {
+  return Boolean(catalog) && catalog !== "local" && catalog !== "openrouter";
+}
+
+function genericProviderLabel(providerId) {
+  const found = JUDGE_PROVIDERS.find((entry) => entry[0] === providerId);
+  return found ? found[1] : "the provider";
+}
+
+/**
+ * Fill the generic datalist from the shared picker. Advisory only: a
+ * failed list names itself in the hint and the typed model still saves.
+ * A saved same-provider key stands in server-side, like the xAI card.
+ */
+async function loadGenericJudgeModels() {
+  const provider = document.getElementById("settingsJudgeProvider");
+  const model = document.getElementById("settingsJudgeModel");
+  const baseUrl = document.getElementById("settingsJudgeBaseUrl");
+  const otherKey = document.getElementById("settingsJudgeOtherApiKey");
+  const list = document.getElementById("settingsJudgeModelList");
+  const hint = document.getElementById("settingsJudgeGenericModelsHint");
+  if (!provider || !model || !list) return false;
+  const catalog = judgePicker().judgeCatalogId(provider.value, baseUrl ? baseUrl.value : "");
+  const apiKey = otherKey ? String(otherKey.value || "").trim() : "";
+  const savedKey = Boolean(
+    judgeLoaded && !isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent
+      && judgeLoaded.provider === provider.value,
+  );
+  if (!catalog || (genericCatalogNeedsKey(catalog) && !apiKey && !savedKey)) {
+    clearGenericModels();
+    if (hint && catalog) hint.textContent = "Enter your key to load the latest models.";
+    return false;
+  }
+  const seq = ++genericModelsRequestSeq;
+  if (hint) hint.textContent = "Loading the latest models…";
+  const result = await judgePicker().fetchJudgeModels({
+    provider: catalog,
+    baseUrl: resolveJobBoredApiUrl(),
+    fetchImpl: apiFetch,
+    apiKey,
+    judgeBaseUrl: catalog === "local" && baseUrl ? String(baseUrl.value || "").trim() : "",
+  });
+  if (seq !== genericModelsRequestSeq) return false;
+  if (!result.ok) {
+    clearGenericModels();
+    if (hint) hint.textContent = result.error;
+    return false;
+  }
+  list.replaceChildren();
+  for (const item of result.models) {
+    const option = llmStatusEl("option", "", item.label);
+    option.value = item.id;
+    list.appendChild(option);
+  }
+  if (!model.value.trim()) {
+    model.value = judgePicker().pickJudgeModel({ models: result.models, recommended: result.recommended, saved: "" });
+  }
+  if (hint) {
+    hint.textContent = result.models.length
+      ? `Loaded ${result.models.length} model${result.models.length === 1 ? "" : "s"} from ${genericProviderLabel(provider.value)}.`
+      : "The provider returned no models.";
+  }
+  return result.models.length > 0;
 }
 
 function appendJudgeField(group, labelText, control) {
@@ -1174,6 +1300,8 @@ function fillJudgeForm(judge) {
   if (xaiKey) xaiKey.value = "";
   if (keyState) keyState.textContent = isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
   if (otherKeyState) otherKeyState.textContent = j && !isXaiJudge(j) && j.keyPresent ? "Key saved" : "No key saved";
+  updateJudgeKeyGuide();
+  syncGenericEndpoint(false);
 
   if (xaiModel) {
     const selected = j && isXaiJudge(j) ? j.model : "";
@@ -1285,35 +1413,56 @@ function ensureJudgeGroup() {
   provider.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
   for (const [value, label] of JUDGE_PROVIDERS) appendJudgeOption(provider, value, label);
   provider.value = "";
-  provider.addEventListener("change", () => {
+  provider.addEventListener("change", async () => {
+    updateJudgeKeyGuide();
+    syncGenericEndpoint(true);
     if (provider.value) {
       judgeMode = "generic";
+      await loadGenericJudgeModels();
       return;
     }
     judgeMode = "xai";
-    for (const id of ["settingsJudgeModel", "settingsJudgeBaseUrl", "settingsJudgeOtherApiKey"]) {
-      const field = document.getElementById(id);
-      if (field) field.value = "";
-    }
+    const otherKey = document.getElementById("settingsJudgeOtherApiKey");
+    if (otherKey) otherKey.value = "";
     showJudgeError("");
   });
   provider.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
   appendJudgeField(other, "Provider", provider);
   const genericModel = judgeInput("settingsJudgeModel", "text", "Model name");
   genericModel.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
+  genericModel.setAttribute("list", "settingsJudgeModelList");
   genericModel.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
   appendJudgeField(other, "Model name", genericModel);
+  const genericList = llmStatusEl("datalist", "");
+  genericList.id = "settingsJudgeModelList";
+  other.appendChild(genericList);
+  const genericHint = llmStatusEl("p", "settings-judge__hint", "");
+  genericHint.id = "settingsJudgeGenericModelsHint";
+  other.appendChild(genericHint);
   const genericBaseUrl = judgeInput("settingsJudgeBaseUrl", "url", "https://provider.example/v1");
   genericBaseUrl.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
   genericBaseUrl.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
+  genericBaseUrl.addEventListener("change", () => {
+    if (provider.value === "local") void loadGenericJudgeModels();
+  });
   appendJudgeField(other, "Base URL", genericBaseUrl);
   const genericKey = judgeInput("settingsJudgeOtherApiKey", "password", "Paste a key to save or replace it");
   genericKey.setAttribute("aria-describedby", "settingsJudgeOtherKeyState settingsJudgeError");
   genericKey.addEventListener("focus", () => { judgeMode = provider.value ? "generic" : "xai"; });
+  genericKey.addEventListener("input", () => { clearGenericModels(); });
+  genericKey.addEventListener("change", () => loadGenericJudgeModels());
   appendJudgeField(other, "API key", genericKey);
   const otherKeyState = llmStatusEl("p", "settings-judge__key-state", "No key saved");
   otherKeyState.id = "settingsJudgeOtherKeyState";
   other.appendChild(otherKeyState);
+  const keyGuideLink = llmStatusEl("a", "settings-judge__key-link", "");
+  keyGuideLink.id = "settingsJudgeKeyGuideLink";
+  keyGuideLink.hidden = true;
+  other.appendChild(keyGuideLink);
+  const keyGuideNote = llmStatusEl("p", "settings-judge__hint", "");
+  keyGuideNote.id = "settingsJudgeKeyGuideNote";
+  keyGuideNote.hidden = true;
+  other.appendChild(keyGuideNote);
   group.appendChild(other);
 
   key.addEventListener("focus", () => { judgeMode = "xai"; });
@@ -1498,6 +1647,7 @@ function renderJudgeModel(status, reset) {
     fillJudgeForm(judgeLoaded);
     showJudgeError("");
     if (isXaiJudge(judgeLoaded) && judgeLoaded.keyPresent) void loadJudgeModels();
+    else if (judgeLoaded && !isXaiJudge(judgeLoaded)) void loadGenericJudgeModels();
   }
 }
 
