@@ -234,3 +234,31 @@ it("T-K7-16 a contextual umbrella tenure remains visible review", async () => {
   assert.equal(missing.result.status, "ready_with_review", "context cannot excuse missing roles that the source itself announces");
   assert.ok(missing.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
 });
+for (const [id, label, datedLine] of [
+  ["T-K7-17", "title before date", "Research Lead  Jan 2020 — Present"],
+  ["T-K7-18", "title after date", "Jan 2020 — Present • Research Lead"],
+  ["T-K7-19", "title and city before date", "Research Lead, Springfield  Jan 2020 — Present"],
+]) it(`${id} employer tenure cannot close ${label}`, async () => {
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", datedLine, "Built a planning tool for local teams."].join("\n");
+  const employer = { name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [], claims: [{ text: "Built a planning tool for local teams.", lines: [4, 4] }] };
+  const { result, calls } = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.equal(calls, 2, "the missing role gets a repair read");
+  assert.equal(result.status, "ready_with_review");
+  assert.ok(result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+});
+it("T-K7-20 a titled employer header cannot use tenure to close its role", async () => {
+  const source = ["EXPERIENCE", "Fabrikam Labs — fabrikam.example Founder & AI Engineer • Jan 2025 — Present", "Built a planning tool for local teams."].join("\n");
+  const employer = { name: "Fabrikam Labs", start: "Jan 2025", end: "Present", lines: [2, 2], roles: [], claims: [{ text: "Built a planning tool for local teams.", lines: [3, 3] }] };
+  const { result, calls } = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.equal(calls, 2);
+  assert.equal(result.status, "ready_with_review");
+  assert.ok(result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
+});
+it("T-K7-21 a bare date beneath the header closes with employer tenure", async () => {
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present"].join("\n");
+  const employer = { name: "Contoso Media", start: "Jan 2020", end: "Present", lines: [2, 2], roles: [], claims: [] };
+  const { result, calls } = await run(source, [{ employers: [employer] }]);
+  assert.equal(calls, 1);
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.unread, []);
+});
