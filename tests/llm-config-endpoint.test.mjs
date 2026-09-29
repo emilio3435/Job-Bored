@@ -13,6 +13,7 @@ import {
   handlePostLlmConfig,
   loadLlmConfig,
   resolveActivePin,
+  writeLlmConfig,
 } from "../server/llm-config.mjs";
 
 function mockRes() {
@@ -51,6 +52,28 @@ describe("/api/llm-config", () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.judge.keyPresent, true);
     assert.equal(JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8")).judge.apiKey, "example-judge-key");
+  });
+
+  it("J-BE3b: judge-only updates preserve writer fields and fallback on disk, including a blank judge key", async () => {
+    await writeLlmConfig({
+      provider: "gemini", model: "gemini-flash", apiKey: "writer-example-key", baseUrl: "https://writer.example.com",
+      fallback: { enabled: true, stages: { draft: { provider: "openai", model: "gpt-example", apiKey: "fallback-example-key" } } },
+    }, env);
+    const before = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
+    const save = mockRes();
+    await handlePostLlmConfig({ body: { judge: {
+      provider: "openai_compatible", model: "grok-example", apiKey: "judge-example-key", baseUrl: "https://api.x.ai/v1",
+    } } }, save, env);
+    assert.equal(save.statusCode, 200);
+    const blank = mockRes();
+    await handlePostLlmConfig({ body: { judge: {
+      provider: "openai_compatible", model: "grok-new", apiKey: "", baseUrl: "https://api.x.ai/v1",
+    } } }, blank, env);
+    assert.equal(blank.statusCode, 200);
+    const after = JSON.parse(await readFile(env.JOBBORED_LLM_CONFIG_PATH, "utf8"));
+    for (const field of ["provider", "model", "apiKey", "baseUrl", "fallback"]) assert.deepEqual(after[field], before[field], field);
+    assert.equal(after.judge.apiKey, "judge-example-key");
+    assert.equal(after.judge.model, "grok-new");
   });
 
   it("GET returns 404 llm_unconfigured when the pin file is missing", async () => {
