@@ -290,3 +290,30 @@ it("T-K7-24 a dated role attributed to another employer cannot close this block"
   const result = reconcile.reconcileRead({ lsrc: source, census: censusResume(source), employers });
   assert.ok(result.unaccounted.some((item) => item.kind === "date_range" && item.lines[0] === 5));
 });
+it("T-K7-25 dotted title words are not employer sites", async () => {
+  for (const title of ["Node.js", "React.js", "ASP.NET"]) {
+    const source = ["EXPERIENCE", `Fabrikam Labs — fabrikam.example ${title} • Jan 2025 — Present`].join("\n");
+    const employer = { name: "Fabrikam Labs", start: "Jan 2025", end: "Present", lines: [2, 2], roles: [], claims: [] };
+    const { result, calls } = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+    assert.equal(calls, 2, `${title} receives a repair read`);
+    assert.equal(result.status, "ready_with_review", `${title} is not a site`);
+    assert.ok(result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
+  }
+  const source = ["EXPERIENCE", "Contoso Media — contoso.example", "Jan 2020 — Present • Node.js"].join("\n");
+  const employer = { name: "Contoso Media", site: "Node.js", start: "Jan 2020", end: "Present", lines: [2, 3], roles: [], claims: [] };
+  const citedSite = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.equal(citedSite.result.status, "ready_with_review", "a model site field cannot erase a dotted role title");
+  assert.ok(citedSite.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 3));
+});
+it("T-K7-26 every title segment on a dated line needs its own role", async () => {
+  const source = ["EXPERIENCE", "Research Lead, Sales Manager, Tailspin Studio 2025 — Present"].join("\n");
+  const employer = { name: "Tailspin Studio", start: "2025", end: "Present", lines: [2, 2], roles: [{ title: "Research Lead", start: "2025", end: "Present", lines: [2, 2] }], claims: [] };
+  const omitted = await run(source, [{ employers: [employer] }, { employers: [employer] }]);
+  assert.equal(omitted.calls, 2);
+  assert.equal(omitted.result.status, "ready_with_review");
+  assert.ok(omitted.result.unread.some((item) => item.kind === "date_range" && item.lines[0] === 2));
+  const complete = { ...employer, roles: [...employer.roles, { title: "Sales Manager", start: "2025", end: "Present", lines: [2, 2] }] };
+  const both = await run(source, [{ employers: [complete] }]);
+  assert.equal(both.result.status, "ready", "both grounded titles account for the one dated line");
+  assert.deepEqual(both.result.unread, []);
+});
