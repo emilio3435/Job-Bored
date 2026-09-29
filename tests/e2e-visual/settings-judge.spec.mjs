@@ -1,4 +1,4 @@
-/** MREV JUDGEUX · setup, live model selection, saved status and error states. */
+/** JUDGEUX FE2 · the optional Grading model row: empty, loaded, saved and key-error states. */
 /* global document */
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -101,40 +101,45 @@ async function captureGroup(page, dir, width, state) {
 }
 
 for (const width of [1440, 375]) {
-  test(`U1–U5 · ${width}px empty, loaded, saved and key-error states`, async ({ page }, testInfo) => {
+  test(`J-FE2 · ${width}px empty, loaded, saved and key-error states`, async ({ page }, testInfo) => {
     const fence = await bootSignedIn(page, width);
     const state = await routeJudgeApis(page);
     const dir = shotsDir(testInfo);
 
     await openSettings(page);
     const group = page.locator("#settingsJudgeGroup");
-    await expect(group).toContainText("Recommended: xAI (Grok)");
-    await expect(group).toContainText("A different company's model grades your writing more honestly.");
+    await expect(page.locator("#settingsJudgeTitle")).toHaveText("Grading model (optional)");
+    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Not set. Your writing model grades its own work.");
+    await expect(page.locator("#settingsJudgeFootnote")).toHaveText(
+      "Check connection tests the key in this browser. Drafting and grading use the keys saved on this computer (~/.jobbored).",
+    );
+    await expect(page.locator("#settingsJudgeEditor")).toBeHidden();
+    await captureGroup(page, dir, width, "empty");
+
+    await page.locator("#settingsJudgeChange").click();
+    await expect(page.locator("#settingsJudgeEditor")).toBeVisible();
+    await expect(page.locator("#settingsJudgeProvider")).toHaveValue("xai");
     await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("href", "https://console.x.ai/");
     await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("target", "_blank");
     await expect(page.locator("#settingsJudgeKeyLink")).toHaveAttribute("rel", "noopener");
-    await expect(page.locator("#settingsJudgeOtherProviders")).not.toHaveAttribute("open", "");
-    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Grading with your writing model: less independent");
-    await captureGroup(page, dir, width, "empty");
-
     const key = page.locator("#settingsJudgeApiKey");
     await key.fill("fictional-xai-key");
     await key.blur();
-    const model = page.locator("#settingsJudgeXaiModel");
+    const model = page.locator("#settingsJudgeModel");
     await expect(model.locator("option")).toHaveCount(3);
     await expect(model).toHaveValue("grok-4.2");
-    await expect(group).toContainText("Model list loaded from xAI");
     await captureGroup(page, dir, width, "models-loaded");
 
     await page.locator("#settingsSaveBtn").click();
     await expect(page.locator("#settingsModal")).toBeHidden();
     expect(state.posts.at(-1)).toEqual({
-      provider: "gemini", model: "gemini-3.8-flash", baseUrl: "",
       judge: { provider: "openai_compatible", model: "grok-4.2", baseUrl: "https://api.x.ai/v1", apiKey: "fictional-xai-key" },
     });
     await openSettings(page);
+    await expect(page.locator("#settingsJudgeTitle")).toHaveText("Grading model");
+    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Grok · grok-4.2 · key saved");
+    await page.locator("#settingsJudgeChange").click();
     await expect(page.locator("#settingsJudgeKeyState")).toHaveText("Key saved");
-    await expect(page.locator("#settingsJudgeStatus")).toHaveText("Grading with Grok (grok-4.2)");
     await expect(key).toHaveValue("");
     await captureGroup(page, dir, width, "saved");
 
@@ -142,7 +147,9 @@ for (const width of [1440, 375]) {
     await key.blur();
     await expect(page.locator("#settingsJudgeError")).toHaveText("That key didn't work: check it on the xAI console.");
     await expect(key).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#settingsJudgeRetry")).toBeVisible();
     await captureGroup(page, dir, width, "key-error");
+    await expect(group).not.toContainText(/judge/i);
     const modalHtml = await page.locator("#settingsModal").innerHTML();
     expect(modalHtml).not.toContain("fictional-xai-key");
     expect(modalHtml).not.toContain("fictional-bad-key");
