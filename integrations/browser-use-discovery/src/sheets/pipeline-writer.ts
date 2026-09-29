@@ -27,6 +27,7 @@ import {
   batchUpdateSheetValues,
   changedCellRanges,
   checkPipelineHeader,
+  ensureSheetGridColumns,
   getSheetValues,
   isRetryableStatus,
   readPipelineLinks,
@@ -447,10 +448,39 @@ export function createPipelineWriter(
         fetchImpl,
         retry,
       );
-      if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
-        message: `Sheet write failed during header upgrade: HTTP ${response.status}` });
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new SheetWriteError({
+          phase: "update",
+          message: `Sheet write failed during header upgrade: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+          sheetId,
+          httpStatus: response.status,
+          detail: body || undefined,
+        });
+      }
     }
     if (headerState.workModeHeader === "missing") {
+      // A legacy tab whose grid is narrower than Z rejects the Z1 write with
+      // HTTP 400, so grow the grid to the full header width first.
+      try {
+        await ensureSheetGridColumns({
+          sheetId,
+          sheetName,
+          token: accessToken,
+          fetchImpl,
+          minColumns: PIPELINE_HEADER_ROW.length,
+          retry,
+        });
+      } catch (error) {
+        throw new SheetWriteError({
+          phase: "update",
+          message: `Sheet write failed during Work Mode header upgrade: ${formatError(error)}`,
+          sheetId,
+          httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
+          detail:
+            (error instanceof SheetsHttpError && error.body) || formatError(error),
+        });
+      }
       const response = await batchUpdateSheetValues(
         sheetId,
         [{ range: `${sheetName}!Z1`, values: [["Work Mode"]] }],
@@ -458,8 +488,16 @@ export function createPipelineWriter(
         fetchImpl,
         retry,
       );
-      if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
-        message: `Sheet write failed during Work Mode header upgrade: HTTP ${response.status}` });
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new SheetWriteError({
+          phase: "update",
+          message: `Sheet write failed during Work Mode header upgrade: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+          sheetId,
+          httpStatus: response.status,
+          detail: body || undefined,
+        });
+      }
     }
     // A missing blacklist tab is normal (HTTP 400 "Unable to parse range") and
     // means "no blacklist". Any other error (429/5xx/network) is transient and
