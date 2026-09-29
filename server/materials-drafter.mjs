@@ -33,7 +33,7 @@ import { readProfile } from "./user-profile.mjs";
  * across at most two passes (write, then one automatic repair): four judge
  * calls of JUDGE_TIMEOUT_MS (240 s) is 960 s, and the write and repair stages
  * need room on top. */
-export const MATERIALS_DRAFT_DEADLINE_MS = 1_200_000;
+export const MATERIALS_DRAFT_DEADLINE_MS = 1_500_000;
 
 /* F14: a non-terminal pending with no heartbeat for this long belongs to
  * a dead process (the live drafter heartbeats every minute). */
