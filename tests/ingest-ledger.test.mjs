@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { it } from 'node:test';
 import { buildLedger, ensureLedger, LEDGER_BUILDER_VERSION } from '../server/materials-ledger-build.mjs';
 import { readLedger, validateLedger, writeLedgerAtomic } from '../server/materials-ledger.mjs';
+import { validateIngestResult } from '../server/resume-ingest-contract.mjs';
 const home = mkdtempSync(join(tmpdir(), 'jb-ingest-ledger-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
@@ -26,14 +26,21 @@ it('T-K8-02 rejected claims reach the persisted result', async () => {
 it('T-K8-03 claim-level review leaves a read ready and persists its status', async () => {
   const out = await read();
   assert.equal(out.ingest.status, 'ready');
+  assert.ok(out.ingest.rejected.length > 0);
   assert.equal(JSON.parse(readFileSync(resultPath, 'utf8')).status, 'ready');
+  const partial = await read(source.replace('Tailspin Studio', 'Adventure Studio'));
+  assert.equal(partial.ingest.status, 'ready_with_review');
+  assert.equal(JSON.parse(readFileSync(resultPath, 'utf8')).status, 'ready_with_review');
+  const failed = await read(`${source}\nExtra fictional note.`, { callStage: async () => { throw new Error('fictional provider failure'); } });
+  assert.equal(failed.ingest.status, 'failed');
+  assert.equal(JSON.parse(readFileSync(resultPath, 'utf8')).status, 'failed');
 });
 it('T-K8-04 new identity and ingest pointer fields pass the ledger schema', async () => {
   const out = await read();
   assert.equal(out.ingestSchema, 'ingest/1');
   assert.equal(out.structureKind, 'model');
   assert.equal(out.ingest.resultPath, resultPath);
-  assert.equal(validateLedger(out).ok, true);
+  assert.equal(validateLedger((await readLedger()).ledger).ok, true);
   assert.equal((await readLedger()).ok, true);
 });
 it('T-K8-05 no-model first read persists needs_model and unread employers without a usable ledger', async () => {
@@ -46,7 +53,7 @@ it('T-K8-05 no-model first read persists needs_model and unread employers withou
   assert.notEqual(out.note, 'profile:only');
 });
 it('T-K10-02 a rules ledger is stale even at matching hashes', async () => {
-  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media'), note: 'structure:rules' });
+  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await ensureLedger({ profile: null, resumeText: source });
@@ -61,29 +68,35 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   assert.equal(out.builderVersion, 11);
 });
 it('T-K10-04 failed read over stale rules never reports ready', async () => {
-  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media'), note: 'structure:rules' });
+  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read(source, { callStage: async () => { throw new Error('fictional provider failure'); } });
   assert.notEqual(out.ingest.status, 'ready');
 });
 it('T-K10-05 the rules fixture is never served to an outline', async () => {
-  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media'), note: 'structure:rules' });
+  const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
+  const refused = await ensureLedger({ profile: null, resumeText: source });
+  assert.equal(refused.claims.length, 0);
+  assert.equal(refused.employers.length, 0);
   const out = await read();
   assert.equal(out.ingest.status, 'ready');
   assert.equal(out.note, 'structure:model');
 });
 it('T-K10-07 a stored non-ready result is read again', async () => {
-  await ensureLedger({ profile: null, resumeText: source });
+  await read();
+  const storedResult = JSON.parse(readFileSync(resultPath, 'utf8'));
+  storedResult.status = 'ready_with_review';
+  writeFileSync(resultPath, JSON.stringify(storedResult));
   let calls = 0;
   const out = await read(source, { callStage: async () => { calls++; return reply; } });
   assert.ok(calls > 0);
   assert.equal(out.ingest.status, 'ready');
 });
 it('T-K11-01 profile save leaves the stored structure byte-identical', async () => {
-  const first = await read();
+  const first = await read(source, { profile: { experiences: [{ company: 'Contoso Media', title: 'Derived old title', provenance: 'derived' }] } });
   const bytes = JSON.stringify(first.resumeStructure);
   const next = await read(source, { profile: { experiences: [{ company: 'Contoso Media', title: 'Wrong Title', provenance: 'derived' }], strengths: [{ name: 'Planning', evidence: 'Coordinated local account planning.' }] }, callStage: async () => { throw new Error('profile save called model'); } });
   assert.equal(JSON.stringify(next.resumeStructure), bytes);
@@ -122,21 +135,30 @@ it('T-K13-04 same title and dates at two employers retain both role claims', () 
   assert.equal(out.claims.filter((claim) => claim.kind === 'role').length, 2);
 });
 it('T-INV4-03 equal-count same-hash alias swap does not publish', async () => {
-  const first = await read();
+  await read();
+  const swapped = structuredClone((await readLedger()).ledger);
+  swapped.employers[0].aliases = ['invented media'];
+  await writeLedgerAtomic(swapped);
   const saved = (await readLedger()).ledger;
-  const swapped = structuredClone(reply);
-  swapped.employers[0].name = 'Invented Media';
-  const out = await read(source, { callStage: async () => swapped });
+  const storedResult = JSON.parse(readFileSync(resultPath, 'utf8'));
+  storedResult.status = 'ready_with_review';
+  writeFileSync(resultPath, JSON.stringify(storedResult));
+  const out = await read();
   assert.notEqual(out.ingest.status, 'ready');
+  assert.ok(out.ingest.missingEmployers.some((entry) => entry.aliasKey === 'invented media'));
   assert.deepEqual((await readLedger()).ledger, saved);
-  assert.ok(first.employers.length > 0);
 });
 it('T-INV4-08 guard: same-hash fewer employers and resume claims still cannot publish', async () => {
   await read();
+  const richer = structuredClone((await readLedger()).ledger);
+  richer.employers.push({ id: 'invented-media', name: 'Invented Media', aliases: ['invented media'] });
+  richer.claims.push({ id: 'resume-extra', employerId: 'invented-media', kind: 'role', text: 'Research Lead · Invented Media', verified: true });
+  await writeLedgerAtomic(richer);
   const saved = (await readLedger()).ledger;
-  const poorer = structuredClone(reply);
-  poorer.employers.pop();
-  const out = await read(source, { callStage: async () => poorer });
+  const storedResult = JSON.parse(readFileSync(resultPath, 'utf8'));
+  storedResult.status = 'ready_with_review';
+  writeFileSync(resultPath, JSON.stringify(storedResult));
+  const out = await read();
   assert.notEqual(out.ingest.status, 'ready');
   assert.deepEqual((await readLedger()).ledger, saved);
 });
@@ -154,4 +176,5 @@ it('T-K16-05 resume_too_long has explicit user copy', async () => {
   const out = await ensureLedger({ profile: null, resumeText: 'x'.repeat(70_000), pin });
   assert.equal(out.ingest.code, 'resume_too_long');
   assert.match(out.ingest.reason, /60,000|too long/i);
+  assert.equal(validateIngestResult(JSON.parse(readFileSync(resultPath, 'utf8'))).ok, true);
 });

@@ -13,7 +13,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { outcomeCoverage } from "./materials-claim-score.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
-import { planResume } from "./materials-outline.mjs";
+import { planResume, tenureFloorIds } from "./materials-outline.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = resolvePath(__dirname, "..", "schemas", "materials-selection.v1.schema.json");
@@ -556,17 +556,18 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
  * Employers with ledger claims that this run does not feature. Every one
  * is recorded with a reason, which is what makes omission legal.
  * @param {object} input
- * @param {{ employers?: Array<{ id?: unknown }> }} input.ledger
+ * @param {{ employers?: Array<{ id?: unknown, retired?:unknown, start?:unknown, end?:unknown }> }} input.ledger
  * @param {Array<{ claimId: string }>} input.finalKept
  * @param {(id: string) => string} input.employerOf
  */
 function omittedEmployers({ ledger, finalKept, employerOf }) {
   const featured = new Set(finalKept.map((k) => employerOf(k.claimId)).filter(Boolean));
+  const floor = tenureFloorIds(ledger);
   return (ledger.employers || [])
-    .filter((e) => e && typeof e.id === "string" && !featured.has(e.id))
+    .filter((e) => e && typeof e.id === "string" && !featured.has(e.id) && !floor.has(e.id))
     .map((e) => ({
       employerId: e.id,
-      reason: "not featured in this run",
+      reason: e.retired ? "user_retired" : "low_relevance",
       justified: true,
     }));
 }

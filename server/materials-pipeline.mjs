@@ -559,7 +559,7 @@ async function runPipelineBody(input, assertBase) {
     let rendered;
     try {
       rendered = await (services.renderPackage || renderPackage)({
-        model, feature: payload.feature, session,
+        model, feature: payload.feature, session, ledger, selection,
         pdfPaths: { resumePdfPath: join(passDir, "resume.pdf"), coverLetterPdfPath: join(passDir, "cover-letter.pdf") },
         targetMark,
       });
@@ -698,7 +698,7 @@ async function runPipelineBody(input, assertBase) {
     try { await copyFile(source, join(runDir, name)); } catch { /* no PDF in a headless-free run */ }
   }
   /** @type {Record<string, unknown>} */
-  const manifestExtra = { selectionSummary: fittedSelectionSummary };
+  const manifestExtra = { selectionSummary: fittedSelectionSummary, omittedEmployers: chosen.rendered.omittedEmployers || [] };
   /** @type {string[]} */
   const extraFiles = ["writer-sources.json"];
   if (intelPack) {

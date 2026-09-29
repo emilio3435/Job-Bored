@@ -189,7 +189,7 @@ function recencyScore(employer) {
   if (!employer) return 0.7;
   const end = employer.end;
   if (end === null || end === undefined || end === "") return 1.0;
-  const year = Number.parseInt(String(end), 10);
+  const year = Number(/(?:19|20)\d\d/.exec(String(end))?.[0]);
   if (!Number.isFinite(year)) return 0.7;
   return year >= 2020 ? 0.8 : 0.6;
 }
@@ -197,7 +197,7 @@ function recencyScore(employer) {
 /**
  * @param {object} input
  * @param {{ nouns?: Array<{ term?: unknown, weight?: unknown }>, outcomes?: Array<{ id?: unknown, text?: unknown }>, differentiators?: Array<{ text?: unknown }> }} input.extract
- * @param {{ employers?: Array<{ id?: unknown, end?: unknown }>, claims?: Array<{ id?: unknown, text?: unknown, metrics?: unknown[], verified?: unknown, employerId?: unknown }> }} input.ledger
+ * @param {{ employers?: Array<{ id?: unknown, end?: unknown, retired?: unknown }>, claims?: Array<{ id?: unknown, text?: unknown, metrics?: unknown[], verified?: unknown, employerId?: unknown, attribution?: unknown, quarantined?: unknown }> }} input.ledger
  * @param {number} [input.limit]
  * @returns {ShortlistItem[]}
  */
@@ -210,6 +210,8 @@ export function scoreClaims({ extract, ledger, limit = 10 }) {
   for (const claim of ledger.claims || []) {
     if (!claim || typeof claim.id !== "string" || !claim.id) continue;
     if (claim.verified !== true) continue;
+    if (claim.attribution === "inferred" || claim.quarantined === true) continue;
+    if (employers.get(claim.employerId)?.retired === true) continue;
     const claimText = typeof claim.text === "string" ? claim.text : "";
     const claimTokens = new Set(tokens(claimText));
     const claimIndex = termIndex(claimText);
@@ -252,5 +254,12 @@ export function scoreClaims({ extract, ledger, limit = 10 }) {
     });
   }
   scored.sort((a, b) => b.score.total - a.score.total);
-  return scored.slice(0, Math.max(1, limit));
+  const selected = scored.slice(0, Math.max(1, limit));
+  const represented = new Set(selected.map((item) => (ledger.claims || []).find((claim) => claim.id === item.claimId)?.employerId));
+  for (const employer of ledger.employers || []) {
+    if (!employer || typeof employer.id !== "string" || employer.retired === true || represented.has(employer.id)) continue;
+    const best = scored.find((item) => (ledger.claims || []).find((claim) => claim.id === item.claimId)?.employerId === employer.id);
+    if (best) { selected.push(best); represented.add(employer.id); }
+  }
+  return selected;
 }

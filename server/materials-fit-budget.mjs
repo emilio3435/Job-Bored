@@ -91,6 +91,7 @@
  * @typedef {object} FeaturedEntry
  * @property {string} employerId
  * @property {number} rank
+ * @property {boolean} [tenureFloor]
  * @property {boolean} [seat]
  * @property {PlanBullet[]} bullets
  */
@@ -98,6 +99,7 @@
 /**
  * @typedef {object} EarlierEntry
  * @property {string} employerId
+ * @property {boolean} [tenureFloor]
  * @property {string} [description]
  */
 
@@ -280,6 +282,7 @@ function clonePlan(plan) {
     featured: plan.featured.map((entry) => ({
       employerId: entry.employerId,
       rank: entry.rank,
+      tenureFloor: entry.tenureFloor,
       seat: entry.seat,
       bullets: entry.bullets.map((bullet) => ({ ...bullet })),
     })),
@@ -300,7 +303,8 @@ function clonePlan(plan) {
  */
 function applyStep(step, plan, budgets) {
   if (step === "drop_earlier_description") {
-    const target = plan.earlier.filter((entry) => entry.description).pop();
+    const target = plan.earlier.filter((entry) => entry.description && !entry.tenureFloor).pop()
+      || (plan.earlier.every((entry) => entry.tenureFloor) ? plan.earlier.filter((entry) => entry.description).pop() : null);
     if (!target) return false;
     delete target.description;
     return true;
@@ -327,14 +331,17 @@ function applyStep(step, plan, budgets) {
   }
 
   if (step === "drop_weakest_earlier") {
-    if (!plan.earlier.length) return false;
-    plan.earlier.pop();
+    const at = plan.earlier.findLastIndex((entry) => !entry.tenureFloor);
+    if (at < 0) return false;
+    plan.earlier.splice(at, 1);
     return true;
   }
 
   if (step === "drop_weakest_featured") {
     if (plan.featured.length <= 1) return false;
-    plan.featured.pop();
+    const at = plan.featured.findLastIndex((entry) => !entry.tenureFloor);
+    if (at < 0) return false;
+    plan.featured.splice(at, 1);
     return true;
   }
 
@@ -373,6 +380,13 @@ export function solveFit(input, options = {}) {
       estimatePt = estimateResumeHeightPt(plan, metrics);
     }
     if (estimatePt <= capacityPt()) break;
+  }
+  if (estimatePt > capacityPt() && plan.earlier.every((entry) => entry.tenureFloor)) {
+    while (applyStep("drop_earlier_description", plan, budgets)) {
+      applied.push("drop_earlier_description");
+      estimatePt = estimateResumeHeightPt(plan, metrics);
+      if (estimatePt <= capacityPt()) break;
+    }
   }
 
   return {

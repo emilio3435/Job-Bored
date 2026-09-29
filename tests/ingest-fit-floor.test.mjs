@@ -10,7 +10,7 @@ import * as outlineModule from '../server/materials-outline.mjs';
 import { buildRenderModelFromDraft } from '../server/materials-render-model-adapter.mjs';
 import { applyStep, fitDocument } from '../server/materials-fit.mjs';
 import { solveFit } from '../server/materials-fit-budget.mjs';
-import { renderPackage } from '../server/materials-package.mjs';
+import { renderPackage, writePackageRecords } from '../server/materials-package.mjs';
 import { resolveFamily } from '../server/materials-templates.mjs';
 const home = mkdtempSync(join(tmpdir(), 'jb-ingest-fit-'));
 process.env.HOME = home;
@@ -64,6 +64,8 @@ it('T-K14-10 every employer-removing fit step skips tenure-floor entries in both
     assert.equal(fitted.overflow, true);
   }
   const budget = solveFit({ pageBudget: 1, statement: 'x'.repeat(4000), featured: [{ employerId: 'floor-a', rank: 1, tenureFloor: true, bullets: [] }, { employerId: 'optional', rank: 2, bullets: [] }], earlier: [{ employerId: 'floor-b', tenureFloor: true, description: 'Fictional long description.' }, { employerId: 'optional', description: 'Optional.' }], tokens: [] });
+  assert.ok(budget.applied.includes('drop_weakest_earlier'));
+  assert.ok(budget.applied.includes('drop_weakest_featured'));
   assert.ok(budget.plan.featured.some((entry) => entry.employerId === 'floor-a'));
   assert.ok(budget.plan.earlier.some((entry) => entry.employerId === 'floor-b'));
   assert.equal(budget.plan.earlier.find((entry) => entry.employerId === 'floor-b').description, undefined);
@@ -84,4 +86,10 @@ it('T-K14-12 package omission list reflects fitted employer loss with fit_ladder
   const before = new Set(entries(model).map((entry) => entry.employerId));
   const after = new Set(entries(rendered.fit.resume.model).map((entry) => entry.employerId));
   for (const id of before) if (!after.has(id)) assert.equal(omitted.find((entry) => entry.employerId === id)?.reason, 'fit_ladder');
+  const dir = mkdtempSync(join(tmpdir(), 'jb-ingest-manifest-'));
+  const now = '2026-09-29T00:00:00.000Z';
+  const { manifest } = await writePackageRecords({ dir, rendered, model, snapshot: false,
+    manifestExtra: { omittedEmployers: omitted },
+    run: { runId: 'fictional-run', slug: 'fictional-run', feature: 'resume', requestedAt: now, finishedAt: now, source: 'default', stages: [{ stage: 'save', status: 'ok', llm: false }] } });
+  assert.deepEqual(manifest.omittedEmployers, omitted);
 });
