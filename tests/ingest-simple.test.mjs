@@ -168,3 +168,64 @@ for (const [sourceAlias, modelAlias] of [
     assert.match(result.employers[0].aliasClause, /formerly Litware Radio/);
   });
 }
+
+it('SIMPLE-R3 echoed source text after line refs grounds headers, roles and bullet arrays', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media — Springfield Market', 'Research Lead | 2022 — Present', '• Built a planning tool', 'for local teams.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 'L2: Contoso Media — Springfield Market', roles: [{ title: 'Research Lead', line: 'L3 Research Lead | 2022 — Present' }], bullets: [{ text: 'Built a planning tool for local teams.', lines: ['L4: • Built a planning tool', 'L5 for local teams.'] }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].lines, [2, 2]);
+  assert.deepEqual(result.employers[0].roles[0].lines, [3, 3]);
+  assert.deepEqual(result.employers[0].claims[0].lines, [4, 5]);
+  raw.employers[0].headerLine = 'L2-L3: Contoso Media — Springfield Market';
+  raw.employers[0].roles[0].line = 'L3-L3 Research Lead | 2022 — Present';
+  raw.employers[0].bullets[0].lines[0] = 'L4-L4: • Built a planning tool';
+  const ranged = (await run(text, [raw])).result;
+  assert.equal(ranged.status, 'ready');
+  assert.deepEqual(ranged.employers[0].lines, [2, 2]);
+  assert.deepEqual(ranged.employers[0].claims[0].lines, [4, 5]);
+});
+
+it('SIMPLE-R3 experience headings are covered, including a model-tagged heading', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media | 2022 — Present', 'Research Lead | 2022 — Present', '• Built a planning tool.', 'EARLIER EXPERIENCE', 'Fabrikam Labs | 2020 — 2021', 'Analyst | 2020 — 2021', '• Analyzed fictional reports.', 'Founder Work / Independent Projects 02', 'Northwind Trading | 2018 — 2019', 'Founder | 2018 — 2019', '• Built a local guide.', 'Selected Ventures', 'Tailspin Studio | 2016 — 2017', 'Designer | 2016 — 2017', '• Designed fictional posters.', 'SKILLS'].join('\n');
+  const raw = { headings: [13], employers: [
+    { name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool.', line: 4 }] },
+    { name: 'Fabrikam Labs', headerLine: 6, roles: [{ title: 'Analyst', line: 7 }], bullets: [{ text: 'Analyzed fictional reports.', line: 8 }] },
+    { name: 'Northwind Trading', headerLine: 10, roles: [{ title: 'Founder', line: 11 }], bullets: [{ text: 'Built a local guide.', line: 12 }] },
+    { name: 'Tailspin Studio', headerLine: 14, roles: [{ title: 'Designer', line: 15 }], bullets: [{ text: 'Designed fictional posters.', line: 16 }] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.missingEmployers, []);
+  assert.ok(!result.couldntPlace.some((item) => [5, 9, 13].includes(item.lines[0])));
+});
+
+it('SIMPLE-R3 a date-free uncovered line stays a notice, not a missing employer', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media | 2022 — Present', 'Research Lead | 2022 — Present', '• Built a planning tool.', 'Local ventures', 'Fabrikam Labs | 2020 — 2021', 'Analyst | 2020 — 2021', '• Analyzed fictional reports.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool.', line: 4 }] }, { name: 'Fabrikam Labs', headerLine: 6, roles: [{ title: 'Analyst', line: 7 }], bullets: [{ text: 'Analyzed fictional reports.', line: 8 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.ok(result.couldntPlace.some((item) => item.lines[0] === 5 && item.kind === 'line'));
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('SIMPLE-R3 invalid JSON gets one full read retry before failure', async () => {
+  const { result, calls } = await run(source, ['{invalid-json', reply()]);
+  assert.equal(calls.length, 2);
+  assert.equal(result.reads, 2);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.employers.length, 2);
+  const exhausted = await run(source, ['{invalid-json', '{still-invalid']);
+  assert.equal(exhausted.calls.length, 2);
+  assert.equal(exhausted.result.status, 'failed');
+});
+
+it('SIMPLE-R3 repair merge deduplicates bullet claims by source range', async () => {
+  const text = ['EXPERIENCE', 'Contoso Media', 'Research Lead | 2022 — Present', '• Built a planning tool.', '• Coordinated weekly reviews.', '• Analyzed fictional reports.', '• Documented local results.', 'SKILLS'].join('\n');
+  const initial = { employers: [{ name: 'Contoso Media', headerLine: 2, roles: [{ title: 'Research Lead', line: 3 }], bullets: [{ text: 'Built a planning tool.', line: 4 }] }] };
+  const repair = { employers: [], bullets: [{ text: 'planning tool.', line: 4 }, { text: 'Coordinated weekly reviews.', line: 5 }, { text: 'Analyzed fictional reports.', line: 6 }, { text: 'Documented local results.', line: 7 }] };
+  const { result, calls } = await run(text, [initial, repair]);
+  assert.equal(calls.length, 2);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].claims.map((claim) => claim.lines), [[4, 4], [5, 5], [6, 6], [7, 7]]);
+});
