@@ -22,12 +22,14 @@ import {
 } from "../server/materials-ledger-build.mjs";
 import { EXAMPLE_RESUME_TEXT } from "./fixtures/materials-example-writer.mjs";
 import { modelReadReplyFixture } from "./fixtures/materials-model-structure.mjs";
+import { classifyC03Fixture } from "./fixtures/ingest-classify-c03.mjs";
 
 const GOLDEN = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", import.meta.url), "utf8");
 const GOLDEN_READ = JSON.parse(readFileSync(new URL("./fixtures/ingest-corpus/C03/stage-replies/read-run2-shape.json", import.meta.url), "utf8"));
 const PIN = { provider: "gemini", model: "gemini-3.8-flash", resolvedModel: "gemini-3.8-flash", apiKey: "fictional-key" };
 const fetchImpl = async () => ({});
-const modelCall = (text) => async () => text === GOLDEN ? GOLDEN_READ : modelReadReplyFixture(text);
+const modelCall = (text) => async (request) => request.stage === "resume.classify"
+  ? classifyC03Fixture(request) : text === GOLDEN ? GOLDEN_READ : modelReadReplyFixture(text);
 const saved = { ...process.env };
 afterEach(() => {
   for (const key of ["HOME", "JOBBORED_PROFILE_PATH", "JOBBORED_TEST_REAL_HOME"]) {

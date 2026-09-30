@@ -206,4 +206,16 @@ describe("INGEST drafting gate", () => {
     const manifest = JSON.parse(await readFile(join(out.dir, "manifest.json"), "utf8"));
     assert.ok(!manifest.ingestReview?.notice);
   });
+  it("CLASSIFY cleared lines remain reviewable in draft and public manifests without entering notice text", async () => {
+    const cleared = [{ line: 18, text: 'Microsoft Office 2019 <fictional>', reason: 'skill' }];
+    const ledger = await ledgerWithResult((_, result) => { result.review.cleared = cleared; });
+    const out = await run({ ensureLedger: async () => ledger });
+    assert.equal(out.calls, 1);
+    const manifest = JSON.parse(await readFile(join(out.dir, 'manifest.json'), 'utf8'));
+    assert.deepEqual(manifest.ingestReview.cleared, cleared);
+    assert.match(manifest.ingestReview.notice, /1 line treated as skills — review/u);
+    assert.doesNotMatch(manifest.ingestReview.notice, /Microsoft Office/u);
+    const publicManifest = await buildManifest('fictional-role', { root: join(home, 'applications') });
+    assert.deepEqual(publicManifest.ingestReview.cleared, cleared);
+  });
 });

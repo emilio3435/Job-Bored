@@ -238,3 +238,17 @@ it(`P2-7 (${domMode}) a finished draft shows the placement notice in the existin
   assert.doesNotMatch(html, /Tailspin <Studio>/);
   assert.match(html, /data-status="ready"/);
 });
+it(`CLASSIFY (${domMode}) cleared source lines have a review disclosure and edit link`, () => {
+  const host = documentForTest.createElement('div');
+  host.setAttribute('data-mount', 'materials');
+  api.renderManifest(host, { slug: 'fictional-role', company: 'Fabrikam', title: 'Analyst',
+    documents: [{ type: 'resume', status: 'ready', primary: 'resume.pdf', files: [{ filename: 'resume.pdf' }] }],
+    ingestReview: { notice: '1 line treated as skills — review', cleared: [{ line: 6, text: 'Microsoft Office 2019 <script>fictional</script>', reason: 'skill' }] },
+  }, 'http://127.0.0.1:3847');
+  const html = Array.from(host.children).map((child) => child.innerHTML).join('');
+  assert.match(html, /<details[^>]*data-ingest-cleared/u);
+  assert.match(html, /<summary>.*1 line treated as skills.*review.*<\/summary>/u);
+  assert.match(html, /Line 6.*Microsoft Office 2019 &lt;script&gt;fictional&lt;\/script&gt;/u);
+  assert.doesNotMatch(html, /<script>fictional/u);
+  assert.match(html, /data-action="materials-open-profile"/u);
+});

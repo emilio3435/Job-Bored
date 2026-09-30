@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { classifyC03Fixture } from './fixtures/ingest-classify-c03.mjs';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +21,7 @@ const source = readFileSync(new URL('./fixtures/ingest-corpus/C03/source.txt', i
 const reply = JSON.parse(readFileSync(new URL('./fixtures/ingest-corpus/C03/stage-replies/read-run2-shape.json', import.meta.url), 'utf8'));
 const job = JSON.parse(readFileSync(new URL('./fixtures/ingest-corpus/C03/job-media-tech.json', import.meta.url), 'utf8'));
 async function flow() {
-  const ledger = await ensureLedger({ profile: null, resumeText: source, pin: { provider: 'gemini', model: 'fictional' }, callStage: async () => reply });
+  const ledger = await ensureLedger({ profile: null, resumeText: source, pin: { provider: 'gemini', model: 'fictional' }, callStage: async (request) => request.stage === 'resume.classify' ? classifyC03Fixture(request) : reply });
   const shortlist = scoreClaims({ extract: job.extract, ledger, limit: 20 });
   const selection = selectRankedClaims({ extract: job.extract, shortlist, ledger });
   const outline = outlineModule.buildOutline({ selection, ledger, feature: 'resume', extract: job.extract });

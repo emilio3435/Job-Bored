@@ -827,22 +827,25 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       const current = buildLedger({ profile: null, resumeText: INTERLEAVED, ingestResult });
       const { builderVersion: _current, ...legacy } = current;
       await writeLedgerAtomic({ ...legacy, builderVersion: 9 });
-      let calls = 0;
+      const stages = [];
       const first = await ensureLedger({
         profile: null,
         resumeText: INTERLEAVED,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => { calls += 1; return readReplyFromQuotes(INTERLEAVED, INTERLEAVED_MODEL); },
+        callStage: async ({ stage }) => {
+          stages.push(stage);
+          return stage === 'resume.classify' ? { lines: [] } : readReplyFromQuotes(INTERLEAVED, INTERLEAVED_MODEL);
+        },
       });
       assert.equal(first.rebuilt, true);
       assert.equal(first.builderVersion, LEDGER_BUILDER_VERSION);
-      assert.equal(calls, 1);
+      assert.deepEqual(stages, ['resume.structure', 'resume.classify']);
       assert.equal(first.ingest.rejected.length, 0, "the simple read has no per-item rejection queue");
       assert.equal(JSON.stringify(first.ingest).includes("Led eleven account teams"), false, "advisory notes keep ingest metadata count-only");
       const second = await ensureLedger({ profile: null, resumeText: INTERLEAVED, pin: PIN, fetchImpl: async () => ({}) });
       assert.equal(second.rebuilt, false);
-      assert.equal(calls, 1);
+      assert.deepEqual(stages, ['resume.structure', 'resume.classify'], 'the current-version cache does not re-read or reclassify');
     } finally {
       restore();
     }
