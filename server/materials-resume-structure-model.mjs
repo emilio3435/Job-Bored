@@ -694,12 +694,6 @@ async function classifyLines({ lines, numbers, withheld, metadataHeaders, pin, f
     `${id}: ${masked(number)}`,
     ...(number < lines.length ? [`context L${number + 1}: ${masked(number + 1)}`] : []),
   ].join("\n")).join("\n")}\n── END RESUME ──`;
-  const strictWire = ["openai", "openrouter", "openai_compatible"].includes(normalizeProvider(pin.provider));
-  const schema = { type: "object", additionalProperties: false, required: ["lines"], properties: { lines: { type: "array", items: {
-    type: "object", additionalProperties: false, required: strictWire ? ["line", "kind", "reason"] : ["line", "kind"],
-    properties: { line: { type: "string" }, kind: { type: "string", enum: ["not_work", "work", "unsure"] },
-      reason: strictWire ? { type: ["string", "null"], enum: [...NOT_WORK_REASONS, null] } : { type: "string", enum: [...NOT_WORK_REASONS], nullable: true } },
-  } } } };
   let attempts = 0;
   let inputTokens = null;
   let outputTokens = null;
@@ -723,9 +717,8 @@ async function classifyLines({ lines, numbers, withheld, metadataHeaders, pin, f
       try {
         const remaining = Math.max(1, budget - (Date.now() - started));
         payload = await bounded(async () => {
-          if (typeof callStage === "function") return callStage({ pin, stage: RESUME_CLASSIFY_STAGE, systemPrompt: CLASSIFY_PROMPT, userText, schema, temperature: 0, jsonMode: true, maxOutputTokens: STRUCTURE_STAGE_MAX_TOKENS, fetchImpl, timeoutMs: remaining, signal: requestSignal });
+          if (typeof callStage === "function") return callStage({ pin, stage: RESUME_CLASSIFY_STAGE, systemPrompt: CLASSIFY_PROMPT, userText, temperature: 0, jsonMode: true, maxOutputTokens: STRUCTURE_STAGE_MAX_TOKENS, fetchImpl, timeoutMs: remaining, signal: requestSignal });
           const response = await chat({ pin: { ...pin, model: pin.resolvedModel || pin.model }, messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content: userText }], temperature: 0, jsonMode: true,
-            schema, schemaName: "resume_line_classification",
             fetchImpl: observedFetch, timeoutMs: remaining, signal: requestSignal, retriedTruncation: true });
           return { raw: response.text, providerPayload: response.payload };
         });
@@ -827,19 +820,16 @@ const DATED_LINE = /\b(?:19|20)\d{2}\b/u;
 const DATE_ONLY_LINE = /^\s*(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+)?(?:19|20)\d{2}(?:\s*[—–-]\s*(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+)?(?:present|current|now|(?:19|20)\d{2}))?\s*$/iu;
 const DATE_RANGE = /\b(?:19|20)\d{2}\s*[—–-]\s*(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+)?(?:present|current|now|(?:19|20)\d{2})\b/iu;
 const BULLET_LINE = /^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s+/u;
-const EXPERIENCE_HEADING = /^(?:[\p{L}\s&/—–-]*\b(?:experience|employment|work\s+history)\b[\p{L}\s&/—–-]*|volunteer(?:\s+work)?|volunteering|career|earlier(?: work)?|founder work(?:\s*\/\s*independent projects)?|independent projects|selected work|selected ventures)(?:\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})|\s+\d+)?\s*:?[ \t]*$/iu;
+const EXPERIENCE_QUALIFIER = "(?:work|professional|relevant|additional|other|selected|teaching|volunteer|leadership|earlier|past|prior|career|military)";
+const EXPERIENCE_CORE = "(?:experience|employment(?:\\s+history)?|(?:work|career)\\s+history|internships|military\\s+service|volunteer(?:\\s+work)?|volunteering)";
+const EXPERIENCE_DATE_RANGE = "(?:19|20)\\d{2}\\s*[—–-]\\s*(?:present|current|now|(?:19|20)\\d{2})";
+const EXPERIENCE_SUFFIX = `(?:\\s+(?:${EXPERIENCE_DATE_RANGE}|\\d+))?\\s*:?[ \\t]*`;
+const EXPERIENCE_HEADING = new RegExp(`^(?:${EXPERIENCE_QUALIFIER}\\s+)*${EXPERIENCE_CORE}(?:(?:\\s*&\\s*|\\s+and\\s+)(?:${EXPERIENCE_QUALIFIER}|${EXPERIENCE_CORE}))?${EXPERIENCE_SUFFIX}$`, "iu");
+// Preserve the whole-line legacy labels required by READ/SIMPLE controls.
+const LEGACY_EXPERIENCE_HEADING = new RegExp(`^(?:(?:founder\\s+work\\s*/\\s*independent\\s+projects|selected\\s+ventures)${EXPERIENCE_SUFFIX}|earlier\\s+${EXPERIENCE_DATE_RANGE}\\s*:?[ \\t]*)$`, "iu");
 const SPACED_HEADING = /^(?:\p{Lu}\s+){3,}\p{Lu}(?:\s+\d+)?$/u;
 /** @param {string} line */
-const isExperienceHeading = (line) => {
-  const text = normalizeHeading(line);
-  if (BULLET_LINE.test(line) || !EXPERIENCE_HEADING.test(text)) return false;
-  const label = text.replace(/\s*:\s*$/u, "").replace(/\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})$/iu, "").replace(/\s+\d+$/u, "");
-  // A keyword in ordinary work prose is not itself a section heading.
-  return !/\b(?:experience|employment|work\s+history)\b/iu.test(label)
-    || /\b(?:experience|employment(?:\s+history)?|work\s+history)$/iu.test(label)
-    || /:\s*$/u.test(text) || label === label.toUpperCase()
-    || label.split(/\s+/u).every((word) => /^\p{Lu}/u.test(word) || ["&", "/", "—", "–", "-", "of", "the", "in", "for"].includes(word));
-};
+const isExperienceHeading = (line) => !BULLET_LINE.test(line) && (EXPERIENCE_HEADING.test(line.trim()) || LEGACY_EXPERIENCE_HEADING.test(line.trim()));
 // Country/territory names come from Node's closed English CLDR region list.
 // An arbitrary department label such as Sales or Operations is not a region.
 const regionDisplay = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" });

@@ -218,7 +218,7 @@ it('CLASSIFY metadata stops at a claim, blank line, unknown title or three lines
     assert.deepEqual(result.review.cleared, cleared);
   }
 });
-it('CLASSIFY production chat uses temperature zero, JSON output and at most two requests', async () => {
+it('CLASSIFY production chat uses temperature zero, prompt JSON and at most two requests without forcing OpenRouter response format', async () => {
   let attempts = 0;
   const fetchImpl = async (_url, init) => {
     const body = JSON.parse(init.body);
@@ -226,7 +226,7 @@ it('CLASSIFY production chat uses temperature zero, JSON output and at most two 
     if (!prompt.includes('C1:')) return { ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(primary) } }] }) };
     attempts += 1;
     assert.equal(body.temperature, 0);
-    assert.equal(body.response_format.type, 'json_object');
+    assert.equal(body.response_format, undefined);
     if (attempts === 1) return { ok: false, status: 429, headers: new Headers(), json: async () => ({ error: { message: 'fictional rate limit' } }) };
     return { ok: true, status: 200, headers: new Headers(), json: async () => ({ usage: { prompt_tokens: 40, completion_tokens: 10 }, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ lines: [{ line: 'C1', kind: 'not_work', reason: 'certification' }] }) } }] }) };
   };

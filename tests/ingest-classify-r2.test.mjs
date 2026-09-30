@@ -170,30 +170,24 @@ it('FABLE-R2-6 an invalid downstream date row stays flagged beside a valid metad
   assert.deepEqual(result.review.cleared, [{ line: 4, text: 'Remote', reason: 'heading' }]);
 });
 for (const [provider, model] of [['openai', 'gpt-4o'], ['openrouter', 'openai/gpt-4o']]) {
-  it(`FABLE-R2-6 ${provider} supports an enum json_schema on the classification wire`, async () => {
+  it(`FABLE-R2-6 ${provider} classifies without response_format and validates each reply row`, async () => {
     let classificationRequests = 0;
     const fetchImpl = async (_url, init) => {
       const body = JSON.parse(init.body);
       const classify = body.messages.at(-1).content.includes('C1:');
       if (classify) {
         classificationRequests += 1;
-        const format = body.response_format;
-        assert.equal(format.type, 'json_schema');
-        assert.equal(format.json_schema.strict, true);
-        const schema = format.json_schema.schema;
-        assert.equal(schema.additionalProperties, false);
-        const item = schema.properties.lines.items;
-        assert.equal(item.additionalProperties, false);
-        assert.deepEqual(item.required, ['line', 'kind', 'reason']);
-        assert.deepEqual(item.properties.kind.enum, ['not_work', 'work', 'unsure']);
-        assert.ok(item.properties.reason.enum.includes('education'));
-        assert.ok(item.properties.reason.enum.includes('heading'));
-        assert.ok(item.properties.reason.enum.includes(null), 'work/unsure can give no non-work reason');
+        assert.equal(body.response_format, undefined);
       }
-      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(classify ? { lines: [{ line: 'C1', kind: 'not_work', reason: 'education' }] } : primary) } }] }) };
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(classify ? { lines: [
+        { line: 'C1', kind: 'not_work', reason: 'award' },
+        { line: 'C2', kind: 'not_work', reason: 'education' },
+      ] } : primary) } }] }) };
     };
-    const result = await structureResume({ lsrc: [...base, 'EDUCATION', 'M.Sc. | Fictional University | 2017'].join('\n'), pin: { provider, model, apiKey: 'fictional', baseUrl: 'https://example.com/v1' }, fetchImpl, sleep: async () => {} });
+    const result = await structureResume({ lsrc: [...base, 'EDUCATION', 'PMP — 2021', 'M.Sc. | Fictional University | 2017'].join('\n'), pin: { provider, model, apiKey: 'fictional', baseUrl: 'https://example.com/v1' }, fetchImpl, sleep: async () => {} });
     assert.equal(classificationRequests, 1);
-    assert.deepEqual(result.review.cleared.map((item) => item.line), [6]);
+    assert.ok(result.couldntPlace.some((item) => item.lines[0] === 6));
+    assert.deepEqual(result.review.cleared, [{ line: 7, text: 'M.Sc. | Fictional University | 2017', reason: 'education' }]);
+    assert.ok(result.notes.some((note) => note.kind === 'classify_row_invalid' && note.line === 6));
   });
 }
