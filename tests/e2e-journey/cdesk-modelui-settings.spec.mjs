@@ -168,6 +168,8 @@ test("Save never sends a blank key, so the server keeps the one it has", async (
 
   await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "ai" }));
   await expect(page.locator("#settingsResumeLocalApiKey")).toHaveValue("");
+  // An untouched Save no longer re-pins the writer (JUDGEUX FIX2), so edit the endpoint to force one.
+  await page.locator("#settingsResumeLocalBaseUrl").fill("http://127.0.0.1:11435/v1");
   await page.locator("#settingsSaveBtn").click();
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0].model).toBe("gemma4:e2b");
