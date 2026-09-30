@@ -6,6 +6,7 @@ import { it } from 'node:test';
 import { buildLedger, ensureLedger, LEDGER_BUILDER_VERSION } from '../server/materials-ledger-build.mjs';
 import { readLedger, validateLedger, writeLedgerAtomic } from '../server/materials-ledger.mjs';
 import { validateIngestResult } from '../server/resume-ingest-contract.mjs';
+import { classifyC03Fixture } from './fixtures/ingest-classify-c03.mjs';
 const home = mkdtempSync(join(tmpdir(), 'jb-ingest-ledger-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
@@ -13,7 +14,11 @@ process.env.JOBBORED_PROFILE_PATH = join(home, '.jobbored', 'profile.json');
 const source = readFileSync(new URL('./fixtures/ingest-corpus/C03/source.txt', import.meta.url), 'utf8');
 const reply = JSON.parse(readFileSync(new URL('./fixtures/ingest-corpus/C03/stage-replies/read-run2-shape.json', import.meta.url), 'utf8'));
 const pin = { provider: 'gemini', model: 'fictional', resolvedModel: 'fictional' };
-const read = (text = source, options = {}) => ensureLedger({ profile: null, resumeText: text, pin, callStage: async () => reply, ...options });
+const read = (text = source, options = {}) => {
+  const { callStage = async () => reply, ...rest } = options;
+  return ensureLedger({ profile: null, resumeText: text, pin, ...rest,
+    callStage: async (request) => request.stage === 'resume.classify' ? classifyC03Fixture(request) : callStage(request) });
+};
 const resultPath = join(home, '.jobbored', 'ingest-result.json');
 const employer = (name, title = 'Research Lead', start = 'Jan 2022', end = 'Present') => ({ name, aliases: [name.toLowerCase()], start, end, roles: [{ title, start, end }], claims: [] });
 const structure = (...names) => ({ source: 'model', employers: names.map((name) => employer(name)), education: [], credentials: [], looseClaims: [] });
@@ -64,8 +69,8 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read();
-  assert.equal(LEDGER_BUILDER_VERSION, 14);
-  assert.equal(out.builderVersion, 14);
+  assert.equal(LEDGER_BUILDER_VERSION, 15);
+  assert.equal(out.builderVersion, 15);
 });
 it('T-K10-04 failed read over stale rules never reports ready', async () => {
   const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });

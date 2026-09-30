@@ -116,11 +116,17 @@ for (const [label, classifier] of [
   ['invalid JSON', () => ({ raw: '{invalid' })],
   ['unavailable', () => { throw new Error('fictional unavailable'); }],
 ]) {
-  it(`CLASSIFY ${label} leaves legacy flags unchanged`, async () => {
+  it(`CLASSIFY ${label} preserves flags for unsure rows and applies valid rows`, async () => {
     const { result } = await run(['EDUCATION', 'PMP — 2021'], classifier);
-    assert.ok(result.couldntPlace.some((item) => item.lines[0] === 6));
-    assert.deepEqual(result.review.cleared, []);
-    if (label !== 'omitted line') assert.ok(result.notes.some((n) => n.kind === 'classify_unavailable'));
+    if (['unknown ID', 'context ID'].includes(label)) {
+      assert.deepEqual(result.review.cleared.map((item) => item.line), [6]);
+      assert.ok(!result.couldntPlace.some((item) => item.lines[0] === 6));
+    } else {
+      assert.ok(result.couldntPlace.some((item) => item.lines[0] === 6));
+      assert.deepEqual(result.review.cleared, []);
+    }
+    if (['invalid JSON', 'unavailable'].includes(label)) assert.ok(result.notes.some((n) => n.kind === 'classify_unavailable'));
+    else if (label !== 'omitted line') assert.ok(result.notes.some((n) => n.kind === 'classify_row_invalid'));
   });
 }
 it('CLASSIFY candidates and context with instruction-shaped lines stay masked', async () => {

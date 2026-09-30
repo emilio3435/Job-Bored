@@ -8,12 +8,18 @@ const reply = () => ({ employers: [
   { name: 'Contoso Media', headerLine: 4, roles: [{ title: 'Research Lead', line: 5, start: 'Jan 2022', end: 'Present' }], bullets: [{ text: 'Built a planning tool for local teams.', line: 6 }, { text: 'Coordinated weekly reviews.', line: 7 }] },
   { name: 'Fabrikam Labs', headerLine: 8, roles: [{ title: 'Analyst', line: 9, start: '2020', end: '2021' }], bullets: [{ text: 'Analyzed fictional market reports.', line: 10 }] },
 ] });
+// Fictional expected academic fields for the model stub. Production no longer
+// exempts a separated, dated field solely on degree vocabulary.
+const academicFields = new Set(['Bachelor of Arts', 'Master of Science', 'B.A.', 'Degree in Cartography', 'Diploma in Illustration', 'Certificate in Design', 'MBA', 'Ph.D. in Chemistry', 'BSc Computer Science', 'Master in Biology', 'Associate in Design', 'Graduated with honors', 'Majored in Economics', 'Major in Design', 'Minor in Physics']);
 const run = async (text = source, values = [reply()], extra = {}) => {
   const calls = [];
   const result = await structureResume({ lsrc: text, pin, callStage: async (request) => {
-    // This suite measures primary/repair reads. Classifier omissions retain
-    // every legacy flag; CLASSIFY tests exercise and count the separate stage.
-    if (request.stage === 'resume.classify') return { lines: [] };
+    // Count primary/repair reads separately. The classifier recognizes only
+    // this fixture's explicit academic fields; job controls stay unsure.
+    if (request.stage === 'resume.classify') return { lines: [...request.userText.matchAll(/^C(\d+): (.*)$/gmu)].map(([, id, line]) => {
+      const academic = line.split(/\s*\|\s*/u).some((field) => academicFields.has(field));
+      return { line: `C${id}`, kind: academic ? 'not_work' : 'unsure', ...(academic ? { reason: 'education' } : {}) };
+    }) };
     calls.push(request); return values[Math.min(calls.length - 1, values.length - 1)];
   }, ...extra });
   return { result, calls };
@@ -713,7 +719,7 @@ for (const title of ['Tutor', 'Visiting Tutor']) {
   });
 }
 
-it('READ-R3-2 education signals in a school job bullet do not exempt the unread bullet', async () => {
+it('READ-R3-2 a dated degree candidate inside a school job stays visible with its unread bullet', async () => {
   const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', 'Northwind School | Tutor | 2016 — 2018', '• Taught fictional workshops.', '• Organized events at a fictional institute.', 'Fictional University | MBA | 2012 — 2014', 'SKILLS'].join('\n');
   const raw = { employers: [
     { name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] },
@@ -721,8 +727,9 @@ it('READ-R3-2 education signals in a school job bullet do not exempt the unread 
   ] };
   const { result } = await run(text, [raw]);
   assert.ok(result.couldntPlace.some((item) => item.kind === 'bullet' && item.lines[0] === 8), 'job bullet stays visible');
-  assert.ok(!result.couldntPlace.some((item) => item.lines[0] === 9), 'degree stays exempt');
-  assert.deepEqual(result.missingEmployers, []);
+  assert.ok(result.couldntPlace.some((item) => item.lines[0] === 9), 'a candidate inside the grounded job section needs an explicit new non-experience heading');
+  assert.equal(result.status, 'ready_with_review');
+  assert.deepEqual(result.missingEmployers.map((item) => item.lines), [[9, 9]]);
 });
 
 for (const title of ['Librarian', 'Counselor', 'Research Assistant']) {
