@@ -20,7 +20,7 @@
     "employers": { "type": "array", "items": { "type": "object" } },
     "unread": { "type": "array", "items": { "type": "object", "required": ["id", "kind", "lines", "reason"] } },
     "setAside": { "type": "array", "items": { "type": "object" } },
-    "review": { "type": "object", "required": ["claims"], "properties": { "claims": { "type": "array", "items": { "type": "object" } } } },
+    "review": { "type": "object", "required": ["claims"], "properties": { "claims": { "type": "array", "items": { "type": "object" } }, "cleared": { "type": "array", "items": { "type": "object", "required": ["line", "text", "reason"], "properties": { "line": { "type": "integer", "minimum": 1 }, "text": { "type": "string" }, "reason": { "enum": ["education", "certification", "skill", "language", "contact", "heading"] } } } } } },
     "rejected": { "type": "array", "items": { "type": "object", "required": ["kind", "reason", "lines"] } },
     "missingEmployers": { "type": "array", "items": { "type": "object", "required": ["aliasKey", "displayName", "lines"] } },
     "carried": { "type": "array" },

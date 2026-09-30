@@ -17,6 +17,7 @@ import {
 } from "../server/materials-ledger.mjs";
 import { buildLedger, ensureLedger, ledgerEmptyError } from "../server/materials-ledger-build.mjs";
 import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
+import { classifyC03Fixture } from "./fixtures/ingest-classify-c03.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -130,7 +131,7 @@ describe("materials ledger (slice 1)", () => {
       resumeText: READ_SOURCE,
       pin: PIN,
       fetchImpl,
-      callStage: async () => READ_REPLY,
+      callStage: async (request) => request.stage === "resume.classify" ? classifyC03Fixture(request) : READ_REPLY,
     });
     const second = await ensureLedger({ profile, resumeText: READ_SOURCE, pin: PIN, fetchImpl });
     assert.equal(second.ledgerHash, first.ledgerHash);
@@ -153,7 +154,7 @@ describe("materials ledger (slice 1)", () => {
     const source = READ_SOURCE;
     const reply = READ_REPLY;
     const input = { profile: null, resumeText: source, pin: { provider: "gemini", model: "stub" }, fetchImpl: async () => { throw new Error("unexpected network"); } };
-    const ready = await ensureLedger({ ...input, callStage: async () => reply });
+    const ready = await ensureLedger({ ...input, callStage: async (request) => request.stage === "resume.classify" ? classifyC03Fixture(request) : reply });
     assert.equal(ready.ingest.status, "ready");
     assert.equal(ready.ingest.sourceHash, `sha256:${createHash("sha256").update(source).digest("hex")}`);
     assert.equal(ready.ingest.coverage.totalEmployers, 4);
