@@ -256,14 +256,14 @@ it('SIMPLE-R4 split claims never join across blank lines, headers, or bullet mar
 });
 
 it('SIMPLE-R4 role-led headers keep the grounded company as employer name', async () => {
-  const text = ['EXPERIENCE', 'Founder & AI Engineer | Fabrikam Labs — Springfield 2022 — Present', '• Built a local assistant.', 'Cofounder, Bucketz — regional project 2020 — 2021', '• Designed a fictional catalog.', 'SKILLS'].join('\n');
+  const text = ['EXPERIENCE', 'Founder & AI Engineer | Fabrikam Labs — Springfield 2022 — Present', '• Built a local assistant.', 'Cofounder, Tailspin Toys — regional project 2020 — 2021', '• Designed a fictional catalog.', 'SKILLS'].join('\n');
   const raw = { employers: [
     { name: 'Founder & AI Engineer', headerLine: 2, roles: [{ title: 'Founder & AI Engineer', line: 2 }], bullets: [{ text: 'Built a local assistant.', line: 3 }] },
-    { name: 'Cofounder, Bucketz', headerLine: 4, roles: [{ title: 'Cofounder', line: 4 }], bullets: [{ text: 'Designed a fictional catalog.', line: 5 }] },
+    { name: 'Cofounder, Tailspin Toys', headerLine: 4, roles: [{ title: 'Cofounder', line: 4 }], bullets: [{ text: 'Designed a fictional catalog.', line: 5 }] },
   ] };
   const { result } = await run(text, [raw]);
   assert.equal(result.status, 'ready');
-  assert.deepEqual(result.employers.map((employer) => employer.name), ['Fabrikam Labs', 'Bucketz']);
+  assert.deepEqual(result.employers.map((employer) => employer.name), ['Fabrikam Labs', 'Tailspin Toys']);
   assert.deepEqual(result.employers.map((employer) => employer.roles[0].title), ['Founder & AI Engineer', 'Cofounder']);
 });
 
