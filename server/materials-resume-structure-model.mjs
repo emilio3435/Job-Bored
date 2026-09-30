@@ -967,7 +967,8 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       else modelError = true;
     }
   };
-  const degreeText = /\b(?:bachelor|master|MBA|associate|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|degree|GPA|honors|minor|major)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
+  const degreeText = /\b(?:bachelor|master(?:'?s)?\s+(?:of|degree)|MBA|associate(?:'?s)?\s+(?:of|degree)|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|degree|GPA|honors|minor|major)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
+  const degreePhrase = new RegExp(`^\\s*(?:${degreeText.source})`, "iu");
   const institutionText = /\b(?:university|college|school|institute|academy)\b/iu;
   const nameLine = /^\p{Lu}[\p{L}.'’-]*(?:\s+(?:\p{Lu}[\p{L}.'’-]*|of|the|and|&))*$/u;
   /** @param {string} line */
@@ -982,10 +983,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       .flatMap((part) => locationOnly(part) ? [part] : part.split(/\s*,\s*/u))
       .map((part) => part.trim()).filter((part) => /\p{L}/u.test(part) && !DATE_ONLY_LINE.test(`${part} ${line.slice(date)}`));
   };
-  /** Any ambiguous field before the dates counts as a title; no title vocabulary.
+  /** A degree phrase takes precedence over apparent title fields; no title vocabulary.
    * @param {string} line */
   const hasRoleSeparator = (line) => {
     const parts = headerParts(line);
+    if (parts.some((part) => degreePhrase.test(part))) return false;
     return parts.length > 1 && parts.some((part) => !degreeText.test(part) && !institutionOnly(part) && !locationOnly(part));
   };
   const datedHeaders = new Set();
