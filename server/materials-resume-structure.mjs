@@ -11,6 +11,7 @@
  * @property {string} [startSourceQuote]
  * @property {string | null} end
  * @property {string} [endSourceQuote]
+ * @property {[number, number]} [lines]
  */
 
 /**
@@ -18,6 +19,9 @@
  * @property {string} text
  * @property {string} [sourceQuote]
  * @property {number | null} roleIndex
+ * @property {[number, number]} [lines]
+ * @property {boolean} [quarantined]
+ * @property {string} [attribution]
  */
 
 /**
@@ -34,6 +38,7 @@
  * @property {string} [endSourceQuote]
  * @property {StructureRole[]} roles
  * @property {StructureClaim[]} claims
+ * @property {[number, number]} [lines]
  */
 
 /**

@@ -1,0 +1,37 @@
+Jordan Rivera
+user@example.com • 555-555-0100
+Summary: I built audience programs at Contoso Media and founded small software ventures.
+
+E X P E R I E N C E  01
+Contoso Media (formerly Litware Radio)
+Mar 2017 — 2026 • Springfield, ST • three progressive roles
+Digital Sales Manager May 2021 — 2026
+Senior Account Executive May 2019 — May 2021
+Account Executive Mar 2017 — May 2019
+V E N T U R E S  02
+Fabrikam Labs — fabrikam.example Founder & AI Engineer • Jan 2025 — Present
+Northwind Trading — northwind.example Co-founder • 2025 — Present
+Built a planning tool for local teams to review their weekly goals.
+It combined interview notes with a clear record of customer requests.
+At Fabrikam, I prototyped an assistant for recurring field work.
+The assistant helped operators compare schedules and service windows.
+Its first pilot covered twelve fictional service districts.
+I documented each test and revised the workflow with volunteers.
+At Northwind, I designed a small catalog for wholesale buyers.
+The catalog grouped products by season and delivery region.
+One planning scenario modeled $1.2M in annual orders.
+I also built a dashboard for the team's shared inventory.
+The dashboard kept a transfor-
+mation log for every edited product description.
+Fabrikam research informed the search experience in the catalog.
+Northwind feedback exposed slow steps in the prototype.
+I held weekly reviews and wrote concise notes for both teams.
+Those notes connected decisions to the people who requested them.
+The software ran locally during an extended trial period.
+I translated trial feedback into smaller follow-up tasks.
+Each release included a short guide for new participants.
+The final review listed open questions and agreed next steps.
+Tailspin Studio Founder • Early 2026 — Present
+E D U C A T I O N  03
+Fictional State University • Bachelor of Arts • 2013 — 2017
+Example Community College • Certificate • 2011 — 2012

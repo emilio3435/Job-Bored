@@ -282,20 +282,43 @@ export function skillsLine({ ledger, kept, extract, max }) {
 /**
  * Most recent first: a current role (no end, or "Present") outranks any
  * dated end; then the later end year; then the later start.
- * @param {{ start?: unknown, end?: unknown } | undefined} employer
+ * @param {unknown} value
  */
+function dateNumber(value) {
+  const text = String(value ?? "");
+  const year = /(19|20)\d\d(?!.*(19|20)\d\d)/.exec(text);
+  if (!year) return 0;
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const month = months.findIndex((name) => new RegExp(`\\b${name}[a-z]*\\b`, "i").test(text));
+  return Number(year[0]) * 12 + (month < 0 ? 1 : month + 1);
+}
+
+/** @param {{ start?: unknown, end?: unknown } | undefined} employer */
 function recencyKey(employer) {
-  const year = (/** @type {unknown} */ v) => {
-    const m = /(19|20)\d\d(?!.*(19|20)\d\d)/.exec(String(v ?? ""));
-    return m ? Number(m[0]) : 0;
-  };
   const end = employer?.end;
   /* An end in the current year ("2017 – 2026", written in 2026) is as
    * current as "Present". */
   const thisYear = new Date().getUTCFullYear();
   const current =
-    end === null || end === undefined || end === "" || /present|current|now/i.test(String(end)) || year(end) >= thisYear;
-  return { end: current ? 9999 : year(end), start: year(employer?.start) };
+    end === null || end === undefined || end === "" || /present|current|now/i.test(String(end)) || dateNumber(end) >= thisYear * 12;
+  return { end: current ? 9999 * 12 : dateNumber(end), start: dateNumber(employer?.start) };
+}
+
+/** Top two non-retired employers by tenure; ties use recency and source order. */
+/** @param {{employers?: Array<{id?:unknown,start?:unknown,end?:unknown,retired?:unknown}>}} ledger */
+export function tenureFloorIds(ledger) {
+  const entries = (ledger.employers || []).filter((entry) => entry && typeof entry.id === "string" && entry.retired !== true);
+  const today = new Date();
+  const current = today.getUTCFullYear() * 12 + today.getUTCMonth() + 1;
+  const tenure = (/** @type {typeof entries[number]} */ entry) => {
+    const start = dateNumber(entry.start);
+    if (!start) return 0;
+    const end = recencyKey(entry).end;
+    return Math.max(0, (end >= 9999 * 12 ? current : end) - start);
+  };
+  return new Set(entries.map((entry, index) => ({ entry, index })).sort((a, b) =>
+    tenure(b.entry) - tenure(a.entry) || recencyKey(b.entry).end - recencyKey(a.entry).end || a.index - b.index)
+    .slice(0, 2).map(({ entry }) => /** @type {string} */ (entry.id)));
 }
 
 /**
@@ -305,7 +328,7 @@ function recencyKey(employer) {
  * roles gets one sub-row per role. Claims from a featured company never
  * land in "Earlier": Earlier holds other employers only, one line each.
  * @param {object} input
- * @param {{ claims?: Array<{ id?: unknown, employerId?: unknown, roleId?: unknown, kind?: unknown, metrics?: unknown[] }>, employers?: Array<{ id?: unknown, start?: unknown, end?: unknown, roles?: unknown }> }} input.ledger
+ * @param {{ claims?: Array<{ id?: unknown, employerId?: unknown, roleId?: unknown, kind?: unknown, metrics?: unknown[], attribution?:unknown, quarantined?:unknown }>, employers?: Array<{ id?: unknown, start?: unknown, end?: unknown, roles?: unknown, retired?:unknown }> }} input.ledger
  * @param {string[]} input.kept kept claim ids in rank order
  * @param {number} input.featuredMax
  * @param {number} input.perFeaturedMax
@@ -315,7 +338,7 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   /** @type {Map<string, { id?: unknown, start?: unknown, end?: unknown, roles?: unknown }>} */
   const employers = new Map();
   for (const e of ledger.employers || []) {
-    if (e && typeof e.id === "string") employers.set(e.id, e);
+    if (e && typeof e.id === "string" && e.retired !== true) employers.set(e.id, e);
   }
   const order = new Map([...employers.keys()].map((id, i) => [id, i]));
   /** @type {Map<string, string[]>} */
@@ -325,7 +348,7 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   for (const id of kept) {
     const claim = claimById(ledger, id);
     const employer = claim && typeof claim.employerId === "string" ? claim.employerId : "";
-    if (!employer || claim?.kind === "education" || claim?.kind === "credential") {
+    if (!employer || claim?.kind === "education" || claim?.kind === "credential" || claim?.quarantined) {
       dropped.push({ claimId: id, reason: "page_budget" });
       continue;
     }
@@ -416,11 +439,22 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   for (const employerId of others) {
     if (earlier.length >= earlierMax) break;
     const own = (ledger.claims || []).filter(
-      (c) => c && c.employerId === employerId && typeof c.id === "string" && c.kind !== "education" && c.kind !== "credential",
+      (c) => c && c.employerId === employerId && typeof c.id === "string" && c.kind !== "education" && c.kind !== "credential" && !c.quarantined,
     );
     if (!own.length) continue;
     const pick = own.find((c) => Array.isArray(c.metrics) && c.metrics.length) || own[0];
     earlier.push(String(pick.id));
+  }
+  const shown = new Set([...chosen, ...earlier.map((id) => String(claimById(ledger, id)?.employerId || ""))]);
+  for (const employerId of tenureFloorIds(ledger)) {
+    if (shown.has(employerId)) continue;
+    const own = (ledger.claims || []).filter((claim) => claim?.employerId === employerId && claim.kind !== "education" && claim.kind !== "credential" && !claim.quarantined);
+    const role = own.find((claim) => claim.kind === "role") || own[0];
+    if (!role || typeof role.id !== "string") continue;
+    earlier.push(role.id);
+    shown.add(employerId);
+    const at = dropped.findIndex((item) => item.claimId === role.id);
+    if (at >= 0) dropped.splice(at, 1);
   }
   return { featured, earlier, dropped };
 }

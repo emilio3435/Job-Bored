@@ -18,6 +18,8 @@ import { critiqueMaterials } from "../server/materials-critic.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
+import { readLedger } from "../server/materials-ledger.mjs";
+import { tenureFloorIds } from "../server/materials-outline.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
@@ -168,6 +170,36 @@ describe("each package records its template", () => {
 });
 
 describe("regenerate in another template", () => {
+  it("R2-B2: keeps the saved tenure floor through an overflowing regenerate", async () => {
+    const slug = "acme-floor-regen";
+    await draft(drafterFor(dir), slug, { feature: "resume" });
+    const app = join(dir, slug);
+    const loaded = await readLedger();
+    assert.equal(loaded.ok, true);
+    const floor = tenureFloorIds(loaded.ledger);
+    assert.equal(floor.size, 2);
+    const modelPath = join(app, "render-model.json");
+    const model = await readJson(modelPath);
+    const entries = model.documents.resume.sections
+      .filter((section) => ["experience", "earlier"].includes(section.kind))
+      .flatMap((section) => section.entries || []);
+    assert.equal(entries.filter((entry) => floor.has(entry.employerId)).length, 2);
+    for (const entry of entries) delete entry.tenureFloor;
+    await writeFile(modelPath, JSON.stringify(model));
+    const overflowingSession = async () => ({
+      ...(await fakeSession()),
+      measure: async () => ({ fits: false, scrollHeight: 1400, clientHeight: 1056, lastTextBottom: 1300, limit: 1027, blockedRequests: 0 }),
+    });
+    await regeneratePackage({ slug, template: "dossier" }, {
+      applicationsRoot: dir, pdfSession: overflowingSession, ...noNetworkLookups,
+      critic: async () => ({ status: "pass", issues: [] }),
+    });
+    const rendered = await readFile(join(app, "resume.txt"), "utf8");
+    for (const entry of entries.filter((item) => floor.has(item.employerId))) {
+      assert.ok(rendered.includes(entry.org), `tenure floor employer ${entry.employerId} survived fit`);
+    }
+  });
+
   it("C8: labels only the regenerate response as a template change", async () => {
     const { templateRegenerateResponse } = await import("../server/materials-regenerate.mjs");
     assert.equal(typeof templateRegenerateResponse, "function");

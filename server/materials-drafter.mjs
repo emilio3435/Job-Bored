@@ -5,8 +5,8 @@
 
 import { jdEvidence } from "./materials-jd-extract.mjs";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
@@ -17,17 +17,107 @@ import { newRunId } from "./materials-package.mjs";
 import { runPipeline } from "./materials-pipeline.mjs";
 import { recordRepairOutcome } from "./materials-history.mjs";
 import { resolveRunFamily } from "./materials-templates.mjs";
-import { ensureLedger } from "./materials-ledger-build.mjs";
+import { ensureLedger, LEDGER_BUILDER_VERSION } from "./materials-ledger-build.mjs";
 import {
   chooseResumeSource,
   normalizeResumeSource,
-  readCanonicalResume,
   resumeProvenance,
   resumeRequiredError,
   writeResumeSnapshot,
 } from "./materials-resume-source.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
-import { readProfile } from "./user-profile.mjs";
+import { readProfile, resolveProfilePath } from "./user-profile.mjs";
+
+/* Keep the selected source whole until ensureLedger can refuse its length.
+ * The shared upload/snapshot normalizer still has a legacy input cap. */
+/** @param {unknown} raw */
+function normalizeDraftResume(raw) {
+  const resume = normalizeResumeSource(raw);
+  if (!resume) return null;
+  const text = /** @type {{ text: string }} */ (raw).text.replace(/\r/g, "").trim();
+  return { ...resume, text };
+}
+
+async function readDraftCanonicalResume() {
+  try {
+    const path = join(dirname(resolveProfilePath()), "resume.txt");
+    const [text, info] = await Promise.all([readFile(path, "utf8"), stat(path)]);
+    return normalizeDraftResume({ source: "saved", filename: "resume.txt", addedAt: info.mtime.toISOString(), text });
+  } catch { return null; }
+}
+
+/** @param {Record<string, any>} ledger @param {Record<string, any> | null} result @param {string} resumeText @param {unknown} pin */
+function draftIngestFailure(ledger, result, resumeText, pin) {
+  const ingest = ledger.ingest || {};
+  const missingEmployers = Array.isArray(ingest.missingEmployers) && ingest.missingEmployers.length
+    ? ingest.missingEmployers : result?.missingEmployers || [];
+  if (ingest.code === "resume_too_long") return { code: "resume_too_long", message: "Your résumé is too long to read in one pass. Upload a résumé of 60,000 characters or fewer, then try again." };
+  if (ingest.code === "stale_ledger") return { code: "stale_ledger", message: "The saved résumé read is stale. Connect an AI provider to read it again, then retry." };
+  if (ingest.status === "needs_model" || result?.status === "needs_model" || ingest.code === "ingest_needs_model" ||
+      !ledger.sources?.some((/** @type {any} */ source) => source.kind === "resume") && (ledger.claims?.length || ledger.note === "profile:only" || String(ledger.note || "").startsWith("ingest:failed"))) {
+    return { code: "ingest_needs_model", message: "Connect an AI provider so JobBored can read your résumé." };
+  }
+  if (ingest.status === "failed" || result?.status === "failed" || !result) {
+    const provider = String(result?.model?.provider || /** @type {any} */ (pin)?.provider || "configured AI provider");
+    return { code: "ingest_failed", message: `JobBored couldn't read your résumé with ${provider}. Check the provider setting, then try again.` };
+  }
+  const largeLoss = (result.notes || []).filter((/** @type {any} */ note) => note.reason === "bullet_lines_set_aside");
+  if (ingest.status === "ready_with_review" || result.status === "ready_with_review" || missingEmployers.length || largeLoss.length) {
+    const readCount = Array.isArray(result.employers) ? result.employers.length : ledger.employers?.length || 0;
+    const names = missingEmployers.map((/** @type {any} */ item) => String(item.displayName || item.aliasKey));
+    const detail = names.length ? `JobBored read ${readCount} of ${readCount + names.length} employers from your résumé and won't draft without the rest: ${names.join(", ")}.`
+      : largeLoss.length ? `JobBored couldn't read enough bullet lines under ${largeLoss.map((/** @type {any} */ note) => note.employer || "an employer").join(", ")}.`
+        : "JobBored couldn't finish reading all employers and roles from your résumé and won't draft without the rest.";
+    return { code: "ingest_incomplete", message: `${detail} Try again, or re-upload the résumé.`, missingEmployers };
+  }
+  const textSha256 = createHash("sha256").update(resumeText).digest("hex");
+  const resumeSource = ledger.sources?.find((/** @type {any} */ source) => source.kind === "resume");
+  if (ingest.status !== "ready" || result.status !== "ready" || ledger.ingestSchema !== "ingest/1" ||
+      ledger.builderVersion !== LEDGER_BUILDER_VERSION || ledger.structureKind !== "model" ||
+      ingest.textSha256 !== textSha256 || result.textSha256 !== textSha256 ||
+      resumeSource?.hash !== `sha256:${textSha256}`) {
+    return { code: "stale_ledger", message: "The saved résumé read doesn't match your full résumé. Read it again with an AI provider, then retry." };
+  }
+  return null;
+}
+
+/** Counts and names only: never copy source excerpts into a draft notice.
+ * @param {Record<string, any>} result */
+function draftIngestReview(result) {
+  const employers = [...(result.employers || [])].sort((a, b) => a.lines[0] - b.lines[0]);
+  const items = [...(result.couldntPlace || []).map((/** @type {any} */ item) => ({ ...item, reviewKind: "couldntPlace" })),
+    ...(result.review?.claims || []).map((/** @type {any} */ item) => ({ ...item, reviewKind: item.kind }))];
+  /** @type {Record<string, number>} */ const countsByKind = {};
+  const names = new Set();
+  for (const item of items) {
+    countsByKind[item.reviewKind] = (countsByKind[item.reviewKind] || 0) + 1;
+    const number = item.lines?.[0];
+    const employer = employers.find((entry, index) => number >= entry.lines[0] && number < (employers[index + 1]?.lines[0] || Infinity));
+    if (employer) names.add(employer.name);
+  }
+  const displayNames = [...names];
+  return { count: items.length, countsByKind, employers: displayNames,
+    ...(items.length ? { notice: `${items.length} résumé ${items.length === 1 ? "item" : "items"} set aside or needing placement review${displayNames.length ? ` under ${displayNames.join(", ")}` : ""} — review in Settings.` } : {}),
+  };
+}
+
+/** @param {string} dir @param {Record<string, any>} pipelineResult @param {ReturnType<typeof draftIngestReview>} review */
+async function recordDraftIngestReview(dir, pipelineResult, review) {
+  pipelineResult.ingestReview = review;
+  if (pipelineResult.outcome === "cached") return;
+  const paths = [];
+  if (pipelineResult.adopted !== false) paths.push(dir);
+  if (typeof pipelineResult.runId === "string" && /^[A-Za-z0-9._-]+$/u.test(pipelineResult.runId) && ![".", ".."].includes(pipelineResult.runId)) paths.push(join(dir, "runs", pipelineResult.runId));
+  for (const base of paths) for (const filename of ["manifest.json"]) {
+    const path = join(base, filename);
+    let record;
+    try { record = JSON.parse(await readFile(path, "utf8")); }
+    catch (error) { if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") continue; throw error; }
+    const temp = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temp, `${JSON.stringify({ ...record, ingestReview: review }, null, 2)}\n`, "utf8");
+    await rename(temp, path);
+  }
+}
 
 /* A materials pipeline writes up to two documents and judges each serially,
  * across at most two passes (write, then one automatic repair): four judge
@@ -401,6 +491,7 @@ async function writeJdFile(dir, text, meta = {}) {
  * @property {(input: string | URL, init?: RequestInit) => Promise<Response>} [fetchImpl]
  *   Model-call transport for the pipeline stages (defaults to global fetch).
  * @property {Function} [structureCallStage] test seam for a decoded resume structure reply
+ * @property {typeof ensureLedger} [ensureLedger] injected ledger reader for gate contract tests
  * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [openSession]
  *   Opens the headless browser the pipeline measures fit and prints PDFs
  *   with. Defaults to openPdfSession; null renders unmeasured (tests).
@@ -430,6 +521,7 @@ async function writeJdFile(dir, text, meta = {}) {
  * @param {DrafterDeps} [deps]
  */
 export function createMaterialsDrafter(deps = {}) {
+  const readLedgerForDraft = deps.ensureLedger || ensureLedger;
   const applicationsRoot =
     typeof deps.applicationsRoot === "string" && deps.applicationsRoot
       ? deps.applicationsRoot
@@ -499,7 +591,7 @@ export function createMaterialsDrafter(deps = {}) {
     };
   };
   const readSavedResume =
-    typeof deps.readSavedResume === "function" ? deps.readSavedResume : () => readCanonicalResume();
+    typeof deps.readSavedResume === "function" ? deps.readSavedResume : () => readDraftCanonicalResume();
   const pipeline = typeof deps.pipeline === "function" ? deps.pipeline : runPipeline;
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
@@ -597,6 +689,9 @@ export function createMaterialsDrafter(deps = {}) {
     );
     const name = String(error?.name || "");
     const errCode = String(error?.code || "");
+    if (["ingest_incomplete", "ingest_needs_model", "ingest_failed", "stale_ledger", "resume_too_long"].includes(errCode) && typeof error?.message === "string") {
+      return { code: errCode, message: error.message };
+    }
     /* First-class resumable states keep their own neutral message. */
     if ((errCode === "jd_unusable" || errCode === "ledger_empty" || errCode === "resume_source_review") && typeof error?.message === "string") {
       return { code: errCode, message: error.message };
@@ -708,8 +803,11 @@ export function createMaterialsDrafter(deps = {}) {
     const failure = failureFor(err);
     // Raw detail stays server-side for debugging; pending.json is UI surface.
     // eslint-disable-next-line no-console
-    console.error(`[materials] slug=${job.payload.slug} ${failure.code}:`, err);
+    console.error(`[materials] slug=${job.payload.slug} ${failure.code}:`, /^(?:ingest_|stale_ledger|resume_too_long)/u.test(failure.code) ? { code: failure.code } : err);
     const record = withPhase(job.record, "failed", failure.message, failure.code);
+    if (failure.code === "ingest_incomplete") {
+      /** @type {any} */ (record).missingEmployers = /** @type {any} */ (err)?.missingEmployers || [];
+    }
     job.record = record;
     await writePending(job.pendingPath, record);
   }
@@ -811,7 +909,7 @@ export function createMaterialsDrafter(deps = {}) {
     } catch {
       // Best-effort only — never fail the draft if logging cannot be written.
     }
-    const resumeSource = normalizeResumeSource(payload.resume);
+    const resumeSource = normalizeDraftResume(payload.resume);
     if (!resumeSource) throw resumeRequiredError();
     const resumeText = resumeSource.text;
 
@@ -826,7 +924,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     let ledger;
     try {
-      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, document: resumeSource.document, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
+      ledger = await readLedgerForDraft({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
     } catch (err) {
       if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
         await failJob(job, {
@@ -838,18 +936,15 @@ export function createMaterialsDrafter(deps = {}) {
       throw err;
     }
 
-    const currentHash = `sha256:${createHash("sha256").update(resumeText.trim().slice(0, 60_000)).digest("hex")}`;
-    const ledgerSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (ledger.sources);
-    const ledgerResume = Array.isArray(ledger.sources)
-      ? ledgerSources.find((source) => source.kind === "resume")
-      : null;
-    if (ledger.ingest?.status !== "ready" || ledger.ingest.sourceHash !== currentHash || ledgerResume?.hash !== currentHash) {
-      await failJob(job, {
-        code: "resume_source_review",
-        message: "We couldn't verify this resume's employers and claims. Review or re-add the resume in Settings → Profile, then retry.",
-      });
+    let ingestResult = null;
+    try { ingestResult = JSON.parse(await readFile(ledger.ingest.resultPath, "utf8")); }
+    catch { /* A missing or unreadable read cannot authorize a draft. */ }
+    const ingestFailure = draftIngestFailure(ledger, ingestResult, resumeText, resolved);
+    if (ingestFailure) {
+      await failJob(job, ingestFailure);
       return;
     }
+    const ingestReview = draftIngestReview(/** @type {Record<string, any>} */ (ingestResult));
 
     await writeResumeSnapshot(dir, resumeSource, job.record.requested_at || isoNow());
     if (jd.source === "scrape" || jd.source === "request") {
@@ -954,6 +1049,7 @@ export function createMaterialsDrafter(deps = {}) {
       ...(payload.repair ? { current: payload.repair.sourceDraft } : {}),
       ...(payload.repair ? { repair: payload.repair } : {}),
     });
+    if (pipelineResult.runId !== payload.repair?.parentRunId) await recordDraftIngestReview(dir, pipelineResult, ingestReview);
     if (payload.repair && pipelineResult.outcome !== "cached" && pipelineResult.runId !== payload.repair.parentRunId) {
       await recordRepairOutcome({
         root: applicationsRoot,
@@ -973,7 +1069,7 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {MaterialsRequestPayload} payload
    */
   async function enqueue(payload) {
-    const requestedResume = normalizeResumeSource(payload && payload.resume);
+    const requestedResume = normalizeDraftResume(payload && payload.resume);
     if (!requestedResume) throw resumeRequiredError();
     /* The draft uses the user's current resume: never garbled text, never
      * an older copy one browser still holds when a newer one is saved. */

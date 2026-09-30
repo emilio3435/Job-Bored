@@ -8,7 +8,8 @@ import { chat, extractGeminiText } from "../server/ai/provider.mjs";
 import { readLedger, resolveLedgerPath, writeLedgerAtomic } from "../server/materials-ledger.mjs";
 import { buildLedger, ensureLedger, LEDGER_BUILDER_VERSION } from "../server/materials-ledger-build.mjs";
 import { normalizeResumeSource, RESUME_SNAPSHOT_FILE, writeResumeSnapshot } from "../server/materials-resume-source.mjs";
-import { structureResumeWithModel, validateModelStructure } from "../server/materials-resume-structure-model.mjs";
+import { structureResume, structureResumeWithModel, validateModelStructure } from "../server/materials-resume-structure-model.mjs";
+import { readReplyFromQuotes } from "./fixtures/materials-model-structure.mjs";
 import { analyzeResume } from "../server/profile-from-resume.mjs";
 import { buildRenderModelFromWriter } from "../server/materials-render-model-adapter.mjs";
 import { renderDocument, runsToText } from "../server/materials-render.mjs";
@@ -23,6 +24,7 @@ const PDF_DOCUMENT = {
   data: Buffer.from("%PDF-1.7 fictional layout bytes").toString("base64"),
 };
 const INTERLEAVED_MODEL = {
+  nonJob: [{ sourceQuote: "Improved renewal conversion by 27% during 2019–2021 across the Aster Vale Audio portfolio.", reason: "achievement_date" }],
   employers: [
     {
       name: "Aster Vale Audio (formerly Vale Signal)",
@@ -485,43 +487,64 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
     assert.ok(result.rejected.some((item) => item.reason === "source_instruction"), "an instruction-shaped quote is rejected even when its selected value is ordinary prose");
   });
 
-  it("I3 reports incomplete or partial model reads as failed ingest", async () => {
+  it("I3 keeps grounded employers when claims are absent or individually rejected", async () => {
     const cases = [
       {
         resumeText: "Cedar Studio — Research Lead, 2022",
         reply: { employers: [{ name: "Cedar Studio", sourceQuote: "Cedar Studio — Research Lead, 2022", roles: [], claims: [] }] },
-        reason: "no matched claims",
+        status: "ready", employers: 1,
       },
       {
         resumeText: "EDUCATION\nB.S. Mathematics at Cedar State University.",
         reply: { employers: [], education: [{ text: "B.S. Mathematics", sourceQuote: "B.S. Mathematics at Cedar State University." }] },
-        reason: "no matched employers",
+        status: "failed", employers: 0,
       },
       {
         resumeText: INTERLEAVED,
         reply: structuredClone(INTERLEAVED_MODEL),
-        reason: "rejected item beside matched employers and claims",
+        status: "ready", employers: 3,
       },
     ];
     cases[2].reply.employers[0].claims.push({ text: "Invented annual growth across every account.", sourceQuote: "not in the resume" });
-    for (const { resumeText, reply, reason } of cases) {
+    for (const { resumeText, reply, status, employers } of cases) {
       const result = await structureResumeWithModel({
         resumeText,
         pin: PIN,
         fetchImpl: async () => ({}),
         callStage: async () => reply,
       });
-      assert.equal(result.ingest.status, "failed", reason);
-      assert.equal(result.structure, null, reason);
+      assert.equal(result.ingest.status, status);
+      assert.equal(result.structure?.employers.length ?? 0, employers);
+      if (status === "ready" && result.rejected.length) {
+        assert.ok(result.rejected.some((item) => item.kind === "claim"));
+        assert.ok(result.structure.employers[0].claims.length > 0);
+      }
     }
   });
 
-  it("I3 rejects a rebuilt ledger with zero employer-attributed resume claims", async () => {
+  it("I3 grounds an ambiguous employer year by its unique header and rejects five bad claims without failing the resume", async () => {
+    const contoso = "Contoso Media — Founder • 2025 — Present";
+    const northwind = "Northwind Trading — Director • 2025 — Present";
+    const bullets = Array.from({ length: 5 }, (_, index) => `Northwind Trading reviewed fictional plan ${index + 1} with its local team.`);
+    const resumeText = ["EXPERIENCE", contoso, northwind, ...bullets].join("\n");
+    const reply = { employers: [
+      { name: "Contoso Media", sourceQuote: contoso, start: "2025", startSourceQuote: "2025", roles: [{ title: "Founder", sourceQuote: contoso }], claims: bullets.map((text) => ({ text, sourceQuote: text })) },
+      { name: "Northwind Trading", sourceQuote: northwind, roles: [{ title: "Director", sourceQuote: northwind }], claims: [] },
+    ] };
+    const result = await structureResumeWithModel({ resumeText, pin: PIN, fetchImpl: async () => ({}), callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready");
+    assert.equal(result.structure.employers.length, 2);
+    assert.equal(result.structure.employers[0].start, "2025");
+    assert.equal(result.structure.employers[0].claims.length, 0);
+    assert.equal(result.rejected.filter((item) => item.reason === "misattributed_out_of_span").length, 5);
+  });
+
+  it("I3 refuses a rebuilt ledger when a dated role is left unread", async () => {
     const restore = sandbox();
     try {
       const initialResume = [
         "EXPERIENCE",
-        "Cedar Studio — Research Lead, 2022",
+        "Cedar Studio — Research Lead, 2022–2024",
         "- Mapped fictional library visits to improve weekly staffing plans.",
       ].join("\n");
       const initial = await ensureLedger({
@@ -529,13 +552,14 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: initialResume,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => ({
+        callStage: async () => readReplyFromQuotes(initialResume, {
           employers: [{
             name: "Cedar Studio",
-            sourceQuote: "Cedar Studio — Research Lead, 2022",
+            sourceQuote: "Cedar Studio — Research Lead, 2022–2024",
             roles: [{
               title: "Research Lead",
-              sourceQuote: "Cedar Studio — Research Lead, 2022",
+              sourceQuote: "Cedar Studio — Research Lead, 2022–2024",
+              start: "2022", end: "2024",
               claims: [{
                 text: "Mapped fictional library visits to improve weekly staffing plans.",
                 sourceQuote: "Mapped fictional library visits to improve weekly staffing plans.",
@@ -549,7 +573,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
 
       const changedResume = [
         "EXPERIENCE",
-        "Cedar Studio — Research Lead, 2022",
+        "Cedar Studio — Research Lead, 2022–2024",
         "EDUCATION",
         "B.S. Mathematics at Cedar State University.",
       ].join("\n");
@@ -559,10 +583,10 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: changedResume,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => ({
+        callStage: async () => readReplyFromQuotes(changedResume, {
           employers: [{
             name: "Cedar Studio",
-            sourceQuote: "Cedar Studio — Research Lead, 2022",
+            sourceQuote: "Cedar Studio — Research Lead, 2022–2024",
             roles: [],
             claims: [],
           }],
@@ -572,8 +596,9 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
           }],
         }),
       });
-      assert.equal(result.ingest.status, "failed", "an education fact cannot replace employer-attributed resume evidence");
-      assert.match(result.ingest.reason, /employer-attributed resume claims/);
+      assert.equal(result.ingest.status, "ready_with_review", "an education fact cannot close the missing dated role");
+      assert.equal(result.ingest.code, "ingest_incomplete");
+      assert.equal(result.claims.length, 0, "no old or invented claims are served during refusal");
       assert.equal(result.ledgerHash, initial.ledgerHash);
       assert.deepEqual(readFileSync(resolveLedgerPath()), before, "the zero-attribution rebuild does not replace the saved ledger");
     } finally {
@@ -601,7 +626,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: INTERLEAVED,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => INTERLEAVED_MODEL,
+        callStage: async () => readReplyFromQuotes(INTERLEAVED, INTERLEAVED_MODEL),
       });
       const beforeFailure = readFileSync(resolveLedgerPath());
       const failedRefresh = await ensureLedger({
@@ -612,8 +637,8 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         callStage: async () => { const error = new Error("invalid reply"); error.code = "invalid_json"; throw error; },
       });
       assert.equal(failedRefresh.ingest.status, "failed");
-      assert.match(failedRefresh.note, /^ingest:failed — /);
-      assert.deepEqual(failedRefresh.claims.map((claim) => claim.text), lastGood.claims.map((claim) => claim.text));
+      assert.equal(failedRefresh.ingest.code, "model_error");
+      assert.equal(failedRefresh.claims.length, 0, "a failed read serves no stale claims");
       const persisted = await readLedger();
       assert.equal(persisted.ok, true);
       assert.deepEqual(readFileSync(resolveLedgerPath()), beforeFailure, "failed ingest leaves the saved ledger byte-identical");
@@ -626,14 +651,15 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         fetchImpl: async () => ({}),
         callStage: async () => ({ employers: [{ name: "Aster Vale Audio (formerly Vale Signal)", sourceQuote: ASTER_HEADER_QUOTE }] }),
       });
-      assert.equal(noClaims.ingest.status, "failed");
-      assert.match(noClaims.ingest.reason, /no grounded employers or claims/);
-      assert.deepEqual(noClaims.claims.map((claim) => claim.text), lastGood.claims.map((claim) => claim.text));
+      assert.notEqual(noClaims.ingest.status, "ready");
+      assert.equal(noClaims.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeFailure, "a no-claims read leaves the saved ledger byte-identical");
 
       const persistedLastGood = Object.fromEntries(
         Object.entries(lastGood).filter(([key]) => !["rebuilt", "ingest", "ledgerHash"].includes(key)),
       );
       await writeLedgerAtomic({ ...persistedLastGood, note: "ingest:failed — retry the same source" });
+      const beforeSparse = readFileSync(resolveLedgerPath());
       const sparse = await ensureLedger({
         profile: null,
         resumeText: INTERLEAVED,
@@ -651,12 +677,14 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
           }],
         }),
       });
-      assert.equal(sparse.ingest.status, "failed", "a partial structure is not a successful replacement");
-      assert.match(sparse.ingest.reason, /fewer grounded employers/);
-      assert.deepEqual(sparse.employers.map((employer) => employer.name), lastGood.employers.map((employer) => employer.name));
-      assert.deepEqual(sparse.claims.map((claim) => claim.text), lastGood.claims.map((claim) => claim.text));
+      assert.equal(sparse.ingest.status, "failed", "a reply without line pointers cannot replace the saved read");
+      assert.equal(sparse.ingest.code, "model_error");
+      assert.equal(sparse.employers.length, 0);
+      assert.equal(sparse.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeSparse, "a sparse read leaves the last good ledger byte-identical");
 
       await writeLedgerAtomic({ ...persistedLastGood, note: "ingest:failed — retry the same source" });
+      const beforeShortClaims = readFileSync(resolveLedgerPath());
       const shortReply = structuredClone(INTERLEAVED_MODEL);
       for (const employer of shortReply.employers) employer.claims = employer.claims.slice(0, 1);
       const shortClaims = await ensureLedger({
@@ -664,11 +692,12 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: INTERLEAVED,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => shortReply,
+        callStage: async () => readReplyFromQuotes(INTERLEAVED, shortReply),
       });
-      assert.equal(shortClaims.ingest.status, "failed", "a reply with fewer claims cannot replace a complete ledger");
-      assert.match(shortClaims.ingest.reason, /fewer grounded resume claims/);
-      assert.deepEqual(shortClaims.claims.map((claim) => claim.text), lastGood.claims.map((claim) => claim.text));
+      assert.equal(shortClaims.ingest.status, "ready_with_review", "a reply with fewer claims cannot replace a complete ledger");
+      assert.equal(shortClaims.ingest.code, "ingest_incomplete");
+      assert.equal(shortClaims.claims.length, 0);
+      assert.deepEqual(readFileSync(resolveLedgerPath()), beforeShortClaims, "fewer claims leave the last good ledger byte-identical");
 
       const shorterResume = [
         "EXPERIENCE",
@@ -682,6 +711,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
           roles: [{
             title: "Research Lead",
             sourceQuote: "Cedar Studio — Research Lead, 2022–2024",
+            start: "2022", end: "2024",
             claims: [{
               text: "Mapped fictional library visits to improve weekly staffing plans.",
               sourceQuote: "Mapped fictional library visits to improve weekly staffing plans.",
@@ -695,7 +725,7 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: shorterResume,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => shorterReply,
+        callStage: async () => readReplyFromQuotes(shorterResume, shorterReply),
       });
       assert.equal(shorter.ingest.status, "ready", "a changed, legitimately shorter source can replace the older ledger");
       assert.equal(shorter.rebuilt, true);
@@ -706,8 +736,9 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
 
       await writeLedgerAtomic({ ...persistedLastGood, builderVersion: LEDGER_BUILDER_VERSION - 1, note: "structure:model" });
       const noPin = await ensureLedger({ profile: null, resumeText: INTERLEAVED });
-      assert.equal(noPin.ingest.status, "failed");
-      assert.match(noPin.note, /^ingest:failed — /, "the returned status explains why this ingest failed");
+      assert.equal(noPin.ingest.status, "needs_model");
+      assert.equal(noPin.ingest.code, "stale_ledger");
+      assert.equal(noPin.claims.length, 0, "no stale claims are served without a model");
       const afterNoPin = await readLedger();
       assert.equal(afterNoPin.ok, true);
       assert.equal(afterNoPin.ledger.note, "structure:model");
@@ -748,9 +779,9 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       ["Digital Sales Director", "May 2021", "2026"],
       ["Account Executive", "Sep 2017", "Apr 2021"],
     ]);
-    assert.equal(ledger.claims.filter((claim) => claim.employerId === "aster-vale-audio").length, 3);
-    assert.equal(ledger.claims.filter((claim) => claim.employerId === "ternlight-systems").length, 2);
-    assert.equal(ledger.claims.filter((claim) => claim.employerId === "mossquill-works").length, 2);
+    assert.equal(ledger.claims.filter((claim) => claim.employerId === "aster-vale-audio").length, 5);
+    assert.equal(ledger.claims.filter((claim) => claim.employerId === "ternlight-systems").length, 3);
+    assert.equal(ledger.claims.filter((claim) => claim.employerId === "mossquill-works").length, 3);
     assert.deepEqual(rejected, []);
 
     const writerJson = {
@@ -791,8 +822,9 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
   it("I6 rebuilds version 9 ledgers from the model and reuses the current version", async () => {
     const restore = sandbox();
     try {
-      const { structure } = validateModelStructure(INTERLEAVED_MODEL, INTERLEAVED);
-      const current = buildLedger({ profile: null, resumeText: INTERLEAVED, structure });
+      const ingestResult = await structureResume({ lsrc: INTERLEAVED, pin: PIN, callStage: async () => readReplyFromQuotes(INTERLEAVED, INTERLEAVED_MODEL) });
+      assert.equal(ingestResult.status, "ready");
+      const current = buildLedger({ profile: null, resumeText: INTERLEAVED, ingestResult });
       const { builderVersion: _current, ...legacy } = current;
       await writeLedgerAtomic({ ...legacy, builderVersion: 9 });
       let calls = 0;
@@ -801,12 +833,12 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
         resumeText: INTERLEAVED,
         pin: PIN,
         fetchImpl: async () => ({}),
-        callStage: async () => { calls += 1; return INTERLEAVED_MODEL; },
+        callStage: async () => { calls += 1; return readReplyFromQuotes(INTERLEAVED, INTERLEAVED_MODEL); },
       });
       assert.equal(first.rebuilt, true);
       assert.equal(first.builderVersion, LEDGER_BUILDER_VERSION);
       assert.equal(calls, 1);
-      assert.ok(first.ingest.notes.some((item) => item.reason === "out_of_span"));
+      assert.equal(first.ingest.rejected.length, 0, "the simple read has no per-item rejection queue");
       assert.equal(JSON.stringify(first.ingest).includes("Led eleven account teams"), false, "advisory notes keep ingest metadata count-only");
       const second = await ensureLedger({ profile: null, resumeText: INTERLEAVED, pin: PIN, fetchImpl: async () => ({}) });
       assert.equal(second.rebuilt, false);

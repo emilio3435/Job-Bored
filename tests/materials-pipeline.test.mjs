@@ -274,9 +274,10 @@ describe("MREV B1 pipeline", () => {
     await runPipeline(input);
     const outline = await json(dir, "outline.json");
     const run = await json(dir, "run.json");
-    assert.equal(outline.selectionSummary.selected, 5, "fixture selects all five fictional claims");
-    assert.equal(outline.selectionSummary.featured, 5, "all five reach the outline");
-    assert.deepEqual(run.selectionSummary, { selected: 5, featured: 2, earlier: 0, pageBudgetExcluded: 3 }, "published count reflects fitted claim removals");
+    assert.equal(outline.selectionSummary.selected, 6, "five bullets and the grounded role claim are selected");
+    assert.equal(outline.selectionSummary.featured, 5, "the sixth claim is recorded against the outline budget");
+    assert.equal(outline.selectionSummary.pageBudgetExcluded, 1);
+    assert.deepEqual(run.selectionSummary, { selected: 6, featured: 2, earlier: 0, pageBudgetExcluded: 4 }, "published count reflects fitted claim removals");
     assert.equal(run.selectionSummary.selected, run.selectionSummary.featured + run.selectionSummary.earlier + run.selectionSummary.pageBudgetExcluded);
     assert.deepEqual((await json(dir, "manifest.json")).selectionSummary, run.selectionSummary);
   });
