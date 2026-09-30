@@ -348,7 +348,7 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   for (const id of kept) {
     const claim = claimById(ledger, id);
     const employer = claim && typeof claim.employerId === "string" ? claim.employerId : "";
-    if (!employer || claim?.kind === "education" || claim?.kind === "credential" || claim?.attribution === "inferred" || claim?.quarantined) {
+    if (!employer || claim?.kind === "education" || claim?.kind === "credential" || claim?.quarantined) {
       dropped.push({ claimId: id, reason: "page_budget" });
       continue;
     }
@@ -439,7 +439,7 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   for (const employerId of others) {
     if (earlier.length >= earlierMax) break;
     const own = (ledger.claims || []).filter(
-      (c) => c && c.employerId === employerId && typeof c.id === "string" && c.kind !== "education" && c.kind !== "credential" && c.attribution !== "inferred" && !c.quarantined,
+      (c) => c && c.employerId === employerId && typeof c.id === "string" && c.kind !== "education" && c.kind !== "credential" && !c.quarantined,
     );
     if (!own.length) continue;
     const pick = own.find((c) => Array.isArray(c.metrics) && c.metrics.length) || own[0];
@@ -448,7 +448,7 @@ export function planResume({ ledger, kept, featuredMax, perFeaturedMax, earlierM
   const shown = new Set([...chosen, ...earlier.map((id) => String(claimById(ledger, id)?.employerId || ""))]);
   for (const employerId of tenureFloorIds(ledger)) {
     if (shown.has(employerId)) continue;
-    const own = (ledger.claims || []).filter((claim) => claim?.employerId === employerId && claim.kind !== "education" && claim.kind !== "credential" && claim.attribution !== "inferred" && !claim.quarantined);
+    const own = (ledger.claims || []).filter((claim) => claim?.employerId === employerId && claim.kind !== "education" && claim.kind !== "credential" && !claim.quarantined);
     const role = own.find((claim) => claim.kind === "role") || own[0];
     if (!role || typeof role.id !== "string") continue;
     earlier.push(role.id);

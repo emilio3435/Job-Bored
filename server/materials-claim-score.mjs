@@ -210,7 +210,7 @@ export function scoreClaims({ extract, ledger, limit = 10 }) {
   for (const claim of ledger.claims || []) {
     if (!claim || typeof claim.id !== "string" || !claim.id) continue;
     if (claim.verified !== true) continue;
-    if (claim.attribution === "inferred" || claim.quarantined === true) continue;
+    if (claim.quarantined === true) continue;
     if (employers.get(claim.employerId)?.retired === true) continue;
     const claimText = typeof claim.text === "string" ? claim.text : "";
     const claimTokens = new Set(tokens(claimText));

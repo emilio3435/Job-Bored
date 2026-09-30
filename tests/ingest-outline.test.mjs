@@ -41,9 +41,11 @@ it('T-K14-06 top two by tenure survive outline despite one Earlier slot', () => 
   assert.ok(shown.has('contoso-media'));
   assert.ok(shown.has('fabrikam-labs'));
 });
-it('T-K14-08 inferred claims are quarantined from the pool', () => {
+it('T-K14-08 explicit foreign-section quarantine stays out of the pool and outline', () => {
   const ledger = ledgerOf(company('Contoso Media', 'Jan 2022', 'Present'));
-  ledger.claims.push({ id: 'resume-quarantined', employerId: 'contoso-media', kind: 'achievement', text: 'Invented result with no attribution.', attribution: 'inferred', verified: true });
+  ledger.claims.push({ id: 'resume-quarantined', employerId: 'contoso-media', kind: 'achievement', text: 'A claim cited inside another employer section.', attribution: 'inferred', quarantined: true, verified: true });
   const pool = scoreClaims({ extract, ledger, limit: 20 });
   assert.ok(!pool.some((item) => item.claimId === 'resume-quarantined'));
+  const out = plan(ledger, ['resume-quarantined']);
+  assert.ok(![...out.featured.flatMap((entry) => entry.claimIds), ...out.earlier].includes('resume-quarantined'));
 });

@@ -64,8 +64,8 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read();
-  assert.equal(LEDGER_BUILDER_VERSION, 11);
-  assert.equal(out.builderVersion, 11);
+  assert.equal(LEDGER_BUILDER_VERSION, 12);
+  assert.equal(out.builderVersion, 12);
 });
 it('T-K10-04 failed read over stale rules never reports ready', async () => {
   const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });

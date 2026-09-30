@@ -224,3 +224,17 @@ it(`T-K19-08 (guard, ${domMode}) resume_source_review alone gets generic fallbac
   }, "http://127.0.0.1:3847");
   assert.match(Array.from(host.children).map((child) => child.innerHTML).join(""), /We couldn’t read your resume clearly/);
 });
+
+it(`P2-7 (${domMode}) a finished draft shows the placement notice in the existing status area`, () => {
+  const host = documentForTest.createElement("div");
+  host.setAttribute("data-mount", "materials");
+  const notice = "2 résumé items set aside or needing placement review under Contoso and Tailspin <Studio> — review in Settings.";
+  api.renderManifest(host, { slug: "fictional-role", company: "Fabrikam", title: "Analyst",
+    documents: [{ type: "resume", status: "ready", primary: "resume.pdf", files: [{ filename: "resume.pdf" }] }],
+    ingestReview: { notice },
+  }, "http://127.0.0.1:3847");
+  const html = Array.from(host.children).map((child) => child.innerHTML).join("");
+  assert.match(html, /2 résumé items.*Contoso.*Tailspin &lt;Studio&gt;.*Settings/);
+  assert.doesNotMatch(html, /Tailspin <Studio>/);
+  assert.match(html, /data-status="ready"/);
+});

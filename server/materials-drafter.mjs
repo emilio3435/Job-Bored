@@ -57,7 +57,6 @@ function draftIngestFailure(ledger, result, resumeText, pin) {
       !ledger.sources?.some((/** @type {any} */ source) => source.kind === "resume") && (ledger.claims?.length || ledger.note === "profile:only" || String(ledger.note || "").startsWith("ingest:failed"))) {
     return { code: "ingest_needs_model", message: "Connect an AI provider so JobBored can read your résumé." };
   }
-  if (ingest.status === "partial" || result?.status === "partial") return { code: "ingest_in_progress", message: "JobBored is still reading your résumé. Wait for the read to finish, then try again." };
   if (ingest.status === "failed" || result?.status === "failed" || !result) {
     const provider = String(result?.model?.provider || /** @type {any} */ (pin)?.provider || "configured AI provider");
     return { code: "ingest_failed", message: `JobBored couldn't read your résumé with ${provider}. Check the provider setting, then try again.` };
@@ -690,7 +689,7 @@ export function createMaterialsDrafter(deps = {}) {
     );
     const name = String(error?.name || "");
     const errCode = String(error?.code || "");
-    if (["ingest_incomplete", "ingest_needs_model", "ingest_failed", "ingest_in_progress", "stale_ledger", "resume_too_long"].includes(errCode) && typeof error?.message === "string") {
+    if (["ingest_incomplete", "ingest_needs_model", "ingest_failed", "stale_ledger", "resume_too_long"].includes(errCode) && typeof error?.message === "string") {
       return { code: errCode, message: error.message };
     }
     /* First-class resumable states keep their own neutral message. */
@@ -925,7 +924,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     let ledger;
     try {
-      ledger = await readLedgerForDraft({ profile, resumeText, resumeSource: resumeSource.source, document: resumeSource.document, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
+      ledger = await readLedgerForDraft({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl, callStage: deps.structureCallStage });
     } catch (err) {
       if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
         await failJob(job, {

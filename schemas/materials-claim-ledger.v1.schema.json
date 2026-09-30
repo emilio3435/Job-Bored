@@ -59,6 +59,7 @@
           "id": { "type": "string", "minLength": 1 },
           "name": { "type": "string", "minLength": 1 },
           "aliases": { "type": "array", "items": { "type": "string" } },
+          "sourceRefs": { "description": "Profile-only employers retain their source until W2 provenance migration.", "type": "array", "items": { "type": "string" } },
           "title": { "type": "string" },
           "location": { "type": "string" },
           "start": { "type": ["string", "null"] },
@@ -117,7 +118,9 @@
             "items": { "type": "string" }
           },
           "sourceRefs": { "type": "array", "items": { "type": "string" } },
-          "verified": { "type": "boolean" }
+          "verified": { "type": "boolean" },
+          "attribution": { "enum": ["inferred"] },
+          "review": { "enum": ["check where this belongs"] }
         }
       }
     },

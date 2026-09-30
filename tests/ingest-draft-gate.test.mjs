@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { ensureLedger, buildLedger } from "../server/materials-ledger-build.mjs";
 import { writeLedgerAtomic } from "../server/materials-ledger.mjs";
+import { buildManifest } from "../server/application-materials.mjs";
 
 const names = ["Contoso", "Northwind Trading", "Tailspin Studio", "Fabrikam"];
 const text = names.flatMap((name, i) => [
@@ -91,7 +92,7 @@ describe("INGEST drafting gate", () => {
     assert.equal(out.calls, 1);
     assert.equal(out.pending, null);
   });
-  for (const [status, code] of [["ready_with_review", "ingest_incomplete"], ["failed", "ingest_failed"], ["needs_model", "ingest_needs_model"], ["partial", "ingest_in_progress"]]) {
+  for (const [status, code] of [["ready_with_review", "ingest_incomplete"], ["failed", "ingest_failed"], ["needs_model", "ingest_needs_model"], ["partial", "stale_ledger"]]) {
     it(`T-K19-03 ${status} refuses with ${code}`, async () => {
       const ledger = await ledgerWithResult((ledger, result) => { ledger.ingest.status = result.status = status; });
       await refused({ ensureLedger: async () => ledger }, code);
@@ -196,6 +197,9 @@ describe("INGEST drafting gate", () => {
     assert.match(manifest.ingestReview.notice, /2.*Contoso.*Northwind Trading.*Settings/);
     assert.doesNotMatch(manifest.ingestReview.notice, /Never copy/);
     assert.deepEqual(runManifest.ingestReview, manifest.ingestReview);
+    const publicManifest = await buildManifest("fictional-role", { root: join(home, "applications") });
+    assert.equal(publicManifest.ingestReview?.notice, manifest.ingestReview.notice,
+      "P2-7 the finished-draft payload consumed by role-materials carries the notice");
   });
   it("T-K19-09 (guard) no set-aside items means no notice", async () => {
     const out = await run();
