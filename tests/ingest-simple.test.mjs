@@ -10,7 +10,12 @@ const reply = () => ({ employers: [
 ] });
 const run = async (text = source, values = [reply()], extra = {}) => {
   const calls = [];
-  const result = await structureResume({ lsrc: text, pin, callStage: async (request) => { calls.push(request); return values[Math.min(calls.length - 1, values.length - 1)]; }, ...extra });
+  const result = await structureResume({ lsrc: text, pin, callStage: async (request) => {
+    // This suite measures primary/repair reads. Classifier omissions retain
+    // every legacy flag; CLASSIFY tests exercise and count the separate stage.
+    if (request.stage === 'resume.classify') return { lines: [] };
+    calls.push(request); return values[Math.min(calls.length - 1, values.length - 1)];
+  }, ...extra });
   return { result, calls };
 };
 

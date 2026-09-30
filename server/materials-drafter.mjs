@@ -96,8 +96,15 @@ function draftIngestReview(result) {
     if (employer) names.add(employer.name);
   }
   const displayNames = [...names];
+  const cleared = (result.review?.cleared || []).map((/** @type {any} */ item) => ({ line: item.line, text: item.text, reason: item.reason }));
+  const labels = /** @type {Record<string,string>} */ ({ education: "education", certification: "certifications", skill: "skills", language: "languages", contact: "contact details", heading: "headings" });
+  const notices = [
+    ...(items.length ? [`${items.length} résumé ${items.length === 1 ? "item" : "items"} set aside or needing placement review${displayNames.length ? ` under ${displayNames.join(", ")}` : ""} — review in Settings.`] : []),
+    ...(cleared.length ? [`${cleared.length} ${cleared.length === 1 ? "line" : "lines"} treated as ${[...new Set(cleared.map((/** @type {any} */ item) => labels[item.reason]))].join("/")} — review`] : []),
+  ];
   return { count: items.length, countsByKind, employers: displayNames,
-    ...(items.length ? { notice: `${items.length} résumé ${items.length === 1 ? "item" : "items"} set aside or needing placement review${displayNames.length ? ` under ${displayNames.join(", ")}` : ""} — review in Settings.` } : {}),
+    ...(cleared.length ? { cleared } : {}),
+    ...(notices.length ? { notice: notices.join(" ") } : {}),
   };
 }
 

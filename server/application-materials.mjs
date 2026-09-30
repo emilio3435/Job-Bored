@@ -104,7 +104,7 @@ const CONTENT_TYPES = {
  *   the template family the published package was rendered in (run.json)
  * @property {string} [runId]
  * @property {{ selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} [selectionSummary]
- * @property {{ notice: string }} [ingestReview]
+ * @property {{ notice: string, cleared?:Array<{line:number,text:string,reason:string}> }} [ingestReview]
  */
 
 /**
@@ -663,9 +663,11 @@ export async function buildManifest(slug, { root } = {}) {
   if (onDiskManifest) {
     if (typeof onDiskManifest.job_url === "string") out.jobUrl = onDiskManifest.job_url;
     if (typeof onDiskManifest.status === "string") out.status = onDiskManifest.status;
-    const ingestReview = /** @type {{ notice?: unknown } | null} */ (onDiskManifest.ingestReview);
+    const ingestReview = /** @type {{ notice?: unknown, cleared?: any[] } | null} */ (onDiskManifest.ingestReview);
     if (ingestReview && typeof ingestReview.notice === "string" && ingestReview.notice.trim()) {
-      out.ingestReview = { notice: ingestReview.notice };
+      out.ingestReview = { notice: ingestReview.notice,
+        ...(Array.isArray(ingestReview.cleared) ? { cleared: ingestReview.cleared.filter((item) => Number.isInteger(item?.line) && item.line > 0 && typeof item.text === "string" && ["education", "certification", "skill", "language", "contact", "heading"].includes(item.reason)).map((item) => ({ line: item.line, text: item.text, reason: item.reason })) } : {}),
+      };
     }
     if (onDiskManifest.dossier && typeof onDiskManifest.dossier === "object") {
       out.dossier = onDiskManifest.dossier;

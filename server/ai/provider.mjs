@@ -677,6 +677,7 @@ export async function chat(input) {
         ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema: toStructuredOutputSchema(schema) } }
         : { type: "json_object" };
     }
+    if (!responseFormat && input.jsonMode) responseFormat = { type: "json_object" };
     body = {
       model,
       messages: [

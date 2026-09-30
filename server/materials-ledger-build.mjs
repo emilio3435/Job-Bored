@@ -82,8 +82,9 @@ const MAX_CLAIM_TEXT = 2000;
  * 10: the model owns document structure and quotes; no rules-structure path
  * may fill gaps or replace a failed model pass. */
 /* 12: retain profile-only roles and placement review on re-homed claims. */
-/* 13: reconcile primary claims when repair adds their cited employer. */
-export const LEDGER_BUILDER_VERSION = 13;
+/* 13: reconcile primary claims when repair adds their cited employer.
+ * 14: preserve bounded classification review and combined-header guards. */
+export const LEDGER_BUILDER_VERSION = 14;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -805,7 +806,7 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
   const reconciled = reconcileStructureClaims(/** @type {import("./materials-resume-structure.mjs").ResumeStructure} */ (readResult.structure));
   const priorReviews = /** @type {Array<{kind?:string,lines?:number[]}>} */ (readResult.review.claims);
   const result = reconciled.review.length ? { ...readResult, structure: reconciled.structure, employers: reconciled.structure.employers,
-    review: { claims: [...priorReviews, ...reconciled.review.filter((item) => !priorReviews.some((prior) =>
+    review: { ...readResult.review, claims: [...priorReviews, ...reconciled.review.filter((item) => !priorReviews.some((prior) =>
       prior.kind === item.kind && prior.lines?.[0] === item.lines[0] && prior.lines?.[1] === item.lines[1]))] } } : readResult;
   await writeIngestResult(result);
   if (result.status !== "ready") {

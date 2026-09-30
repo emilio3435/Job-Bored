@@ -1146,7 +1146,15 @@
            instead of offering a button that does nothing (SPEC §6 state 7). */
         meta = def.draftAction ? "never requested" : "written with the resume";
       }
-      if ((status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter") && manifest.ingestReview && manifest.ingestReview.notice) meta += " · " + String(manifest.ingestReview.notice);
+      var clearedReviewHtml = "";
+      if ((status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter") && manifest.ingestReview && manifest.ingestReview.notice) {
+        var cleared = Array.isArray(manifest.ingestReview.cleared) ? manifest.ingestReview.cleared : [];
+        if (cleared.length) {
+          clearedReviewHtml = '<details data-ingest-cleared><summary>' + escapeHtml(manifest.ingestReview.notice) + '</summary><ul>'
+            + cleared.map(function (item) { return '<li>Line ' + escapeHtml(item.line) + ' (' + escapeHtml(item.reason) + '): ' + escapeHtml(item.text) + '</li>'; }).join("")
+            + '</ul><button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-open-profile" data-focus="resume">Edit or re-read résumé</button></details>';
+        } else meta += " · " + String(manifest.ingestReview.notice);
+      }
       /* The queue state, carried into the row: the eyebrow says what is
          happening and for how long, the worker's own message says what it is
          doing, and the indeterminate track says it is still alive. */
@@ -1279,7 +1287,7 @@
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
         + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
           + escapeHtml(stateWord) + '</span>'
-        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + budgetNote + '</div>'
+        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + budgetNote + clearedReviewHtml + '</div>'
         + (verdict || coverage || checklist ? '<div class="case__doc-qa">' + verdict + coverage + checklist + '</div>' : "")
         + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
         + repairBlocks
