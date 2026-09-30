@@ -1,3 +1,4 @@
+import "../../../server/net-defaults.mjs";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 

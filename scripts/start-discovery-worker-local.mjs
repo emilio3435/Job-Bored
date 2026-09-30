@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "../server/net-defaults.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   decideAfterChildExit,
