@@ -128,8 +128,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(packageDir, "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_source_review");
-    assert.match(pending.progress.message, /resume|source/i);
+    assert.equal(pending.progress.code, "ingest_failed");
+    assert.match(pending.progress.message, /résumé|provider/i);
     assert.equal(pipelineCalls, 0);
     assert.deepEqual(await readFile(resolveLedgerPath()), beforeLedger);
     assert.equal(await readFile(join(packageDir, "run.json"), "utf8"), '{"runId":"previous"}\n');
@@ -138,7 +138,7 @@ describe("createMaterialsDrafter", () => {
     assert.equal(await readFile(join(packageDir, "resume-source.json"), "utf8"), '{"source":"previous"}\n');
     assert.equal(await readFile(join(packageDir, "job-description.md"), "utf8"), "Previous posting summary.\n");
     const manifest = await buildManifest("eab-role", { root: dir });
-    assert.equal(manifest.pending?.progress?.code, "resume_source_review", "failed pending stays visible beside older documents");
+    assert.equal(manifest.pending?.progress?.code, "ingest_failed", "failed pending stays visible beside older documents");
   });
 
   it("fails resume ingest without a pin instead of using parser-built claims", async () => {
@@ -154,8 +154,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_ingest_failed");
-    assert.match(pending.progress.message, /resume|ingest/i);
+    assert.equal(pending.progress.code, "ingest_needs_model");
+    assert.match(pending.progress.message, /Connect an AI provider/i);
     await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
     await assert.rejects(readFile(join(dir, "eab-role", "qa-report.md")));
   });
@@ -168,8 +168,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_ingest_failed");
-    assert.match(pending.progress.message, /resume could not be interpreted/i);
+    assert.equal(pending.progress.code, "ingest_failed");
+    assert.match(pending.progress.message, /read.*résumé.*local/i);
   });
 
   it("writes REVIEW with jd_unusable when scrape fails on a blurb", async () => {
