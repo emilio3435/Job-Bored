@@ -84,8 +84,9 @@ const MAX_CLAIM_TEXT = 2000;
 /* 12: retain profile-only roles and placement review on re-homed claims. */
 /* 13: reconcile primary claims when repair adds their cited employer.
  * 14: preserve bounded classification review and combined-header guards.
- * 15: refresh section guards, dated-field candidates and metadata membership. */
-export const LEDGER_BUILDER_VERSION = 15;
+ * 15: refresh section guards, dated-field candidates and metadata membership.
+ * 16: refresh experience boundaries, single-year jobs and audited metadata. */
+export const LEDGER_BUILDER_VERSION = 16;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */

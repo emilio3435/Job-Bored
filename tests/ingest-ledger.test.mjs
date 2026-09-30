@@ -69,8 +69,22 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read();
-  assert.equal(LEDGER_BUILDER_VERSION, 15);
-  assert.equal(out.builderVersion, 15);
+  assert.equal(LEDGER_BUILDER_VERSION, 16);
+  assert.equal(out.builderVersion, 16);
+});
+it('ASTRA-R3 cached builder 15 output is reread under the new coverage and audit guards', async () => {
+  const text = `${source}\n\n\n`;
+  const first = await read(text);
+  assert.equal(first.ingest.status, 'ready');
+  const prior = structuredClone((await readLedger()).ledger);
+  prior.builderVersion = 15;
+  await writeLedgerAtomic(prior);
+  let calls = 0;
+  const fresh = await read(text, { callStage: async () => { calls++; return reply; } });
+  assert.ok(calls > 0, 'a cached Round 2 ledger must run a fresh reader');
+  assert.equal(fresh.ingest.status, 'ready');
+  const cleared = JSON.parse(readFileSync(resultPath, 'utf8')).review.cleared;
+  assert.ok(cleared.some((item) => item.text === 'Fictional State University • Bachelor of Arts • 2013 — 2017'));
 });
 it('T-K10-04 failed read over stale rules never reports ready', async () => {
   const prior = buildLedger({ profile: null, resumeText: source, structure: structure('Contoso Media', 'Fabrikam Labs'), note: 'structure:rules' });

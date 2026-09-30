@@ -201,17 +201,21 @@ it('CLASSIFY rejected role grounding is protected even outside work sections', a
   assert.ok(result.couldntPlace.some((item) => item.lines[0] === 6));
 });
 it('CLASSIFY metadata stops at a claim, blank line, unknown title or three lines', async () => {
-  for (const tail of [
-    ['Springfield, AR', 'Worked with local teams', '2019 — 2021'],
-    ['Springfield, AR', '', '2019 — 2021'],
-    ['Unknown title', 'Springfield, AR', '2019 — 2021'],
-    ['Springfield, AR', 'Westfield, AR', 'Northfield, AR', 'Southfield, AR'],
+  for (const [tail, cleared] of [
+    [['Springfield, AR', 'Worked with local teams', '2019 — 2021'], [{ line: 3, text: 'Springfield, AR', reason: 'heading' }]],
+    [['Springfield, AR', '', '2019 — 2021'], [{ line: 3, text: 'Springfield, AR', reason: 'heading' }]],
+    [['Unknown title', 'Springfield, AR', '2019 — 2021'], []],
+    [['Springfield, AR', 'Westfield, AR', 'Northfield, AR', 'Southfield, AR'], [
+      { line: 3, text: 'Springfield, AR', reason: 'heading' },
+      { line: 4, text: 'Westfield, AR', reason: 'heading' },
+      { line: 5, text: 'Northfield, AR', reason: 'heading' },
+    ]],
   ]) {
     const text = ['EXPERIENCE', 'Contoso', ...tail].join('\n');
     const read = { employers: [{ name: 'Contoso', headerLine: 2, roles: [], bullets: [] }] };
     const { result } = await run([], (r) => classify(r, 'not_work', 'heading'), { text, read });
     assert.ok(result.couldntPlace.some((item) => item.lines[0] === text.split('\n').length));
-    assert.deepEqual(result.review.cleared, []);
+    assert.deepEqual(result.review.cleared, cleared);
   }
 });
 it('CLASSIFY production chat uses temperature zero, JSON output and at most two requests', async () => {

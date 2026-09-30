@@ -10,14 +10,14 @@ const reply = () => ({ employers: [
 ] });
 // Fictional expected academic fields for the model stub. Production no longer
 // exempts a separated, dated field solely on degree vocabulary.
-const academicFields = new Set(['Bachelor of Arts', 'Master of Science', 'B.A.', 'Degree in Cartography', 'Diploma in Illustration', 'Certificate in Design', 'MBA', 'Ph.D. in Chemistry', 'BSc Computer Science', 'Master in Biology', 'Associate in Design', 'Graduated with honors', 'Majored in Economics', 'Major in Design', 'Minor in Physics']);
+const academicFields = new Set(['Bachelor of Arts', 'Bachelor of Arts, Mathematical Economics', 'B.A. in Illustration', 'Master of Science', 'B.A.', 'Degree in Cartography', 'Diploma in Illustration', 'Certificate in Design', 'MBA', 'Ph.D. in Chemistry', 'BSc Computer Science', 'Master in Biology', 'Associate in Design', 'Graduated with honors', 'Majored in Economics', 'Major in Design', 'Minor in Physics']);
 const run = async (text = source, values = [reply()], extra = {}) => {
   const calls = [];
   const result = await structureResume({ lsrc: text, pin, callStage: async (request) => {
     // Count primary/repair reads separately. The classifier recognizes only
     // this fixture's explicit academic fields; job controls stay unsure.
     if (request.stage === 'resume.classify') return { lines: [...request.userText.matchAll(/^C(\d+): (.*)$/gmu)].map(([, id, line]) => {
-      const academic = line.split(/\s*\|\s*/u).some((field) => academicFields.has(field));
+      const academic = line.split(/\s*[|•]\s*|\s+[—–-]\s+/u).some((field) => academicFields.has(field));
       return { line: `C${id}`, kind: academic ? 'not_work' : 'unsure', ...(academic ? { reason: 'education' } : {}) };
     }) };
     calls.push(request); return values[Math.min(calls.length - 1, values.length - 1)];

@@ -820,15 +820,32 @@ function decodeRead(payload) {
 
 const NON_EXPERIENCE = /^(?:education(?:\s*&\s*certifications)?|(?:technical\s+)?skills|capabilities|(?:professional\s+)?summary|licenses\s*&\s*certifications|certifications(?:\s*&\s*(?:languages|licenses))?|languages(?:\s*&\s*certifications)?|training|awards|honors|core\s*competencies|academic\s*background|publications|professional\s*development|projects|interests)(?:\s+\d+)?\s*:?[ \t]*$/iu;
 /** @param {string} line */
-const isNonExperienceHeading = (line) => NON_EXPERIENCE.test(line.trim()) || NON_EXPERIENCE.test(line.replace(/\s+/gu, "").replace(/\d+$/u, ""));
+const normalizeHeading = (line) => line.trim().replace(/\band\b/giu, "&");
+/** @param {string} line */
+const isNonExperienceHeading = (line) => NON_EXPERIENCE.test(normalizeHeading(line)) || NON_EXPERIENCE.test(normalizeHeading(line).replace(/\s+/gu, "").replace(/\d+$/u, ""));
 const DATED_LINE = /\b(?:19|20)\d{2}\b/u;
 const DATE_ONLY_LINE = /^\s*(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+)?(?:19|20)\d{2}(?:\s*[—–-]\s*(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+)?(?:present|current|now|(?:19|20)\d{2}))?\s*$/iu;
 const DATE_RANGE = /\b(?:19|20)\d{2}\s*[—–-]\s*(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+)?(?:present|current|now|(?:19|20)\d{2})\b/iu;
 const BULLET_LINE = /^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s+/u;
-const EXPERIENCE_HEADING = /^(?:(?:professional\s+|additional\s+|teaching\s+)?experience|volunteer(?:\s+(?:experience|work))?|volunteering|employment|work history|career|earlier(?: experience| work)?|founder work(?:\s*\/\s*independent projects)?|independent projects|selected work|selected ventures)(?:\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})|\s+\d+)?$/iu;
+const EXPERIENCE_HEADING = /^(?:[\p{L}\s&/—–-]*\b(?:experience|employment|work\s+history)\b[\p{L}\s&/—–-]*|volunteer(?:\s+work)?|volunteering|career|earlier(?: work)?|founder work(?:\s*\/\s*independent projects)?|independent projects|selected work|selected ventures)(?:\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})|\s+\d+)?\s*:?[ \t]*$/iu;
 const SPACED_HEADING = /^(?:\p{Lu}\s+){3,}\p{Lu}(?:\s+\d+)?$/u;
 /** @param {string} line */
-const isExperienceHeading = (line) => !BULLET_LINE.test(line) && EXPERIENCE_HEADING.test(line.trim());
+const isExperienceHeading = (line) => {
+  const text = normalizeHeading(line);
+  if (BULLET_LINE.test(line) || !EXPERIENCE_HEADING.test(text)) return false;
+  const label = text.replace(/\s*:\s*$/u, "").replace(/\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})$/iu, "").replace(/\s+\d+$/u, "");
+  // A keyword in ordinary work prose is not itself a section heading.
+  return !/\b(?:experience|employment|work\s+history)\b/iu.test(label)
+    || /\b(?:experience|employment(?:\s+history)?|work\s+history)$/iu.test(label)
+    || /:\s*$/u.test(text) || label === label.toUpperCase()
+    || label.split(/\s+/u).every((word) => /^\p{Lu}/u.test(word) || ["&", "/", "—", "–", "-", "of", "the", "in", "for"].includes(word));
+};
+// Country/territory names come from Node's closed English CLDR region list.
+// An arbitrary department label such as Sales or Operations is not a region.
+const regionDisplay = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" });
+const regionNames = new Set(Array.from({ length: 26 * 26 }, (_, index) => regionDisplay.of(String.fromCharCode(65 + Math.floor(index / 26), 65 + index % 26)))
+  .filter((name) => typeof name === "string").map(folded));
+for (const name of "Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|United States of America|Czech Republic".split("|")) regionNames.add(folded(name));
 const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/giu;
 const PHONE = /(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/gu;
 const URL = /(?:https?:\/\/|www\.)[^\s•|]+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?/giu;
@@ -1062,11 +1079,12 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       else modelError = true;
     }
   };
-  // Legacy coverage, with only Round 2's authorized heading and dated-field
+  // Legacy coverage, with the authorized heading and dated-field
   // corrections. Header metadata and missing-role guards stay separate.
   const legacyCoverage = () => {
     const degreeText = /\b(?:bachelor|master(?:'?s)?\s+(?:of|in|degree)|MBA|associate(?:'?s)?\s+(?:of|degree|in)|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|certif(?:ied|ication)|degree|GPA|with\s+honors|minor\s+in|major(?:ed)?\s+in)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
     const degreePhrase = new RegExp(`^\\s*(?:${degreeText.source})`, "iu");
+    const pureDegreePhrase = /^\s*(?:bachelor\b|master(?:'?s)?\s+(?:of|in|degree)\b|MBA\b|associate(?:'?s)?\s+(?:of|degree|in)\b|BSc\b|JD\b|juris\s+doctor\b|doctor\s+of\b|diploma\b|degree\s+(?:in|of)\b|(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;]))/iu;
     const institutionText = /\b(?:university|college|school|institute|academy)\b/iu;
     const nameLine = /^\p{Lu}[\p{L}.'’-]*(?:\s+(?:\p{Lu}[\p{L}.'’-]*|of|the|and|&))*$/u;
     /** @param {string} line */
@@ -1097,6 +1115,10 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     const hasRoleSeparator = (line) => {
       const parts = headerParts(line);
       if (DATE_RANGE.test(line) && parts.length > 1 && parts.some((part) => !institutionOnly(part) && !locationOnly(part))) return true;
+      const pureDegree = parts.some((part) => pureDegreePhrase.test(part))
+        && parts.every((part) => pureDegreePhrase.test(part) || institutionOnly(part) || locationOnly(part));
+      if (DATED_LINE.test(line) && parts.length > 1 && !pureDegree
+          && parts.some((part) => !institutionOnly(part) && !locationOnly(part))) return true;
       if (parts.some((part) => degreePhrase.test(part))) return false;
       return parts.length > 1 && parts.some((part) => !degreeText.test(part) && !institutionOnly(part) && !locationOnly(part));
     };
@@ -1192,13 +1214,18 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     };
     return { items: coverageItems(), experienceLines, firstExperienceLine, nonExperienceSections, headerParts, nameLine, isDatedHeader };
   };
-  // A two-letter department (IT, HR, QA) is not a postal state. ST keeps the
-  // established fictional City, ST control; other ambiguous codes stay visible.
+  // Established US postal metadata remains deterministic; other location
+  // shapes require a valid classifier row and the same grounded chain.
   const postalStates = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU AS MP ST".split(" "));
+  /** Keep department titles and grounded company/title labels out of locations.
+   * @param {string} place */
+  const workLabel = (place) => /\b(?:director|manager|analyst|engineer|officer|president|founder|consultant|instructor|teacher|tutor|developer|designer|architect|specialist|coordinator|supervisor|administrator|executive|chief|head|VP|CEO|CFO|CTO|COO)\b/iu.test(place)
+    || employers.some((employer) => folded(employer.name) === folded(place)
+      || /** @type {any[]} */ (employer.roles).some((role) => folded(role.title) === folded(place)));
   /** @param {string} line */
   const locationOnly = (line) => {
-    const match = /^\s*\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*,\s*([A-Z]{2})\s*$/u.exec(line);
-    return Boolean(match && postalStates.has(match[1]));
+    const match = /^\s*(\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*),\s*([A-Z]{2})\s*$/u.exec(line);
+    return Boolean(match && !workLabel(match[1]) && postalStates.has(match[2]));
   };
   /** The classifier confirms these shapes; syntax alone never covers them.
    * @param {string} line */
@@ -1207,8 +1234,9 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (fields.length > 2 || fields.length === 2 && !DATE_ONLY_LINE.test(fields[1])) return false;
     const place = fields[0].replace(/\s*\((?:hybrid|remote|on[ -]?site)\)\s*$/iu, "").trim();
     if (/^(?:remote|hybrid|on[ -]?site)$/iu.test(place)) return true;
-    const match = /^\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*,\s*(\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*)$/u.exec(place);
-    return Boolean(match && (!/^[A-Z]{2}$/u.test(match[1]) || postalStates.has(match[1])));
+    const match = /^(\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*),\s*(.+)$/u.exec(place);
+    return Boolean(match && !workLabel(match[1])
+      && (/^[A-Z]{2,3}$/u.test(match[2]) || regionNames.has(folded(match[2]))));
   };
   let legacy = legacyCoverage();
   /** @type {Map<number,number>} */ let metadata = new Map();
@@ -1219,16 +1247,16 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     metadataCandidates = new Map();
     for (const employer of employers) {
       const headerLines = [employer.lines[0], .../** @type {any[]} */ (employer.roles).map((role) => role.lines[0])];
-      const groundedFields = [employer.name, .../** @type {any[]} */ (employer.roles).map((role) => role.title)].map(folded);
       const nextEmployer = employers.find((entry) => entry.lines[0] > employer.lines[0])?.lines[0] || lines.length + 1;
       for (const headerLine of headerLines) {
         /** @type {number[]} */ const dependencies = [];
         for (let number = headerLine + 1; number <= Math.min(lines.length, headerLine + 3, nextEmployer - 1); number += 1) {
           const line = lines[number - 1];
           if (!validLine(number) || BULLET_LINE.test(line) || !line.trim() || isNonExperienceHeading(line) || isExperienceHeading(line)
+              || badHeaders.has(number) || badRoles.has(number)
               || badBullets.some((item) => item.lines[0] <= number && item.lines[1] >= number)
               || !headerLines.includes(number) && /** @type {any[]} */ (employer.claims).some((claim) => claim.lines[0] <= number && claim.lines[1] >= number)) break;
-          if (headerLines.includes(number) || groundedFields.includes(folded(line))) continue;
+          if (headerLines.includes(number)) continue;
           const deterministic = locationOnly(line) || DATE_ONLY_LINE.test(line);
           if (!deterministic && !locationLike(line)) break;
           if (deterministic && !dependencies.length) metadata.set(number, headerLine);
@@ -1256,8 +1284,12 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     await read(repair.map((item) => item.lines[0]), true);
     couldntPlace = coverageItems();
   }
-  for (const [line, headerLine] of metadata) notes.push({ kind: "header_metadata", line, headerLine });
   /** @type {Array<{line:number,text:string,reason:string}>} */ const clearedLines = [];
+  for (const [line, headerLine] of metadata) {
+    notes.push({ kind: "header_metadata", line, headerLine });
+    notes.push({ kind: "classified_not_work", line, reason: "heading", metadata: true });
+    clearedLines.push({ line, text: lines[line - 1], reason: "heading" });
+  }
   if (pin && parseable && !modelError && employers.length) {
     const numbers = [...new Set(couldntPlace.flatMap((item) => item.lines[0] > 0 && item.reason !== "looks_like_instructions"
       ? Array.from({ length: item.lines[1] - item.lines[0] + 1 }, (_, index) => item.lines[0] + index).filter(validLine) : []))];
@@ -1274,6 +1306,8 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
             || items.some((item) => item.reason !== "uncovered" || item.kind === "bullet" || item.lines[0] !== item.lines[1])) continue;
         metadataCovered.add(number);
         notes.push({ kind: "header_metadata", line: number, headerLine: chain.headerLine, classified: true });
+        notes.push({ kind: "classified_not_work", line: number, reason: "heading" });
+        clearedLines.push({ line: number, text: lines[number - 1], reason: "heading" });
       }
       for (const [number, reason] of classification.cleared) {
         const items = couldntPlace.filter((item) => item.lines[0] <= number && item.lines[1] >= number);
@@ -1290,6 +1324,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       couldntPlace = couldntPlace.filter((item) => !cleared.has(item.lines[0]));
     }
   }
+  clearedLines.sort((a, b) => a.line - b.line);
   for (const employer of employers) {
     const seen = new Set();
     employer.claims = /** @type {any[]} */ (employer.claims).filter((claim) => {

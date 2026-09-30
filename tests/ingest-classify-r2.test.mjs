@@ -76,7 +76,10 @@ for (const location of ['Remote', 'Springfield, Arkansas', 'Little Rock, AR (Hyb
     assert.equal(result.status, 'ready');
     assert.deepEqual(result.couldntPlace, []);
     assert.deepEqual(result.missingEmployers, []);
-    assert.deepEqual(result.review.cleared, [], 'work-section metadata is header coverage, not a non-work clear');
+    assert.deepEqual(result.review.cleared, [
+      { line: 4, text: location, reason: 'heading' },
+      ...(mixed ? [] : [{ line: 5, text: '2019 — 2021', reason: 'heading' }]),
+    ], 'every metadata-based clear must retain its source text for review');
     assert.ok(result.notes.some((note) => note.kind === 'header_metadata' && note.line === 4 && [2, 3].includes(note.headerLine)));
     assert.match(classifyCalls[0].userText, /context metadata header L[23]:/u);
     for (const kind of ['work', 'unsure']) {
@@ -164,7 +167,7 @@ it('FABLE-R2-6 an invalid downstream date row stays flagged beside a valid metad
   assert.ok(!result.couldntPlace.some((item) => item.lines[0] === 4));
   assert.ok(result.couldntPlace.some((item) => item.lines[0] === 5));
   assert.ok(result.notes.some((note) => note.kind === 'classify_row_invalid' && note.line === 5));
-  assert.deepEqual(result.review.cleared, []);
+  assert.deepEqual(result.review.cleared, [{ line: 4, text: 'Remote', reason: 'heading' }]);
 });
 for (const [provider, model] of [['openai', 'gpt-4o'], ['openrouter', 'openai/gpt-4o']]) {
   it(`FABLE-R2-6 ${provider} supports an enum json_schema on the classification wire`, async () => {
