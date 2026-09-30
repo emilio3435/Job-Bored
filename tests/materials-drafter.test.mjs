@@ -210,7 +210,7 @@ describe("createMaterialsDrafter", () => {
   });
 
   it("gives the materials write-and-judge job its own long deadline", async () => {
-    assert.equal(materialsDrafterExports.MATERIALS_DRAFT_DEADLINE_MS, 480_000);
+    assert.equal(materialsDrafterExports.MATERIALS_DRAFT_DEADLINE_MS, 1_500_000);
     const seen = [];
     const timeouts = [];
     const originalTimeout = AbortSignal.timeout;
@@ -230,7 +230,7 @@ describe("createMaterialsDrafter", () => {
     } finally {
       AbortSignal.timeout = originalTimeout;
     }
-    assert.ok(timeouts.includes(480_000), `timeouts: ${timeouts.join(", ")}`);
+    assert.ok(timeouts.includes(1_500_000), `timeouts: ${timeouts.join(", ")}`);
     assert.ok(seen[0]?.signal instanceof AbortSignal, "drafter did not pass a job deadline signal to the pipeline");
   });
 

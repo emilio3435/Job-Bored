@@ -1,3 +1,4 @@
+import "./server/net-defaults.mjs";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";

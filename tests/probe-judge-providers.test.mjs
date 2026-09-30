@@ -66,7 +66,7 @@ describe("probe:judge-providers", () => {
     try {
       const fetchImpl = stubFetch({
         "https://api.openai.com/v1/models": { ok: false, status: 401, json: async () => ({}) },
-        "https://generativelanguage.googleapis.com/v1beta/models": okJson({ models: [] }),
+        "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100": okJson({ models: [] }),
         "http://127.0.0.1:11434/api/tags": new TypeError("connect ECONNREFUSED"),
       });
       const rows = await runProbe({

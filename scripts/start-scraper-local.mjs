@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "../server/net-defaults.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { resolveScraperEnv } from "./lib/runtime-env.mjs";

@@ -1092,8 +1092,10 @@ function updateJudgeKeyGuide() {
  * Point the generic URL field at the chosen provider's fixed endpoint from
  * the shared picker, and lock it: nothing typed from memory. Local keeps
  * its editable default for a remote server, and a custom compatible URL
- * stays typed. On fill (reset false) a stored URL is respected and only a
- * legacy blank heals to the fixed endpoint.
+ * stays typed. On fill (reset false) only the lock syncs — the stored value
+ * is shown verbatim, even blank. Writing the fixed URL over a blank would
+ * read as an edit, and the next save would post the pin without its key on
+ * a moved target, clearing the stored key server-side (P1).
  */
 function syncGenericEndpoint(reset) {
   const provider = document.getElementById("settingsJudgeProvider");
@@ -1108,8 +1110,6 @@ function syncGenericEndpoint(reset) {
     else baseUrl.value = "";
     if (model) model.value = "";
     clearGenericModels();
-  } else if (locked && !String(baseUrl.value || "").trim()) {
-    baseUrl.value = fixed;
   }
   baseUrl.disabled = locked;
 }

@@ -203,7 +203,7 @@ describe("POST /api/llm-config/judge-models", () => {
     assert.equal(res.body.models[0].id, "claude-haiku-4-5");
     assert.equal(res.body.models[0].label, "Claude Haiku 4.5");
     assert.equal(res.body.recommended, "claude-haiku-4-5");
-    assert.equal(calls[0].url, "https://api.anthropic.com/v1/models");
+    assert.equal(calls[0].url, "https://api.anthropic.com/v1/models?limit=100");
     assert.equal(calls[0].init.headers["x-api-key"], "fictional-anthropic-key");
     assert.equal(calls[0].init.headers["anthropic-version"], "2023-06-01");
     assert.equal(JSON.stringify(res.body).includes("fictional-anthropic-key"), false);
@@ -224,7 +224,7 @@ describe("POST /api/llm-config/judge-models", () => {
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.body.models, [{ id: "gemini-3-flash", label: "Gemini 3 Flash", created: 0 }]);
     assert.equal(res.body.recommended, "gemini-3-flash");
-    assert.equal(calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models");
+    assert.equal(calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100");
     assert.equal(calls[0].init.headers["x-goog-api-key"], "fictional-gemini-key");
     assert.equal(String(calls[0].url).includes("fictional-gemini-key"), false);
   });
@@ -275,6 +275,78 @@ describe("POST /api/llm-config/judge-models", () => {
     });
     assert.equal(missing.statusCode, 400);
     assert.equal(fetched, false, "no stored Anthropic judge key, so nothing is fetched");
+  });
+
+  it("P3 · follows Anthropic pages while has_more, recommending across them all", async () => {
+    const calls = [];
+    const res = mockRes();
+    await handlePostJudgeModels({ body: { provider: "anthropic", apiKey: "fictional-anthropic-key" } }, res, env, {
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init });
+        if (calls.length === 1) {
+          return { ok: true, status: 200, json: async () => ({ data: [
+            { id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5", created_at: "2025-09-01T00:00:00Z" },
+          ], has_more: true }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [
+          { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5", created_at: "2025-10-01T00:00:00Z" },
+        ], has_more: false }) };
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body.models.map((model) => model.id), ["claude-haiku-4-5", "claude-sonnet-4-5"]);
+    assert.equal(res.body.recommended, "claude-haiku-4-5");
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1].url.includes("after_id=claude-sonnet-4-5"), "the second page continues after the first");
+  });
+
+  it("P3 · follows Gemini page tokens until they run out", async () => {
+    const calls = [];
+    const res = mockRes();
+    await handlePostJudgeModels({ body: { provider: "gemini", apiKey: "fictional-gemini-key" } }, res, env, {
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init });
+        if (calls.length === 1) {
+          return { ok: true, status: 200, json: async () => ({ models: [
+            { name: "models/gemini-3-pro", displayName: "Gemini 3 Pro", supportedGenerationMethods: ["generateContent"] },
+          ], nextPageToken: "pg-two" }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ models: [
+          { name: "models/gemini-3-flash", displayName: "Gemini 3 Flash", supportedGenerationMethods: ["generateContent"] },
+        ] }) };
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body.models.map((model) => model.id), ["gemini-3-pro", "gemini-3-flash"]);
+    assert.equal(res.body.recommended, "gemini-3-flash");
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1].url.includes("pageToken=pg-two"), "the second page carries the token");
+  });
+
+  it("P3 · caps runaway pages and returns a partial list when a later page fails", async () => {
+    let endless = 0;
+    const capped = mockRes();
+    await handlePostJudgeModels({ body: { provider: "anthropic", apiKey: "fictional-anthropic-key" } }, capped, env, {
+      fetchImpl: async () => {
+        endless += 1;
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: `claude-page-${endless}` }], has_more: true }) };
+      },
+    });
+    assert.equal(capped.statusCode, 200);
+    assert.equal(endless, 5, "the walk stops after five pages");
+    assert.equal(capped.body.models.length, 5);
+
+    const partial = mockRes();
+    await handlePostJudgeModels({ body: { provider: "gemini", apiKey: "fictional-gemini-key" } }, partial, env, {
+      fetchImpl: async (url) => {
+        if (String(url).includes("pageToken=")) throw new Error("page two is down");
+        return { ok: true, status: 200, json: async () => ({ models: [
+          { name: "models/gemini-3-flash", displayName: "Gemini 3 Flash", supportedGenerationMethods: ["generateContent"] },
+        ], nextPageToken: "pg-two" }) };
+      },
+    });
+    assert.equal(partial.statusCode, 200);
+    assert.deepEqual(partial.body.models.map((model) => model.id), ["gemini-3-flash"]);
   });
 
   it("maps per-provider key and network failures to plain words", async () => {

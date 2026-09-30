@@ -35,3 +35,4 @@ Each account can be created on a free plan.
 - If the keep-alive install fails on macOS, check `launchctl` output and confirm the job file under `~/Library/LaunchAgents/` is readable by your user.
 - If the keep-alive install fails on Linux, run `systemctl --user status ai.jobbored.discovery.keepalive.timer` and confirm user services are enabled.
 - If setup reports a tunnel rotation, rerun the relay deploy helper so the saved `workers.dev` URL keeps forwarding to the current ngrok URL.
+- If AI calls time out while curl works, Node's IPv6/IPv4 autoselection is too fast for your network; JobBored sets a 2 s attempt timeout (override with `JOBBORED_NET_FAMILY_ATTEMPT_MS`).
