@@ -967,25 +967,38 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       else modelError = true;
     }
   };
-  const degreeText = /\b(?:bachelor|master|MBA|associate|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|degree|GPA|honors|minor|major)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
+  const degreeText = /\b(?:bachelor|master(?:'?s)?\s+(?:of|in|degree)|MBA|associate(?:'?s)?\s+(?:of|degree|in)|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|certif(?:ied|ication)|degree|GPA|with\s+honors|minor\s+in|major(?:ed)?\s+in)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
+  const degreePhrase = new RegExp(`^\\s*(?:${degreeText.source})`, "iu");
   const institutionText = /\b(?:university|college|school|institute|academy)\b/iu;
   const nameLine = /^\p{Lu}[\p{L}.'’-]*(?:\s+(?:\p{Lu}[\p{L}.'’-]*|of|the|and|&))*$/u;
   /** @param {string} line */
   const locationOnly = (line) => /^\s*\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*,\s*[A-Z]{2}\s*$/u.test(line);
   /** @param {string} line */
   const institutionOnly = (line) => institutionText.test(line) && nameLine.test(line.trim());
+  /** Fold city/state commas within a field, never across role separators.
+   * @param {string} line */
+  const splitHeaderParts = (line) => line.split(/\s*[|•]\s*|\s+[—–-]\s+/u).flatMap((segment) => {
+    /** @type {string[]} */ const parts = [];
+    for (const field of segment.split(/\s*,\s*/u)) {
+      const part = field.trim();
+      if (!part) continue;
+      const previous = parts.at(-1);
+      if (previous && locationOnly(`${previous}, ${part}`)) parts[parts.length - 1] = `${previous}, ${part}`;
+      else parts.push(part);
+    }
+    return parts;
+  }).filter((part) => /\p{L}/u.test(part));
   /** @param {string} line */
   const headerParts = (line) => {
     const date = line.search(DATED_LINE);
     if (date < 0) return [];
-    return line.slice(0, date).split(/\s*[|•]\s*|\s+[—–-]\s+/u)
-      .flatMap((part) => locationOnly(part) ? [part] : part.split(/\s*,\s*/u))
-      .map((part) => part.trim()).filter((part) => /\p{L}/u.test(part) && !DATE_ONLY_LINE.test(`${part} ${line.slice(date)}`));
+    return splitHeaderParts(line.slice(0, date)).filter((part) => !DATE_ONLY_LINE.test(`${part} ${line.slice(date)}`));
   };
-  /** Any ambiguous field before the dates counts as a title; no title vocabulary.
+  /** A degree phrase takes precedence over apparent title fields; no title vocabulary.
    * @param {string} line */
   const hasRoleSeparator = (line) => {
     const parts = headerParts(line);
+    if (parts.some((part) => degreePhrase.test(part))) return false;
     return parts.length > 1 && parts.some((part) => !degreeText.test(part) && !institutionOnly(part) && !locationOnly(part));
   };
   const datedHeaders = new Set();
@@ -1001,7 +1014,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     if (section) nonExperienceSections.set(index + 1, section);
     const next = lines.slice(index + 1).find((candidate) => candidate.trim());
     const date = line.search(DATED_LINE);
-    const parts = headerParts(line);
+    const parts = date < 0 ? splitHeaderParts(line) : headerParts(line);
     const institution = institutionOnly((date < 0 ? line : line.slice(0, date)).replace(/[\s|,•—–-]+$/u, ""))
       || parts.some(institutionOnly) && parts.every((part) => institutionOnly(part) || locationOnly(part));
     if (section && !BULLET_LINE.test(line) && !hasRoleSeparator(line)
@@ -1145,7 +1158,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     const nextEmployer = employers[index + 1]?.lines[0] || lines.length + 1;
     const end = nextEmployer - 1;
     const section = Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => start + offset)
-      .filter((number) => relevantLines.has(number) && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1]) && !SPACED_HEADING.test(lines[number - 1].trim()));
+      .filter((number) => relevantLines.has(number) && !nonExperienceSections.has(number) && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1]) && !SPACED_HEADING.test(lines[number - 1].trim()));
     const lost = section.filter((number) => couldntPlace.some((item) => item.lines[0] <= number && item.lines[1] >= number)).length;
     if (section.length && lost > section.length / 2) {
       largeSetAside = true;
