@@ -84,3 +84,14 @@ it("R3-1 older builder output cannot cache the silently lost claim", async () =>
   assert.equal(rebuilt.rebuilt, true);
   assert.equal(rebuilt.claims.filter((claim) => claim.text === "Documented fictional results.").length, 1);
 });
+
+it("R3-4 a repair that re-returns a covered line keeps one copy of the claim", async () => {
+  const echoed = structuredClone(repair);
+  echoed.employers[0].bullets.unshift({ text: "Documented fictional results.", line: 7 });
+  let calls = 0;
+  const ledger = await ensureLedger({ profile: null, resumeText: text, pin,
+    callStage: async () => structuredClone(calls++ === 0 ? primary : echoed) });
+  const matches = ledger.claims.filter((claim) => claim.text === "Documented fictional results.");
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].employerId, "fabrikam-labs");
+});

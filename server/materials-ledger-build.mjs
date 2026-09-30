@@ -385,7 +385,7 @@ function reconcileStructureClaims(input) {
       const target = !claim.quarantined && range && sections.find((entry, next) =>
         range[0] >= /** @type {[number,number]} */ (entry.lines)[0] && range[1] < (sections[next + 1]?.lines?.[0] || Infinity));
       if (!target || target === employers[index]) {
-        employers[index].claims.push(claim);
+        if (!range || !employers[index].claims.some((existing) => existing.lines?.[0] === range[0] && existing.lines?.[1] === range[1])) employers[index].claims.push(claim);
         continue;
       }
       /** @type {number | null} */
@@ -393,6 +393,8 @@ function reconcileStructureClaims(input) {
       target.roles.forEach((role, at) => {
         if (role.lines && role.lines[0] <= range[0] && (roleIndex === null || role.lines[0] > (target.roles[roleIndex].lines?.[0] || 0))) roleIndex = at;
       });
+      /* A repair read may re-return the same lines under the target; keep one copy. */
+      if (target.claims.some((existing) => existing.lines?.[0] === range[0] && existing.lines?.[1] === range[1])) continue;
       const reconciledClaim = { ...claim, roleIndex, roleAttribution: "inferred" };
       target.claims.push(reconciledClaim);
       review.push({ id: `ledger-rehome-${range[0]}-${range[1]}`, kind: "check_role", lines: range, reason: "misattributed_out_of_span" });
