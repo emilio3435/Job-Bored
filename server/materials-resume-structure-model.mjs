@@ -199,7 +199,7 @@ function safeText(value) {
   }
 }
 
-const INSTRUCTION_RE = /\b(?:ignore (?:all |prior |previous )?instructions|disregard (?:all |prior |previous )?instructions|system prompt|developer message|assign every claim|return only json|you are (?:an? )?assistant)\b/i;
+const INSTRUCTION_RE = /\b(?:(?:ignore|disregard)\s+(?:[\p{L}\p{N}'’-]+\s+){0,3}instructions|system prompt|developer message|assign every claim|return only json|you are (?:an? )?assistant)\b/iu;
 
 /**
  * Validate a model structure without consulting the rule parser. A value is
@@ -680,6 +680,10 @@ const sha = (value) => createHash("sha256").update(value).digest("hex");
 const folded = (value) => foldForMatch(value).text.trim();
 /** @param {string} value */
 const bulletFold = (value) => folded(value.replace(/^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s*/u, "").replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1")).replace(/\s+/gu, " ");
+/** @param {string} value */
+const sourceBulletText = (value) => value.replace(/^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s*/u, "")
+  .replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1")
+  .replace(/\s+/gu, " ").trim();
 /** @param {unknown} value */
 function lineRef(value) {
   if (Number.isInteger(value)) return /** @type {[number,number]} */ ([value, value]);
@@ -719,15 +723,16 @@ function decodeRead(payload) {
   catch { return { reply: null, stopReason }; }
 }
 
-const NON_EXPERIENCE = /^(?:education|skills|certifications|projects|languages|interests)\s*:?[ \t]*$/iu;
+const NON_EXPERIENCE = /^(?:education|(?:technical\s+)?skills|capabilities|(?:professional\s+)?summary|certifications(?:\s*&\s*languages)?|languages(?:\s*&\s*certifications)?|projects|interests)(?:\s+\d+)?\s*:?[ \t]*$/iu;
 /** @param {string} line */
 const isNonExperienceHeading = (line) => NON_EXPERIENCE.test(line.trim()) || NON_EXPERIENCE.test(line.replace(/\s+/gu, "").replace(/\d+$/u, ""));
 const DATED_LINE = /\b(?:19|20)\d{2}\b/u;
+const DATE_RANGE = /\b(?:19|20)\d{2}\s*[—–-]\s*(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+)?(?:present|current|now|(?:19|20)\d{2})\b/iu;
 const BULLET_LINE = /^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s+/u;
-const EXPERIENCE_HEADING = /^(?:experience|employment|work history|career|earlier(?: experience| work)?|founder work(?:\s*\/\s*independent projects)?|independent projects|selected work)(?:\s+\d+)?$/iu;
+const EXPERIENCE_HEADING = /^(?:(?:professional\s+|additional\s+)?experience|employment|work history|career|earlier(?: experience| work)?|founder work(?:\s*\/\s*independent projects)?|independent projects|selected work|selected ventures)(?:\s+(?:19|20)\d{2}\s*[—–-]\s*(?:present|(?:19|20)\d{2})|\s+\d+)?$/iu;
 const SPACED_HEADING = /^(?:\p{Lu}\s+){3,}\p{Lu}(?:\s+\d+)?$/u;
-/** @param {string} line @param {boolean} [tagged] */
-const isExperienceHeading = (line, tagged = false) => !DATED_LINE.test(line) && !BULLET_LINE.test(line) && (tagged || EXPERIENCE_HEADING.test(line.trim()));
+/** @param {string} line */
+const isExperienceHeading = (line) => !BULLET_LINE.test(line) && EXPERIENCE_HEADING.test(line.trim());
 const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/giu;
 const PHONE = /(?:\+?\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/gu;
 const URL = /(?:https?:\/\/|www\.)[^\s•|]+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/[^\s•|]*)?/giu;
@@ -786,8 +791,6 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   /** @type {any[]} */ const malformedItems = [];
   const badHeaders = new Set();
   const badRoles = new Set();
-  const headingLines = new Set();
-  /** @type {number[]} */ const nonExperience = [];
   /** @type {string[]} */ const stopReasons = [];
   let reads = 0;
   let modelError = false;
@@ -807,19 +810,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const accept = (raw) => {
     if (!readRecord(raw) || (!Array.isArray(raw.employers) && !Array.isArray(raw.bullets))) return false;
     parseable = true;
-    for (const item of readList(raw.nonExperience)) {
-      const number = Number.isInteger(item) ? item : item?.line ?? item?.lines?.[0];
-      if (validLine(number)) nonExperience.push(number);
-    }
-    for (const item of readList(raw.headings)) {
-      const number = lineRange(readRecord(item) ? item.line ?? item.lines : item, lines.length)?.[0];
-      if (number !== undefined && validLine(number)) headingLines.add(number);
-    }
-    for (const item of readList(raw.nonJob)) if (Number.isInteger(item?.lines?.[0])) nonExperience.push(item.lines[0]);
+    // Heading tags cannot change coverage: only the source heading lists do.
     /** @type {Array<{owner:any,raw:any}>} */ const incoming = [];
     for (const rawEmployer of readList(raw.employers)) {
       const range = citedRange(rawEmployer, lines.length, "employer");
-      if (!range) { malformedItems.push({ kind: "employer", lines: [0, 0], excerpt: String(rawEmployer?.name || "").slice(0, 160), reason: "malformed_ref" }); continue; }
+      if (!range) { malformedItems.push({ kind: "employer", lines: [0, 0], excerpt: "", reason: "malformed_ref" }); continue; }
       if (!usableRange(range) || typeof rawEmployer.name !== "string" || rawEmployer.name.length > 160 || INSTRUCTION_RE.test(rawEmployer.name) || UNSAFE_GROUNDING_INPUT.test(rawEmployer.name)) { badHeaders.add(range[0]); continue; }
       const header = lines.slice(range[0] - 1, range[1]).join(" ");
       const match = locateLiteral(header, rawEmployer.name.trim());
@@ -847,7 +842,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       employer.end ||= groundedDate(rawEmployer.end, range[0]);
       for (const rawRole of readList(rawEmployer.roles)) {
         const roleRange = citedRange(rawRole, lines.length, "role");
-        if (!roleRange) { malformedItems.push({ kind: "role", lines: [0, 0], excerpt: String(rawRole?.title || "").slice(0, 160), reason: "malformed_ref" }); continue; }
+        if (!roleRange) { malformedItems.push({ kind: "role", lines: [0, 0], excerpt: "", reason: "malformed_ref" }); continue; }
         if (!usableRange(roleRange) || typeof rawRole.title !== "string" || INSTRUCTION_RE.test(rawRole.title)) { badRoles.add(roleRange[0]); continue; }
         const roleSource = lines.slice(roleRange[0] - 1, roleRange[1]).join(" ");
         const roleMatch = locateLiteral(roleSource, rawRole.title.trim());
@@ -908,7 +903,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         }
         const acceptedRange = range;
         if (!acceptedRange || !match && !normalizedMatch) { badBullets.push(item); continue; }
-        const sourceText = match ? cited.slice(match.start, match.end).replace(/\s+/gu, " ").trim() : cited.replace(/^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s*/u, "").replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1").replace(/\s+/gu, " ").trim();
+        const sourceText = sourceBulletText(cited);
         const target = [...employers].reverse().find((employer) => employer.lines[0] <= acceptedRange[0]);
         if (!target) { badBullets.push({ ...item, reason: "no_employer_above" }); continue; }
         const misplaced = target !== owner;
@@ -956,44 +951,68 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       stopReasons.push(decoded.stopReason);
       if (!accept(decoded.reply)) { notes.push({ kind: "read", reason: "invalid_json" }); return "invalid_json"; }
       return "ok";
-    } catch (error) { modelError = true; stopReasons.push(`error:${errorCode(error)}`); notes.push({ kind: "read", reason: errorCode(error) }); return "error"; }
+    } catch (error) { if (!repair) modelError = true; stopReasons.push(`error:${errorCode(error)}`); notes.push({ kind: "read", reason: errorCode(error) }); return "error"; }
   };
   /** @param {number[]} wanted @param {boolean} repair */
   const read = async (wanted, repair) => {
     const first = await call(wanted, repair);
-    if (first !== "invalid_json") return;
-    if (await call(wanted, repair) !== "ok") modelError = true;
+    const outcome = first === "invalid_json" ? await call(wanted, repair) : first;
+    if (outcome !== "ok") {
+      if (repair) notes.push({ kind: "read", reason: "repair_failed" });
+      else modelError = true;
+    }
+  };
+  /** @param {string} line */
+  const isDatedHeader = (line) => DATED_LINE.test(line) && !BULLET_LINE.test(line) && !pureContact(line)
+    && !/\b(?:university|college|bachelor|master|degree|diploma|school|certificate|certification)\b/iu.test(line)
+    && (DATE_RANGE.test(line) || /\b(?:19|20)\d{2}\s*$/u.test(line) && ["employer_header", "role_header"].includes(uncoveredKind(line)));
+  const sourceStart = lines.findIndex((line) => isExperienceHeading(line) || isDatedHeader(line)) + 1;
+  const firstExperienceLine = () => sourceStart || (employers.length ? employers[0].lines[0] : lines.length + 1);
+  const experienceLines = () => {
+    const relevant = new Set();
+    let active = true;
+    for (let number = firstExperienceLine(); number <= lines.length; number += 1) {
+      const line = lines[number - 1];
+      if (isNonExperienceHeading(line)) { active = false; continue; }
+      if (isExperienceHeading(line) || isDatedHeader(line)) active = true;
+      if (active && line.trim()) relevant.add(number);
+    }
+    return relevant;
   };
   /** @returns {any[]} */
   const coverageItems = () => {
-    if (!employers.length) return [...malformedItems, ...badBullets];
-    const first = Math.min(...employers.map((employer) => employer.lines[0]));
-    const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));
-    const last = stop < 0 ? lines.length : stop;
-    const chrome = pageChromeLines(lines, first);
+    const relevant = experienceLines();
+    const chrome = pageChromeLines(lines, firstExperienceLine());
     const covered = new Set();
     for (const employer of employers) {
       for (let number = employer.lines[0]; number <= employer.lines[1]; number += 1) covered.add(number);
       for (const role of employer.roles) for (let number = role.lines[0]; number <= role.lines[1]; number += 1) covered.add(number);
       for (const claim of employer.claims) for (let number = claim.lines[0]; number <= claim.lines[1]; number += 1) covered.add(number);
     }
-    for (let number = first; number <= last; number += 1) if (isExperienceHeading(lines[number - 1], headingLines.has(number))) covered.add(number);
+    for (const number of relevant) if (isExperienceHeading(lines[number - 1])) covered.add(number);
     /** @type {any[]} */ const missing = [...malformedItems];
-    for (const number of badHeaders) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(DATED_LINE.test(lines[number - 1]) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
-    for (const number of badRoles) if (number >= first && number <= last && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
+    for (const number of badHeaders) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(DATED_LINE.test(lines[number - 1]) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
+    for (const number of badRoles) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
     for (const employer of employers) {
       const header = lines[employer.lines[0] - 1];
       const remainder = header.slice(Math.max(0, header.toLowerCase().indexOf(employer.name.toLowerCase()) + employer.name.length));
       if (/^\s*[—–-]\s*\p{L}[^,•|]*[,•|]\s*\b(?:19|20)\d{2}\b/u.test(remainder) && !/** @type {any[]} */ (employer.roles).some((role) => role.lines[0] === employer.lines[0])) missing.push({ id: `unread-role-${employer.lines[0]}`, kind: "role_header", lines: [employer.lines[0], employer.lines[0]], excerpt: header.trim(), reason: "uncovered" });
     }
-    for (let number = first; number <= last; number += 1) {
-      if (!lines[number - 1].trim() || covered.has(number) || chrome.has(number) || missing.some((item) => item.lines[0] === number)) continue;
+    for (const number of relevant) {
+      if (withheld.has(number) || covered.has(number) || chrome.has(number) || missing.some((item) => item.lines[0] === number)) continue;
       const existing = badBullets.find((item) => item.lines[0] <= number && item.lines[1] >= number);
-      const kind = existing?.kind || (withheld.has(number) ? "line" : uncoveredKind(lines[number - 1]));
-      missing.push({ id: `unread-${number}`, kind, lines: [number, number], excerpt: lines[number - 1].trim(), reason: existing?.reason || (withheld.has(number) ? "looks_like_instructions" : "uncovered") , ...(kind === "employer_header" ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
+      const kind = existing?.kind || uncoveredKind(lines[number - 1]);
+      missing.push({ id: `unread-${number}`, kind, lines: [number, number], excerpt: lines[number - 1].trim(), reason: existing?.reason || "uncovered", ...(kind === "employer_header" ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
     }
-    for (const item of badBullets) if (item.lines[0] === 0 || !missing.some((entry) => entry.kind === "bullet" && entry.reason === item.reason && entry.lines[0] === item.lines[0])) missing.push({ ...item, id: `unread-bullet-${missing.length + 1}` });
-    return missing;
+    for (const item of badBullets) if (!withheld.has(item.lines[0]) && (item.lines[0] === 0 || !missing.some((entry) => entry.kind === "bullet" && entry.reason === item.reason && entry.lines[0] === item.lines[0]))) missing.push({ ...item, id: `unread-bullet-${missing.length + 1}` });
+    for (const number of withheld) missing.push({ id: `unread-${number}`, kind: "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "looks_like_instructions" });
+    const seen = new Set();
+    return missing.filter((item) => {
+      const key = JSON.stringify([item.kind, item.lines, item.reason]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   };
   if (pin) await read(lines.map((_, index) => index + 1), false);
   let couldntPlace = coverageItems();
@@ -1019,12 +1038,10 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       if (previous && previous.lines[1] + 1 === claim.lines[0] && previous.roleIndex === claim.roleIndex
           && !headers.has(previous.lines[1]) && !headers.has(claim.lines[0])
           && earlier?.trim() && later?.trim() && !BULLET_LINE.test(later)
-          && (!/[.!?]["'”’)\]]?\s*$/u.test(earlier) || /^[\p{Ll}\p{P}]/u.test(later.trim()))) {
+          && !(!BULLET_LINE.test(earlier) && /^\p{Lu}/u.test(earlier.trim()) && /^\p{Lu}/u.test(later.trim()))
+          && (!/[.!?]["'”’)\]]?\s*$/u.test(earlier) || /^\p{Ll}/u.test(later.trim()))) {
         previous.lines = [previous.lines[0], claim.lines[1]];
-        previous.text = lines.slice(previous.lines[0] - 1, previous.lines[1]).join("\n")
-          .replace(/^\s*(?:[-•*·▪●◦‣⁃➢■]|\d+[.)])\s*/u, "")
-          .replace(/([\p{L}\p{N}])[-‐‑‒–—][ \t]*\n[ \t]*(?=[\p{Ll}\p{N}])/gu, "$1")
-          .replace(/\s+/gu, " ").trim();
+        previous.text = sourceBulletText(lines.slice(previous.lines[0] - 1, previous.lines[1]).join("\n"));
         previous.tier = "wrapped";
         if (claim.roleAttribution === "inferred") previous.roleAttribution = "inferred";
       } else joined.push(claim);
@@ -1032,19 +1049,37 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     employer.claims = joined;
   }
   if (!pin && source.trim()) couldntPlace = [{ id: "unread-1", kind: "line", lines: [1, lines.length], excerpt: "Resume needs model read.", reason: "needs_model" }];
+  const relevantLines = experienceLines();
   const missingEmployers = couldntPlace.filter((item) => item.kind === "employer_header").map((item) => ({ aliasKey: item.aliasKey, displayName: item.excerpt, lines: item.lines }));
+  for (const item of couldntPlace.filter((entry) => entry.kind === "role_header")) {
+    let number = item.lines[0];
+    for (let above = number - 1; above > 0; above -= 1) {
+      const line = lines[above - 1];
+      if (isExperienceHeading(line) || isNonExperienceHeading(line) || isDatedHeader(line)) break;
+      if (BULLET_LINE.test(line)) {
+        if (!relevantLines.has(above)) break;
+        continue;
+      }
+      if (!line.trim() || withheld.has(above) || pureContact(line)) continue;
+      number = above;
+      break;
+    }
+    if (employers.some((employer) => employer.lines[0] === number || employer.lines[0] === item.lines[0])) continue;
+    const displayName = lines[number - 1].trim();
+    const aliasKey = employerKey(displayName);
+    if (!missingEmployers.some((employer) => employer.aliasKey === aliasKey && employer.lines[0] === number)) missingEmployers.push({ aliasKey, displayName, lines: [number, number] });
+  }
   const headerGaps = couldntPlace.some((item) => ["employer", "role", "employer_header", "role_header"].includes(item.kind));
-  const chrome = employers.length ? pageChromeLines(lines, employers[0].lines[0]) : new Set();
+  const chrome = pageChromeLines(lines, firstExperienceLine());
   const headers = new Set([...employers.flatMap((employer) => employer.lines), ...employers.flatMap((employer) => /** @type {any[]} */ (employer.roles).flatMap((role) => role.lines))]);
   let largeSetAside = false;
   for (const [index, employer] of employers.entries()) {
     const firstRole = employer.roles.length ? Math.min(.../** @type {any[]} */ (employer.roles).map((role) => role.lines[0])) : employer.lines[1];
     const start = Math.max(employer.lines[1], firstRole) + 1;
     const nextEmployer = employers[index + 1]?.lines[0] || lines.length + 1;
-    const stop = lines.findIndex((line, at) => at + 1 >= start && at + 1 < nextEmployer && (isNonExperienceHeading(line) || nonExperience.includes(at + 1)));
-    const end = Math.min(nextEmployer - 1, stop < 0 ? lines.length : stop);
+    const end = nextEmployer - 1;
     const section = Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => start + offset)
-      .filter((number) => lines[number - 1].trim() && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1], headingLines.has(number)) && !SPACED_HEADING.test(lines[number - 1].trim()));
+      .filter((number) => relevantLines.has(number) && !headers.has(number) && !chrome.has(number) && !withheld.has(number) && !isExperienceHeading(lines[number - 1]) && !SPACED_HEADING.test(lines[number - 1].trim()));
     const lost = section.filter((number) => couldntPlace.some((item) => item.lines[0] <= number && item.lines[1] >= number)).length;
     if (section.length && lost > section.length / 2) {
       largeSetAside = true;
@@ -1052,9 +1087,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     }
   }
   const status = !pin ? "needs_model" : modelError || !employers.length ? "failed" : headerGaps || largeSetAside ? "ready_with_review" : "ready";
-  const first = employers.length ? Math.min(...employers.map((employer) => employer.lines[0])) : lines.length + 1;
-  const stop = lines.findIndex((line, index) => index + 1 > first && (isNonExperienceHeading(line) || nonExperience.includes(index + 1)));
-  const relevant = lines.slice(first - 1, stop < 0 ? lines.length : stop).filter((line) => line.trim()).length;
+  const relevant = relevantLines.size;
   const anchors = employers.length + employers.reduce((sum, employer) => sum + employer.roles.length, 0);
   return { schema: "ingest-result/1", status, sourceMode: "text", originalSha256: hash, textSha256: hash, model: { provider: pin?.provider || "", id: pin?.resolvedModel || pin?.model || "" }, reads, stopReasons, chunks: 1, anchors, employers, structure: { source: "model", employers, education: [], credentials: [], looseClaims: [] }, coverage: { linesAttributed: Math.max(0, relevant - couldntPlace.length), linesNonBlank: relevant, anchorsAccounted: anchors, anchorsTotal: anchors + missingEmployers.length, datedAnchorsAccounted: anchors, datedAnchorsTotal: anchors + missingEmployers.length }, reconciliation: { ok: true, failures: [] }, couldntPlace, unread: couldntPlace, setAside: [], review: { claims: reviewClaims }, rejected: [], carried: [], missingEmployers, resolutions: [], notes };
 }
