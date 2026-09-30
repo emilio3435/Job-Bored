@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -48,12 +48,14 @@ function tempHome(resumeTxt) {
 }
 
 describe("resolveResumeTextForAnalysis skips garbled staged text (RESJ K5)", () => {
-  it("should analyze the saved resume, not the garbled staged text, and say it fell back", async () => {
+  it("should refuse garbled staged text rather than analyze the saved resume instead (JOBQA)", async () => {
+    // The saved resume may be someone else's: a garbled upload drafted their
+    // profile under the new person's name. Settings asks for it explicitly.
     const path = tempHome(CLEAN);
-    const resolved = await resolveResumeTextForAnalysis({ resumeText: GARBLED });
-    assert.equal(resolved.text, CLEAN.trim(), "the analyzer gets the saved resume");
-    assert.equal(resolved.source, "jobbored_text");
-    assert.equal(resolved.requestGarbled, true);
+    await assert.rejects(
+      resolveResumeTextForAnalysis({ resumeText: GARBLED }),
+      (err) => err.code === "resume_garbled" && err.statusCode === 422,
+    );
     assert.equal(readFileSync(path, "utf8"), CLEAN, "resume.txt untouched");
   });
 
@@ -70,11 +72,11 @@ describe("resolveResumeTextForAnalysis skips garbled staged text (RESJ K5)", () 
     await assert.rejects(resolveResumeTextForAnalysis({ resumeText: GARBLED }), (err) => err.code === "resume_garbled");
   });
 
-  it("should still analyze and cache clean staged text", async () => {
+  it("should still analyze clean staged text, without caching it (JOBQA)", async () => {
     const path = tempHome(null);
     const resolved = await resolveResumeTextForAnalysis({ resumeText: CLEAN });
     assert.equal(resolved.source, "staged_request");
     assert.equal(resolved.requestGarbled, false);
-    assert.equal(readFileSync(path, "utf8"), CLEAN.trim());
+    assert.equal(existsSync(path), false, "parsing never writes the saved resume");
   });
 });

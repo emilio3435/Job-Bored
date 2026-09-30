@@ -99,10 +99,11 @@ async function writeTarget(path) {
 
 /**
  * The saved guide.
+ * @param {{ path?: string }} [options] an explicit guide path (tests, the JOBQA fixture)
  * @returns {Promise<{ exists: boolean, text: string, updatedAt: string | null, words: number }>}
  */
-export async function readVoice() {
-  const path = resolveVoicePath();
+export async function readVoice(options = {}) {
+  const path = options.path || resolveVoicePath();
   const info = await statOrNull(path);
   if (!info) return { exists: false, text: "", updatedAt: null, words: 0 };
   const text = await readFile(path, "utf8");
@@ -136,9 +137,10 @@ const PROBLEM_MESSAGES = Object.freeze({
  * Save `text` as the guide.
  *
  * @param {unknown} text
- * @param {{ ifUpdatedAt?: string | null }} [options] the `updatedAt` the
- *   caller read (null: it saw no guide). When given and the file has
- *   changed since, nothing is written and a 409 `changed` error is thrown.
+ * @param {{ ifUpdatedAt?: string | null, path?: string }} [options] the
+ *   `updatedAt` the caller read (null: it saw no guide). When given and the
+ *   file has changed since, nothing is written and a 409 `changed` error is
+ *   thrown. `path` overrides the guide path (tests, the JOBQA fixture).
  * @returns {Promise<{ exists: true, updatedAt: string, words: number, backup: string | null, unchanged: boolean }>}
  */
 export async function saveVoice(text, options = {}) {
@@ -149,7 +151,7 @@ export async function saveVoice(text, options = {}) {
     });
   }
   const body = `${normalizeVoiceText(text)}\n`;
-  const path = await writeTarget(resolveVoicePath());
+  const path = await writeTarget(options.path || resolveVoicePath());
   const current = await statOrNull(path);
   if (options.ifUpdatedAt !== undefined) {
     const seen = options.ifUpdatedAt || null;
@@ -195,10 +197,11 @@ export async function saveVoice(text, options = {}) {
 /**
  * Remove the guide by moving it to a backup. Throws a 404 `not_found`
  * error when there is none.
+ * @param {{ path?: string }} [options] an explicit guide path (tests, the JOBQA fixture)
  * @returns {Promise<{ exists: false, backup: string }>}
  */
-export async function removeVoice() {
-  const path = resolveVoicePath();
+export async function removeVoice(options = {}) {
+  const path = options.path || resolveVoicePath();
   if (!(await statOrNull(path))) {
     throw voiceError(404, "not_found", "There is no voice guide to remove.");
   }

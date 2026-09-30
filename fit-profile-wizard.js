@@ -195,17 +195,34 @@
 
   async function fetchProfileFromResume() {
     var staged = await getStagedResumeText();
-    var body = staged ? { resumeText: staged } : {};
+    // JOBQA: parsing is read-only; this Settings editor reads the resume
+    // saved on this computer only by asking for it (source: "saved").
+    var body = staged ? { resumeText: staged } : { source: "saved" };
     var provider = verifiedProviderConfig();
     if (provider) Object.assign(body, provider);
-    var res = await apiFetch(profileUrl("/profile/from-resume"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    var post = function (payload) {
+      return apiFetch(profileUrl("/profile/from-resume"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    };
+    var res = await post(body);
     var data = await res.json().catch(function () {
       return null;
     });
+    var requestGarbled = false;
+    // Broken text in this browser: use the clean saved resume instead, as
+    // before, but by asking for it rather than as a silent server fallback.
+    if (staged && res.status === 422 && data && data.reason === "resume_garbled") {
+      var retry = { source: "saved" };
+      if (provider) Object.assign(retry, provider);
+      res = await post(retry);
+      data = await res.json().catch(function () {
+        return null;
+      });
+      requestGarbled = true;
+    }
     if (res.status === 404) {
       var err404 = new Error("No resume on file.");
       err404.code = (data && data.reason) || "no_resume_stored";
@@ -218,7 +235,7 @@
       err.code = reason;
       throw err;
     }
-    return { profile: data.profile, source: data.source, requestGarbled: data.requestGarbled === true };
+    return { profile: data.profile, source: data.source, requestGarbled: requestGarbled || data.requestGarbled === true };
   }
 
   async function fetchProfile() {

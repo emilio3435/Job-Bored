@@ -6,17 +6,18 @@
    attached to an application (a garbled resume once printed the name
    "Candidate" with only a phone number).
 
-   The form (profile-identity.js) pre-fills from the resume B3 just read:
-   POST /profile/contact/suggest parses it and returns each field with a
-   confidence; nothing is saved until the user presses Confirm. Skipping
-   is allowed — the beat records the skip and stays unchecked on the
-   spine, so setup keeps showing it as unfinished.
+   The form (profile-identity.js) pre-fills from the resume B3 just read,
+   and from nothing else (JOBQA): POST /profile/contact/suggest parses the
+   STAGED resume text only and returns each field with a confidence. It
+   never reads the saved profile or the saved resume, which on a shared
+   machine may be another person's. Skipping is allowed — the beat records
+   the skip and stays unchecked on the spine, so setup keeps showing it as
+   unfinished.
 
-   Where the confirmed details go: the fit profile does not exist yet (B4
-   saves it next), so they ride the flow's persisted draft `contactDraft`
-   and B4's save carries them into profile.json's `identity`. When a
-   profile already exists (a re-entry), they are also saved straight away
-   through POST /profile/contact.
+   Where the confirmed details go: Confirm keeps them in the flow's
+   persisted draft `contactDraft`; nothing is saved here. B4's one commit
+   (POST /profile/commit) writes them into profile.json's `identity`
+   together with the resume and the profile.
 
    Classic-global IIFE, registered against window.JobBoredOneFlow.
    ============================================ */
@@ -49,15 +50,36 @@
     values: null,
     provenance: {},
     errors: [],
-    // "idle" → "running" → "done": the pre-fill runs once per page load.
+    // "idle" → "running" → "done": the pre-fill runs once per staged resume.
     prefill: "idle",
-    // Whether profile.json exists yet: before B4 saves it, there is
-    // nothing for POST /profile/contact to write into.
-    profileExists: false,
+    // The staged resume text the pre-fill last read, and what it suggested:
+    // a different resume re-reads, clearing only fields still holding the
+    // old suggestions (what the user typed stays).
+    prefillText: null,
+    suggested: {},
     note: "",
     prefilled: false,
     saving: false,
+    // JOBQA: the account scope this state was built under, and the pre-fill
+    // run that owns the screen; an answer from an older one is dropped.
+    scope: null,
+    prefillRun: 0,
   };
+
+  /** A different account's setup: nothing typed or suggested before carries over. */
+  function resetState() {
+    state.form = null;
+    state.values = null;
+    state.provenance = {};
+    state.errors = [];
+    state.prefill = "idle";
+    state.prefillText = null;
+    state.suggested = {};
+    state.note = "";
+    state.prefilled = false;
+    state.saving = false;
+    state.prefillRun += 1;
+  }
 
   function api() {
     return window.JobBoredProfileIdentity || null;
@@ -127,10 +149,28 @@
   }
 
   /**
-   * Fill the form once per load: the user's own draft first (a refresh
-   * mid-beat), then the saved profile (a re-entry), then the resume. Each
-   * later source fills only what the earlier ones left empty, and nothing
-   * overwrites a field the user has typed in.
+   * A different staged resume than the pre-fill last read: clear the fields
+   * that still hold its suggestions, so the new resume fills them.
+   */
+  function forgetStaleSuggestions() {
+    if (!state.values || typeof state.values !== "object") return;
+    const next = Object.assign({}, state.values);
+    for (const [key, value] of Object.entries(state.suggested || {})) {
+      if (JSON.stringify(next[key]) === JSON.stringify(value)) delete next[key];
+    }
+    state.values = next;
+    state.provenance = {};
+    state.suggested = {};
+    state.prefilled = false;
+    if (state.form) state.form = null;
+  }
+
+  /**
+   * Fill the form from what this setup was given: the user's own draft
+   * first (a refresh mid-beat), then suggestions parsed from the staged
+   * resume. The saved profile and the saved resume are never read here
+   * (JOBQA). Suggestions fill only empty fields, so nothing overwrites a
+   * field the user has typed in.
    */
   async function prefill(ctx) {
     const lib = api();
@@ -139,21 +179,23 @@
     state.note = READING_MESSAGE;
     paintNote();
     const draft = contactDraft(ctx);
+    const text = resumeText(ctx);
+    const run = (state.prefillRun += 1);
+    const scope = ctx.scope;
+    state.prefillText = text;
     let found = false;
     try {
-      const saved = await lib.fetchSaved();
-      state.profileExists = !!(saved && saved.exists);
-      if (saved && saved.contact && Object.keys(saved.contact).length) {
-        fillEmpty(lib.toValues(saved.contact));
-        found = true;
-      }
-      const result = await lib.suggest(resumeText(ctx));
+      const result = text ? await lib.suggest(text) : null;
+      // A newer pre-fill, or another account's setup, owns the screen now.
+      if (run !== state.prefillRun || (typeof ctx.isCurrentScope === "function" && !ctx.isCurrentScope(scope))) return;
       const values = result && result.values ? result.values : null;
       if (values && Object.keys(values).length) {
-        fillEmpty(lib.toValues(values), {
+        const suggested = lib.toValues(values);
+        fillEmpty(suggested, {
           provenance: true,
           confidence: lib.confidenceOf(result.suggestions),
         });
+        state.suggested = suggested;
         state.prefilled = true;
         found = true;
       }
@@ -176,9 +218,15 @@
       container.appendChild(root);
       return;
     }
+    if (state.scope !== null && state.scope !== ctx.scope) resetState();
+    state.scope = ctx.scope;
     if (!state.values) {
       const draft = contactDraft(ctx);
       if (draft) state.values = draft.values;
+    }
+    if (state.prefill === "done" && state.prefillText !== null && state.prefillText !== resumeText(ctx)) {
+      forgetStaleSuggestions();
+      state.prefill = "idle";
     }
     const status = el("p", "oneflow-details__status");
     status.setAttribute("role", "status");
@@ -230,34 +278,14 @@
     state.errors = [];
     state.saving = true;
     const contact = lib.toContact(state.values);
+    // JOBQA: confirmed into the draft only; B4's commit saves them.
     persist(ctx, true);
     if (ctx.runtime) ctx.runtime.contactIdentity = contact;
-    let serverSaved = false;
-    let rejected = null;
-    // Only a profile that exists can take them now; before B4 saves one,
-    // the draft carries them there and B4's save writes them.
-    if (state.profileExists) {
-      try {
-        ctx.setBusy(ACTION_CONFIRM, [{ label: "Saving your details…", state: "active" }]);
-        const result = await lib.save(contact);
-        if (result.ok) serverSaved = true;
-        else if (result.reason === "rejected") rejected = result.errors;
-      } finally {
-        ctx.clearBusy();
-      }
-    }
     state.saving = false;
-    if (rejected) {
-      if (ctx.runtime) delete ctx.runtime.contactIdentity;
-      persist(ctx, false);
-      refuse(ctx, rejected, "JobBored couldn't save these. Fix the highlighted fields.");
-      return;
-    }
     ctx.setMessage("", "info");
     await ctx.completeBeat({
       prefilled: state.prefilled,
       fields: Object.keys(contact).length,
-      serverSaved,
     });
   }
 

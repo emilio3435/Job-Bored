@@ -779,6 +779,62 @@
   font-size: var(--text-sm);
 }
 
+/* JOBQA: the Client ID and the AI key sit next to their action at desktop
+   sizes, each with its own error line; the how-to steps are one click away. */
+.oneflow-google .oneflow-google__client-id-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.oneflow-google .oneflow-google__client-id-row .oneflow-google__client-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.oneflow-google .oneflow-google__client-id-row .oneflow-google__client-id-save {
+  flex: none;
+  margin-top: 0;
+}
+
+.oneflow-google .oneflow-google__detour-howto,
+.oneflow-ai .oneflow-ai__key-howto {
+  margin-top: var(--space-3);
+}
+
+.oneflow-google .oneflow-google__detour-howto-summary,
+.oneflow-ai .oneflow-ai__key-howto-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-field-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--jb-type-small, 0.8125rem);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--jb-err, #b42318);
+}
+
+.oneflow-field-error[hidden] {
+  display: none;
+}
+
+.oneflow-google__client-id[aria-invalid="true"],
+.oneflow-ai__field[aria-invalid="true"] {
+  border-color: var(--jb-err, #b42318);
+}
+
+.oneflow-google__client-id:focus-visible,
+.oneflow-ai__field:focus-visible {
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
+}
+
 .oneflow-google__existing-lede,
 .oneflow-resume__templates-lede,
 .oneflow-ai__key-lede {

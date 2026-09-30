@@ -219,7 +219,11 @@ describe("savePrimaryResumeChecked asks before saving broken text (RESJ K3)", ()
 });
 
 describe("every resume upload surface goes through the check (RESJ K3)", () => {
-  for (const file of ["profile-materials.js", "materials-feature.js", "settings-profile-tab.js", "oneflow-beat-resume.js"]) {
+  it("oneflow-beat-resume.js saves no resume at upload at all (JOBQA: B4's commit does)", () => {
+    const src = readFileSync(join(repoRoot, "oneflow-beat-resume.js"), "utf8");
+    assert.doesNotMatch(src, /savePrimaryResumeChecked\(|\.setPrimaryResume\(/);
+  });
+  for (const file of ["profile-materials.js", "materials-feature.js", "settings-profile-tab.js"]) {
     it(`${file} should save the primary resume through savePrimaryResumeChecked`, () => {
       const src = readFileSync(join(repoRoot, file), "utf8");
       assert.match(src, /savePrimaryResumeChecked\(/);
@@ -248,8 +252,9 @@ describe("POST /profile/from-resume never caches garbled text over resume.txt (R
     const path = join(home, ".jobbored", "resume.txt");
     writeFileSync(path, CLEAN);
     const { resolveResumeTextForAnalysis } = await import("../server/profile-from-resume.mjs");
-    // Since K5 the resolver skips garbled text before the cache is reached.
-    await resolveResumeTextForAnalysis({ resumeText: SPLIT_WORD });
+    // JOBQA: parsing is read-only and garbled text is refused, never cached
+    // and never swapped for the saved resume.
+    await assert.rejects(resolveResumeTextForAnalysis({ resumeText: SPLIT_WORD }), { code: "resume_garbled" });
     assert.ok(existsSync(path));
     assert.equal(readFileSync(path, "utf8"), CLEAN);
   });

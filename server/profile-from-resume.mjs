@@ -6,12 +6,13 @@
  *
  * Wired into POST /profile/from-resume in server/index.mjs.
  *
- * Request-body `resumeText` (browser-staged) wins over every stored
- * location AND is cached to ~/.jobbored/resume.txt. That cache is the
- * server half of the ONE-FLOW dual write (spec §5 B3): before it, a
- * resume dropped into the browser was analyzed once and thrown away, so
- * the next reader found nothing — the teardown's "resume uploaded in
- * wizard 1 is invisible to wizard 2" bug.
+ * Parsing is read-only (JOBQA). Request-body `resumeText` (browser-staged)
+ * is analyzed as a preview and written nowhere: onboarding saves the resume
+ * once, on its explicit commit (server/profile-commit.mjs), and the editors
+ * save it through PUT /profile/resume. A garbled staged text is refused
+ * rather than swapped for a stored resume, so a preview can never analyze
+ * someone else's saved resume. The stored locations below are read only
+ * when a request explicitly asks for `source: "saved"`.
  *
  * Storage locations checked (priority order — first hit wins):
  *   1. ~/.jobbored/resume.txt (F11: the canonical stored resume)
@@ -30,7 +31,7 @@
  * install falls into after connecting something else.
  */
 
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
@@ -41,13 +42,13 @@ import {
   migrateLlmConfigFromEnv,
   resolveActivePin,
 } from "./llm-config.mjs";
-import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
+import { normalizeProvider as sharedNormalizeProvider, routeDeadlineSignal } from "./ai/provider.mjs";
 import { normalizeGeminiFlashPreference } from "./model-family.mjs";
 import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
 import { experiencesFromStructure } from "./materials-resume-structure.mjs";
 import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
-import { detectGarbledResume, resumeGarbledError } from "./materials-resume-source.mjs";
-import { buildResumeRead } from "./resume-read.mjs";
+import { detectGarbledResume, readCanonicalResume, resumeGarbledError } from "./materials-resume-source.mjs";
+import { buildResumeRead, resumeTextSha256, saveResumeRead } from "./resume-read.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
 // (./profile-draft-shared.js), consumed here AND by the browser for B3's
@@ -190,29 +191,9 @@ async function readResumeFromWorkerConfig() {
   return { text, source: "worker_config", path };
 }
 
-/** The one path both the reader and the staged-text cache use. */
+/** The stored resume the saved-source reader checks first. */
 function jobboredResumePath() {
   return join(homedir(), ".jobbored", "resume.txt");
-}
-
-/**
- * Cache browser-staged resume text where the next reader will find it
- * (ONE-FLOW spec §5 B3). Best-effort by design: a machine that refuses
- * the write still gets its draft, because losing the draft over a failed
- * cache would be a worse bug than the one this fixes.
- *
- * @param {string} text
- * @returns {Promise<string|null>} the path written, or null
- */
-async function cacheStagedResumeText(text) {
-  const path = jobboredResumePath();
-  try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, text, { encoding: "utf8", mode: 0o600 });
-    return path;
-  } catch {
-    return null;
-  }
 }
 
 async function readResumeFromJobboredText() {
@@ -279,24 +260,24 @@ export async function getStoredResumeText() {
 }
 
 /**
- * Resolve resume text for POST /profile/from-resume.
+ * Resolve resume text for POST /profile/from-resume. Read-only (JOBQA).
  *
- * Browser-staged `resumeText` wins so IndexedDB-only resumes can prefill
- * Fit Profile, and it is cached to ~/.jobbored/resume.txt so the NEXT
- * reader — a rescore, a later draft, the discovery worker — sees the same
- * resume the browser has (ONE-FLOW spec §5 B3, the dual write). Only the
- * `resumeText` field is ever read: secret-looking body fields (apiKey,
- * tokens) are ignored and never written.
+ * Browser-staged `resumeText` wins and is analyzed as a preview: nothing
+ * is cached, so uploading a resume never replaces the saved one before the
+ * user commits it. Only the `resumeText` field is ever read: secret-looking
+ * body fields (apiKey, tokens) are ignored and never written.
  *
  * RESJ K5: garbled staged text (a split-word PDF extraction) is never
- * analyzed. The clean saved resume is used instead, with
- * `requestGarbled: true` so the wizard can say so; with no clean saved
- * resume the call throws 422 resume_garbled.
+ * analyzed, and it is never swapped for a stored resume either — that
+ * swap drafted another person's profile under the new upload. It throws
+ * 422 resume_garbled. With no staged text, the stored resume is read only
+ * when the request says `source: "saved"`; otherwise this returns null.
  *
  * @param {unknown} body
+ * @param {{ readSaved?: () => Promise<{ text: string, source: string, path: string|null } | null> }} [deps]
  * @returns {Promise<{ text: string, source: string, path: string|null, requestGarbled?: boolean } | null>}
  */
-export async function resolveResumeTextForAnalysis(body) {
+export async function resolveResumeTextForAnalysis(body, deps = {}) {
   const record = body && typeof body === "object" && !Array.isArray(body)
     ? /** @type {Record<string, unknown>} */ (body)
     : null;
@@ -304,19 +285,13 @@ export async function resolveResumeTextForAnalysis(body) {
     record && typeof record.resumeText === "string" ? record.resumeText.trim() : "";
   if (staged) {
     const text = staged.slice(0, MAX_RESUME_INPUT_CHARS);
-    if (detectGarbledResume(text).garbled) {
-      const stored = await getStoredResumeText();
-      if (!stored || detectGarbledResume(stored.text).garbled) throw resumeGarbledError();
-      return { ...stored, requestGarbled: true };
-    }
-    return {
-      text,
-      source: "staged_request",
-      path: await cacheStagedResumeText(text),
-      requestGarbled: false,
-    };
+    if (detectGarbledResume(text).garbled) throw resumeGarbledError();
+    return { text, source: "staged_request", path: null, requestGarbled: false };
   }
-  return getStoredResumeText();
+  if (record && record.source === "saved") {
+    return (deps.readSaved || getStoredResumeText)();
+  }
+  return null;
 }
 
 /** Validate request-only original-file data. The base64 is consumed by the
@@ -1263,6 +1238,139 @@ export async function analyzeResume(resumeText, opts = {}) {
     ingest: interpreted.ingest,
   };
   return { profile: experiences.length ? { ...profile, experiences } : profile, read: readWithIngest };
+}
+
+/** E11: route deadline for drafting a profile (local models can be slow). */
+const PROFILE_ROUTE_DEADLINE_MS = 180_000;
+
+/** @param {unknown} error @param {string} fallback */
+function messageOf(error, fallback) {
+  const errorLike = /** @type {{ message?: unknown } | null | undefined} */ (error);
+  return String(errorLike && errorLike.message ? errorLike.message : fallback);
+}
+
+/** The key a read is stored under: the CR-free, trimmed text's sha256. @param {string} text */
+function readKeyOf(text) {
+  return resumeTextSha256(String(text || "").replace(/\r/g, "").trim());
+}
+
+/**
+ * POST /profile/from-resume: draft a profile from a resume, read-only.
+ *
+ * Browser-staged `resumeText` is analyzed as a preview and nothing is
+ * written (resolveResumeTextForAnalysis). One narrow exception keeps the
+ * "What JobBored read" panel working: an editor that has already saved the
+ * resume may send `persistRead: true`, and the read is cached only when
+ * the analyzed text IS the saved canonical resume, so a preview of any
+ * other resume never touches the cache. The profile itself is saved by the
+ * caller's own save route or by onboarding's commit.
+ *
+ * 200 { ok: true, profile, read, source, requestGarbled: false }
+ * 400 { ok: false, reason: "resume_empty" } no text and no source: "saved"
+ * 404 { ok: false, reason: "no_resume_stored" } source: "saved" found none
+ * 422 { ok: false, reason: "resume_garbled" }
+ * 409 { ok: false, reason: "gemini_not_configured" | "profile_provider_not_configured" }
+ * 500 { ok: false, reason: "profile_provider_error" | "gemini_error" | "resume_lookup_failed" }
+ *
+ * @param {{
+ *   analyze?: typeof analyzeResume,
+ *   readSaved?: () => Promise<{ text: string, source: string, path: string|null } | null>,
+ *   readCanonicalText?: () => Promise<string>,
+ *   saveRead?: (read: unknown) => Promise<unknown>,
+ *   signalFor?: (req: import("express").Request, res: import("express").Response) => AbortSignal | undefined,
+ * }} [deps] injected by tests and the JOBQA fixture; production uses the defaults
+ */
+export function createProfileFromResumeHandler(deps = {}) {
+  const analyze = deps.analyze || analyzeResume;
+  const readCanonicalText =
+    deps.readCanonicalText || (async () => ((await readCanonicalResume()) || { text: "" }).text);
+  const saveRead = deps.saveRead || ((/** @type {any} */ read) => saveResumeRead(read));
+  const signalFor =
+    deps.signalFor ||
+    ((/** @type {import("express").Request} */ req, /** @type {import("express").Response} */ res) =>
+      routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS));
+  /**
+   * @param {import("express").Request} req
+   * @param {import("express").Response} res
+   */
+  return async function profileFromResume(req, res) {
+    const requestBody = /** @type {Record<string, unknown> | undefined} */ (req.body);
+    const checkedDocument = validateResumeDocument(requestBody?.document);
+    if (!checkedDocument.ok) {
+      return res.status(checkedDocument.status).json({
+        ok: false,
+        reason: checkedDocument.reason,
+        message: checkedDocument.message,
+      });
+    }
+    let stored;
+    try {
+      stored = await resolveResumeTextForAnalysis(req.body, { readSaved: deps.readSaved });
+    } catch (err) {
+      const lookupError = /** @type {{ code?: unknown, message?: unknown } | null | undefined} */ (err);
+      if (lookupError && lookupError.code === "resume_garbled") {
+        return res.status(422).json({ ok: false, reason: "resume_garbled", message: String(lookupError.message || "") });
+      }
+      return res.status(500).json({
+        ok: false,
+        reason: "resume_lookup_failed",
+        message: messageOf(err, "lookup failed"),
+      });
+    }
+    if (!stored) {
+      return requestBody && requestBody.source === "saved"
+        ? res.status(404).json({ ok: false, reason: "no_resume_stored" })
+        : res.status(400).json({ ok: false, reason: "resume_empty", message: "Send the resume text to read." });
+    }
+    // The provider the browser verified on Beat 2 wins over the server's env
+    // (SIXBEATS2-SPEC locked decision 3). Without this a fresh install that
+    // connected OpenRouter was answered "Missing Gemini API key" — NEW-2.
+    const requestedConfig = parseProfileProviderConfigFromBody(req.body);
+    try {
+      // E11: a closed tab aborts the provider call. Drafting a profile from a
+      // long resume on a local model can take minutes, hence the long deadline.
+      const signal = signalFor(req, res);
+      const { profile, read } = await analyze(stored.text, {
+        ...(requestedConfig ? { config: requestedConfig } : {}),
+        ...(checkedDocument.document ? { document: checkedDocument.document } : {}),
+        signal,
+      });
+      if (requestBody?.persistRead === true) {
+        const saved = await readCanonicalText().catch(() => "");
+        if (saved && readKeyOf(saved) === readKeyOf(stored.text)) await saveRead(read);
+      }
+      return res.json({ ok: true, profile, read, source: stored.source, requestGarbled: stored.requestGarbled === true });
+    } catch (err) {
+      const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
+      const code = error && error.code ? String(error.code) : "";
+      // A provider with no key is the CLIENT's configuration state, not a
+      // server fault: 409, so the dashboard can route the user to the AI step
+      // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
+      if (code === "gemini_not_configured") {
+        return res.status(409).json({
+          ok: false,
+          reason: "gemini_not_configured",
+          message: messageOf(err, "profile provider failed"),
+        });
+      }
+      if (code === "profile_provider_not_configured") {
+        return res.status(409).json({
+          ok: false,
+          reason: "profile_provider_not_configured",
+          provider: error && typeof error.provider === "string" ? error.provider : undefined,
+          message: messageOf(err, "profile provider failed"),
+        });
+      }
+      const provider = error && typeof error.provider === "string" ? error.provider : "";
+      const isGeminiError = provider === "gemini" || code.startsWith("gemini_");
+      return res.status(500).json({
+        ok: false,
+        reason: isGeminiError ? "gemini_error" : "profile_provider_error",
+        provider: provider || undefined,
+        message: messageOf(err, "profile provider failed"),
+      });
+    }
+  };
 }
 
 // Expose for tests/scratch only — not part of the documented surface.

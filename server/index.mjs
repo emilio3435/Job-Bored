@@ -75,15 +75,12 @@ import {
 import { isVoiceError, readVoice, removeVoice, saveVoice } from "./profile-voice.mjs";
 import { readLedger, resolveLedgerPath } from "./materials-ledger.mjs";
 import { mountProfileResume, suggestContactFromSources } from "./profile-resume-sync.mjs";
-import { saveResumeRead } from "./resume-read.mjs";
+import { commitBarrier, createProfileCommitService, mountProfileCommit } from "./profile-commit.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
-  analyzeResume,
+  createProfileFromResumeHandler,
   createProfileFromResumeJsonParser,
   getStoredResumeText,
-  parseProfileProviderConfigFromBody,
-  resolveResumeTextForAnalysis,
-  validateResumeDocument,
 } from "./profile-from-resume.mjs";
 import {
   endRouteRescore,
@@ -461,6 +458,17 @@ app.post("/api/ats-scorecard", async (req, res) => {
 
 app.post("/api/leads/chat", leadsChatHandler);
 
+/* JOBQA: onboarding's one explicit save (server/profile-commit.mjs). An
+ * interrupted save is finished before the first request, and the editors'
+ * saves below (each wrapped in guardSave) never interleave with a commit or
+ * its rollback. */
+const profileCommit = createProfileCommitService({ postCommit: refreshDerivedAfterCommit });
+const guardSave = commitBarrier(profileCommit);
+mountProfileCommit(app, profileCommit);
+profileCommit.recover().catch((err) => {
+  console.warn("[profile-commit] could not finish an interrupted save:", errorMessage(err, "recover failed"));
+});
+
 /* ----- User profile (Task #4) -----
  * GET  /profile                     → returns saved profile or { ok: false, reason: "no_profile" }
  * POST /profile                     → validates against user-profile.schema.json, writes atomically
@@ -495,7 +503,7 @@ app.get("/profile", async (_req, res) => {
   }
 });
 
-app.post("/profile", async (req, res) => {
+app.post("/profile", guardSave(async (req, res) => {
   const body = req.body;
   if (!isRecord(body)) {
     return res.status(400).json({
@@ -573,7 +581,7 @@ app.post("/profile", async (req, res) => {
       detail: redactFsPaths(errorMessage(err, "write failed")),
     });
   }
-});
+}));
 
 /* ----- "Your details" (profile contact identity) -----
  * POST /profile/contact          → replace the contact half of identity
@@ -588,7 +596,7 @@ app.post("/profile", async (req, res) => {
  *                                  (source: request | stored | merged |
  *                                  none). Never saves, never caches.
  */
-app.post("/profile/contact", async (req, res) => {
+app.post("/profile/contact", guardSave(async (req, res) => {
   const body = isRecord(req.body) ? req.body : null;
   if (!body) {
     return res.status(400).json({
@@ -629,10 +637,10 @@ app.post("/profile/contact", async (req, res) => {
       detail: redactFsPaths(errorMessage(err, "write failed")),
     });
   }
-});
+}));
 
 /* RESJ K1: PUT /profile/resume writes the canonical resume.txt (profile-resume-sync.mjs). */
-mountProfileResume(app);
+mountProfileResume(app, { guard: guardSave });
 
 /* RESJ K2: garbled or empty request text falls back to the saved resume;
  * when both are usable each field comes from whichever has it. */
@@ -686,7 +694,7 @@ app.get("/profile/voice", async (_req, res) => {
   }
 });
 
-app.put("/profile/voice", async (req, res) => {
+app.put("/profile/voice", guardSave(async (req, res) => {
   const body = isRecord(req.body) ? req.body : null;
   if (!body || typeof body.text !== "string") {
     return res.status(400).json({
@@ -706,16 +714,16 @@ app.put("/profile/voice", async (req, res) => {
   } catch (err) {
     return sendVoiceError(res, err);
   }
-});
+}));
 
-app.delete("/profile/voice", async (_req, res) => {
+app.delete("/profile/voice", guardSave(async (_req, res) => {
   try {
     const removed = await removeVoice();
     return res.json({ ok: true, ...removed });
   } catch (err) {
     return sendVoiceError(res, err);
   }
-});
+}));
 
 app.get("/api/brand-logos", async (_req, res) => {
   try {
@@ -785,106 +793,48 @@ app.post("/profile/template/:id", (req, res) => {
   return res.json({ ok: true, template });
 });
 
-/** E11: route deadline for drafting a profile (local models can be slow). */
-const PROFILE_ROUTE_DEADLINE_MS = 180_000;
+/**
+ * POST /profile/from-resume: a draft v1 UserProfile for review, read-only
+ * (JOBQA). The staged resume is analyzed as a preview and never cached; a
+ * stored resume is read only on an explicit `source: "saved"`. Contract and
+ * statuses: createProfileFromResumeHandler in server/profile-from-resume.mjs.
+ */
+app.post("/profile/from-resume", createProfileFromResumeHandler());
 
 /**
- * POST /profile/from-resume
- *
- * Prefers request-body `resumeText` (browser-staged) and caches it to
- * ~/.jobbored/resume.txt — the server half of the ONE-FLOW resume dual
- * write (spec §5 B3), so the next reader sees the same resume the browser
- * has. Falls back to stored resume text (worker config,
- * ~/.jobbored/resume.txt, or legacy hermes). Runs the provider the request
- * body names — the one the browser verified on Beat 2 — falling back to the
- * server's env config when the body names none, and returns a draft v1
- * UserProfile for review. Does NOT save the profile — the user confirms
- * that on the next screen.
- *
- * 200 { ok: true, profile, read, source } — got a draft profile; `read`
- *       is what was read from the resume (server/resume-read.mjs), with
- *       read.by naming the provider and model
- * 404 { ok: false, reason: "no_resume_stored" }
- * 500 { ok: false, reason: "profile_provider_error", message }
+ * After onboarding's commit: rebuild the claim ledger and refresh logos the
+ * way POST /profile does, from the committed resume text. Best-effort: a
+ * failure here never undoes the commit (claims.load rebuilds on demand).
+ * @param {{ profile: Record<string, unknown>, resumeText: string | null }} committed
  */
-app.post("/profile/from-resume", async (req, res) => {
-  const requestBody = /** @type {Record<string, unknown> | undefined} */ (req.body);
-  const checkedDocument = validateResumeDocument(requestBody?.document);
-  if (!checkedDocument.ok) {
-    return res.status(checkedDocument.status).json({
-      ok: false,
-      reason: checkedDocument.reason,
-      message: checkedDocument.message,
-    });
-  }
-  let stored;
+async function refreshDerivedAfterCommit(committed) {
+  /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string }} */
+  let ledger = { ok: false };
   try {
-    stored = await resolveResumeTextForAnalysis(req.body);
-  } catch (err) {
-    // RESJ K5: garbled browser text and no clean saved resume to use.
-    const lookupError = /** @type {{ code?: unknown, message?: unknown } | null | undefined} */ (err);
-    if (lookupError && lookupError.code === "resume_garbled") {
-      return res.status(422).json({ ok: false, reason: "resume_garbled", message: String(lookupError.message || "") });
-    }
-    return res.status(500).json({
-      ok: false,
-      reason: "resume_lookup_failed",
-      message: errorMessage(err, "lookup failed"),
+    const config = loadLlmConfig();
+    const built = await ensureLedger({
+      profile: committed.profile,
+      resumeText: committed.resumeText || "",
+      resumeSource: "upload",
+      pin: config ? await resolveActivePin(config) : null,
+      fetchImpl: globalThis.fetch,
     });
+    ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash };
+  } catch (ledgerErr) {
+    const code = /** @type {{ code?: unknown }} */ (ledgerErr)?.code;
+    ledger = { ok: false, error: typeof code === "string" && code ? code : "ledger_build_failed" };
   }
-  if (!stored) {
-    return res.status(404).json({ ok: false, reason: "no_resume_stored" });
-  }
-  // The provider the browser verified on Beat 2 wins over the server's env
-  // (SIXBEATS2-SPEC locked decision 3). Without this a fresh install that
-  // connected OpenRouter was answered "Missing Gemini API key" — NEW-2.
-  const requestedConfig = parseProfileProviderConfigFromBody(req.body);
+  /** @type {{ ok: boolean, error?: string }} */
+  let logoRefresh = { ok: true };
   try {
-    // E11: a closed tab aborts the provider call. Drafting a profile from a
-    // long resume on a local model can take minutes, hence the long deadline.
-    const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);
-    const { profile, read } = await analyzeResume(
-      stored.text,
-      {
-        ...(requestedConfig ? { config: requestedConfig } : {}),
-        ...(checkedDocument.document ? { document: checkedDocument.document } : {}),
-        signal,
-      },
-    );
-    // RESJ2-EXTRACT: keep what was read for the Settings panel.
-    await saveResumeRead(read);
-    return res.json({ ok: true, profile, read, source: stored.source, requestGarbled: stored.requestGarbled === true });
-  } catch (err) {
-    const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
-    const code = error && error.code ? String(error.code) : "";
-    // A provider with no key is the CLIENT's configuration state, not a
-    // server fault: 409, so the dashboard can route the user to the AI step
-    // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
-    if (code === "gemini_not_configured") {
-      return res.status(409).json({
-        ok: false,
-        reason: "gemini_not_configured",
-        message: errorMessage(err, "profile provider failed"),
-      });
-    }
-    if (code === "profile_provider_not_configured") {
-      return res.status(409).json({
-        ok: false,
-        reason: "profile_provider_not_configured",
-        provider: error && typeof error.provider === "string" ? error.provider : undefined,
-        message: errorMessage(err, "profile provider failed"),
-      });
-    }
-    const provider = error && typeof error.provider === "string" ? error.provider : "";
-    const isGeminiError = provider === "gemini" || code.startsWith("gemini_");
-    return res.status(500).json({
-      ok: false,
-      reason: isGeminiError ? "gemini_error" : "profile_provider_error",
-      provider: provider || undefined,
-      message: errorMessage(err, "profile provider failed"),
-    });
+    await refreshLogosFromLedger();
+  } catch (logoErr) {
+    logoRefresh = { ok: false, error: redactFsPaths(errorMessage(logoErr, "logo refresh failed")) };
   }
-});
+  return { ledger, logoRefresh };
+}
+
+
 
 /* ----- Profile backcompat: legacy migration + rescore (Task #6) ----- */
 

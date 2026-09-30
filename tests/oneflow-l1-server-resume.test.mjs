@@ -48,8 +48,8 @@ async function loadModule() {
   return import(`${moduleUrl}?t=${Date.now()}-${Math.random()}`);
 }
 
-describe("L1 §5 B3 — staged resume text is persisted for the next reader", () => {
-  it("writes request-body resumeText to ~/.jobbored/resume.txt", async () => {
+describe("L1 §5 B3 — staged resume text is read, never persisted (JOBQA)", () => {
+  it("analyzes request-body resumeText without writing it anywhere", async () => {
     const home = useTempHome();
     process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH = join(home, "missing-worker.json");
     const mod = await loadModule();
@@ -61,14 +61,13 @@ describe("L1 §5 B3 — staged resume text is persisted for the next reader", ()
     assert.equal(result.text, "Browser-staged resume body.");
     assert.equal(
       existsSync(target),
-      true,
-      "the browser upload must survive as the file /profile/from-resume reads next time",
+      false,
+      "a preview upload never becomes the saved resume: that waits for onboarding's commit",
     );
-    assert.equal(readFileSync(target, "utf8"), "Browser-staged resume body.");
-    assert.equal(result.path, target, "the caller is told where it landed");
+    assert.equal(result.path, null, "nothing landed anywhere");
   });
 
-  it("still prefers the body over anything already on disk", async () => {
+  it("still prefers the body over anything already on disk, and leaves the disk alone", async () => {
     const home = useTempHome();
     process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH = join(home, "missing-worker.json");
     mkdirSync(join(home, ".jobbored"), { recursive: true });
@@ -76,7 +75,7 @@ describe("L1 §5 B3 — staged resume text is persisted for the next reader", ()
     const mod = await loadModule();
     const result = await mod.resolveResumeTextForAnalysis({ resumeText: "Fresh upload." });
     assert.equal(result.text, "Fresh upload.");
-    assert.equal(readFileSync(join(home, ".jobbored", "resume.txt"), "utf8"), "Fresh upload.");
+    assert.equal(readFileSync(join(home, ".jobbored", "resume.txt"), "utf8"), "STALE RESUME");
   });
 
   it("never persists a body with no resumeText", async () => {

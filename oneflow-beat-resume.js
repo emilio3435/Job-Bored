@@ -1,19 +1,16 @@
 /* ============================================
    Beat B3 of the one-flow onboarding — Hand us your resume.
 
-   ONE-FLOW-ONBOARDING-SPEC §5 B3. This beat closes the teardown's
-   keystone bug: a resume uploaded in wizard 1 was invisible to wizard 2,
-   because one stored it in IndexedDB and the other read the filesystem.
-   The fix is a DUAL write, in a fixed order —
-
-     1. UC.setPrimaryResume(...)                 (the browser's copy)
-     2. POST /profile/from-resume { resumeText } (the server's copy,
-        which server/profile-from-resume.mjs now caches to
-        ~/.jobbored/resume.txt for every later reader)
-
-   — because the server must never be asked to draft from a resume the
-   browser has not yet committed. If the draft fails, the upload still
-   survives; losing it is the bug, not the fallback.
+   ONE-FLOW-ONBOARDING-SPEC §5 B3, staged (JOBQA). An upload or paste is
+   NOT saved here, in the browser or on the server: the text lives in the
+   wizard draft (ctx.saveDraft, restored on reload), and
+   POST /profile/from-resume only READS it to draft the profile (the
+   server caches nothing). The resume becomes the saved one when the user
+   confirms B4, whose one commit (POST /profile/commit) writes resume.txt,
+   the profile and the voice guide together, then the browser's copy.
+   So "nothing is saved until you approve it" is literally true, and an
+   upload in a fresh browser can never replace someone else's saved
+   resume. If the draft fails, the upload still survives in the draft.
 
    Drafting runs on the provider B2 verified, so the template path is a
    CHOICE here, never the consolation prize for a missing key. That is
@@ -69,7 +66,7 @@
    * names the provider and model, and when it finishes it says what it
    * read (readingLabel / doneLabel below).
    */
-  const STAGE_LABELS = ["Saving your resume in this browser", "Reading your resume with AI"];
+  const STAGE_LABELS = ["Keeping your resume for review (not saved yet)", "Reading your resume with AI"];
 
   /**
    * GFX B3-4: the clock on a draft, ported from B2's CHECK_TIMINGS. Past
@@ -149,22 +146,40 @@
     // Body copy that a message-slot string can't carry: the start link
     // (B3-7) and the raw error behind "Technical detail" (B3-6).
     notice: null, // { link: boolean, technical: string }
-    // RESJ K1-B3: the server copy of the resume this ingest saved, a
-    // promise of { ok, reason } (user-content-store.js; never rejects).
-    serverSync: null,
     // RESJ2-EXTRACT: stage 2's live label ("Reading your resume with
     // OpenRouter (model)") and, once read, what was read.
     readingLabel: "",
     doneLabel: "",
+    // JOBQA: the account scope this state was built under.
+    scope: null,
   };
+
+  /**
+   * A different account's setup: drop everything this beat held for the
+   * old one. Bumping ingestRun makes any draft still in flight land nowhere.
+   */
+  function resetState() {
+    state.mode = "intake";
+    state.pasteDraft = "";
+    state.stages = [];
+    state.failed = false;
+    state.lastText = "";
+    state.lastSource = "";
+    state.lastDocument = null;
+    state.writeOrder = [];
+    state.draft = null;
+    state.providerLocked = false;
+    state.draftSeconds = null;
+    state.ingestRun += 1;
+    state.notice = null;
+    state.readingLabel = "";
+    state.doneLabel = "";
+    if (draftWatch) stopDraftWatch(true);
+  }
 
   const fields = { paste: null };
   const ACTIONS = [];
   let lastCtx = null;
-
-  function store() {
-    return window.CommandCenterUserContent || null;
-  }
 
   function ingestApi() {
     return window.CommandCenterResumeIngest || null;
@@ -651,6 +666,8 @@
   function render(container, ctx) {
     lastCtx = ctx;
     fields.paste = null;
+    if (ctx && state.scope !== null && state.scope !== ctx.scope) resetState();
+    if (ctx) state.scope = ctx.scope;
     hydrateFromDrafts(ctx);
     const body = el("div", "oneflow-resume");
     if (state.mode === "templates") {
@@ -675,29 +692,8 @@
   }
 
   // ---------------------------------------------------------------
-  // The dual write (spec §5 B3)
+  // The read-only draft (spec §5 B3, staged by JOBQA)
   // ---------------------------------------------------------------
-
-  async function writeToBrowserStore(text, source) {
-    const uc = store();
-    if (!uc || typeof uc.savePrimaryResumeChecked !== "function") {
-      throw new Error(
-        "The browser's resume store didn't load. Reload the page and try again.",
-      );
-    }
-    // RESJ K3: broken PDF text is saved only after the user confirms.
-    const saved = await uc.savePrimaryResumeChecked({
-      source: source === "upload" ? "file" : "paste",
-      rawMime: null,
-      label: "My resume",
-      extractedText: text,
-    });
-    if (!saved) {
-      throw new Error("Resume not saved. Paste the text or upload the .docx instead.");
-    }
-    state.serverSync = saved.serverSync || null;
-    state.writeOrder.push("indexeddb");
-  }
 
   /**
    * `locked` marks the one failure whose fix is Beat 2 rather than a retry.
@@ -881,17 +877,11 @@
     state.writeOrder = [];
     state.readingLabel = readingLabelFor(verifiedProviderConfig());
     state.doneLabel = "";
+    // JOBQA: the only write an upload makes is to the wizard draft. The
+    // saved resume changes on B4's commit, never here.
     saveDraft(context, "resumeText", clean);
+    state.writeOrder.push("draft");
     setStage(context, 0);
-
-    try {
-      await writeToBrowserStore(clean, source);
-    } catch (err) {
-      clearStages(context);
-      state.failed = true;
-      repaint(context, String((err && err.message) || err || ""), "error");
-      return;
-    }
 
     if (run !== state.ingestRun) return;
     setStage(context, 1);
@@ -942,7 +932,11 @@
 
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
     state.lastDocument = null;
-    if (context && context.runtime) context.runtime.profileDraft = state.draft;
+    if (context && context.runtime) {
+      context.runtime.profileDraft = state.draft;
+      // JOBQA: what the AI read, kept for B4's commit (saved only with it).
+      context.runtime.resumeRead = drafted.read || null;
+    }
     saveDraft(context, "profileDraft", state.draft);
     // RESJ2-EXTRACT: say what the AI read, in the stage list and in a toast
     // that outlives the move to the next beat.
@@ -957,35 +951,11 @@
       if (host && typeof host.showToast === "function") host.showToast(readLine, "success");
     }
 
-    // Outside the draft deadline: the PUT ran alongside the draft. A failed
-    // draft keeps the user here, and its retry saves (and reports) again.
-    await reportServerCopy(context);
     if (run !== state.ingestRun) return;
 
     if (context && typeof context.completeBeat === "function") {
       await context.completeBeat({ source });
     }
-  }
-
-  /**
-   * RESJ K1-B3: say so when the server didn't get a copy of the resume
-   * (hosted page, offline, refused), as a note that survives the move to
-   * the next beat, like oneflow-beat-fit.js quietNote().
-   */
-  async function reportServerCopy(ctx) {
-    const pending = state.serverSync;
-    state.serverSync = null;
-    const uc = store();
-    if (!pending || !uc || typeof uc.describeResumeServerSync !== "function") return;
-    const line = uc.describeResumeServerSync(await pending);
-    if (!line) return;
-    const app = window.JobBoredApp;
-    const host = app && app.core && app.core.host;
-    if (host && typeof host.showToast === "function") {
-      host.showToast(line, "warning", true);
-      return;
-    }
-    repaint(ctx, line, "info");
   }
 
   async function ingestFile(file, ctx) {
