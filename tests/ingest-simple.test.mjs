@@ -358,8 +358,11 @@ for (const resumeAt of ['ADDITIONAL EXPERIENCE', 'Northwind | 2016 — 2018']) {
     assert.equal(result.status, 'ready_with_review');
     assert.ok(result.missingEmployers.some((item) => /Northwind/u.test(item.displayName)));
     assert.ok(result.couldntPlace.some((item) => /Planned fictional workshops/u.test(item.excerpt)));
-    assert.ok(!result.couldntPlace.some((item) => [5, 6, 8, 9, text.split('\n').length].includes(item.lines[0])));
-    assert.equal(calls.length, 1, 'sidebar skills must not trigger a repair');
+    for (const number of [5, 6]) assert.ok(result.couldntPlace.some((item) => item.lines[0] === number), `ambiguous education line ${number} stays visible`);
+    assert.ok(!result.couldntPlace.some((item) => [8, 9, text.split('\n').length].includes(item.lines[0])), 'sidebar skills stay exempt');
+    assert.equal(calls.length, 2, 'ambiguous education lines trigger one bounded repair');
+    assert.match(calls[1].userText, /L5: |L6: /u);
+    assert.doesNotMatch(calls[1].userText, /L8: |L9: /u, 'sidebar skills must not enter the repair');
   });
 }
 
@@ -530,7 +533,7 @@ for (const degree of ['Bachelor of Arts', 'Master of Science', 'B.A.', 'Degree i
     const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
     const { result, calls } = await run(text, [raw]);
     assert.equal(result.status, 'ready');
-    assert.deepEqual(result.couldntPlace, []);
+    assert.deepEqual(result.couldntPlace.map(({ kind, lines, excerpt }) => ({ kind, lines, excerpt })), [{ kind: 'line', lines: [7, 7], excerpt: 'Fictional coursework' }]);
     assert.deepEqual(result.missingEmployers, []);
     assert.equal(calls.length, 1);
   });
@@ -587,13 +590,13 @@ it('READ-R2-4 a combined job header does not inherit an undated achievement abov
 });
 
 for (const degree of ['B.A. in Illustration | Fictional University | Fictional City | 2015', 'Bachelor of Arts — Fictional University — Fictional City 2015', 'Fictional University | Bachelor of Arts | Fictional City | 2015']) {
-  it(`READ-R2-2 degree-first or campus fields do not become role separators: ${degree.split('2015')[0].trim()}`, async () => {
+  it(`READ-R2-2 an ambiguous campus field stays visible: ${degree.split('2015')[0].trim()}`, async () => {
     const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', degree, 'SKILLS', 'SQL'].join('\n');
     const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
     const { result } = await run(text, [raw]);
-    assert.equal(result.status, 'ready');
-    assert.deepEqual(result.couldntPlace, []);
-    assert.deepEqual(result.missingEmployers, []);
+    assert.equal(result.status, 'ready_with_review');
+    assert.deepEqual(result.couldntPlace.map(({ lines, excerpt }) => ({ lines, excerpt })), [{ lines: [6, 6], excerpt: degree }]);
+    assert.deepEqual(result.missingEmployers.map(({ lines, displayName }) => ({ lines, displayName })), [{ lines: [6, 6], displayName: degree }]);
   });
 }
 
@@ -662,13 +665,13 @@ for (const degree of r3Degrees) {
 }
 
 for (const institution of ['University', 'College', 'School', 'Institute']) {
-  it(`READ-R3-2 an institution without a role title remains education: ${institution}`, async () => {
+  it(`READ-R3-2 an institution with an ambiguous trailing field stays visible: ${institution}`, async () => {
     const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', `Fictional ${institution} | Fictional City | 2012 — 2014`, 'SKILLS'].join('\n');
     const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
     const { result } = await run(text, [raw]);
-    assert.equal(result.status, 'ready');
-    assert.deepEqual(result.couldntPlace, []);
-    assert.deepEqual(result.missingEmployers, []);
+    assert.equal(result.status, 'ready_with_review');
+    assert.deepEqual(result.couldntPlace.map(({ lines }) => lines), [[6, 6]]);
+    assert.deepEqual(result.missingEmployers.map(({ lines, displayName }) => ({ lines, displayName })), [{ lines: [6, 6], displayName: `Fictional ${institution} | Fictional City | 2012 — 2014` }]);
   });
 }
 
@@ -680,7 +683,7 @@ it('READ-R3-2 a school job inside education does not turn a later degree into a 
   ] };
   const { result } = await run(text, [raw]);
   assert.equal(result.status, 'ready');
-  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.couldntPlace.map(({ kind, lines, excerpt }) => ({ kind, lines, excerpt })), [{ kind: 'line', lines: [9, 9], excerpt: 'Fictional coursework' }]);
   assert.deepEqual(result.missingEmployers, []);
   assert.equal(result.employers[1].claims[0].text, 'Taught fictional workshops.');
 });
@@ -716,3 +719,105 @@ it('READ-R3-2 education signals in a school job bullet do not exempt the unread 
   assert.ok(!result.couldntPlace.some((item) => item.lines[0] === 9), 'degree stays exempt');
   assert.deepEqual(result.missingEmployers, []);
 });
+
+for (const title of ['Librarian', 'Counselor', 'Research Assistant']) {
+  for (const separator of [' | ', ', ', ' — ']) {
+    it(`READ-R4-1 a school job with ${title} counts with separator ${separator.trim()}`, async () => {
+      const header = `Northwind School${separator}${title} | 2016 — 2018`;
+      const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', header, '• Taught fictional lessons.', 'SKILLS'].join('\n');
+      const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+      const { result } = await run(text, [raw]);
+      assert.equal(result.status, 'ready_with_review');
+      for (const number of [6, 7]) assert.ok(result.couldntPlace.some((item) => item.lines[0] === number), `job line ${number} stays visible`);
+      assert.deepEqual(result.missingEmployers.map(({ displayName, lines }) => ({ displayName, lines })), [{ displayName: header, lines: [6, 6] }]);
+    });
+  }
+}
+
+it('READ-R4-2 an unmarked institution-mention claim cannot switch off the next omitted claim', async () => {
+  const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', 'Northwind School | Tutor | 2016 — 2018', '• Taught fictional lessons.', 'Organized events for the fictional school.', 'Published fictional study guides.', 'SKILLS'].join('\n');
+  const raw = { employers: [
+    { name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] },
+    { name: 'Northwind School', headerLine: 6, roles: [{ title: 'Tutor', line: 6 }], bullets: [{ text: 'Taught fictional lessons.', line: 7 }] },
+  ] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready_with_review');
+  for (const number of [8, 9]) assert.ok(result.couldntPlace.some((item) => item.lines[0] === number), `unmarked job claim ${number} stays visible`);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+for (const institution of ['University', 'College', 'School', 'Institute', 'Academy']) {
+  it(`READ-R4-3 a bare ${institution} followed by a bullet counts even across a blank`, async () => {
+    const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', `Northwind ${institution}`, '', '• Organized fictional workshops.', 'SKILLS'].join('\n');
+    const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+    const { result } = await run(text, [raw]);
+    for (const number of [6, 8]) assert.ok(result.couldntPlace.some((item) => item.lines[0] === number), `ambiguous institution/job line ${number} stays visible`);
+  });
+}
+
+it('READ-R4-4 title company and dates on three separate lines read ready', async () => {
+  const text = ['EXPERIENCE', 'Librarian', 'Contoso', '2016 — 2018', '• Built a fictional library guide.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 3, roles: [{ title: 'Librarian', lines: [2, 4] }], bullets: [{ text: 'Built a fictional library guide.', line: 5 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.employers[0].roles[0].lines, [2, 2]);
+  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('READ-R4-4 date-only lines beside a cited company are covered without a returned role', async () => {
+  const text = ['EXPERIENCE', 'Contoso', '2016 — 2018', '• Built a fictional library guide.', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [], bullets: [{ text: 'Built a fictional library guide.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('READ-R4-5 degree university and dates on three separate lines read ready', async () => {
+  const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', 'Bachelor of Arts', 'Fictional University', '2012 — 2014', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('READ-R4-5 degree institution and adjacent location lines remain exempt individually', async () => {
+  const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', 'Springfield, AR', 'Bachelor of Arts', 'Fictional Academy', '2012 — 2014', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('READ-R4-5 an institution and an explicit location field remain education without a title field', async () => {
+  const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', 'Fictional University | Springfield, AR | 2012 — 2014', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.couldntPlace, []);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+it('READ-R4-4 an uncovered date-only line is visible but never invents a missing employer', async () => {
+  const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', '2012 — 2014', 'SKILLS'].join('\n');
+  const raw = { employers: [{ name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] }] };
+  const { result } = await run(text, [raw]);
+  assert.deepEqual(result.couldntPlace.map(({ kind, lines }) => ({ kind, lines })), [{ kind: 'line', lines: [6, 6] }]);
+  assert.deepEqual(result.missingEmployers, []);
+});
+
+for (const kind of ['employer', 'role']) {
+  it(`READ-R4-4 a rejected model ${kind} on a date-only line cannot name an employer`, async () => {
+    const text = ['EXPERIENCE', 'Contoso', 'Analyst | 2023 — Present', '• Built a fictional dashboard.', 'EDUCATION', '2012 — 2014', 'SKILLS'].join('\n');
+    const employer = { name: 'Contoso', headerLine: 2, roles: [{ title: 'Analyst', line: 3 }], bullets: [{ text: 'Built a fictional dashboard.', line: 4 }] };
+    const raw = { employers: [employer] };
+    if (kind === 'employer') raw.employers.push({ name: 'Invented employer', headerLine: 6, roles: [], bullets: [] });
+    else employer.roles.push({ title: 'Invented title', line: 6 });
+    const { result } = await run(text, [raw]);
+    assert.deepEqual(result.couldntPlace.map(({ kind, lines }) => ({ kind, lines })), [{ kind: 'line', lines: [6, 6] }]);
+    assert.deepEqual(result.missingEmployers, []);
+  });
+}

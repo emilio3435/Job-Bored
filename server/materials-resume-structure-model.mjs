@@ -770,6 +770,7 @@ function pageChromeLines(lines, firstHeader) {
 /** @param {string} line */
 function uncoveredKind(line) {
   if (BULLET_LINE.test(line)) return "bullet";
+  if (DATE_ONLY_LINE.test(line)) return "line";
   if (!DATED_LINE.test(line)) return "line";
   if (!/^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Early|Mid|Late|Spring|Summer|Fall|Autumn|Winter|\d)/iu.test(line.trim()) && /[|•—–-]/u.test(line) && /\p{L}/u.test(line.replace(/\b(?:19|20)\d{2}\b/gu, ""))) return "role_header";
   const words = line.trim().split(/\s+/u);
@@ -966,22 +967,30 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       else modelError = true;
     }
   };
-  const degreeText = /\b(?:bachelor|master|associate|juris\s+doctor|degree|diploma|certificate|MBA|BSc)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
-  const leadingDegree = new RegExp(`^\\s*(?:${degreeText.source})`, "iu");
-  const institutionText = /\b(?:university|college|school|institute)\b/iu;
-  const roleTitle = /\b(?:instructor|teacher|professor|lecturer|tutor|analyst|engineer|manager|director|coordinator|consultant|editor|designer|officer|founder|technician|lead)\b/iu;
-  /** A company and a non-degree title precede the dates in a combined header.
+  const degreeText = /\b(?:bachelor|master|MBA|associate|BSc|JD|juris\s+doctor|doctor\s+of|diploma|certificate|degree|GPA|honors|minor|major)\b|\b(?:[BM]\.?\s*[AS]\.?|Ph\.?\s*D\.?)(?=$|[\s|,;])/iu;
+  const institutionText = /\b(?:university|college|school|institute|academy)\b/iu;
+  const nameLine = /^\p{Lu}[\p{L}.'’-]*(?:\s+(?:\p{Lu}[\p{L}.'’-]*|of|the|and|&))*$/u;
+  /** @param {string} line */
+  const locationOnly = (line) => /^\s*\p{Lu}[\p{L}.'’-]*(?:\s+\p{Lu}[\p{L}.'’-]*)*,\s*[A-Z]{2}\s*$/u.test(line);
+  /** @param {string} line */
+  const institutionOnly = (line) => institutionText.test(line) && nameLine.test(line.trim());
+  /** @param {string} line */
+  const headerParts = (line) => {
+    const date = line.search(DATED_LINE);
+    if (date < 0) return [];
+    return line.slice(0, date).split(/\s*[|•]\s*|\s+[—–-]\s+/u)
+      .flatMap((part) => locationOnly(part) ? [part] : part.split(/\s*,\s*/u))
+      .map((part) => part.trim()).filter((part) => /\p{L}/u.test(part) && !DATE_ONLY_LINE.test(`${part} ${line.slice(date)}`));
+  };
+  /** Any ambiguous field before the dates counts as a title; no title vocabulary.
    * @param {string} line */
   const hasRoleSeparator = (line) => {
-    const date = line.search(DATED_LINE);
-    if (date < 0) return false;
-    const parts = line.slice(0, date).split(/\s*[|•]\s*|\s+[—–]\s+/u).filter((part) => /\p{L}/u.test(part));
-    if (parts.length < 2) return false;
-    const title = parts[1];
-    return (!leadingDegree.test(parts[0]) || roleTitle.test(title)) && (!degreeText.test(title) || roleTitle.test(title));
+    const parts = headerParts(line);
+    return parts.length > 1 && parts.some((part) => !degreeText.test(part) && !institutionOnly(part) && !locationOnly(part));
   };
   const datedHeaders = new Set();
   const educationLines = new Set();
+  const nonExperienceSections = new Map();
   let section = "";
   for (const [index, line] of lines.entries()) {
     if (isNonExperienceHeading(line)) {
@@ -989,15 +998,24 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       continue;
     }
     if (isExperienceHeading(line)) section = "";
-    const hasRole = hasRoleSeparator(line) || roleTitle.test(line);
-    const degree = section === "education" && !BULLET_LINE.test(line) && !roleTitle.test(line)
-      && (institutionText.test(line) || degreeText.test(line) && !hasRole);
-    if (degree) { educationLines.add(index + 1); continue; }
+    if (section) nonExperienceSections.set(index + 1, section);
+    const next = lines.slice(index + 1).find((candidate) => candidate.trim());
+    const date = line.search(DATED_LINE);
+    const parts = headerParts(line);
+    const institution = institutionOnly((date < 0 ? line : line.slice(0, date)).replace(/[\s|,•—–-]+$/u, ""))
+      || parts.some(institutionOnly) && parts.every((part) => institutionOnly(part) || locationOnly(part));
+    if (section && !BULLET_LINE.test(line) && !hasRoleSeparator(line)
+        && (degreeText.test(line) || institution && !BULLET_LINE.test(next || ""))) educationLines.add(index + 1);
+  }
+  const academicHeaders = new Set(educationLines);
+  for (const [index, line] of lines.entries()) {
+    const number = index + 1;
+    if (nonExperienceSections.has(number) && (DATE_ONLY_LINE.test(line) || locationOnly(line))
+        && [number - 1, number + 1].some((adjacent) => academicHeaders.has(adjacent))) educationLines.add(number);
+    if (educationLines.has(number)) continue;
     const candidate = DATED_LINE.test(line) && !BULLET_LINE.test(line) && !pureContact(line)
       && (DATE_RANGE.test(line) || /\b(?:19|20)\d{2}\s*$/u.test(line) && ["employer_header", "role_header"].includes(uncoveredKind(line)));
     if (!candidate) continue;
-    const certification = section.includes("certifications") && /\b(?:certificate|certification|certified)\b/iu.test(line) && !hasRole;
-    if (certification) continue;
     datedHeaders.add(index + 1);
   }
   /** @param {number} number */
@@ -1009,9 +1027,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     let active = true;
     for (let number = firstExperienceLine(); number <= lines.length; number += 1) {
       const line = lines[number - 1];
-      if (isNonExperienceHeading(line) || educationLines.has(number)) { active = false; continue; }
+      if (isNonExperienceHeading(line)) { active = false; continue; }
+      // Exempt this line only. A degree or institution cannot hide the lines after it.
+      if (educationLines.has(number)) continue;
       if (isExperienceHeading(line) || isDatedHeader(number)) active = true;
-      if (active && line.trim()) relevant.add(number);
+      if ((active || nonExperienceSections.get(number) === "education") && line.trim()) relevant.add(number);
     }
     return relevant;
   };
@@ -1021,20 +1041,21 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     const chrome = pageChromeLines(lines, firstExperienceLine());
     const covered = new Set();
     for (const employer of employers) {
-      for (let number = employer.lines[0]; number <= employer.lines[1]; number += 1) covered.add(number);
-      for (const role of employer.roles) {
-        covered.add(role.lines[0]);
-        // Dates belong to the title beside them, without covering the model's broad role span.
+      for (const range of [employer.lines, .../** @type {any[]} */ (employer.roles).map((role) => role.lines)]) {
+        for (let number = range[0]; number <= range[1]; number += 1) covered.add(number);
+        // Date-only lines belong to the grounded company or title beside them.
         for (const direction of [-1, 1]) {
-          for (let number = role.lines[0] + direction; validLine(number) && DATE_ONLY_LINE.test(lines[number - 1]); number += direction) covered.add(number);
+          for (let number = (direction < 0 ? range[0] : range[1]) + direction; validLine(number) && DATE_ONLY_LINE.test(lines[number - 1]); number += direction) covered.add(number);
         }
       }
       for (const claim of employer.claims) for (let number = claim.lines[0]; number <= claim.lines[1]; number += 1) covered.add(number);
     }
     for (const number of relevant) if (isExperienceHeading(lines[number - 1])) covered.add(number);
     /** @type {any[]} */ const missing = [...malformedItems];
-    for (const number of badHeaders) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(DATED_LINE.test(lines[number - 1]) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
-    for (const number of badRoles) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: DATED_LINE.test(lines[number - 1]) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
+    /** @param {number} number */
+    const jobDate = (number) => DATED_LINE.test(lines[number - 1]) && !DATE_ONLY_LINE.test(lines[number - 1]);
+    for (const number of badHeaders) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-header-${number}`, kind: jobDate(number) ? "employer_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered", ...(jobDate(number) ? { aliasKey: employerKey(lines[number - 1]) } : {}) });
+    for (const number of badRoles) if (relevant.has(number) && !withheld.has(number) && !covered.has(number)) missing.push({ id: `unread-role-${number}`, kind: jobDate(number) ? "role_header" : "line", lines: [number, number], excerpt: lines[number - 1].trim(), reason: "uncovered" });
     for (const employer of employers) {
       const header = lines[employer.lines[0] - 1];
       const remainder = header.slice(Math.max(0, header.toLowerCase().indexOf(employer.name.toLowerCase()) + employer.name.length));
@@ -1096,7 +1117,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   for (const item of couldntPlace.filter((entry) => entry.kind === "role_header")) {
     let number = item.lines[0];
     const header = lines[number - 1];
-    const ownJobHeader = isDatedHeader(number) && (hasRoleSeparator(header) || !roleTitle.test(header.slice(0, header.search(DATED_LINE))));
+    const ownJobHeader = isDatedHeader(number) && headerParts(header).length > 1;
     for (let above = number - 1; !ownJobHeader && above > 0; above -= 1) {
       const line = lines[above - 1];
       if ((!relevantLines.has(above) && line.trim()) || isExperienceHeading(line) || isNonExperienceHeading(line) || isDatedHeader(above)) break;
@@ -1105,6 +1126,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         continue;
       }
       if (!line.trim() || withheld.has(above) || pureContact(line)) continue;
+      if (isDatedHeader(number) && !nameLine.test(line.trim())) break;
       number = above;
       break;
     }
