@@ -68,15 +68,18 @@ it("P2-9 layout-rehomed claims retain placement review through persistence, scor
   assert.ok(shown(outline(ledger, [claim.id])).includes(claim.id));
 });
 
-it("P2-9 only a claim cited inside another employer section is quarantined", async () => {
+it("P2-9 a claim cited inside another employer section never remains under the wrong employer", async () => {
   const ready = await read();
   const structure = structuredClone(ready.resumeStructure);
   const foreign = structure.employers[1].claims.pop();
   foreign.roleAttribution = "inferred";
   structure.employers[0].claims.push(foreign);
   const ledger = build(null, structure);
-  assert.ok(!ledger.claims.some((claim) => claim.text === "Analyzed fictional reports."),
-    "a claim whose source belongs to a different employer must not enter the draft pool");
+  const claims = ledger.claims.filter((claim) => claim.text === "Analyzed fictional reports.");
+  assert.equal(claims.length, 1, "the grounded claim stays accounted for");
+  assert.equal(claims[0].employerId, "fabrikam-labs", "the wrong employer must not receive the foreign source fact");
+  assert.equal(claims[0].review, "check where this belongs");
+  assert.ok(!ledger.claims.some((claim) => claim.text === claims[0].text && claim.employerId === "contoso-media"));
   assert.ok(ledger.claims.some((claim) => claim.text === "Built a planning tool."));
   assert.equal(validateLedger(ledger).ok, true);
 });

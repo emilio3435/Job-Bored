@@ -82,7 +82,8 @@ const MAX_CLAIM_TEXT = 2000;
  * 10: the model owns document structure and quotes; no rules-structure path
  * may fill gaps or replace a failed model pass. */
 /* 12: retain profile-only roles and placement review on re-homed claims. */
-export const LEDGER_BUILDER_VERSION = 12;
+/* 13: reconcile primary claims when repair adds their cited employer. */
+export const LEDGER_BUILDER_VERSION = 13;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -367,6 +368,39 @@ function closestEmployerId(text, resumeClaims) {
   return bestId;
 }
 
+/** Repair can add an employer below a previously accepted claim's owner.
+ * Reconcile against the completed set of cited sections without changing
+ * the caller's structure or silently discarding a grounded source claim.
+ * @param {import("./materials-resume-structure.mjs").ResumeStructure} input
+ */
+function reconcileStructureClaims(input) {
+  const employers = input.employers.map((entry) => ({ ...entry, claims: /** @type {import("./materials-resume-structure.mjs").StructureClaim[]} */ ([]) }));
+  const sections = employers.filter((entry) => entry.lines?.[0])
+    .sort((a, b) => /** @type {[number,number]} */ (a.lines)[0] - /** @type {[number,number]} */ (b.lines)[0]);
+  /** @type {Array<{id:string,kind:"check_role",lines:[number,number],reason:string}>} */
+  const review = [];
+  for (const [index, source] of input.employers.entries()) {
+    for (const claim of source.claims) {
+      const range = claim.lines;
+      const target = !claim.quarantined && range && sections.find((entry, next) =>
+        range[0] >= /** @type {[number,number]} */ (entry.lines)[0] && range[1] < (sections[next + 1]?.lines?.[0] || Infinity));
+      if (!target || target === employers[index]) {
+        employers[index].claims.push(claim);
+        continue;
+      }
+      /** @type {number | null} */
+      let roleIndex = null;
+      target.roles.forEach((role, at) => {
+        if (role.lines && role.lines[0] <= range[0] && (roleIndex === null || role.lines[0] > (target.roles[roleIndex].lines?.[0] || 0))) roleIndex = at;
+      });
+      const reconciledClaim = { ...claim, roleIndex, roleAttribution: "inferred" };
+      target.claims.push(reconciledClaim);
+      review.push({ id: `ledger-rehome-${range[0]}-${range[1]}`, kind: "check_role", lines: range, reason: "misattributed_out_of_span" });
+    }
+  }
+  return { structure: { ...input, employers }, review };
+}
+
 /**
  * Build a claim ledger from profile JSON plus a previously interpreted
  * resume structure. Pure and synchronous: no LLM, no network, no disk.
@@ -399,9 +433,9 @@ export function buildLedger({
     error.code = "resume_structure_required";
     throw error;
   }
-  const structure = /** @type {import("./materials-resume-structure.mjs").ResumeStructure} */ (/** @type {unknown} */ (
+  const { structure } = reconcileStructureClaims(/** @type {import("./materials-resume-structure.mjs").ResumeStructure} */ (/** @type {unknown} */ (
     ingestResult?.structure || givenStructure || { source: "model", employers: [], education: [], credentials: [], looseClaims: [] }
-  ));
+  )));
   const { employers, keysById, byStructure } = collectEmployers(profile, structure);
 
   /** @type {Array<{ id: string, kind: "resume" | "profile", hash: string, ingestedAt: string }>} */
@@ -450,8 +484,6 @@ export function buildLedger({
     });
   };
   let bulletN = 0;
-  const sections = structure.employers.filter((entry) => entry.lines?.[0])
-    .sort((a, b) => /** @type {[number,number]} */ (a.lines)[0] - /** @type {[number,number]} */ (b.lines)[0]);
   for (const se of structure.employers) {
     const employer = byStructure.get(se);
     const lines = resume.split(/\r?\n/u);
@@ -470,10 +502,6 @@ export function buildLedger({
     }
     for (const claim of se.claims) {
       if (claim.quarantined) continue;
-      const range = claim.lines;
-      const foreignSection = range && sections.find((entry, index) => entry !== se &&
-        range[0] >= /** @type {[number,number]} */ (entry.lines)[0] && range[1] < (sections[index + 1]?.lines?.[0] || Infinity));
-      if (foreignSection) continue;
       const inferred = /** @type {typeof claim & { roleAttribution?: string }} */ (claim).roleAttribution === "inferred" || claim.attribution === "inferred";
       const roleTitle = claim.roleIndex === null ? "" : se.roles[claim.roleIndex]?.title || "";
       const role = roleTitle
@@ -768,10 +796,15 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
       stale ? "The saved résumé read is stale. Connect an AI provider to read it again." : "Connect an AI provider so JobBored can read your résumé.");
   }
 
-  const result = await structureResume({ lsrc: resume, pin,
+  const readResult = await structureResume({ lsrc: resume, pin,
     ...(typeof fetchImpl === "function" ? { fetchImpl: /** @type {typeof globalThis.fetch} */ (fetchImpl) } : {}),
     ...(typeof callStage === "function" ? { callStage: /** @type {(input:Record<string,unknown>)=>Promise<unknown>|unknown} */ (callStage) } : {}),
   });
+  const reconciled = reconcileStructureClaims(/** @type {import("./materials-resume-structure.mjs").ResumeStructure} */ (readResult.structure));
+  const priorReviews = /** @type {Array<{kind?:string,lines?:number[]}>} */ (readResult.review.claims);
+  const result = reconciled.review.length ? { ...readResult, structure: reconciled.structure, employers: reconciled.structure.employers,
+    review: { claims: [...priorReviews, ...reconciled.review.filter((item) => !priorReviews.some((prior) =>
+      prior.kind === item.kind && prior.lines?.[0] === item.lines[0] && prior.lines?.[1] === item.lines[1]))] } } : readResult;
   await writeIngestResult(result);
   if (result.status !== "ready") {
     const code = result.status === "ready_with_review" ? "ingest_incomplete" : "model_error";
