@@ -844,11 +844,14 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         const roleRange = citedRange(rawRole, lines.length, "role");
         if (!roleRange) { malformedItems.push({ kind: "role", lines: [0, 0], excerpt: "", reason: "malformed_ref" }); continue; }
         if (!usableRange(roleRange) || typeof rawRole.title !== "string" || INSTRUCTION_RE.test(rawRole.title)) { badRoles.add(roleRange[0]); continue; }
-        const roleSource = lines.slice(roleRange[0] - 1, roleRange[1]).join(" ");
+        const titleOffset = lines.slice(roleRange[0] - 1, roleRange[1]).findIndex((line) => locateLiteral(line, rawRole.title.trim()));
+        if (titleOffset < 0) { badRoles.add(roleRange[0]); continue; }
+        const titleLine = roleRange[0] + titleOffset;
+        const roleSource = lines[titleLine - 1];
         const roleMatch = locateLiteral(roleSource, rawRole.title.trim());
         if (!roleMatch) { badRoles.add(roleRange[0]); continue; }
         const title = roleSource.slice(roleMatch.start, roleMatch.end);
-        if (!/** @type {any[]} */ (employer.roles).some((role) => role.lines[0] === roleRange[0] && role.title === title)) employer.roles.push({ title, lines: roleRange, start: groundedDate(rawRole.start, roleRange[0]), end: groundedDate(rawRole.end, roleRange[0]) });
+        if (!/** @type {any[]} */ (employer.roles).some((role) => role.lines[0] === titleLine && role.title === title)) employer.roles.push({ title, lines: [titleLine, titleLine], start: groundedDate(rawRole.start, titleLine), end: groundedDate(rawRole.end, titleLine) });
       }
       incoming.push({ owner: employer, raw: rawEmployer });
     }
@@ -962,11 +965,40 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
       else modelError = true;
     }
   };
-  /** @param {string} line */
-  const isDatedHeader = (line) => DATED_LINE.test(line) && !BULLET_LINE.test(line) && !pureContact(line)
-    && !/\b(?:university|college|bachelor|master|degree|diploma|school|certificate|certification)\b/iu.test(line)
-    && (DATE_RANGE.test(line) || /\b(?:19|20)\d{2}\s*$/u.test(line) && ["employer_header", "role_header"].includes(uncoveredKind(line)));
-  const sourceStart = lines.findIndex((line) => isExperienceHeading(line) || isDatedHeader(line)) + 1;
+  const degreeText = /\b(?:bachelor|master|degree|diploma|certificate)\b|\b[BM]\.?\s*[AS]\.?(?=$|[\s|,;])/iu;
+  const leadingDegree = /^\s*(?:(?:bachelor|master)(?:'s)?\s+(?:of|in|degree)\b|[BM]\.?\s*[AS]\.?(?=$|[\s|,;])|(?:degree|diploma|certificate)\s+(?:in|of)\b)/iu;
+  const roleTitle = /\b(?:instructor|teacher|professor|lecturer|analyst|engineer|manager|director|coordinator|consultant|editor|designer|officer|founder|technician|lead)\b/iu;
+  /** A company and a non-degree title precede the dates in a combined header.
+   * @param {string} line */
+  const hasRoleSeparator = (line) => {
+    const date = line.search(DATED_LINE);
+    if (date < 0) return false;
+    const parts = line.slice(0, date).split(/\s*[|•]\s*|\s+[—–]\s+/u).filter((part) => /\p{L}/u.test(part));
+    if (parts.length < 2) return false;
+    const title = parts[1];
+    return (!leadingDegree.test(parts[0]) || roleTitle.test(title)) && (!degreeText.test(title) || roleTitle.test(title));
+  };
+  const datedHeaders = new Set();
+  let section = "";
+  for (const [index, line] of lines.entries()) {
+    if (isNonExperienceHeading(line)) {
+      section = line.toLowerCase().replace(/[\s:\d]/gu, "");
+      continue;
+    }
+    if (isExperienceHeading(line)) section = "";
+    const candidate = DATED_LINE.test(line) && !BULLET_LINE.test(line) && !pureContact(line)
+      && (DATE_RANGE.test(line) || /\b(?:19|20)\d{2}\s*$/u.test(line) && ["employer_header", "role_header"].includes(uncoveredKind(line)));
+    if (!candidate) continue;
+    const hasRole = hasRoleSeparator(line) || roleTitle.test(line);
+    const degree = section === "education" && degreeText.test(line) && !hasRole;
+    const certification = section.includes("certifications") && /\b(?:certificate|certification|certified)\b/iu.test(line) && !hasRole;
+    if (degree || certification) continue;
+    datedHeaders.add(index + 1);
+    section = "";
+  }
+  /** @param {number} number */
+  const isDatedHeader = (number) => datedHeaders.has(number);
+  const sourceStart = lines.findIndex((line, index) => isExperienceHeading(line) || isDatedHeader(index + 1)) + 1;
   const firstExperienceLine = () => sourceStart || (employers.length ? employers[0].lines[0] : lines.length + 1);
   const experienceLines = () => {
     const relevant = new Set();
@@ -974,7 +1006,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
     for (let number = firstExperienceLine(); number <= lines.length; number += 1) {
       const line = lines[number - 1];
       if (isNonExperienceHeading(line)) { active = false; continue; }
-      if (isExperienceHeading(line) || isDatedHeader(line)) active = true;
+      if (isExperienceHeading(line) || isDatedHeader(number)) active = true;
       if (active && line.trim()) relevant.add(number);
     }
     return relevant;
@@ -1053,9 +1085,11 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
   const missingEmployers = couldntPlace.filter((item) => item.kind === "employer_header").map((item) => ({ aliasKey: item.aliasKey, displayName: item.excerpt, lines: item.lines }));
   for (const item of couldntPlace.filter((entry) => entry.kind === "role_header")) {
     let number = item.lines[0];
-    for (let above = number - 1; above > 0; above -= 1) {
+    const header = lines[number - 1];
+    const ownJobHeader = isDatedHeader(number) && (hasRoleSeparator(header) || !roleTitle.test(header.slice(0, header.search(DATED_LINE))));
+    for (let above = number - 1; !ownJobHeader && above > 0; above -= 1) {
       const line = lines[above - 1];
-      if (isExperienceHeading(line) || isNonExperienceHeading(line) || isDatedHeader(line)) break;
+      if ((!relevantLines.has(above) && line.trim()) || isExperienceHeading(line) || isNonExperienceHeading(line) || isDatedHeader(above)) break;
       if (BULLET_LINE.test(line)) {
         if (!relevantLines.has(above)) break;
         continue;
