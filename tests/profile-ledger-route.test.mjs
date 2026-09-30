@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { createServer } from "node:http";
-import { modelReadReplyFixture, modelReplyFixture } from "./fixtures/materials-model-structure.mjs";
+import { modelReadReplyFixture, modelReplyFixture, resumeSourceFromReadPrompt } from "./fixtures/materials-model-structure.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
 const PORT = 38720 + Math.floor(Math.random() * 100);
@@ -49,10 +49,11 @@ before(async () => {
     const request = JSON.parse(body);
     const messages = Array.isArray(request.messages) ? request.messages : [];
     const system = String(messages.find((message) => message.role === "system")?.content || "");
+    const user = String(messages.find((message) => message.role === "user")?.content || "");
     const content = system === RESUME_STRUCTURE_SYSTEM_PROMPT
       ? JSON.stringify(modelReplyFixture(RESUME_TEXT))
-      : system.startsWith("Read the numbered resume lines")
-        ? JSON.stringify(modelReadReplyFixture(RESUME_TEXT))
+      : system.startsWith("Extract every job from these numbered")
+        ? JSON.stringify(modelReadReplyFixture(resumeSourceFromReadPrompt(user)))
       : "{}";
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ choices: [{ message: { content } }] }));
