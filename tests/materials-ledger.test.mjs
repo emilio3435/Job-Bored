@@ -16,7 +16,7 @@ import {
   writeLedgerAtomic,
 } from "../server/materials-ledger.mjs";
 import { buildLedger, ensureLedger, ledgerEmptyError } from "../server/materials-ledger-build.mjs";
-import { modelReplyFixture, modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -37,6 +37,8 @@ const RESUME_TEXT = [
 ].join("\n");
 const PIN = { provider: "gemini", model: "gemini-3.8-flash", resolvedModel: "gemini-3.8-flash", apiKey: "fictional-key" };
 const fetchImpl = async () => ({});
+const READ_SOURCE = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", import.meta.url), "utf8");
+const READ_REPLY = JSON.parse(readFileSync(new URL("./fixtures/ingest-corpus/C03/stage-replies/read-run2-shape.json", import.meta.url), "utf8"));
 
 function fixtureProfile() {
   const tpl = buildStarterTemplate(listStarterTemplateIds()[0]);
@@ -125,21 +127,22 @@ describe("materials ledger (slice 1)", () => {
     const profile = fixtureProfile();
     const first = await ensureLedger({
       profile,
-      resumeText: RESUME_TEXT,
+      resumeText: READ_SOURCE,
       pin: PIN,
       fetchImpl,
-      callStage: async () => modelReplyFixture(RESUME_TEXT),
+      callStage: async () => READ_REPLY,
     });
-    const second = await ensureLedger({ profile, resumeText: RESUME_TEXT, pin: PIN, fetchImpl });
+    const second = await ensureLedger({ profile, resumeText: READ_SOURCE, pin: PIN, fetchImpl });
     assert.equal(second.ledgerHash, first.ledgerHash);
     assert.equal(second.rebuilt, false);
-    const changedResume = `${RESUME_TEXT}\nExtra line.`;
+    const changedProfile = structuredClone(profile);
+    changedProfile.strengths[0].evidence += " I also documented weekly tests.";
     const third = await ensureLedger({
-      profile,
-      resumeText: changedResume,
+      profile: changedProfile,
+      resumeText: READ_SOURCE,
       pin: PIN,
       fetchImpl,
-      callStage: async () => modelReplyFixture(changedResume),
+      callStage: async () => { throw new Error("a profile save must not read the résumé again"); },
     });
     assert.equal(third.rebuilt, true);
     assert.notEqual(third.ledgerHash, first.ledgerHash);
@@ -147,22 +150,15 @@ describe("materials ledger (slice 1)", () => {
 
   it("R1 and R3 expose count-only coverage and preserve a saved ledger on current-source failure", async () => {
     sandbox();
-    const source = [
-      "EXPERIENCE", "Cedar Studio", "Research Lead | 2022 – 2024",
-      "Mapped fictional library visits to improve weekly staffing plans.",
-    ].join("\n");
-    const reply = { employers: [{
-      name: "Cedar Studio", sourceQuote: "Cedar Studio\nResearch Lead",
-      roles: [{ title: "Research Lead", sourceQuote: "Research Lead | 2022 – 2024", claims: [
-        { text: "Mapped fictional library visits to improve weekly staffing plans.", sourceQuote: "Mapped fictional library visits to improve weekly staffing plans." },
-      ] }],
-    }] };
+    const source = READ_SOURCE;
+    const reply = READ_REPLY;
     const input = { profile: null, resumeText: source, pin: { provider: "gemini", model: "stub" }, fetchImpl: async () => { throw new Error("unexpected network"); } };
     const ready = await ensureLedger({ ...input, callStage: async () => reply });
     assert.equal(ready.ingest.status, "ready");
     assert.equal(ready.ingest.sourceHash, `sha256:${createHash("sha256").update(source).digest("hex")}`);
-    assert.deepEqual(ready.ingest.coverage, { totalEmployers: 1, employersWithClaims: 1, rejectedClaims: 0, looseClaims: 0 });
-    assert.equal(JSON.stringify(ready.ingest).includes("Cedar"), false, "ingest metadata is count-only");
+    assert.equal(ready.ingest.coverage.totalEmployers, 4);
+    assert.equal(ready.ingest.coverage.employersWithClaims, 4);
+    assert.deepEqual(ready.ingest.missingEmployers, [], "a ready read has no missing employers");
     const saved = readFileSync(resolveLedgerPath());
     const failed = await ensureLedger({ ...input, resumeText: `${source}\nChanged source.`, callStage: async () => { throw new Error("model broke"); } });
     assert.equal(failed.ingest.status, "failed");
@@ -171,7 +167,7 @@ describe("materials ledger (slice 1)", () => {
     assert.deepEqual(readFileSync(resolveLedgerPath()), saved);
   });
 
-  it("rebuilds a profile-only ledger on profile changes without requiring resume interpretation", async () => {
+  it("a profile-only save cannot publish a usable résumé ledger", async () => {
     sandbox();
     const first = await ensureLedger({
       profile: { strengths: [{ name: "Planning", rank: 1, evidence: "Built a fictional route planning workflow." }] },
@@ -179,10 +175,9 @@ describe("materials ledger (slice 1)", () => {
     const second = await ensureLedger({
       profile: { strengths: [{ name: "Planning", rank: 1, evidence: "Built a fictional route planning workflow for four teams." }] },
     });
-    assert.equal(second.rebuilt, true);
-    assert.equal(second.ingest.status, "not_required");
-    assert.match(second.claims[0].text, /four teams/);
-    assert.notEqual(second.ledgerHash, first.ledgerHash);
+    assert.equal(first.ingest.status, "needs_model");
+    assert.equal(second.ingest.status, "needs_model");
+    assert.equal((await readLedger()).ok, false);
   });
 });
 

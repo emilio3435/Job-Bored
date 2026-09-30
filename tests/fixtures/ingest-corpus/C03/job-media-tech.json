@@ -1,0 +1,11 @@
+{
+  "company": "Adventure Audio",
+  "title": "Media Technology Product Lead",
+  "posting": "Adventure Audio seeks a product lead for an audio-streaming platform, audience planning, partner discovery, and clear customer research.",
+  "extract": {
+    "jdHash": "sha256:fictional",
+    "role": { "company": "Adventure Audio", "title": "Media Technology Product Lead", "family": "media" },
+    "nouns": [{ "term": "audio streaming", "weight": 1 }, { "term": "audience", "weight": 1 }, { "term": "planning", "weight": 0.8 }],
+    "outcomes": [{ "id": "product", "text": "Build useful audio products", "weight": 1 }]
+  }
+}

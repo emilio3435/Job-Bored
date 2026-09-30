@@ -120,9 +120,10 @@ export function applyFamilyBudgets(model, family) {
  * @param {RenderModel} model mutated
  * @param {string} step
  * @param {string[]} fitTokens mutated
+ * @param {Set<string>} [protectedIds]
  * @returns {boolean}
  */
-export function applyStep(model, step, fitTokens) {
+export function applyStep(model, step, fitTokens, protectedIds = new Set()) {
   const resume = model.documents.resume;
   const letter = model.documents.coverLetter;
   if (step.startsWith("css:")) {
@@ -153,6 +154,15 @@ export function applyStep(model, step, fitTokens) {
     const kind = step.slice("drop_section:".length);
     const index = sections.findIndex((s) => s.kind === kind);
     if (index < 0) return false;
+    if (kind === "earlier") {
+      const earlier = sections[index];
+      const kept = (earlier.entries || []).filter((entry) => protectedIds.has(entry.employerId) || /** @type {any} */ (entry).tenureFloor === true);
+      if (kept.length) {
+        if (kept.length === (earlier.entries || []).length) return false;
+        earlier.entries = kept;
+        return true;
+      }
+    }
     sections.splice(index, 1);
     return true;
   }
@@ -166,7 +176,10 @@ export function applyStep(model, step, fitTokens) {
   }
   if (step === "drop_earlier_line") {
     const earlier = sectionOf(model, "earlier");
-    const target = earlier?.entries ? [...earlier.entries].reverse().find((e) => e.line) : null;
+    const entries = earlier?.entries || [];
+    const target = [...entries].reverse().find((entry) => entry.line && !protectedIds.has(entry.employerId) && /** @type {any} */ (entry).tenureFloor !== true)
+      || (entries.every((entry) => protectedIds.has(entry.employerId) || /** @type {any} */ (entry).tenureFloor === true)
+        ? [...entries].reverse().find((entry) => entry.line) : null);
     if (!target) return false;
     delete target.line;
     return true;
@@ -194,14 +207,18 @@ export function applyStep(model, step, fitTokens) {
   if (step === "drop_weakest_earlier") {
     const earlier = sectionOf(model, "earlier");
     if (!earlier || !earlier.entries || !earlier.entries.length) return false;
-    earlier.entries.pop();
+    const at = earlier.entries.findLastIndex((entry) => !protectedIds.has(entry.employerId) && /** @type {any} */ (entry).tenureFloor !== true);
+    if (at < 0) return false;
+    earlier.entries.splice(at, 1);
     if (!earlier.entries.length) sections.splice(sections.indexOf(earlier), 1);
     return true;
   }
   if (step === FINAL_RESUME_STEP) {
     const experience = sectionOf(model, "experience");
     if (!experience || !experience.entries || experience.entries.length <= 1) return false;
-    experience.entries.pop();
+    const at = experience.entries.findLastIndex((entry) => !protectedIds.has(entry.employerId) && /** @type {any} */ (entry).tenureFloor !== true);
+    if (at < 0) return false;
+    experience.entries.splice(at, 1);
     return true;
   }
   return false;
@@ -224,14 +241,14 @@ export function ladderFor(family, doc) {
  * @param {import("./materials-templates.mjs").TemplateFamily} family
  * @returns {string[]} steps applied
  */
-function trimToWordBudget(model, family) {
+function trimToWordBudget(model, family, protectedIds = new Set()) {
   const max = family.budgets.visibleWords?.[1] ?? MATERIALS_BUDGETS.resume.visibleWords[1];
   /** @type {string[]} */
   const applied = [];
   const scratch = /** @type {string[]} */ ([]);
   for (const step of SHARED_RESUME_STEPS) {
     while (resumeWordCount(model) > max) {
-      if (!applyStep(model, step, scratch)) break;
+      if (!applyStep(model, step, scratch, protectedIds)) break;
       applied.push(step);
     }
     if (resumeWordCount(model) <= max) break;
@@ -245,14 +262,15 @@ function trimToWordBudget(model, family) {
  * @param {RenderModel} input the family-independent render model; its
  *   template block names the family to render in
  * @param {DocKind} doc
- * @param {{ measure?: import("./materials-pdf.mjs").PdfSession["measure"] | null, target?: import("./materials-render.mjs").RenderOptions["target"], header?: string }} [options]
+ * @param {{ measure?: import("./materials-pdf.mjs").PdfSession["measure"] | null, target?: import("./materials-render.mjs").RenderOptions["target"], header?: string, tenureFloorIds?: Set<string> }} [options]
  * @returns {Promise<FitResult>}
  */
 export async function fitDocument(input, doc, options = {}) {
   const family = resolveFamily(input.template.family);
   const model = applyFamilyBudgets(input, family);
+  const protectedIds = options.tenureFloorIds || new Set();
   /** @type {string[]} */
-  const applied = doc === "resume" ? trimToWordBudget(model, family) : [];
+  const applied = doc === "resume" ? trimToWordBudget(model, family, protectedIds) : [];
   /** @type {string[]} */
   const fitTokens = [];
   const measure = options.measure || null;
@@ -278,11 +296,23 @@ export async function fitDocument(input, doc, options = {}) {
   for (const step of ladderFor(family, doc)) {
     if (measurement.fits) break;
     while (!measurement.fits) {
-      if (!applyStep(model, step, fitTokens)) break;
+      if (!applyStep(model, step, fitTokens, protectedIds)) break;
       applied.push(step);
       html = renderDocument(model, doc, { fitTokens, fitVerified: true, target, header });
       measurement = await measure(html, opts);
       if (step.startsWith("css:")) break;
+    }
+  }
+  if (doc === "resume" && !measurement.fits) {
+    const experience = sectionOf(model, "experience")?.entries || [];
+    const earlier = sectionOf(model, "earlier")?.entries || [];
+    const entries = [...experience, ...earlier];
+    const onlyFloor = entries.length > 0 && entries.every((entry) => protectedIds.has(entry.employerId) || /** @type {any} */ (entry).tenureFloor === true);
+    if (onlyFloor) while (applyStep(model, "drop_earlier_line", fitTokens, protectedIds)) {
+      applied.push("drop_earlier_line");
+      html = renderDocument(model, doc, { fitTokens, fitVerified: true, target, header });
+      measurement = await measure(html, opts);
+      if (measurement.fits) break;
     }
   }
   /* Air: a page that fits with room to spare opens up its setting (larger

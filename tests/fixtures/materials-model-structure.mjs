@@ -159,6 +159,18 @@ const northwindOpsReply = {
   credentials: [],
 };
 
+const savedNorthwindReply = {
+  employers: [
+    employer("Northwind Logistics", "Northwind Logistics — Operations Analyst, 2021–2025", [
+      role("Operations Analyst", "Northwind Logistics — Operations Analyst, 2021–2025", "2021", "2025", [
+        claim("Cut late shipments 18% by rebuilding the carrier scorecard."),
+        claim("Owned a $4.2M freight budget across 3 regional desks."),
+      ]),
+    ], [], "2021", "2025"),
+  ],
+  looseClaims: [], education: [], credentials: [],
+};
+
 const bulletedUploadReply = {
   employers: [
     employer("Northwind Media (formerly Contoso Radio)", "Northwind Media (formerly Contoso Radio) — Austin Market Sep 2016 – Present", [
@@ -349,6 +361,10 @@ const fixtures = [
     reply: metricReadoutReply,
   },
   {
+    matches: (text) => text.includes("Northwind Logistics — Operations Analyst, 2021–2025") && text.includes("Owned a $4.2M freight budget across 3 regional desks."),
+    reply: savedNorthwindReply,
+  },
+  {
     matches: (text) => text.includes("Northwind Logistics — Operations Analyst, 2021–2025"),
     reply: northwindOpsReply,
   },
@@ -388,6 +404,53 @@ export function modelReplyFixture(text) {
   const fixture = fixtures.find((row) => row.matches(source));
   if (!fixture) throw new Error("No hand-written model reply fixture matches this fictional resume.");
   return structuredClone(fixture.reply);
+}
+
+/** The ingest/1 read cites lines; keep the older quote reply for profile tests. */
+export function modelReadReplyFixture(text) {
+  const source = String(text || "");
+  const reply = modelReplyFixture(source);
+  return readReplyFromQuotes(source, reply);
+}
+
+/** @param {string} source @param {Record<string, any>} reply */
+export function readReplyFromQuotes(source, reply) {
+  /** @param {string} value */
+  const linesFor = (value) => {
+    const at = source.toLocaleLowerCase("en-US").indexOf(String(value).toLocaleLowerCase("en-US"));
+    if (at < 0) throw new Error("Model fixture evidence is absent from the fictional resume.");
+    const first = source.slice(0, at).split(/\r?\n/u).length;
+    return [first, first + value.split(/\r?\n/u).length - 1];
+  };
+  return { nonExperience: (reply.nonJob || []).map((item) => linesFor(item.sourceQuote)[0]), employers: reply.employers.map((entry) => ({
+    name: entry.name,
+    headerLine: linesFor(entry.sourceQuote)[0],
+    ...(/\((formerly\s+[^)]+)\)/iu.exec(entry.sourceQuote)?.[1]
+      ? { aliasClause: /\((formerly\s+[^)]+)\)/iu.exec(entry.sourceQuote)[1] } : {}),
+    ...(/,\s*((?:[A-Z][a-z]+,\s*[A-Z]{2})|Remote)$/u.exec(entry.sourceQuote)?.[1]
+      ? { location: /,\s*((?:[A-Z][a-z]+,\s*[A-Z]{2})|Remote)$/u.exec(entry.sourceQuote)[1] } : {}),
+    start: entry.start,
+    end: entry.end,
+    roles: entry.roles.map((item) => ({
+      title: item.title,
+      line: linesFor(item.sourceQuote)[0],
+      start: item.start,
+      end: item.end,
+    })),
+    bullets: [...entry.claims, ...entry.roles.flatMap((item) => item.claims || [])].map((item) => ({
+      text: item.text,
+      lines: linesFor(item.sourceQuote),
+    })),
+  })) };
+}
+
+/** @param {string} prompt */
+export function resumeSourceFromReadPrompt(prompt) {
+  const matches = [...String(prompt).matchAll(/^L(\d+): (.*)$/gm)];
+  if (!matches.length) throw new Error("Model fixture read prompt has no numbered source lines.");
+  const source = [];
+  for (const match of matches) source[Number(match[1]) - 1] = match[2];
+  return source.join("\n");
 }
 
 /** @param {string} text */

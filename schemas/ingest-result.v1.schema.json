@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jobbored.example/schemas/ingest-result.v1.schema.json",
+  "title": "JobBored IngestResult v1",
+  "type": "object",
+  "required": ["schema", "status", "sourceMode", "textSha256", "originalSha256", "model", "reads", "stopReasons", "chunks", "anchors", "coverage", "reconciliation", "employers", "unread", "setAside", "review", "rejected", "missingEmployers"],
+  "properties": {
+    "schema": { "const": "ingest-result/1" },
+    "status": { "enum": ["ready", "ready_with_review", "partial", "needs_model", "failed"] },
+    "sourceMode": { "enum": ["text", "native+text", "ocr+text"] },
+    "textSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "originalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "model": { "type": "object", "required": ["provider", "id"], "properties": { "provider": { "type": "string" }, "id": { "type": "string" } } },
+    "reads": { "type": "integer", "minimum": 0 },
+    "stopReasons": { "type": "array", "items": { "type": "string" } },
+    "chunks": { "type": "integer", "minimum": 0 },
+    "anchors": { "type": "integer", "minimum": 0 },
+    "coverage": { "type": "object" },
+    "reconciliation": { "type": "object" },
+    "employers": { "type": "array", "items": { "type": "object" } },
+    "unread": { "type": "array", "items": { "type": "object", "required": ["id", "kind", "lines", "reason"] } },
+    "setAside": { "type": "array", "items": { "type": "object" } },
+    "review": { "type": "object", "required": ["claims"], "properties": { "claims": { "type": "array", "items": { "type": "object" } } } },
+    "rejected": { "type": "array", "items": { "type": "object", "required": ["kind", "reason", "lines"] } },
+    "missingEmployers": { "type": "array", "items": { "type": "object", "required": ["aliasKey", "displayName", "lines"] } },
+    "carried": { "type": "array" },
+    "resolutions": { "type": "array" },
+    "notes": { "type": "array" }
+  }
+}

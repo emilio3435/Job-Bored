@@ -1146,6 +1146,7 @@
            instead of offering a button that does nothing (SPEC §6 state 7). */
         meta = def.draftAction ? "never requested" : "written with the resume";
       }
+      if ((status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter") && manifest.ingestReview && manifest.ingestReview.notice) meta += " · " + String(manifest.ingestReview.notice);
       /* The queue state, carried into the row: the eyebrow says what is
          happening and for how long, the worker's own message says what it is
          doing, and the indeterminate track says it is still alive. */

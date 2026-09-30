@@ -7,7 +7,7 @@ import * as materialsDrafterExports from "../server/materials-drafter.mjs";
 import { buildManifest } from "../server/application-materials.mjs";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { resolveLedgerPath, writeLedgerAtomic } from "../server/materials-ledger.mjs";
-import { modelReplyFixture, modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
+import { modelReadReplyFixture, modelReplyFixture, modelStructureFixture, resumeSourceFromReadPrompt } from "./fixtures/materials-model-structure.mjs";
 import { EXAMPLE_RESUME_TEXT } from "./fixtures/materials-example-writer.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
@@ -60,7 +60,9 @@ function baseDeps(dir, extra = {}) {
     resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "stub" }),
     scrapeJob: async () => ({ description: JD_TEXT }),
     fetchImpl: stub.fetchImpl,
-    structureCallStage: async ({ userText }) => modelReplyFixture(String(userText).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || ""),
+    structureCallStage: async ({ systemPrompt, userText }) => String(systemPrompt).startsWith("Extract every job from these numbered")
+      ? modelReadReplyFixture(resumeSourceFromReadPrompt(userText))
+      : modelReplyFixture(String(userText).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || ""),
     openSession: null,
     logoLoader: async () => [],
     targetLogoLoader: async () => null,
@@ -126,8 +128,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(packageDir, "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_source_review");
-    assert.match(pending.progress.message, /resume|source/i);
+    assert.equal(pending.progress.code, "ingest_failed");
+    assert.match(pending.progress.message, /résumé|provider/i);
     assert.equal(pipelineCalls, 0);
     assert.deepEqual(await readFile(resolveLedgerPath()), beforeLedger);
     assert.equal(await readFile(join(packageDir, "run.json"), "utf8"), '{"runId":"previous"}\n');
@@ -136,7 +138,7 @@ describe("createMaterialsDrafter", () => {
     assert.equal(await readFile(join(packageDir, "resume-source.json"), "utf8"), '{"source":"previous"}\n');
     assert.equal(await readFile(join(packageDir, "job-description.md"), "utf8"), "Previous posting summary.\n");
     const manifest = await buildManifest("eab-role", { root: dir });
-    assert.equal(manifest.pending?.progress?.code, "resume_source_review", "failed pending stays visible beside older documents");
+    assert.equal(manifest.pending?.progress?.code, "ingest_failed", "failed pending stays visible beside older documents");
   });
 
   it("fails resume ingest without a pin instead of using parser-built claims", async () => {
@@ -152,8 +154,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_ingest_failed");
-    assert.match(pending.progress.message, /resume|ingest/i);
+    assert.equal(pending.progress.code, "ingest_needs_model");
+    assert.match(pending.progress.message, /Connect an AI provider/i);
     await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
     await assert.rejects(readFile(join(dir, "eab-role", "qa-report.md")));
   });
@@ -166,8 +168,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_ingest_failed");
-    assert.match(pending.progress.message, /resume could not be interpreted/i);
+    assert.equal(pending.progress.code, "ingest_failed");
+    assert.match(pending.progress.message, /read.*résumé.*local/i);
   });
 
   it("writes REVIEW with jd_unusable when scrape fails on a blurb", async () => {
@@ -246,9 +248,9 @@ describe("createMaterialsDrafter", () => {
     release();
     await drafter.runUntilIdle();
     /* The one-time resume.structure call (L1) builds the ledger, not a run. */
-    const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT);
-    /* One run has an extract, a write and a judge for each document; a second run would double it. */
-    assert.ok(runCalls.length <= 6, `duplicate enqueue must not start a second run (saw ${runCalls.length} calls)`);
+    const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT && !c.system.startsWith("Extract every job from these numbered"));
+    /* One run's current extract, select, write and judge stages make eight calls; a second run would double them. */
+    assert.equal(runCalls.filter((c) => c.system.startsWith("You read a job posting")).length, 1, "duplicate enqueue must not start a second extract stage");
   });
 
   it("F13: failed pending carries a neutral code, never raw internals", async () => {

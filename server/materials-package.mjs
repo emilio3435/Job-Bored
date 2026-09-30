@@ -25,6 +25,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { coverLetterText, resumeText } from "./materials-ats-text.mjs";
 import { fitDocument } from "./materials-fit.mjs";
+import { tenureFloorIds } from "./materials-outline.mjs";
 import { matchMark } from "./materials-render-model-adapter.mjs";
 import { addresseeMark, targetCompanyOf, withMonograms } from "./materials-monogram.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
@@ -82,6 +83,7 @@ export const PROMPT_VERSION = "materials.writer.v2";
  * @property {{ resume?: import("./materials-fit.mjs").FitResult, coverLetter?: import("./materials-fit.mjs").FitResult }} fit
  * @property {{ code: string, message: string, severity: "review" | "fail" }[]} issues
  * @property {string[]} notes
+ * @property {{ employerId:string, reason:"page_budget"|"fit_ladder"|"low_relevance"|"user_retired", justified:boolean }[]} [omittedEmployers]
  */
 
 /** @param {unknown} feature */
@@ -206,10 +208,12 @@ export async function rasterizeLogos(model, rasterize) {
  * @param {import("./materials-render-model-adapter.mjs").ResolvedMark[]} [input.employerMarks]
  *   marks for employers the model has none for (attachEmployerMarks)
  * @param {string} [input.header] a header variant the family lists
+ * @param {{employers?:Array<{id?:unknown,retired?:unknown,start?:unknown,end?:unknown}>}} [input.ledger]
+ * @param {{omittedEmployers?:Array<{employerId?:unknown,reason?:unknown}>}} [input.selection]
  *   (family.json `headers`); default: the family's `defaultHeader`
  * @returns {Promise<RenderedPackage & { pdf: { resume?: { pages: number, blockedRequests: number }, coverLetter?: { pages: number, blockedRequests: number } } }>}
  */
-export async function renderPackage({ model: input, feature, session = null, pdfPaths = {}, targetMark = null, header, employerMarks = [] }) {
+export async function renderPackage({ model: input, feature, session = null, pdfPaths = {}, targetMark = null, header, employerMarks = [], ledger, selection }) {
   const measure = session ? session.measure.bind(session) : null;
   const rasterize = session && typeof session.rasterize === "function" ? session.rasterize.bind(session) : null;
   /* The printed copy: in a family that sets marks in a column, every
@@ -232,13 +236,19 @@ export async function renderPackage({ model: input, feature, session = null, pdf
   /** @type {RenderedPackage & { pdf: Record<string, { pages: number, blockedRequests: number }> }} */
   const out = { fit: {}, issues: [], notes: [], pdf: {} };
   const family = resolveFamily(model.template.family);
+  const floor = tenureFloorIds(ledger || {});
+  /** @param {RenderModel} current */
+  const visible = (current) => new Set((current.documents.resume?.sections || [])
+    .filter((section) => section.kind === "experience" || section.kind === "earlier")
+    .flatMap((section) => (section.entries || []).map((entry) => entry.employerId)));
+  const beforeFit = visible(model);
 
   /**
    * @param {"resume" | "coverLetter"} doc
    * @param {string | undefined} pdfPath
    */
   async function one(doc, pdfPath) {
-    const result = await fitDocument(model, doc, { measure, target, header });
+    const result = await fitDocument(model, doc, { measure, target, header, tenureFloorIds: floor });
     out.fit[doc] = result;
     const label = doc === "resume" ? "Resume" : "Cover letter";
     if (!result.measured) {
@@ -276,6 +286,18 @@ export async function renderPackage({ model: input, feature, session = null, pdf
   if (wantsResume(feature) && model.documents.resume) {
     out.resumeHtml = await one("resume", pdfPaths.resumePdfPath);
     out.resumeTxt = resumeText(out.fit.resume?.model || model);
+    if (ledger) {
+      const afterFit = visible(out.fit.resume?.model || model);
+      const selectedReasons = new Map((selection?.omittedEmployers || []).map((entry) => [entry.employerId, entry.reason]));
+      out.omittedEmployers = (ledger.employers || [])
+        .filter((employer) => typeof employer.id === "string" && !afterFit.has(employer.id) && !floor.has(employer.id))
+        .map((employer) => ({
+          employerId: /** @type {string} */ (employer.id),
+          reason: /** @type {"page_budget"|"fit_ladder"|"low_relevance"|"user_retired"} */ (
+            employer.retired ? "user_retired" : beforeFit.has(/** @type {string} */ (employer.id)) ? "fit_ladder" : selectedReasons.get(employer.id) === "page_budget" ? "page_budget" : "low_relevance"),
+          justified: true,
+        }));
+    }
   }
   if (wantsLetter(feature) && model.documents.coverLetter) {
     out.letterHtml = await one("coverLetter", pdfPaths.coverLetterPdfPath);

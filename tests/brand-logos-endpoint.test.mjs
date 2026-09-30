@@ -248,7 +248,7 @@ test("POST /api/brand-logos/:slug rejects uploads when uploads dir escapes templ
   }
 });
 
-test("POST /profile regenerates the employer logo registry from the materials ledger", async () => {
+test("POST /profile keeps the logo registry when the resume still needs a model", async () => {
   writeFileSync(
     join(templateRoot, "logos.json"),
     JSON.stringify({ logos: [{ slug: "jobbored", label: "Prior JobBored" }] }, null, 2),
@@ -275,20 +275,20 @@ test("POST /profile regenerates the employer logo registry from the materials le
     strengths: [{
       name: "backend systems",
       rank: 1,
-      evidence: "Built reliable backend systems and APIs for Audacy.",
+      evidence: "Built reliable backend systems and APIs for Contoso Media.",
     }],
     experiences: [
       {
-        slug: "audacy",
-        company: "Audacy",
+        slug: "contoso-media",
+        company: "Contoso Media",
         title: "Digital Sales Manager",
-        logoDomain: "audacy.com",
+        logoDomain: "contoso.example",
       },
     ],
     projects: [
       {
-        slug: "audacy",
-        name: "Duplicate Audacy",
+        slug: "contoso-media",
+        name: "Duplicate Contoso Media",
         logoDomain: "duplicate.example",
       },
       {
@@ -307,14 +307,12 @@ test("POST /profile regenerates the employer logo registry from the materials le
   assert.equal(post.status, 200);
   const data = await post.json();
   assert.equal(data.ok, true);
-  assert.equal(data.ledger.ok, true);
-  assert.equal(data.logoRefresh.ok, true);
+  assert.equal(data.ledger.ingest.status, "needs_model");
+  assert.equal(data.logoRefresh.ok, false);
 
   const manifest = JSON.parse(readFileSync(join(ledgerLogosRoot, "logos.json"), "utf8"));
-  assert.deepEqual(manifest.logos.map((entry) => entry.label), ["Audacy"]);
-  assert.ok(!JSON.stringify(manifest).includes("Stale project entry"));
-  assert.ok(!JSON.stringify(manifest).includes("JobBored"), "project-only organizations do not enter the employer ledger registry");
-  assert.ok(existsSync(join(ledgerLogosRoot, "assets", `logo-${manifest.logos[0].slug}.svg`)));
+  assert.deepEqual(manifest.logos.map((entry) => entry.label), ["Stale project entry"]);
+  assert.ok(!JSON.stringify(manifest).includes("Contoso Media"), "profile-only employers cannot enter the registry as ledger employers");
 
   const legacyManifest = JSON.parse(readFileSync(join(templateRoot, "logos.json"), "utf8"));
   assert.deepEqual(legacyManifest.logos.map((entry) => entry.slug), ["jobbored"]);

@@ -1,0 +1,286 @@
+{
+  "sourceSha256": "6ad7f5a53d13d5c33fa23a5b96835b05d4f3907910d3d49507339721d16910fc",
+  "employers": [
+    {
+      "name": "Contoso Media (formerly Litware Radio)",
+      "lines": [
+        6,
+        6
+      ],
+      "aliasClause": "formerly Litware Radio",
+      "start": "Mar 2017",
+      "end": "2026",
+      "roles": [
+        {
+          "title": "Digital Sales Manager",
+          "start": "May 2021",
+          "end": "2026",
+          "lines": [
+            8,
+            8
+          ]
+        },
+        {
+          "title": "Senior Account Executive",
+          "start": "May 2019",
+          "end": "May 2021",
+          "lines": [
+            9,
+            9
+          ]
+        },
+        {
+          "title": "Account Executive",
+          "start": "Mar 2017",
+          "end": "May 2019",
+          "lines": [
+            10,
+            10
+          ]
+        }
+      ],
+      "claims": []
+    },
+    {
+      "name": "Fabrikam Labs",
+      "site": "fabrikam.example",
+      "lines": [
+        12,
+        12
+      ],
+      "roles": [
+        {
+          "title": "Founder & AI Engineer",
+          "start": "Jan 2025",
+          "end": "Present",
+          "lines": [
+            12,
+            12
+          ]
+        }
+      ],
+      "claims": []
+    },
+    {
+      "name": "Northwind Trading",
+      "site": "northwind.example",
+      "lines": [
+        13,
+        13
+      ],
+      "roles": [
+        {
+          "title": "Co-founder",
+          "start": "2025",
+          "end": "Present",
+          "lines": [
+            13,
+            13
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "text": "Built a planning tool for local teams to review their weekly goals.",
+          "lines": [
+            14,
+            14
+          ]
+        },
+        {
+          "text": "It combined interview notes with a clear record of customer requests.",
+          "lines": [
+            15,
+            15
+          ]
+        },
+        {
+          "text": "At Fabrikam, I prototyped an assistant for recurring field work.",
+          "lines": [
+            16,
+            16
+          ]
+        },
+        {
+          "text": "The assistant helped operators compare schedules and service windows.",
+          "lines": [
+            17,
+            17
+          ]
+        },
+        {
+          "text": "Its first pilot covered twelve fictional service districts.",
+          "lines": [
+            18,
+            18
+          ]
+        },
+        {
+          "text": "I documented each test and revised the workflow with volunteers.",
+          "lines": [
+            19,
+            19
+          ]
+        },
+        {
+          "text": "At Northwind, I designed a small catalog for wholesale buyers.",
+          "lines": [
+            20,
+            20
+          ]
+        },
+        {
+          "text": "The catalog grouped products by season and delivery region.",
+          "lines": [
+            21,
+            21
+          ]
+        },
+        {
+          "text": "One planning scenario modeled $1.2M in annual orders.",
+          "lines": [
+            22,
+            22
+          ]
+        },
+        {
+          "text": "I also built a dashboard for the team's shared inventory.",
+          "lines": [
+            23,
+            23
+          ]
+        },
+        {
+          "text": "The dashboard kept a transfor-",
+          "lines": [
+            24,
+            24
+          ]
+        },
+        {
+          "text": "mation log for every edited product description.",
+          "lines": [
+            25,
+            25
+          ]
+        },
+        {
+          "text": "Fabrikam research informed the search experience in the catalog.",
+          "lines": [
+            26,
+            26
+          ]
+        },
+        {
+          "text": "Northwind feedback exposed slow steps in the prototype.",
+          "lines": [
+            27,
+            27
+          ]
+        },
+        {
+          "text": "I held weekly reviews and wrote concise notes for both teams.",
+          "lines": [
+            28,
+            28
+          ]
+        },
+        {
+          "text": "Those notes connected decisions to the people who requested them.",
+          "lines": [
+            29,
+            29
+          ]
+        },
+        {
+          "text": "The software ran locally during an extended trial period.",
+          "lines": [
+            30,
+            30
+          ]
+        },
+        {
+          "text": "I translated trial feedback into smaller follow-up tasks.",
+          "lines": [
+            31,
+            31
+          ]
+        },
+        {
+          "text": "Each release included a short guide for new participants.",
+          "lines": [
+            32,
+            32
+          ]
+        },
+        {
+          "text": "The final review listed open questions and agreed next steps.",
+          "lines": [
+            33,
+            33
+          ]
+        },
+        {
+          "text": "Invented result number 0 for a fictional pilot.",
+          "lines": [
+            14,
+            14
+          ]
+        },
+        {
+          "text": "Invented result number 1 for a fictional pilot.",
+          "lines": [
+            15,
+            15
+          ]
+        },
+        {
+          "text": "Invented result number 2 for a fictional pilot.",
+          "lines": [
+            16,
+            16
+          ]
+        },
+        {
+          "text": "Invented result number 3 for a fictional pilot.",
+          "lines": [
+            17,
+            17
+          ]
+        },
+        {
+          "text": "Invented result number 4 for a fictional pilot.",
+          "lines": [
+            18,
+            18
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tailspin Studio",
+      "lines": [
+        34,
+        34
+      ],
+      "roles": [
+        {
+          "title": "Founder",
+          "start": "Early 2026",
+          "end": "Present",
+          "lines": [
+            34,
+            34
+          ]
+        }
+      ],
+      "claims": []
+    }
+  ],
+  "education": [],
+  "credentials": [],
+  "projects": [],
+  "volunteer": [],
+  "nonJob": [],
+  "stop_reason": "stop"
+}

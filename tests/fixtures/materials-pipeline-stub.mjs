@@ -5,7 +5,7 @@
  */
 
 import { EXAMPLE_RESUME_SOURCE } from "./materials-example-writer.mjs";
-import { modelReplyFixture } from "./materials-model-structure.mjs";
+import { modelReadReplyFixture, modelReplyFixture, resumeSourceFromReadPrompt } from "./materials-model-structure.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../../server/materials-resume-structure-model.mjs";
 
 export { EXAMPLE_RESUME_SOURCE };
@@ -44,16 +44,19 @@ export function scriptedPipelineFetch(extra = {}) {
         ? (body.messages || []).map((m) => (typeof m.content === "string" ? m.content : "")).join("\n")
         : (body.messages && body.messages[1] && body.messages[1].content) || "";
     calls.push({ system: String(system), user: String(user) });
-    const pipelineCallCount = calls.filter((call) => call.system !== RESUME_STRUCTURE_SYSTEM_PROMPT).length;
+    const readCall = (call) => call.system === RESUME_STRUCTURE_SYSTEM_PROMPT || call.system.startsWith("Extract every job from these numbered");
+    const pipelineCallCount = calls.filter((call) => !readCall(call)).length;
     if (extra.gate && pipelineCallCount === (extra.gateAt || 1)) await extra.gate;
     let content;
     /* The letter support check (voice v5) answers by prompt, not by call
      * index: every sentence supported. */
     const supportCall = String(system).startsWith("You check a cover letter's facts");
-    const stageIndex = calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT && !c.system.startsWith("You check a cover letter's facts")).length;
+    const stageIndex = calls.filter((c) => !readCall(c) && !c.system.startsWith("You check a cover letter's facts")).length;
     if (String(system) === RESUME_STRUCTURE_SYSTEM_PROMPT) {
       const resumeText = String(user).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || "";
       content = JSON.stringify(modelReplyFixture(resumeText));
+    } else if (String(system).startsWith("Extract every job from these numbered")) {
+      content = JSON.stringify(modelReadReplyFixture(resumeSourceFromReadPrompt(user)));
     } else if (supportCall) {
       const count = [...String(user).split("Letter sentences:")[1]?.matchAll(/^(\d+)\. /gm) || []].length;
       content = JSON.stringify({ verdicts: Array.from({ length: count }, (_, i) => ({ i: i + 1, factual: true, supported: true, source: "stub" })) });

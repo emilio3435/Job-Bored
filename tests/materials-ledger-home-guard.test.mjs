@@ -17,17 +17,17 @@ import { afterEach, describe, it } from "node:test";
 import { writeLedgerAtomic } from "../server/materials-ledger.mjs";
 import {
   assertLedgerPathIsolated,
-  buildLedger,
   ensureLedger,
   LEDGER_BUILDER_VERSION,
 } from "../server/materials-ledger-build.mjs";
 import { EXAMPLE_RESUME_TEXT } from "./fixtures/materials-example-writer.mjs";
-import { modelReplyFixture, modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
+import { modelReadReplyFixture } from "./fixtures/materials-model-structure.mjs";
 
-const GOLDEN = readFileSync(new URL("./fixtures/resumes/unbulleted-realshape.txt", import.meta.url), "utf8");
+const GOLDEN = readFileSync(new URL("./fixtures/ingest-corpus/C03/source.txt", import.meta.url), "utf8");
+const GOLDEN_READ = JSON.parse(readFileSync(new URL("./fixtures/ingest-corpus/C03/stage-replies/read-run2-shape.json", import.meta.url), "utf8"));
 const PIN = { provider: "gemini", model: "gemini-3.8-flash", resolvedModel: "gemini-3.8-flash", apiKey: "fictional-key" };
 const fetchImpl = async () => ({});
-const modelCall = (text) => async () => modelReplyFixture(text);
+const modelCall = (text) => async () => text === GOLDEN ? GOLDEN_READ : modelReadReplyFixture(text);
 const saved = { ...process.env };
 afterEach(() => {
   for (const key of ["HOME", "JOBBORED_PROFILE_PATH", "JOBBORED_TEST_REAL_HOME"]) {
@@ -67,23 +67,18 @@ describe("the claim ledger stays out of the real HOME under test", () => {
     assert.ok(leaked.claims.some((c) => /freight budget/.test(c.text)));
     const healed = await ensureLedger({ profile: null, resumeText: GOLDEN, pin: PIN, fetchImpl, callStage: modelCall(GOLDEN) });
     assert.equal(healed.rebuilt, true, "resume hash mismatch forces a rebuild");
-    const resumeHash = `sha256:${createHash("sha256").update(GOLDEN.trim()).digest("hex")}`;
+    const resumeHash = `sha256:${createHash("sha256").update(GOLDEN).digest("hex")}`;
     assert.equal(healed.sources.find((s) => s.kind === "resume")?.hash, resumeHash);
     assert.equal(healed.claims.some((c) => /freight budget/.test(c.text)), false, "no fixture claim survives");
   });
 
   it("a stored ledger from an older builder is rebuilt even when its sources still match", async () => {
     process.env.JOBBORED_PROFILE_PATH = join(mkdtempSync(join(tmpdir(), "jb-builder-")), ".jobbored", "profile.json");
-    /* What the bullet-only v1 builder stored for this unbulleted resume:
-     * matching source hashes, no builderVersion, no resume claims. */
-    const current = buildLedger({
-      profile: { strengths: [{ name: "x", rank: 1, evidence: "Ran an $8M+ digital book at Brightwave Media." }] },
-      resumeText: GOLDEN,
-      structure: modelStructureFixture(GOLDEN),
-    });
-    const { builderVersion: _drop, ...v1 } = current;
+    /* An older builder retained the source hash but no grounded claims. */
+    const profile = { strengths: [{ name: "x", rank: 1, evidence: "Planned fictional media campaigns at Contoso Media." }] };
+    const current = await ensureLedger({ profile, resumeText: GOLDEN, pin: PIN, fetchImpl, callStage: modelCall(GOLDEN) });
+    const { builderVersion: _drop, rebuilt: _rebuilt, ingest: _ingest, ledgerHash: _hash, ...v1 } = current;
     await writeLedgerAtomic({ ...v1, claims: current.claims.filter((c) => c.id.startsWith("profile-")), employers: [] });
-    const profile = { strengths: [{ name: "x", rank: 1, evidence: "Ran an $8M+ digital book at Brightwave Media." }] };
     const rebuilt = await ensureLedger({ profile, resumeText: GOLDEN, pin: PIN, fetchImpl, callStage: modelCall(GOLDEN) });
     assert.equal(rebuilt.rebuilt, true, "older builder forces a rebuild");
     assert.equal(rebuilt.builderVersion, LEDGER_BUILDER_VERSION);
