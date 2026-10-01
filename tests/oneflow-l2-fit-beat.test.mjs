@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildResumeRead } from "../server/resume-read.mjs";
 import { loadOneFlow, readRepoFile } from "./oneflow-l0-harness.mjs";
 
 // GFX FE-B4: the beat validates through fit-profile-schema.js and saves
@@ -75,6 +76,27 @@ function renderBeat(profileDraft = draft()) {
 }
 
 describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
+  for (const stale of [false, true]) {
+    it(`S2 a reloaded fit commit ${stale ? "omits a stale" : "restores its matching"} resume read`, async () => {
+      const env = renderBeat();
+      env.window.crypto = globalThis.crypto;
+      env.window.TextEncoder = TextEncoder;
+      const resumeText = "Jamie Fiction — Operations analyst. Builds intake dashboards.";
+      const read = buildResumeRead(stale ? "An older fictional resume." : resumeText);
+      env.ctx.runtime.drafts = { resumeText, resumeRead: read };
+      env.window.CommandCenterUserContent.setPrimaryResume = async () => {};
+      let body;
+      env.window.fetch = async (_url, init) => {
+        body = JSON.parse(init.body);
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      };
+      await env.beat.onAction("confirm-fit", env.ctx);
+      assert.equal(env.completions.length, 1);
+      if (stale) assert.equal(body.read, undefined);
+      else assert.deepEqual(body.read, read);
+    });
+  }
+
   it("L2-FIT-LAYOUT: renders the grouped sections, human seniority, conditional locations, and no raw JSON", () => {
     // GFX FE-B4 (B4-1/9, B4-6): three cards + "Edit details" + raw JSON
     // became five sections; the hard filters are no longer behind a
@@ -149,9 +171,10 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
 
     assert.equal(discoveryWrites.length, 1);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, "https://api.example.test/profile");
+    // JOBQA: the one write is onboarding's commit, not a profile-only POST.
+    assert.equal(requests[0].url, "https://api.example.test/profile/commit");
     assert.equal(requests[0].options.method, "POST");
-    assert.deepEqual(JSON.parse(requests[0].options.body).identity.targetRoles, [
+    assert.deepEqual(JSON.parse(requests[0].options.body).profile.identity.targetRoles, [
       "Staff Engineer",
       "Platform Engineer",
     ]);
@@ -160,7 +183,10 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     assert.equal(env.completions[0].serverSynced, true);
   });
 
-  it("L2-FIT-SERVER-OPTIONAL: a failed server sync still completes off the local save", async () => {
+  it("L2-FIT-SERVER-REQUIRED (JOBQA): a refused commit completes nothing and writes nothing in the browser", async () => {
+    // Was L2-FIT-SERVER-OPTIONAL: the local save used to be the source of
+    // truth and the server optional. Onboarding now saves once, on the
+    // server's commit; the browser's copy follows it, never leads it.
     const env = renderBeat();
     const discoveryWrites = [];
     const requests = [];
@@ -184,24 +210,16 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
 
     await env.beat.onAction("confirm-fit", env.ctx);
 
-    assert.equal(discoveryWrites.length, 1);
     assert.equal(requests.length, 1);
-    assert.equal(env.completions.length, 1);
-    assert.equal(env.completions[0].serverSynced, false);
-    assert.deepEqual(env.runtime.fitProfile.identity.targetRoles, [
-      "Staff Engineer",
-      "Platform Engineer",
-    ]);
-    assert.ok(
-      env.messages.every((m) => m.tone !== "error"),
-      "a failed sync must not surface as a beat-blocking error",
-    );
+    assert.equal(discoveryWrites.length, 0);
+    assert.equal(env.completions.length, 0);
+    assert.ok(env.messages.some((m) => m.tone === "error"));
   });
 
-  it("L2-FIT-LOCAL-ONLY: with no profile API configured the beat still POSTs same-origin, and completes when nothing answers", async () => {
-    // GFX N-B4-1 / R7: an empty config used to skip the POST, so a
-    // greenfield install never wrote ~/.jobbored/profile.json. "" now means
-    // same-origin; a network failure is a local-only save, not a block.
+  it("L2-FIT-LOCAL-ONLY (JOBQA): with no profile API configured the beat POSTs the commit same-origin, and waits when nothing answers", async () => {
+    // GFX N-B4-1 / R7: "" means same-origin. A network failure is no
+    // longer a local-only save: the answer may have been lost after the
+    // commit, so the beat says it couldn't confirm and a retry is safe.
     const env = renderBeat();
     const discoveryWrites = [];
     const requests = [];
@@ -219,14 +237,14 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
 
     await env.beat.onAction("confirm-fit", env.ctx);
 
-    assert.equal(discoveryWrites.length, 1);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, "/profile");
-    assert.equal(env.completions.length, 1);
-    assert.equal(env.completions[0].serverSynced, false);
+    assert.equal(requests[0].url, "/profile/commit");
+    assert.equal(discoveryWrites.length, 0);
+    assert.equal(env.completions.length, 0);
+    assert.ok(env.messages.some((m) => m.tone === "error" && /couldn't confirm the save/.test(m.text)));
   });
 
-  it("L2-FIT-LOCAL-DASHBOARD: with no URL on the local dashboard, one same-origin POST /profile goes through apiFetch", async () => {
+  it("L2-FIT-LOCAL-DASHBOARD: with no URL on the local dashboard, one same-origin POST /profile/commit goes through apiFetch", async () => {
     const env = renderBeat();
     const discoveryWrites = [];
     const requests = [];
@@ -258,7 +276,7 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
 
     assert.equal(discoveryWrites.length, 1);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, "/profile");
+    assert.equal(requests[0].url, "/profile/commit");
     assert.equal(requests[0].options.method, "POST");
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].serverSynced, true);

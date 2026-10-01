@@ -188,7 +188,7 @@ describe("F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis", () => {
     else process.env.USERPROFILE = priorProfile;
   });
 
-  it("falls back to stored resume when the body has no staged text", async () => {
+  it("reads the stored resume only when the body asks for source:saved (JOBQA)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jobbored-f2b-resume-stored-"));
     temps.push(dir);
     /* F11: ~/.jobbored/resume.txt is the canonical stored resume and wins
@@ -213,7 +213,12 @@ describe("F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis", () => {
     process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH = workerPath;
     try {
       const mod = await loadModule();
-      const result = await mod.resolveResumeTextForAnalysis({});
+      assert.equal(
+        await mod.resolveResumeTextForAnalysis({}),
+        null,
+        "no text and no explicit ask: nothing saved is read (a fresh browser must not get it)",
+      );
+      const result = await mod.resolveResumeTextForAnalysis({ source: "saved" });
       assert.equal(result.source, "worker_config");
       assert.match(result.text, /Stored worker resume text/);
     } finally {

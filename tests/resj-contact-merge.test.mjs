@@ -1,53 +1,38 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { suggestIdentityFromResume } from "../server/profile-identity.mjs";
-import { mergeSuggestions, suggestContactFromSources } from "../server/profile-resume-sync.mjs";
+import { suggestContactFromSources } from "../server/profile-resume-sync.mjs";
 
 /* ============================================================
-   RESJ K2 review fix K2-OTHER (Grok, 1caa65dc): the merge keeps
-   overflow links from both resumes.
-   Fictional text only.
+   RESJ K2-OTHER merged the request's links with the saved
+   resume's. JOBQA removes that merge: on a shared computer the
+   saved resume can be someone else's, and the merge put their
+   phone and links on a new person's form. The request's text is
+   now read alone. Fictional text only.
    ============================================================ */
 
-/** @param {string[]} urls */
-function withOther(urls) {
-  const s = suggestIdentityFromResume("");
-  s.links.other = urls.map((url) => ({ value: { label: new URL(url).hostname, url }, confidence: 0.5 }));
-  return s;
-}
+describe("contact suggestions never mix in the saved resume's details (JOBQA, was K2-OTHER)", () => {
+  const REQUEST = "Ada Lovelace\nData Engineer\nnotes.example.org | blog.example.org | speakerdeck.com/ada\n";
+  const SAVED = "Morgan Existing\nPlatform Architect\n(555) 010-2222 | github.com/morgan-existing | behance.net/morgan\n";
 
-describe("mergeSuggestions keeps overflow links from both sources (K2-OTHER)", () => {
-  it("should union other-links by URL, request order first, capped at three", () => {
-    const request = withOther(["https://notes.example.org/", "https://blog.example.org/"]);
-    const saved = withOther(["https://blog.example.org/", "https://portfolio.example.net/", "https://talks.example.net/"]);
-    const { suggestions, usedSecondary } = mergeSuggestions(request, saved);
-    assert.deepEqual(
-      suggestions.links.other.map((o) => o.value.url),
-      ["https://notes.example.org/", "https://blog.example.org/", "https://portfolio.example.net/"],
+  it("should suggest only what the uploaded text has, even when the saved resume has more", async () => {
+    let savedRead = false;
+    const result = await suggestContactFromSources(
+      { resumeText: REQUEST },
+      { readSaved: async () => ((savedRead = true), SAVED) },
     );
-    assert.equal(usedSecondary, true, "a link only the saved resume had counts as its contribution");
-  });
-
-  it("should not count a duplicate link as the saved resume's contribution", () => {
-    const request = withOther(["https://blog.example.org/"]);
-    const saved = withOther(["https://blog.example.org/"]);
-    assert.equal(mergeSuggestions(request, saved).usedSecondary, false);
-  });
-});
-
-describe("the saved resume's website survives losing the one website slot (K2-OTHER round 2)", () => {
-  it("should move the saved website into the other links, request links first, cap three", async () => {
-    const request = "Ada Lovelace\nData Engineer\nnotes.example.org | blog.example.org | speakerdeck.com/ada\n";
-    const saved = "Ada Lovelace\nData Engineer\n(555) 010-2222 | github.com/ada-lovelace | behance.net/ada\n";
-    const result = await suggestContactFromSources({ resumeText: request }, { readSaved: async () => saved });
-    assert.equal(result.source, "merged");
+    assert.equal(result.source, "request");
+    assert.equal(savedRead, false, "the saved resume is not even read when the browser sends text");
     assert.match(result.values.links.website, /notes\.example\.org/);
-    assert.match(result.values.links.github, /github\.com\/ada-lovelace/);
-    const others = result.values.links.other.map((o) => o.url);
-    assert.equal(others.length, 3, JSON.stringify(others));
-    assert.match(others[0], /blog\.example\.org/);
-    assert.match(others[1], /speakerdeck\.com\/ada/);
-    assert.match(others[2], /behance\.net\/ada/, "the saved website is kept, not dropped");
+    assert.equal(result.values.phone, undefined, "no phone from the saved resume");
+    assert.equal(result.values.links.github, undefined, "no GitHub from the saved resume");
+    const others = (result.values.links.other || []).map((o) => o.url).join(" ");
+    assert.doesNotMatch(others, /behance|morgan/i, "no saved-resume links in the overflow either");
+  });
+
+  it("should read the saved resume only on an explicit source:saved with no text (Settings' Re-fill)", async () => {
+    const result = await suggestContactFromSources({ source: "saved" }, { readSaved: async () => SAVED });
+    assert.equal(result.source, "stored");
+    assert.match(result.values.links.github, /github\.com\/morgan-existing/);
   });
 });

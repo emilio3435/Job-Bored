@@ -179,13 +179,14 @@ describe("GREENFIELD A3 — an unverified provider costs no request", () => {
     assert.equal(env.flow.getState().completedBeats.includes("resume"), false);
   });
 
-  it("A3-RESUME-KEPT: the pasted resume still reaches the browser store", async () => {
+  it("A3-RESUME-KEPT: the pasted resume still reaches the wizard draft", async () => {
     const env = await openResume();
     env.mount().querySelector("#oneFlowResumePaste").value = RESUME_TEXT;
     await env.beats.resume.handleAction("resume_use_text");
+    // JOBQA: staged in the draft (saved only on B4's commit), never the browser store.
     assert.equal(
       env.beats.resume.getWriteOrder().join(","),
-      "indexeddb",
+      "draft",
       "refusing to draft must never cost the upload — that is the keystone bug",
     );
   });

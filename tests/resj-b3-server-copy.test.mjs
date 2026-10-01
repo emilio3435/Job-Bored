@@ -3,13 +3,12 @@ import { describe, it } from "node:test";
 import { loadArrival, makeFetchDouble } from "./oneflow-l1-harness.mjs";
 
 /* ============================================================
-   RESJ K1 review fix K1-B3 (Grok, 1caa65dc): onboarding B3 saved
-   the resume to IndexedDB and never read serverSync, so a hosted
-   404, an offline PUT or a 422 finished the beat with no word
-   that the server kept an older resume. B3 now waits for the
-   server copy after the draft (outside its deadline) and shows
-   the "Saved in this browser only" line as a note that survives
-   the move to the next beat. Fictional text only.
+   RESJ K1-B3, superseded by JOBQA: onboarding B3 used to save the
+   resume to IndexedDB and copy it to the server (PUT
+   /profile/resume) at upload, then report whether that copy
+   landed. An upload is now staged in the wizard draft and saved
+   only by B4's commit, so B3 makes no server copy and has no
+   "Saved in this browser only" line to show. Fictional text only.
    ============================================================ */
 
 const RESUME = "Jane Doe\nStaff engineer, ten years of distributed systems.";
@@ -46,21 +45,16 @@ async function runB3({ putStatus, putJson }) {
   return { env, toasts };
 }
 
-describe("onboarding B3 says when the server copy wasn't saved (K1-B3)", () => {
-  it("should finish the beat and show 'Saved in this browser only' when the page has no JobBored API", async () => {
+describe("onboarding B3 makes no server copy at upload (JOBQA, was K1-B3)", () => {
+  it("should finish the beat without ever PUTting /profile/resume", async () => {
     const { env, toasts } = await runB3({ putStatus: 404, putJson: null });
     assert.ok(env.flow.getState().completedBeats.includes("resume"), "the draft still completes the beat");
-    const line = toasts.find((args) => /^Saved in this browser only\./.test(String(args[0])));
-    assert.ok(line, `toasts: ${JSON.stringify(toasts)}`);
-    assert.equal(line[1], "warning");
+    const puts = env.fetchImpl.calls.filter((c) => c.url.endsWith("/profile/resume"));
+    assert.equal(puts.length, 0, "the saved resume changes only on B4's commit");
+    assert.equal(toasts.filter((args) => /Saved in this browser only/.test(String(args[0]))).length, 0);
   });
 
-  it("should say the server kept the previous resume when it refused the text as garbled", async () => {
-    const { toasts } = await runB3({ putStatus: 422, putJson: { ok: false, reason: "resume_garbled", message: "garbled" } });
-    assert.ok(toasts.some((args) => /kept your previous resume/.test(String(args[0]))), JSON.stringify(toasts));
-  });
-
-  it("should stay quiet when the server copy was saved", async () => {
+  it("should never report a server copy, because none is made", async () => {
     const { toasts } = await runB3({ putStatus: 200, putJson: { ok: true, savedAt: "2026-01-01T00:00:00.000Z" } });
     assert.equal(toasts.filter((args) => /Saved in this browser only/.test(String(args[0]))).length, 0);
   });

@@ -99,13 +99,21 @@
     scopeMissing: false,
     // One create at a time; a second click mid-create is ignored.
     inFlight: false,
+    // JOBQA: the Client ID field's own error, drawn next to the field from
+    // state so the shell's repaints keep it; "" when none.
+    clientIdError: "",
+    // The six steps' disclosure under the field; null follows the default
+    // (closed, open when Google rejected this page's address).
+    howtoOpen: null,
   };
+
+  const CLIENT_ID_ERROR_ID = "oneFlowOauthClientIdError";
 
   // Live field references, refreshed on every render. The draft mirrors
   // them so a repaint (setMessage/setBusy rebuild the tree) never loses
   // what the user typed; the element wins when it is still mounted,
   // which is also what browser autofill needs.
-  const fields = { sheetUrl: null, clientId: null };
+  const fields = { sheetUrl: null, clientId: null, clientIdError: null };
 
   function readField(name, draftKey) {
     const node = fields[name];
@@ -478,7 +486,18 @@
         ),
       );
     }
-    details.appendChild(renderDetourSteps());
+    // JOBQA: the field and its Save come first, next to their action, so
+    // they are on screen at desktop sizes; the six steps sit one click away.
+    details.appendChild(renderClientIdField(ctx));
+    const howto = el("details", "oneflow-google__detour-howto");
+    if (state.howtoOpen == null ? !!failingOrigin : state.howtoOpen) howto.open = true;
+    howto.addEventListener("toggle", () => {
+      state.howtoOpen = !!howto.open;
+    });
+    howto.appendChild(
+      el("summary", "oneflow-google__detour-howto-summary", {}, "Show the 6 steps to make one (about 10 minutes)"),
+    );
+    howto.appendChild(renderDetourSteps());
     const originValue = origin();
     if (originValue && originValue !== failingOrigin) {
       const originRow = el("p", "oneflow-google__detour-origin");
@@ -496,10 +515,10 @@
         call("copyTextToClipboard", originValue);
       });
       originRow.appendChild(copy);
-      details.appendChild(originRow);
+      howto.appendChild(originRow);
     }
     // G11: Google matches the origin exactly.
-    details.appendChild(
+    howto.appendChild(
       el(
         "p",
         "oneflow-google__detour-foot",
@@ -508,40 +527,7 @@
           "the one in your address bar, or add both.",
       ),
     );
-
-    const input = el("input", "oneflow-google__client-id", {
-      id: CLIENT_ID_INPUT_ID,
-      type: "text",
-      autocomplete: "off",
-      spellcheck: false,
-      placeholder: "xxxx.apps.googleusercontent.com",
-      value: state.clientIdDraft,
-      "aria-label": "Your Google Client ID",
-    });
-    input.addEventListener("input", () => {
-      state.clientIdDraft = String(input.value || "");
-    });
-    fields.clientId = input;
-    details.appendChild(input);
-    const save = el(
-      "button",
-      "oneflow-google__client-id-save",
-      { type: "button" },
-      "Save Client ID",
-    );
-    save.addEventListener("click", () => {
-      state.detourOpen = true;
-      saveClientId(ctx);
-    });
-    details.appendChild(save);
-    details.appendChild(
-      el(
-        "p",
-        "oneflow-google__detour-foot",
-        {},
-        "A Client ID always ends in .apps.googleusercontent.com.",
-      ),
-    );
+    details.appendChild(howto);
     // UX01 C7 (FR-14): the error-code footnote sits behind "Having trouble?".
     const trouble = el("details", "oneflow-google__detour-trouble");
     trouble.appendChild(el("summary", "", {}, "Having trouble?"));
@@ -580,6 +566,86 @@
     return details;
   }
 
+  /**
+   * Show (or clear, with "") the Client ID field's own error: in state, so a
+   * repaint that rebuilds the step draws it, AND on the live field now,
+   * because a footer message keeps the step's DOM as it is.
+   */
+  function setClientIdError(message) {
+    state.clientIdError = message || "";
+    const input = fields.clientId;
+    const error = fields.clientIdError;
+    if (input) {
+      if (state.clientIdError) {
+        input.setAttribute("aria-invalid", "true");
+        input.setAttribute("aria-describedby", CLIENT_ID_ERROR_ID);
+      } else {
+        input.removeAttribute("aria-invalid");
+        input.removeAttribute("aria-describedby");
+      }
+    }
+    if (error) {
+      error.textContent = state.clientIdError;
+      error.hidden = !state.clientIdError;
+    }
+  }
+
+  /**
+   * The Client ID input, its Save button beside it, the field's own error
+   * (aria-invalid + aria-describedby, drawn from state) and the one-line
+   * shape hint. Typing clears a shown error in place: a repaint would take
+   * the caret away mid-paste.
+   */
+  function renderClientIdField(ctx) {
+    const group = el("div", "oneflow-google__client-id-group");
+    const row = el("div", "oneflow-google__client-id-row");
+    const attrs = {
+      id: CLIENT_ID_INPUT_ID,
+      type: "text",
+      autocomplete: "off",
+      spellcheck: false,
+      placeholder: "xxxx.apps.googleusercontent.com",
+      value: state.clientIdDraft,
+      "aria-label": "Your Google Client ID",
+    };
+    if (state.clientIdError) {
+      attrs["aria-invalid"] = "true";
+      attrs["aria-describedby"] = CLIENT_ID_ERROR_ID;
+    }
+    const input = el("input", "oneflow-google__client-id", attrs);
+    const error = el("p", "oneflow-field-error", { id: CLIENT_ID_ERROR_ID }, state.clientIdError);
+    error.hidden = !state.clientIdError;
+    input.addEventListener("input", () => {
+      state.clientIdDraft = String(input.value || "");
+      if (state.clientIdError) setClientIdError("");
+    });
+    fields.clientId = input;
+    fields.clientIdError = error;
+    row.appendChild(input);
+    const save = el(
+      "button",
+      "oneflow-google__client-id-save",
+      { type: "button" },
+      "Save Client ID",
+    );
+    save.addEventListener("click", () => {
+      state.detourOpen = true;
+      saveClientId(ctx);
+    });
+    row.appendChild(save);
+    group.appendChild(row);
+    group.appendChild(error);
+    group.appendChild(
+      el(
+        "p",
+        "oneflow-google__detour-foot",
+        {},
+        "A Client ID always ends in .apps.googleusercontent.com.",
+      ),
+    );
+    return group;
+  }
+
   function oauthClientId() {
     return String(call("getOAuthClientId") || "").trim();
   }
@@ -600,14 +666,23 @@
     state.detourOpen = true;
     const raw = String(readField("clientId", "clientIdDraft") || "").trim();
     if (!/\.apps\.googleusercontent\.com$/i.test(raw)) {
+      setClientIdError(
+        raw
+          ? "That doesn't look like a Client ID — it should end in " +
+              ".apps.googleusercontent.com. Paste the whole thing."
+          : "Paste your Client ID first — it ends in .apps.googleusercontent.com.",
+      );
       repaint(
         ctx,
         "That doesn't look like a Client ID — it should end in " +
           ".apps.googleusercontent.com. Paste the whole thing.",
         "error",
       );
+      focusClientIdSoon();
       return;
     }
+    // A valid shape: the old complaint is history before anything else happens.
+    setClientIdError("");
     call("mergeStoredConfigOverridePatch", { oauthClientId: raw });
     if (call("applyOAuthClientChange", raw) !== true) {
       // Greenfield boot: initAuth() ran with no Client ID, so GIS was never
@@ -779,7 +854,8 @@
     // answer — never the Settings modal, which is out of the flow.
     if (!oauthClientId()) {
       state.detourOpen = true;
-      repaint(ctx, DETOUR_PROMPT, "info");
+      setClientIdError(DETOUR_PROMPT);
+      repaint(ctx, "", "info");
       focusClientIdSoon();
       return undefined;
     }

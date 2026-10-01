@@ -135,34 +135,34 @@ describe("PUT /profile/resume (K1)", () => {
   });
 });
 
-describe("POST /profile/contact/suggest source choice (K2)", () => {
-  it("should fill from the saved resume when the browser sends garbled text", async () => {
+describe("POST /profile/contact/suggest source choice (K2, JOBQA)", () => {
+  it("should give nothing for garbled browser text, never the saved resume's details", async () => {
     writeFileSync(resumePath, CLEAN);
     const { status, body } = await send("POST", "/profile/contact/suggest", { resumeText: GARBLED });
     assert.equal(status, 200);
-    assert.equal(body.source, "stored");
+    assert.equal(body.source, "none");
     assert.equal(body.requestGarbled, true);
-    assert.equal(body.values.fullName, "Jordan Rivera");
-    assert.equal(body.values.email, "jordan.rivera@example.com");
-    assert.equal(body.values.phone, "(512) 555-0147");
-    assert.deepEqual(body.values.location, { city: "Austin", state: "TX" });
+    assert.deepEqual(body.values, {}, "on a shared computer the saved resume may be someone else's");
   });
 
-  it("should fill from the saved resume when the browser sends nothing", async () => {
+  it("should give nothing when the browser sends nothing, unless it asks for source:saved", async () => {
     writeFileSync(resumePath, CLEAN);
-    const { body } = await send("POST", "/profile/contact/suggest", {});
-    assert.equal(body.source, "stored");
-    assert.equal(body.values.fullName, "Jordan Rivera");
+    const quiet = await send("POST", "/profile/contact/suggest", {});
+    assert.equal(quiet.body.source, "none");
+    assert.deepEqual(quiet.body.values, {});
+    const asked = await send("POST", "/profile/contact/suggest", { source: "saved" });
+    assert.equal(asked.body.source, "stored");
+    assert.equal(asked.body.values.fullName, "Jordan Rivera");
   });
 
-  it("should take each field from whichever source has it, the browser's text first", async () => {
+  it("should take fields from the browser's text only, adding none from the saved resume", async () => {
     writeFileSync(resumePath, CLEAN);
     const { body } = await send("POST", "/profile/contact/suggest", { resumeText: PARTIAL });
-    assert.equal(body.source, "merged");
-    assert.equal(body.values.email, "jordan@rivera.example.org", "the browser's newer email wins");
+    assert.equal(body.source, "request");
+    assert.equal(body.values.email, "jordan@rivera.example.org");
     assert.equal(body.values.headline, "Head of Growth");
-    assert.equal(body.values.phone, "(512) 555-0147", "a field only the saved resume has is kept");
-    assert.deepEqual(body.values.location, { city: "Austin", state: "TX" });
+    assert.equal(body.values.phone, undefined, "a field only the saved resume has stays out");
+    assert.equal(body.values.location, undefined);
   });
 
   it("should answer from the browser's text alone when nothing is saved", async () => {

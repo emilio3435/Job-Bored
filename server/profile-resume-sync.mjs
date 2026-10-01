@@ -11,16 +11,17 @@
  *     (RESJ2-EXTRACT), for the Settings panel.
  *
  *   suggestContactFromSources() → what POST /profile/contact/suggest
- *     answers: garbled or empty request text falls back to the saved
- *     resume, and when both are usable each field comes from whichever
- *     source has it (the request's text wins a tie).
+ *     answers (JOBQA): the request's text alone when it sends one — never
+ *     mixed with, or swapped for, the saved resume, which may be another
+ *     person's — and the saved resume only on an explicit
+ *     `source: "saved"` with no text (Settings' "Re-fill").
  */
 
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getStoredResumeText } from "./profile-from-resume.mjs";
-import { MAX_OTHER_LINKS, hostLabel, suggestIdentityFromResume, suggestionValues } from "./profile-identity.mjs";
+import { suggestIdentityFromResume, suggestionValues } from "./profile-identity.mjs";
 import {
   CANONICAL_RESUME_FILE,
   RESUME_GARBLED_CODE,
@@ -99,8 +100,14 @@ export async function currentResumeRead(deps = {}) {
 }
 
 /** @typedef {(path: string, handler: (req: import("express").Request, res: import("express").Response) => unknown) => unknown} RouteMount */
-/** @param {{ put: RouteMount, get: RouteMount }} app */
-export function mountProfileResume(app) {
+/** @typedef {(req: import("express").Request, res: import("express").Response) => unknown} ResumeHandler */
+/**
+ * @param {{ put: RouteMount, get: RouteMount }} app
+ * @param {{ guard?: (handler: ResumeHandler) => any }} [options] `guard` wraps
+ *   the resume save so it never interleaves with onboarding's commit (JOBQA).
+ */
+export function mountProfileResume(app, options = {}) {
+  const guard = options.guard || ((/** @type {ResumeHandler} */ handler) => handler);
   app.get("/profile/resume/read", async (_req, res) => {
     try {
       return res.json({ ok: true, read: await currentResumeRead() });
@@ -112,7 +119,7 @@ export function mountProfileResume(app) {
       });
     }
   });
-  app.put("/profile/resume", async (req, res) => {
+  app.put("/profile/resume", guard(async (req, res) => {
     const checked = validateResumeSync(req.body);
     if (!checked.ok) {
       return res.status(checked.status).json({ ok: false, reason: checked.reason, message: checked.message });
@@ -127,7 +134,7 @@ export function mountProfileResume(app) {
         message: "JobBored's server couldn't save your resume file.",
       });
     }
-  });
+  }));
 }
 
 /* ------------------------------------------------------------------ *
@@ -154,80 +161,17 @@ async function readUsableSavedResume() {
 }
 
 /**
- * @typedef {ReturnType<typeof suggestIdentityFromResume>} IdentitySuggestions
- */
-
-/**
- * Overflow links from both resumes, by URL, the first source's first,
- * capped where the extractor caps them.
- * @param {IdentitySuggestions["links"]["other"]} first
- * @param {IdentitySuggestions["links"]["other"]} second
- */
-function unionOtherLinks(first, second) {
-  /** @type {IdentitySuggestions["links"]["other"]} */
-  const out = [];
-  for (const link of [...first, ...second]) {
-    if (out.length >= MAX_OTHER_LINKS) break;
-    if (!out.some((o) => o.value.url === link.value.url)) out.push(link);
-  }
-  return out;
-}
-
-/**
- * The second source's website when the first source's took the one
- * website slot, as an other-link so it isn't dropped (K2-OTHER round 2).
- * @param {IdentitySuggestions["links"]["website"]} kept
- * @param {IdentitySuggestions["links"]["website"]} other
- * @returns {IdentitySuggestions["links"]["other"]}
- */
-function displacedWebsite(kept, other) {
-  if (!kept || !other || kept.value === other.value) return [];
-  return [{ value: { label: hostLabel(other.value), url: other.value }, confidence: other.confidence }];
-}
-
-/**
- * Field by field: the first suggestion that has a value.
- * @param {IdentitySuggestions} primary
- * @param {IdentitySuggestions} secondary
- * @returns {{ suggestions: IdentitySuggestions, usedSecondary: boolean }}
- */
-export function mergeSuggestions(primary, secondary) {
-  let usedSecondary = false;
-  /** @template T @param {T | null} a @param {T | null} b */
-  const pick = (a, b) => {
-    if (a) return a;
-    if (b) usedSecondary = true;
-    return b;
-  };
-  const suggestions = {
-    fullName: pick(primary.fullName, secondary.fullName),
-    headline: pick(primary.headline, secondary.headline),
-    email: pick(primary.email, secondary.email),
-    phone: pick(primary.phone, secondary.phone),
-    location: pick(primary.location, secondary.location),
-    links: {
-      linkedin: pick(primary.links.linkedin, secondary.links.linkedin),
-      website: pick(primary.links.website, secondary.links.website),
-      github: pick(primary.links.github, secondary.links.github),
-      other: unionOtherLinks(primary.links.other, [
-        ...displacedWebsite(primary.links.website, secondary.links.website),
-        ...secondary.links.other,
-      ]),
-    },
-  };
-  if (suggestions.links.other.length > primary.links.other.length) usedSecondary = true;
-  return { suggestions, usedSecondary };
-}
-
-/**
  * What POST /profile/contact/suggest answers.
  *
- * source: "request"  — only the request's text had details
- *         "stored"   — the request's text was empty, garbled or had no
- *                      details; the saved resume filled the form
- *         "merged"   — both were usable and each added fields
- *         "none"     — nothing to read
- * requestGarbled tells the browser why it fell back.
+ * source: "request"  — the request's text had details
+ *         "stored"   — an explicit `source: "saved"` request with no text;
+ *                      the saved resume filled the form
+ *         "none"     — nothing to read: no text, garbled text, a note with
+ *                      no details, or no saved resume
+ * requestGarbled tells the browser why its text gave nothing. A request's
+ * text is never mixed with or swapped for the saved resume: on a machine
+ * whose saved resume belongs to someone else, that filled a new person's
+ * form with the old person's phone and links (JOBQA).
  *
  * @param {unknown} body
  * @param {{ readSaved?: () => Promise<string> }} [deps]
@@ -236,27 +180,16 @@ export async function suggestContactFromSources(body, deps = {}) {
   const record = body && typeof body === "object" && !Array.isArray(body) ? /** @type {Record<string, unknown>} */ (body) : {};
   const staged = typeof record.resumeText === "string" ? record.resumeText.trim().slice(0, MAX_RESUME_SYNC_CHARS) : "";
   const requestGarbled = Boolean(staged) && detectGarbledResume(staged).garbled;
-  const requestText = requestGarbled ? "" : staged;
-  const savedText = await (deps.readSaved || readUsableSavedResume)();
-
-  const fromRequest = suggestIdentityFromResume(requestText);
-  const fromSaved = suggestIdentityFromResume(savedText);
-  /** @type {"request" | "stored" | "merged" | "none"} */
-  let source;
-  let suggestions;
-  /* A readable request with no details at all (a note, not a resume)
-   * adds nothing: the saved resume filled the form. */
-  const requestHasDetails = Object.keys(suggestionValues(fromRequest)).length > 0;
-  if (requestText && (requestHasDetails || !savedText)) {
-    const merged = mergeSuggestions(fromRequest, fromSaved);
-    suggestions = merged.suggestions;
-    source = merged.usedSecondary ? "merged" : "request";
-  } else if (savedText) {
-    suggestions = fromSaved;
-    source = "stored";
-  } else {
-    suggestions = fromRequest;
-    source = "none";
+  /** @type {"request" | "stored" | "none"} */
+  let source = "none";
+  let text = "";
+  if (staged) {
+    text = requestGarbled ? "" : staged;
+  } else if (record.source === "saved") {
+    text = await (deps.readSaved || readUsableSavedResume)();
   }
-  return { ok: true, source, requestGarbled, suggestions, values: suggestionValues(suggestions) };
+  const suggestions = suggestIdentityFromResume(text);
+  const values = suggestionValues(suggestions);
+  if (Object.keys(values).length) source = staged ? "request" : "stored";
+  return { ok: true, source, requestGarbled, suggestions, values };
 }

@@ -93,16 +93,21 @@
   }
 
   /**
-   * Suggestions from a resume. `resumeText` may be empty: the server then
-   * reads the resume it has stored. Resolves null when no server answers —
-   * the form then simply starts empty.
+   * Suggestions from a resume: from `resumeText` alone when it is given
+   * (JOBQA: never mixed with the saved resume). `{ allowSaved: true }` —
+   * Settings' "Re-fill", on the owner's own saved setup — lets an empty
+   * `resumeText` read the resume saved on this computer instead;
+   * onboarding never sets it. Resolves null when no server answers — the
+   * form then simply starts empty.
    */
-  async function suggest(resumeText) {
+  async function suggest(resumeText, options) {
+    var body = resumeText ? { resumeText: String(resumeText) } : {};
+    if (!resumeText && options && options.allowSaved) body.source = "saved";
     try {
       var res = await apiFetch(profileUrl("/profile/contact/suggest"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(resumeText ? { resumeText: String(resumeText) } : {}),
+        body: JSON.stringify(body),
       });
       var data = await readJson(res);
       if (!res.ok || !data || data.ok !== true) return null;
@@ -707,7 +712,9 @@
       } catch (_) {
         resumeText = "";
       }
-      var result = await suggest(resumeText);
+      var result = await suggest(resumeText, { allowSaved: true });
+      // Broken browser text: read the resume saved on this computer instead, as asked.
+      if (resumeText && result && result.requestGarbled) result = await suggest("", { allowSaved: true });
       refill.disabled = false;
       if (!result || !result.values || !Object.keys(result.values).length) {
         setStatus("We couldn't find details on your resume. Fill them in here.", "info");
@@ -869,7 +876,9 @@
         message: "Connect an AI provider in Settings so JobBored can read it. Your resume is saved.",
       };
     }
-    var payload = { resumeText: String(resumeText || "") };
+    // persistRead: keep the read for the "What JobBored read" panel. The
+    // server keeps it only when this text IS the saved resume (JOBQA).
+    var payload = { resumeText: String(resumeText || ""), persistRead: true };
     if (document) payload.document = document;
     Object.keys(provider).forEach(function (k) {
       payload[k] = provider[k];

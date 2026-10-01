@@ -1947,13 +1947,14 @@ export async function runDiscovery(
         cause = cause.cause;
       }
       const transport = cause instanceof GoogleTransportError ? cause : null;
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 2048);
       if (error instanceof SheetWriteError) {
         dependencies.log?.("discovery.run.write_failed", {
           runId,
           sheetId: config.sheetId,
           phase: error.phase,
           httpStatus: error.httpStatus,
-          message: error.message,
+          message,
           ...(transport ? { code: transport.code, host: transport.host } : {}),
         });
         // Build a writeResult with the error info so it can be stored in status.
@@ -1972,20 +1973,19 @@ export async function runDiscovery(
               }
             : {}),
           warnings: [
-            ...(partialResult?.warnings ?? []),
-            `Sheet write failed during ${error.phase} phase: ${error.message}`,
+            ...(partialResult?.warnings ?? []).map((warning) => warning.slice(0, 2048)),
+            `Sheet write failed during ${error.phase} phase: ${message}`.slice(0, 2048),
           ],
           writeError: {
             phase: error.phase,
-            message: error.message,
+            message,
             httpStatus: error.httpStatus,
-            detail: error.detail,
+            detail: error.detail?.slice(0, 2048),
             ...(transport ? { code: transport.code, host: transport.host } : {}),
           },
         };
       } else {
         const phase = /token|OAuth/i.test(error instanceof Error ? error.message : "") ? "token" : "read";
-        const message = error instanceof Error ? error.message : String(error);
         dependencies.log?.("discovery.run.write_failed", {
           runId, sheetId: config.sheetId, phase, message,
           ...(transport ? { code: transport.code, host: transport.host } : {}),
@@ -1993,7 +1993,7 @@ export async function runDiscovery(
         writeResult = {
           sheetId: config.sheetId, appended: 0, updated: 0,
           skippedDuplicates: 0, skippedBlacklist: 0,
-          warnings: [`Sheet write failed during ${phase} phase: ${message}`],
+          warnings: [`Sheet write failed during ${phase} phase: ${message}`.slice(0, 2048)],
           writeError: {
             phase, message,
             ...(transport ? { code: transport.code, host: transport.host } : {}),

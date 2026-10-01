@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildResumeRead } from "../server/resume-read.mjs";
 import {
   actionButton,
   loadArrival,
@@ -111,22 +112,37 @@ describe("B3 Hand us your resume — the screen (spec §5 B3)", () => {
   });
 });
 
-describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone bug)", () => {
-  it("commits to IndexedDB BEFORE asking the server to draft", async () => {
+describe("B3 Hand us your resume — staged, not saved (JOBQA; was the dual write, spec §5 B3)", () => {
+  it("S2 keeps the hash-keyed resume read in persisted drafts across a reload", async () => {
+    const resumeText = "Jamie Fiction — Operations analyst. Builds intake dashboards.";
+    const read = buildResumeRead(resumeText);
+    const env = await openBeat({ fetchImpl: draftingFetch({
+      fromResume: () => ({ ok: true, json: { ok: true, profile: DRAFT_PROFILE, read } }),
+    }) });
+    await env.beats.resume.ingestText(resumeText, "paste");
+    await env.flow.flushDrafts();
+    const persisted = await env.store.getOnboardingFlowState();
+    assert.equal(persisted.drafts.resumeRead?.textSha256, read.textSha256);
+    assert.deepEqual(persisted.drafts.resumeRead, read);
+    assert.equal(await env.store.getActiveResume(), null, "the read remains staged with the resume");
+  });
+
+  it("keeps the resume in the wizard draft, then only asks the server to READ it", async () => {
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
       [...env.beats.resume.getWriteOrder()],
-      ["indexeddb", "server"],
-      "the server must never draft from a resume the browser has not committed",
+      ["draft", "server"],
+      "an upload is staged in the draft; nothing canonical is written before B4's commit",
     );
   });
 
-  it("writes the extracted text to the browser store", async () => {
+  it("saves nothing in the browser's resume store at upload: the text rides the draft", async () => {
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
-    const stored = await env.store.getActiveResume();
-    assert.equal(stored.extractedText, RESUME_TEXT);
+    assert.equal(await env.store.getActiveResume(), null, "the saved resume changes only on B4's commit");
+    await env.flow.flushDrafts();
+    assert.equal(env.flow.getState().drafts.resumeText, RESUME_TEXT, "and a reload still has it");
   });
 
   it("sends the same text to the server as request-body resumeText", async () => {
@@ -179,8 +195,8 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
       [...env.beats.resume.getRenderedStages().map((s) => `${s.label}:${s.state}`)],
-      // RESJ2-EXTRACT: named for what each stage is (browser save, AI read).
-      ["Saving your resume in this browser:done", "Reading your resume with AI:done"],
+      // RESJ2-EXTRACT: named for what each stage is (JOBQA: kept, not saved; AI read).
+      ["Keeping your resume for review (not saved yet):done", "Reading your resume with AI:done"],
       "the 20–120s silent wait is the teardown's flagship defect",
     );
   });
@@ -205,8 +221,9 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
       (d) => d.beat === BEAT_ID,
     );
     assert.equal(completed[0].source, "upload");
-    const stored = await env.store.getActiveResume();
-    assert.equal(stored.extractedText, "extracted:resume.pdf");
+    assert.equal(await env.store.getActiveResume(), null, "an upload is staged, not saved");
+    await env.flow.flushDrafts();
+    assert.equal(env.flow.getState().drafts.resumeText, "extracted:resume.pdf");
   });
 });
 
@@ -251,19 +268,20 @@ describe("B3 Hand us your resume — the honest failure split (spec §5 B3 fallb
     assert.ok(actionButton(env.mount(), "resume_template"));
   });
 
-  it("still keeps the browser copy of the resume when drafting fails", async () => {
+  it("still keeps the upload in the draft when drafting fails", async () => {
     const env = await openBeat({
       fetchImpl: draftingFetch({
         fromResume: () => ({ ok: false, status: 500, json: { ok: false, message: "boom" } }),
       }),
     });
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
-    const stored = await env.store.getActiveResume();
+    await env.flow.flushDrafts();
     assert.equal(
-      stored.extractedText,
+      env.flow.getState().drafts.resumeText,
       RESUME_TEXT,
       "a failed draft must not cost the user their upload — that IS the keystone bug",
     );
+    assert.equal(await env.store.getActiveResume(), null, "and nothing was saved before approval");
   });
 });
 
@@ -311,11 +329,11 @@ describe("B3 — a 405 names the template escape, never the terminal", () => {
     assert.ok(actionButton(env.mount(), "resume_retry"));
     assert.ok(actionButton(env.mount(), "resume_template"));
     assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
-    const stored = await env.store.getActiveResume();
+    await env.flow.flushDrafts();
     assert.equal(
-      stored.extractedText,
+      env.flow.getState().drafts.resumeText,
       RESUME_TEXT,
-      "the upload survives the missing server too",
+      "the upload survives the missing server too, in the draft",
     );
   });
 

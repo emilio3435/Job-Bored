@@ -15,7 +15,8 @@ const CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 // Node.js system codes the sources compare against (read, never emitted as an
 // API code); not part of the convention.
-const SYSTEM_CODES = new Set(["ENOENT", "EACCES", "EISDIR"]);
+// ENOTDIR: server/profile-commit.mjs treats a path under a non-directory as missing.
+const SYSTEM_CODES = new Set(["ENOENT", "EACCES", "EISDIR", "ENOTDIR"]);
 
 const SCAN_ROOTS = [
   "server",

@@ -445,6 +445,70 @@
     return resp.json();
   }
 
+  // Grow the Pipeline tab grid to at least minColumns columns. Sheets
+  // rejects a write past the tab grid (Z1 on a 25-column grid) with
+  // HTTP 400, so header repairs call this before their first write. Returns null on success
+  // or a Google error message string on failure. Only grows, never shrinks.
+  async function ensurePipelineGridWidth(sheetId, token, minColumns) {
+    const metaUrl =
+      "https://sheets.googleapis.com/v4/spreadsheets/" +
+      encodeURIComponent(sheetId) +
+      "?fields=sheets.properties.title,sheets.properties.sheetId,sheets.properties.gridProperties.columnCount";
+    const metaResp = await doFetch(metaUrl, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (!metaResp.ok) {
+      const err = await metaResp.json().catch(() => ({}));
+      return (
+        (err.error && err.error.message) ||
+        "grid read failed (HTTP " + metaResp.status + ")"
+      );
+    }
+    const meta = await metaResp.json().catch(() => ({}));
+    const tabs = (meta && meta.sheets) || [];
+    const tab = tabs.find(
+      (t) => t && t.properties && t.properties.title === "Pipeline",
+    );
+    const tabId = tab && tab.properties && tab.properties.sheetId;
+    if (typeof tabId !== "number") return "Pipeline tab not found";
+    const columnCount = tab.properties.gridProperties && tab.properties.gridProperties.columnCount;
+    if (typeof columnCount !== "number" || !Number.isInteger(columnCount) || columnCount <= 0) {
+      return "Pipeline gridProperties.columnCount is missing or invalid; expected a positive integer";
+    }
+    if (columnCount >= minColumns) return null;
+    const growResp = await doFetch(
+      "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(sheetId) +
+        ":batchUpdate",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              appendDimension: {
+                sheetId: tabId,
+                dimension: "COLUMNS",
+                length: minColumns - columnCount,
+              },
+            },
+          ],
+        }),
+      },
+    );
+    if (!growResp.ok) {
+      const err = await growResp.json().catch(() => ({}));
+      return (
+        (err.error && err.error.message) ||
+        "grid grow failed (HTTP " + growResp.status + ")"
+      );
+    }
+    return null;
+  }
+
   async function fetchPipelineHeaders(sheetId, token) {
     const url =
       "https://sheets.googleapis.com/v4/spreadsheets/" +
@@ -601,18 +665,29 @@
         const err = await writeResp.json().catch(() => ({}));
         return (err.error && err.error.message) || "header write failed";
       }
-      if (!headersMatchCanonical(headers, contract.headerRow)) {
+      const needsCoreUpgrade = !headersMatchCanonical(headers, contract.headerRow);
+      const u = String(headers[20] || "").trim();
+      const needsSearchMatch = !u || u === "Match Score";
+      const needsWorkMode = !String(headers[25] || "").trim();
+      if (needsCoreUpgrade || needsSearchMatch || needsWorkMode) {
+        const gridError = await ensurePipelineGridWidth(
+          sheetId,
+          token,
+          contract.headerRow.length,
+        );
+        if (gridError) return { ok: false, error: gridError };
+      }
+      if (needsCoreUpgrade) {
         const upgraded = contract.headerRow.slice(0, 25);
         upgraded[20] = headers[20] || "";
         const error = await writeHeaderRange("Pipeline!A1:Y1", upgraded);
         if (error) return { ok: false, error };
       }
-      const u = String(headers[20] || "").trim();
-      if (!u || u === "Match Score") {
+      if (needsSearchMatch) {
         const error = await writeHeaderRange("Pipeline!U1", ["Search Match"]);
         if (error) return { ok: false, error };
       }
-      if (!String(headers[25] || "").trim()) {
+      if (needsWorkMode) {
         const error = await writeHeaderRange("Pipeline!Z1", ["Work Mode"]);
         if (error) return { ok: false, error };
       }

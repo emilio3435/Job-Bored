@@ -1,6 +1,7 @@
 /**
  * GFX FE-B4 — Beat 4 (Confirm your fit): the grouped page, schema-driven
- * validation, and the save through fit-profile-sync.js.
+ * validation, and the save — since JOBQA, onboarding's one commit
+ * (POST /profile/commit), with the browser's copy written only after it.
  *
  * Ledger: N-B4-1…N-B4-6, B4-1…B4-11 (docs/programs/gfx-20260926/SPEC.md).
  */
@@ -48,21 +49,33 @@ function loadInto(win, file) {
 
 const KEY = () => ({ preventDefault() {} });
 
-function setup(profileDraft = draft(), { modules = true, sync } = {}) {
+/**
+ * `commit` is what POST /profile/commit answers: omitted, a saved commit;
+ * `{ status, body }`, that answer; a function of the request body; or
+ * "offline", no answer at all. `syncCalls` keeps each committed profile.
+ */
+function setup(profileDraft = draft(), { modules = true, commit } = {}) {
   const env = loadOneFlow({ beatFiles: true });
   if (modules) {
     loadInto(env.window, "fit-profile-schema.js");
     loadInto(env.window, "fit-profile-sync.js");
   }
   const syncCalls = [];
-  if (sync) {
-    env.window.JobBoredFitProfileSync = {
-      async syncProfile(payload) {
-        syncCalls.push(payload);
-        return typeof sync === "function" ? sync(payload) : sync;
-      },
-    };
-  }
+  const commitCalls = [];
+  env.window.fetch = async (url, init) => {
+    if (String(url).endsWith("/profile/commit")) {
+      const body = JSON.parse(init.body);
+      commitCalls.push(body);
+      syncCalls.push(body.profile);
+      if (commit === "offline") throw new TypeError("Failed to fetch");
+      const answer =
+        typeof commit === "function"
+          ? commit(body)
+          : commit || { status: 200, body: { ok: true, replayed: false, commitId: body.commitId, mode: body.mode, revision: "r1" } };
+      return { ok: answer.status < 400, status: answer.status, json: async () => answer.body };
+    }
+    throw new TypeError(`unexpected request ${url}`);
+  };
   const discoveryWrites = [];
   env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
     discoveryWrites.push(payload);
@@ -103,6 +116,7 @@ function setup(profileDraft = draft(), { modules = true, sync } = {}) {
     completions,
     discoveryWrites,
     syncCalls,
+    commitCalls,
     toasts,
     q,
     qa,
@@ -118,59 +132,54 @@ function tagInputs(env, key) {
   return field(env, key).querySelectorAll(".oneflow-fit-tag__input");
 }
 
-describe("GFX FE-B4 · N-B4-1 + R7: 'Looks like me' saves through fit-profile-sync", () => {
-  it("N-B4-1: on an empty-config greenfield the profile is POSTed same-origin", async () => {
+describe("GFX FE-B4 · N-B4-1 + R7 (JOBQA): 'Looks like me' is onboarding's one commit", () => {
+  it("N-B4-1: on an empty-config greenfield the commit is POSTed same-origin, once", async () => {
     const env = setup();
     env.window.COMMAND_CENTER_CONFIG = {};
     const requests = [];
     env.window.fetch = async (url, init) => {
       requests.push({ url, init });
-      return {
-        status: 200,
-        headers: { get: () => "application/json" },
-        json: async () => ({ ok: true }),
-      };
+      const body = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ ok: true, commitId: body.commitId, revision: "r1" }) };
     };
     await env.confirm();
     assert.equal(requests.length, 1, "no configured URL is not a reason to skip");
-    assert.equal(requests[0].url, "/profile");
+    assert.equal(requests[0].url, "/profile/commit");
     assert.equal(requests[0].init.method, "POST");
-    assert.deepEqual(JSON.parse(requests[0].init.body).identity.targetRoles, [
-      "Staff Engineer",
-      "Platform Engineer",
-    ]);
+    const body = JSON.parse(requests[0].init.body);
+    assert.deepEqual(body.profile.identity.targetRoles, ["Staff Engineer", "Platform Engineer"]);
+    assert.equal(body.mode, "create", "a browser holding no saved resume can only create");
+    assert.equal(body.noResume, true, "no staged resume: an explicit profile-only save");
     assert.equal(env.discoveryWrites.length, 1);
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].serverSynced, true);
   });
 
-  it("N-B4-1: local_only completes the beat and shows the sync's message as a quiet note", async () => {
-    const message = "Saved on this device. Start JobBored on your computer to use it for drafting.";
-    const env = setup(draft(), {
-      sync: { ok: true, synced: false, status: 405, reason: "local_only", message },
-    });
+  it("JOBQA: with no JobBored server answering, the save can't be confirmed — the beat stays and nothing is written here", async () => {
+    const env = setup(draft(), { commit: "offline" });
     await env.confirm();
-    assert.equal(env.syncCalls.length, 1);
-    assert.equal(env.completions.length, 1);
-    assert.equal(env.completions[0].serverSynced, false);
-    assert.deepEqual(env.toasts, [{ message, tone: "info" }]);
-    assert.ok(env.messages.every((m) => m.tone !== "error"));
+    assert.equal(env.commitCalls.length, 1);
+    assert.equal(env.completions.length, 0, "an unconfirmed save never completes the beat");
+    assert.equal(env.discoveryWrites.length, 0, "the browser's copy waits for the server's yes");
+    assert.ok(env.messages.some((m) => m.tone === "error" && /couldn't confirm the save/.test(m.text)));
+    assert.ok(env.messages.some((m) => /won't save twice/.test(m.text)), "says a retry is safe");
   });
 
   it("N-B4-2: a rejected profile keeps the user on the beat, with the server's words at the field", async () => {
     const env = setup(draft(), {
-      sync: {
-        ok: false,
-        synced: false,
+      commit: {
         status: 400,
-        reason: "rejected",
-        message: "/identity/targetRoles/1 must NOT have more than 80 characters",
-        errors: [
-          {
-            instancePath: "/identity/targetRoles/1",
-            message: "must NOT have more than 80 characters",
-          },
-        ],
+        body: {
+          ok: false,
+          reason: "invalid_profile",
+          message: "The profile doesn't match JobBored's profile format.",
+          errors: [
+            {
+              instancePath: "/identity/targetRoles/1",
+              message: "must NOT have more than 80 characters",
+            },
+          ],
+        },
       },
     });
     await env.confirm();
@@ -186,46 +195,55 @@ describe("GFX FE-B4 · N-B4-1 + R7: 'Looks like me' saves through fit-profile-sy
 
   it("N-B4-2: a rejection the beat can't place still surfaces the server's message", async () => {
     const env = setup(draft(), {
-      sync: {
-        ok: false,
-        synced: false,
+      commit: {
         status: 400,
-        reason: "rejected",
-        message: "profile body is malformed",
-        errors: [],
+        body: { ok: false, reason: "invalid_profile", message: "profile body is malformed", errors: [] },
       },
     });
     await env.confirm();
     assert.equal(env.completions.length, 0);
-    assert.ok(
-      env.messages.some((m) => m.tone === "error" && /malformed/.test(m.text)),
-    );
+    assert.ok(env.messages.some((m) => m.tone === "error" && /malformed/.test(m.text)));
   });
 
-  it("N-B4-1: server_error completes locally and says how to retry", async () => {
+  it("JOBQA: a save the server rolled back says nothing was changed, and nothing is written here", async () => {
     const env = setup(draft(), {
-      sync: { ok: false, synced: false, status: 500, reason: "server_error", message: "boom" },
+      commit: { status: 500, body: { ok: false, reason: "commit_failed_rolled_back", message: "Saving failed." } },
     });
-    await env.confirm();
-    assert.equal(env.completions.length, 1);
-    assert.equal(env.completions[0].serverSynced, false);
-    assert.equal(env.toasts.length, 1);
-    assert.match(env.toasts[0].message, /Saved on this device/);
-    assert.match(env.toasts[0].message, /HTTP 500/);
-    assert.match(env.toasts[0].message, /retry/i);
-  });
-
-  it("N-B4-1: only a failed local save blocks the beat, and nothing is synced", async () => {
-    const env = setup(draft(), {
-      sync: { ok: true, synced: true, status: 200, reason: "synced", message: "Saved." },
-    });
-    env.window.CommandCenterUserContent.saveDiscoveryProfile = async () => {
-      throw new Error("quota exceeded");
-    };
     await env.confirm();
     assert.equal(env.completions.length, 0);
-    assert.equal(env.syncCalls.length, 0);
-    assert.ok(env.messages.some((m) => m.tone === "error" && /quota exceeded/.test(m.text)));
+    assert.equal(env.discoveryWrites.length, 0);
+    assert.ok(env.messages.some((m) => m.tone === "error" && /nothing was changed/.test(m.text)));
+  });
+
+  it("JOBQA: a fresh browser on a computer with a saved setup is refused — nothing saved, answers kept", async () => {
+    const env = setup(draft(), {
+      commit: { status: 409, body: { ok: false, reason: "canonical_profile_exists", message: "exists" } },
+    });
+    await env.confirm();
+    assert.equal(env.completions.length, 0);
+    assert.equal(env.discoveryWrites.length, 0);
+    assert.ok(env.messages.some((m) => m.tone === "error" && /already has a saved JobBored profile/.test(m.text)));
+  });
+
+  it("JOBQA: when the browser's copy fails after the server saved, the beat stays and a retry replays the same commit", async () => {
+    const env = setup(draft());
+    let failNext = true;
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error("quota exceeded");
+      }
+      env.discoveryWrites.push(payload);
+      return payload;
+    };
+    await env.confirm();
+    assert.equal(env.completions.length, 0, "the beat stays retryable");
+    assert.ok(env.messages.some((m) => m.tone === "error" && /saved on this computer/i.test(m.text)));
+    await env.confirm();
+    assert.equal(env.commitCalls.length, 2);
+    assert.equal(env.commitCalls[1].commitId, env.commitCalls[0].commitId, "the same commit id: the server replays, no second save");
+    assert.equal(env.discoveryWrites.length, 1);
+    assert.equal(env.completions.length, 1);
   });
 });
 

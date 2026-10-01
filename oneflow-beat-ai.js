@@ -229,9 +229,61 @@
     // run, successAt, runtime }.
     pending: null,
     consentShown: false,
+    // JOBQA: the key (or base URL) field's own error, drawn beside the field
+    // from state so the shell's repaints keep it; "" when none.
+    fieldError: "",
   };
 
-  const fields = { value: null };
+  const FIELD_ERROR_ID = "oneFlowAiFieldError";
+
+  /** The shell attaches the step a tick after render: focus the live field then. */
+  function focusFieldSoon() {
+    setTimeout(() => {
+      const node = fields.value;
+      if (node && typeof node.focus === "function") node.focus();
+    }, 0);
+  }
+
+  /**
+   * Show (or clear, with "") the key field's own error: in state, so a
+   * repaint that rebuilds the step draws it, AND on the live field now,
+   * because a footer message keeps the step's DOM as it is.
+   */
+  function setFieldError(message) {
+    state.fieldError = message || "";
+    const input = fields.value;
+    const error = fields.error;
+    if (input) {
+      if (state.fieldError) {
+        input.setAttribute("aria-invalid", "true");
+        input.setAttribute("aria-describedby", FIELD_ERROR_ID);
+      } else {
+        input.removeAttribute("aria-invalid");
+        input.removeAttribute("aria-describedby");
+      }
+    }
+    if (error) {
+      error.textContent = state.fieldError;
+      error.hidden = !state.fieldError;
+    }
+  }
+
+  /** The field's error line and its wiring; typing clears it in place (no repaint). */
+  function wireFieldError(input) {
+    const error = el("p", "oneflow-field-error", { id: FIELD_ERROR_ID }, state.fieldError);
+    error.hidden = !state.fieldError;
+    if (state.fieldError) {
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", FIELD_ERROR_ID);
+    }
+    input.addEventListener("input", () => {
+      if (state.fieldError) setFieldError("");
+    });
+    fields.error = error;
+    return error;
+  }
+
+  const fields = { value: null, error: null };
   const ACTIONS = [];
   let lastCtx = null;
 
@@ -422,7 +474,9 @@
         // wrong provider and fail for a reason the copy can't explain.
         state.keyDraft = "";
         state.baseUrlDraft = "";
+        setFieldError("");
         fields.value = null;
+        fields.error = null;
         repaint(ctx, "");
       });
       grid.appendChild(card);
@@ -457,24 +511,12 @@
       input.addEventListener("input", () => rememberValue(input.value));
       fields.value = input;
       wrap.appendChild(input);
+      wrap.appendChild(wireFieldError(input));
       return wrap;
     }
 
-    const list = el("ol", "oneflow-ai__steps");
-    const first = el("li");
-    first.appendChild(
-      el(
-        "a",
-        "oneflow-ai__signup",
-        { href: def.signupUrl, target: "_blank", rel: "noopener" },
-        def.signupLabel,
-      ),
-    );
-    list.appendChild(first);
-    list.appendChild(el("li", "", {}, "Copy your key."));
-    list.appendChild(el("li", "", {}, "Paste it here."));
-    wrap.appendChild(list);
-
+    // JOBQA: the key field comes first, next to Check & continue; how to get
+    // a key is one click away below it.
     const input = el("input", "oneflow-ai__field", {
       id: KEY_INPUT_ID,
       type: "password",
@@ -498,6 +540,7 @@
     paintShape();
     fields.value = input;
     wrap.appendChild(input);
+    wrap.appendChild(wireFieldError(input));
     wrap.appendChild(shape);
     wrap.appendChild(
       el(
@@ -509,6 +552,23 @@
           `It's only ever sent to ${def.label}.`,
       ),
     );
+    const howto = el("details", "oneflow-ai__key-howto");
+    howto.appendChild(el("summary", "oneflow-ai__key-howto-summary", {}, "Where do I get a key?"));
+    const list = el("ol", "oneflow-ai__steps");
+    const first = el("li");
+    first.appendChild(
+      el(
+        "a",
+        "oneflow-ai__signup",
+        { href: def.signupUrl, target: "_blank", rel: "noopener" },
+        def.signupLabel,
+      ),
+    );
+    list.appendChild(first);
+    list.appendChild(el("li", "", {}, "Copy your key."));
+    list.appendChild(el("li", "", {}, "Paste it in the box above."));
+    howto.appendChild(list);
+    wrap.appendChild(howto);
     return wrap;
   }
 
@@ -868,17 +928,21 @@
 
     if (!value) {
       state.lastFailure = null;
-      repaint(
-        ctx,
+      setFieldError(
         def.baseUrlField
           ? "Paste your model server's base URL first — the default is " +
-            "http://127.0.0.1:11434/v1."
+              "http://127.0.0.1:11434/v1."
           : `Paste your ${def.label.split(" — ")[0]} key first.`,
-        "error",
       );
+      repaint(ctx, state.fieldError, "error");
+      focusFieldSoon();
       return;
     }
 
+    // A real attempt starts: the old complaint, on the field and in the
+    // footer, is history before the check runs.
+    setFieldError("");
+    if (ctx && typeof ctx.setMessage === "function") ctx.setMessage("", "info");
     persistProviderConfig(def, value);
 
     const verify = verifier();
@@ -929,13 +993,13 @@
         provider: def.id,
         message: String((result && result.message) || ""),
       };
-      repaint(
-        ctx,
+      setFieldError(
         state.lastFailure.message ||
           "That provider didn't answer. Check the key and press " +
             "Check & continue again.",
-        "error",
       );
+      repaint(ctx, state.fieldError, "error");
+      focusFieldSoon();
       return;
     }
 
