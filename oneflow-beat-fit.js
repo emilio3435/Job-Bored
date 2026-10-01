@@ -1331,7 +1331,13 @@
     record.live = el("p", "oneflow-fit-sr");
     record.live.setAttribute("aria-live", "polite");
     root.append(zones, record.live);
+    record.adopt = button("Use the setup saved on this computer", "oneflow-fit-link-button oneflow-fit-adopt", function () {
+      adoptSavedSetup(ctx);
+    });
+    record.adopt.hidden = !record.savedSetup;
+    root.appendChild(record.adopt);
     container.appendChild(root);
+    if (!record.savedLookup) record.savedLookup = refreshSavedOffer(record, ctx);
 
     record.updateSummary = function () {
       deal.summary.textContent = summaryLine(record.model);
@@ -1390,24 +1396,111 @@
       });
   }
 
-  /** GET /profile/commit/state: { exists, revision }, or null when the server can't say. */
+  /** The completed canonical setup's revision and recorded owner. */
   function readCommitState() {
     return apiFetch(profileUrl("/profile/commit/state"), { method: "GET" })
       .then(function (res) {
         return res && res.ok ? res.json() : null;
       })
       .then(function (data) {
-        return data && data.ok === true ? { exists: !!data.exists, revision: text(data.revision) } : null;
+        return data && data.ok === true
+          ? { exists: !!data.exists, revision: text(data.revision), accountHash: text(data.accountHash) || null }
+          : null;
       })
       .catch(function () {
         return null;
       });
   }
 
+  async function adoptionAccount(ctx) {
+    const signedIn = typeof flow.currentAccountHash === "function" ? await flow.currentAccountHash() : "";
+    const current = typeof ctx.isCurrentScope !== "function" || ctx.isCurrentScope(ctx.scope);
+    return current && signedIn && (!ctx.accountHash || ctx.accountHash === signedIn) ? signedIn : "";
+  }
+
+  function canAdopt(saved, account) {
+    return !!(account && saved && saved.exists && (!saved.accountHash || saved.accountHash === account));
+  }
+
+  async function refreshSavedOffer(record, ctx) {
+    const account = await adoptionAccount(ctx);
+    const saved = account ? await readCommitState() : null;
+    if (account !== await adoptionAccount(ctx)) return;
+    record.savedSetup = canAdopt(saved, account) ? saved : null;
+    if (record.adopt) record.adopt.hidden = !record.savedSetup;
+  }
+
+  /** Explicitly adopt a completed saved setup; no canonical write is made. */
+  async function adoptSavedSetup(ctx) {
+    const record = getRecord(ctx);
+    if (record.saving) return;
+    const store = window.CommandCenterUserContent;
+    if (!store || typeof store.setPrimaryResume !== "function" || typeof store.saveDiscoveryProfile !== "function") return;
+    record.saving = true;
+    const stillHere = () => typeof ctx.isCurrentScope !== "function" || ctx.isCurrentScope(ctx.scope);
+    try {
+      const account = await adoptionAccount(ctx);
+      const before = account ? await readCommitState() : null;
+      if (!canAdopt(before, account) || account !== await adoptionAccount(ctx)) {
+        if (stillHere()) ctx.setMessage("Sign in with the Google account that owns this computer's saved setup to use it.", "error");
+        return;
+      }
+      ctx.setBusy("adopt-saved-setup", [{ label: "Loading your saved setup…", state: "active" }]);
+      const profileRes = await apiFetch(profileUrl("/profile"), { method: "GET" });
+      const profileData = profileRes.ok ? await profileRes.json() : null;
+      const resumeRes = await apiFetch(profileUrl("/profile/resume"), { method: "GET" });
+      const resumeData = resumeRes.ok ? await resumeRes.json() : null;
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      const after = await readCommitState();
+      if (!canAdopt(after, account) || after.revision !== before.revision || after.accountHash !== before.accountHash) {
+        ctx.setMessage("The saved setup changed while it was loading. Use the saved setup again to load its latest version.", "error");
+        return;
+      }
+      const profile = profileData && profileData.ok === true && profileData.profile;
+      const resumeText = resumeData && resumeData.resumeText;
+      const api = schema();
+      if (!profile || !api || !api.validateProfile(profile).ok || !resumeData || resumeData.ok !== true ||
+          (resumeText !== null && typeof resumeText !== "string")) {
+        ctx.setMessage("The saved setup couldn't be loaded. Open Settings → Resume to review it.", "error");
+        return;
+      }
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      if (resumeText) {
+        await store.setPrimaryResume({ source: "file", rawMime: null, label: "My resume", extractedText: resumeText, confirmGarbled: true, syncServer: false });
+      } else if (typeof store.setActiveResumeId === "function") {
+        await store.setActiveResumeId(null);
+      }
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      await store.saveDiscoveryProfile(discoveryPayload(normalizeDraft(profile)));
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      if (typeof ctx.saveDraft === "function") {
+        ctx.saveDraft("profileDraft", profile);
+        ctx.saveDraft("resumeText", resumeText || "");
+        ctx.saveDraft("contactDraft", null);
+        ctx.saveDraft("voiceDraft", null);
+        ctx.saveDraft("resumeRead", null);
+      }
+      ctx.runtime.fitProfile = profile;
+      ctx.runtime.profileDraft = profile;
+      ctx.runtime.contactIdentity = null;
+      ctx.runtime.resumeRead = null;
+      ctx.runtime.oneFlowFitReview = null;
+      ctx.runtime.fitProfileSync = { ok: true, synced: true, reason: "adopted" };
+      forgetCommitId(ctx.accountHash || account);
+      ctx.setMessage("", "info");
+      await ctx.completeBeat({ edited: false, serverSynced: true, syncReason: "adopted" });
+    } catch (_) {
+      if (stillHere()) ctx.setMessage("The saved setup couldn't be loaded into this browser. Try using it again, or open Settings → Resume.", "error");
+    } finally {
+      record.saving = false;
+      if (stillHere()) ctx.clearBusy();
+    }
+  }
+
   function stagedResumeText(ctx) {
     const runtime = (ctx && ctx.runtime) || {};
     const drafts = runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
-    return typeof drafts.resumeText === "string" ? drafts.resumeText.trim() : "";
+    return typeof drafts.resumeText === "string" ? drafts.resumeText.replace(/\r/g, "").trim() : "";
   }
 
   /** The voice guide "Your voice" completed with; null when it was skipped or never used. */
@@ -1472,11 +1565,11 @@
   function commitRefusal(reason, fallback) {
     switch (reason) {
       case "canonical_profile_exists":
-        return "This computer already has a saved JobBored profile, so nothing was saved. Setting up a second profile on one computer isn't supported yet. Your answers stay in this setup.";
+        return "This computer already has a saved JobBored profile, so nothing was saved. Use the setup saved on this computer with its Google account, or open Settings → Resume. Your answers stay in this setup.";
       case "profile_commit_stale":
         return "Your saved setup changed since this page opened, so nothing was saved. Reload JobBored, then confirm again.";
       case "replace_proof_mismatch":
-        return "The resume saved on this computer isn't the one this browser saved, so nothing was replaced. Reload JobBored, then confirm again.";
+        return "The resume saved on this computer isn't the one this browser saved, so nothing was replaced. Use the setup saved on this computer, or open Settings → Resume to review it.";
       case "account_mismatch":
         return "This computer's saved setup was confirmed with a different Google account, so nothing was replaced.";
       case "commit_id_reused":
@@ -1597,8 +1690,15 @@
     }
     const voice = stagedVoice(ctx);
     if (voice) body.voice = voice;
-    const read = ctx.runtime && ctx.runtime.resumeRead;
-    if (read && typeof read === "object") body.read = read;
+    const runtime = ctx.runtime || {};
+    const read = runtime.resumeRead || (runtime.drafts && runtime.drafts.resumeRead);
+    if (read && typeof read === "object" && resumeText && read.textSha256 === await sha256Hex(resumeText)) {
+      body.read = read;
+    }
+    if (!stillHere()) {
+      record.saving = false;
+      return;
+    }
 
     let res = null;
     let data = null;
@@ -1641,6 +1741,10 @@
       // An id already recorded for other details: the next confirm starts a fresh one.
       if (reason === "commit_id_reused") forgetCommitId(owner);
       stop(commitRefusal(reason, text(data && data.message)));
+      if (reason === "canonical_profile_exists" || reason === "replace_proof_mismatch") {
+        record.savedLookup = refreshSavedOffer(record, ctx);
+        await record.savedLookup;
+      }
       return;
     }
 
@@ -1712,6 +1816,7 @@
     ],
     render,
     onAction(actionId, ctx) {
+      if (actionId === "adopt-saved-setup") return adoptSavedSetup(ctx);
       if (actionId !== ACTION_ID) return;
       return confirmFit(ctx);
     },

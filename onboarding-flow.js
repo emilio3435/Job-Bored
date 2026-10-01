@@ -89,15 +89,16 @@
 
   /**
    * Beat-local drafts that survive a refresh (spec §3.2, SIXBEATS2 locked
-   * decision 4). Four keys, each written by the beat that owns them:
+   * decision 4). Each key is written by the beat that owns it:
    * `resumeText` by B3 on input, `profileDraft` by B3 when the draft lands
    * and by B4 on every correction, `contactDraft` by "Your details" (the
    * name and contact the user confirmed, which B4's save carries into the
    * profile), `voiceDraft` by "Your voice" (the guide text before it is
-   * saved). Anything else is refused — a beat is
+   * saved), `resumeRead` by B3 (the AI read keyed by textSha256).
+   * Anything else is refused — a beat is
    * never allowed to talk this store into holding a key or a token.
    */
-  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
+  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft", "resumeRead"]);
 
   /** One write per typing burst, not one per keystroke (spec §3.2). */
   const DRAFT_SAVE_DELAY_MS = 400;

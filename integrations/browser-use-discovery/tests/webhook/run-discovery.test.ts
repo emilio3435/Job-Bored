@@ -10,6 +10,7 @@ import { runDiscovery } from "../../src/run/run-discovery.ts";
 import { buildCompletedRunStatus } from "../../src/state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "../../src/state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
+import { SheetWriteError } from "../../src/sheets/pipeline-writer.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -190,6 +191,32 @@ function createGroundedTimeoutDependencies() {
     },
   };
 }
+
+test("runDiscovery caps Google error detail, message and warning copies in completed status", async () => {
+  const body = "RAW_GOOGLE_BODY:" + "x".repeat(4096) + "UNCAPPED_TAIL";
+  for (const phase of ["update", "append", "read"] as const) {
+    const { dependencies } = createGroundedTimeoutDependencies();
+    dependencies.sourceTimeoutMs = 5_000;
+    const message = `Sheet ${phase} failed: HTTP 400 - ${body}`;
+    const error = phase === "read" ? new Error(message) : new SheetWriteError({
+      phase, message, detail: body, sheetId: "sheet_error_fixture", httpStatus: 400,
+      partialResult: { sheetId: "sheet_error_fixture", appended: 0, updated: 0, skippedDuplicates: 0, skippedBlacklist: 0, warnings: [message] },
+    });
+    // The status boundary must also handle oversized errors from injected writers.
+    error.message = message;
+    if (error instanceof SheetWriteError) Object.defineProperty(error, "detail", { value: body });
+    dependencies.pipelineWriter.write = async () => { throw error; };
+    const result = await runDiscovery(makeGroundedTimeoutRequest(), "manual", dependencies);
+    const status = buildCompletedRunStatus(result, { acceptedAt: "2026-04-09T12:00:00.000Z", startedAt: "2026-04-09T12:00:00.000Z" });
+    assert.equal(status.status, "write_failed", phase);
+    assert.ok(status.writeResult?.writeError);
+    assert.equal(status.writeResult.writeError.message, message.slice(0, 2048));
+    if (phase !== "read") assert.equal(status.writeResult.writeError.detail, body.slice(0, 2048));
+    assert.ok(status.warnings.every((warning) => warning.length <= 2048));
+    assert.ok(status.writeResult.warnings.every((warning) => warning.length <= 2048));
+    assert.doesNotMatch(JSON.stringify(status), /UNCAPPED_TAIL/);
+  }
+});
 
 async function captureScheduledTimeouts<T>(
   callback: () => Promise<T>,

@@ -57,6 +57,53 @@ function loadDoctor(env = {}) {
   return { api, win };
 }
 
+function loadGridDoctor(headers, initialColumns, widenBeforeGrow = 0) {
+  let gridColumns = initialColumns;
+  let gridReads = 0;
+  const order = [];
+  const cells = new Map(headers.map((value, index) => [index, value]));
+  const { api } = loadDoctor({
+    accessToken: "tok", getSheetId: () => "SHEET",
+    fetch: async (url, init = {}) => {
+      if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+      if (String(url).includes("?fields=")) {
+        if (String(url).includes("columnCount")) {
+          gridReads++;
+          order.push("grid read");
+        }
+        return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 7, gridProperties: { columnCount: gridColumns } } }] }) };
+      }
+      if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+      if (init.method === "POST" && String(url).includes(":batchUpdate")) {
+        order.push("grow");
+        if (widenBeforeGrow) {
+          gridColumns = widenBeforeGrow;
+          cells.set(26, "User data in AA");
+          cells.set(27, "User data in AB");
+        }
+        const request = JSON.parse(init.body).requests[0];
+        if (request.appendDimension) gridColumns += request.appendDimension.length;
+        if (request.updateSheetProperties) {
+          gridColumns = request.updateSheetProperties.properties.gridProperties.columnCount;
+          for (const index of cells.keys()) if (index >= gridColumns) cells.delete(index);
+        }
+        return { ok: true, json: async () => ({}) };
+      }
+      if (init.method === "PUT") {
+        const write = JSON.parse(init.body);
+        order.push(write.range);
+        const [, first, last] = /^Pipeline!([A-Z]+)1(?::([A-Z]+)1)?$/.exec(write.range);
+        const columnNumber = (letters) => [...letters].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0);
+        if (columnNumber(last || first) > gridColumns) return { ok: false, status: 400, json: async () => ({ error: { message: "Range exceeds grid limits" } }) };
+        write.values[0].forEach((value, index) => cells.set(columnNumber(first) - 1 + index, value));
+        return { ok: true, json: async () => ({}) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    },
+  });
+  return { api, order, cells, gridColumns: () => gridColumns, gridReads: () => gridReads };
+}
+
 describe("SetupDoctor.diagnose", () => {
   it("returns no issues when nothing is wrong", async () => {
     const { api } = loadDoctor();
@@ -584,7 +631,7 @@ describe("SetupDoctor pipeline tab repair", () => {
         accessToken: "tok", getSheetId: () => "SHEET",
         fetch: async (url, init = {}) => {
           if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
-          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0 } }] }) };
+          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 0, gridProperties: { columnCount: 26 } } }] }) };
           if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
           if (init.method === "PUT") {
             writes.push(JSON.parse(init.body));
@@ -612,9 +659,8 @@ describe("SetupDoctor pipeline tab repair", () => {
         if (init.method === "POST" && String(url).includes(":batchUpdate")) {
           order.push("grow");
           const body = JSON.parse(init.body);
-          assert.deepEqual(body.requests[0].updateSheetProperties, {
-            properties: { sheetId: 7, gridProperties: { columnCount: pipelineSchema.headerRow.length } },
-            fields: "gridProperties.columnCount",
+          assert.deepEqual(body.requests[0].appendDimension, {
+            sheetId: 7, dimension: "COLUMNS", length: pipelineSchema.headerRow.length - 25,
           });
           return { ok: true, json: async () => ({}) };
         }
@@ -628,6 +674,36 @@ describe("SetupDoctor pipeline tab repair", () => {
     const out = await api.autoHeal({});
     assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
     assert.deepEqual(order, ["grow", "Pipeline!Z1"]);
+  });
+
+  it("preserves AA and AB when the grid widens between GET and POST", async () => {
+    const routed = loadGridDoctor(pipelineSchema.headerRow.slice(0, 25), 25, 30);
+    const out = await routed.api.autoHeal({});
+    assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
+    assert.equal(routed.gridColumns(), 31);
+    assert.equal(routed.cells.get(26), "User data in AA");
+    assert.equal(routed.cells.get(27), "User data in AB");
+  });
+
+  it("ensures legacy grids once before the first write and preserves occupied Z", async () => {
+    for (const width of [17, 20, 24, 26]) {
+      const headers = width === 26
+        ? [...pipelineSchema.headerRow.slice(0, 17), ...Array(8).fill(""), "Custom Z"]
+        : pipelineSchema.headerRow.slice(0, width);
+      const routed = loadGridDoctor(headers, width);
+      const out = await routed.api.autoHeal({});
+      assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true, `width ${width}`);
+      assert.equal(routed.gridReads(), 1, `width ${width}`);
+      assert.equal(routed.order[0], "grid read", `width ${width}`);
+      assert.equal(routed.gridColumns(), pipelineSchema.headerRow.length);
+      if (width === 26) {
+        assert.equal(routed.cells.get(25), "Custom Z");
+        assert.equal(routed.order.includes("Pipeline!Z1"), false);
+      } else {
+        assert.equal(routed.order[1], "grow");
+        assert.equal(routed.order[2], "Pipeline!A1:Y1");
+      }
+    }
   });
 
   it("surfaces Google's grid-grow error on the Z1 repair", async () => {

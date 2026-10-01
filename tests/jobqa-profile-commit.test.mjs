@@ -13,8 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { commitBarrier, createProfileCommitService } from "../server/profile-commit.mjs";
+import { commitBarrier, createProfileCommitService, mountProfileCommit } from "../server/profile-commit.mjs";
 import { resumeTextSha256 } from "../server/resume-read.mjs";
+import { readProfile } from "../server/user-profile.mjs";
 import { ALEX, MORGAN, accountHashOf, manifestOf, morganSavedProfile, seedStore, storePaths } from "./fixtures/jobqa-hermetic/profiles.mjs";
 
 const temps = [];
@@ -60,6 +61,129 @@ function alexCommit(overrides = {}) {
 }
 
 const text = (path) => readFile(path, "utf8");
+
+describe("LOCALFIX saved setup reads and derived work", () => {
+  it("W3 GET /profile returns the original profile after a paused write rolls back", async () => {
+    const { paths } = await store("existing");
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const paused = new Promise((resolve) => { entered = resolve; });
+    const service = createProfileCommitService({ paths, writers: {
+      profile: async (path) => {
+        const transient = morganSavedProfile();
+        transient.identity.fullName = "Uncommitted Fiction";
+        await writeFile(path, JSON.stringify(transient));
+        entered(); await gate; throw new Error("fixture rollback");
+      },
+    } });
+    // Execute the actual route registration without starting the server.
+    const source = await readFile(new URL("../server/index.mjs", import.meta.url), "utf8");
+    const registration = source.slice(source.indexOf('app.get("/profile",'), source.indexOf('app.post("/profile",'));
+    let handler;
+    new Function("app", "guardSave", "readProfile", "redactFsPaths", "errorMessage", registration)(
+      { get: (_path, fn) => { handler = fn; } }, commitBarrier(service),
+      () => readProfile({ path: paths.profile }), (value) => value, (err) => err.message,
+    );
+    const revision = (await service.state()).revision;
+    const saving = service.commit({
+      commitId: "localfix-profile-rollback", mode: "replace", resumeText: MORGAN.resumeText,
+      profile: morganSavedProfile(), proof: resumeTextSha256(MORGAN.resumeText), baseRevision: revision,
+      accountHash: accountHashOf(MORGAN.email),
+    }).catch((err) => err);
+    await paused;
+    let answer;
+    const res = { headersSent: false, status: () => res, json: (value) => { answer = value; } };
+    const reading = handler({}, res);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(answer, undefined, "GET must wait rather than return the transient profile");
+    } finally {
+      release(); await saving; await reading;
+    }
+    assert.equal(answer.profile.identity.fullName, "Morgan Existing");
+  });
+
+  it("W3 exposes the recorded owner and canonical resume through read-only routes", async () => {
+    const { paths } = await store("empty");
+    const service = createProfileCommitService({ paths });
+    await service.commit(alexCommit());
+    const routes = new Map();
+    mountProfileCommit({ get: (path, handler) => routes.set(path, handler), post() {} }, service);
+    const read = async (path) => {
+      let result;
+      await routes.get(path)({}, { json: (data) => { result = data; } });
+      return result;
+    };
+    assert.equal((await read("/profile/commit/state")).accountHash, accountHashOf(ALEX.email));
+    assert.equal((await read("/profile/resume")).resumeText, ALEX.resumeText);
+  });
+
+  it("W3 saved reads wait for a paused commit to roll back", async () => {
+    const { paths } = await store("empty");
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const paused = new Promise((resolve) => { entered = resolve; });
+    const service = createProfileCommitService({
+      paths,
+      writers: { profile: async () => { entered(); await gate; throw new Error("fixture write failure"); } },
+    });
+    const saving = service.commit(alexCommit()).catch((err) => err);
+    await paused;
+    let stateSettled = false;
+    const state = service.state().then((value) => { stateSettled = true; return value; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(stateSettled, false, "a half-written resume must not count as a completed saved setup");
+    } finally {
+      release();
+      await saving;
+    }
+    assert.deepEqual(await state, { exists: false, revision: "empty", accountHash: null });
+    assert.equal(await service.savedResume(), null);
+  });
+
+  it("S3 derived work releases canonical serialization, stays ordered, and skips replays", async () => {
+    const { paths } = await store("empty");
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const started = new Promise((resolve) => { entered = resolve; });
+    const hooks = [];
+    const service = createProfileCommitService({
+      paths,
+      postCommit: async ({ resumeText }) => {
+        hooks.push(resumeText);
+        if (hooks.length === 1) { entered(); await gate; }
+        return { ok: true };
+      },
+    });
+    const first = service.commit(alexCommit());
+    await started;
+    let replayed = false;
+    const replay = service.commit(alexCommit()).then((value) => { replayed = value.replayed; return value; });
+    let second;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(replayed, true, "ledger work must not hold up canonical replay");
+      const revision = (await service.state()).revision;
+      second = service.commit(alexCommit({
+        commitId: "jobqa-alex-0002", mode: "replace", baseRevision: revision,
+        proof: resumeTextSha256(ALEX.resumeText), resumeText: `${ALEX.resumeText}\nNewer setup.`,
+      }));
+      await service.exclusive(async () => {});
+      assert.match(await text(paths.resume), /Newer setup\./, "the newer canonical save lands while the older ledger is busy");
+      assert.deepEqual(hooks, [ALEX.resumeText], "the newer derived hook waits its turn");
+    } finally {
+      release();
+      await first;
+      await replay;
+      if (second) await second;
+    }
+    assert.deepEqual(hooks, [ALEX.resumeText, `${ALEX.resumeText}\nNewer setup.`]);
+  });
+});
 
 describe("JOBQA commit: create", () => {
   it("should save resume, profile, voice and record together on an empty computer", async () => {

@@ -3,8 +3,8 @@
  *
  *   POST /profile/commit        the staged resume, profile, voice guide and
  *                               resume read, written together or not at all
- *   GET  /profile/commit/state  { ok, exists, revision }: whether a saved
- *                               profile exists here, and a hash of it
+ *   GET  /profile/commit/state  { ok, exists, revision, accountHash }
+ *   GET  /profile/resume        { ok, resumeText }: the canonical resume
  *
  * Until this commit, onboarding writes nothing canonical: the upload, the
  * AI read, "Your details", "Your voice" and the fit edits live in the
@@ -323,6 +323,9 @@ export function createProfileCommitService(options = {}) {
   /* One commit at a time: a double click's second request waits, then replays. */
   /** @type {Promise<unknown>} */
   let tail = Promise.resolve();
+  /* Derived writes keep commit order without holding the canonical lock. */
+  /** @type {Promise<unknown>} */
+  let derivedTail = Promise.resolve();
   /** @template T @param {() => Promise<T>} fn @returns {Promise<T>} */
   function serialize(fn) {
     const run = tail.then(fn, fn);
@@ -416,14 +419,32 @@ export function createProfileCommitService(options = {}) {
   }
 
   async function state() {
-    const files = await currentFiles(pathsOf());
-    return { exists: hasSavedSetup(files), revision: revisionOf(files) };
+    return serialize(async () => {
+      const paths = pathsOf();
+      await recoverUnlocked(paths);
+      const files = await currentFiles(paths);
+      const record = await readRecord(paths);
+      return {
+        exists: hasSavedSetup(files),
+        revision: revisionOf(files),
+        accountHash: record && typeof record.accountHash === "string" ? record.accountHash : null,
+      };
+    });
+  }
+
+  async function savedResume() {
+    return serialize(async () => {
+      const paths = pathsOf();
+      await recoverUnlocked(paths);
+      const raw = await readOrNull(paths.resume);
+      return raw === null ? null : raw.replace(/\r/g, "").trim();
+    });
   }
 
   /** @param {unknown} body */
   async function commit(body) {
     const input = parseCommit(body);
-    return serialize(async () => {
+    const result = await serialize(async () => {
       const paths = pathsOf();
       await recoverUnlocked(paths);
 
@@ -513,15 +534,6 @@ export function createProfileCommitService(options = {}) {
         () => false,
       );
 
-      /** @type {unknown} */
-      let derived = null;
-      if (options.postCommit) {
-        try {
-          derived = await options.postCommit({ profile: input.profile, resumeText: input.resumeText });
-        } catch {
-          derived = { ok: false };
-        }
-      }
       return {
         ok: true,
         replayed: false,
@@ -530,9 +542,22 @@ export function createProfileCommitService(options = {}) {
         revision: committedRecord ? committedRecord.revision : null,
         readSaved,
         journalCleared,
-        derived,
       };
     });
+    if (result.replayed) return result;
+    /** @type {unknown} */
+    let derived = null;
+    if (options.postCommit) {
+      const hook = options.postCommit;
+      const run = derivedTail.then(() => hook({ profile: input.profile, resumeText: input.resumeText }));
+      derivedTail = run.catch(() => undefined);
+      try {
+        derived = await run;
+      } catch {
+        derived = { ok: false };
+      }
+    }
+    return { ...result, derived };
   }
 
   /**
@@ -563,6 +588,7 @@ export function createProfileCommitService(options = {}) {
 
   return {
     state,
+    savedResume,
     commit,
     exclusive,
     /** Finish a rollback an interrupted save left behind (server start). */
@@ -612,6 +638,13 @@ export function commitBarrier(service) {
  * @param {ProfileCommitService} service
  */
 export function mountProfileCommit(app, service) {
+  app.get("/profile/resume", async (_req, res) => {
+    try {
+      return res.json({ ok: true, resumeText: await service.savedResume() });
+    } catch {
+      return res.status(500).json({ ok: false, reason: "read_failed", message: "JobBored's server couldn't read the saved resume." });
+    }
+  });
   app.get("/profile/commit/state", async (_req, res) => {
     try {
       return res.json({ ok: true, ...(await service.state()) });

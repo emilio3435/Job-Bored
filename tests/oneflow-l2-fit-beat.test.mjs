@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildResumeRead } from "../server/resume-read.mjs";
 import { loadOneFlow, readRepoFile } from "./oneflow-l0-harness.mjs";
 
 // GFX FE-B4: the beat validates through fit-profile-schema.js and saves
@@ -75,6 +76,27 @@ function renderBeat(profileDraft = draft()) {
 }
 
 describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
+  for (const stale of [false, true]) {
+    it(`S2 a reloaded fit commit ${stale ? "omits a stale" : "restores its matching"} resume read`, async () => {
+      const env = renderBeat();
+      env.window.crypto = globalThis.crypto;
+      env.window.TextEncoder = TextEncoder;
+      const resumeText = "Jamie Fiction — Operations analyst. Builds intake dashboards.";
+      const read = buildResumeRead(stale ? "An older fictional resume." : resumeText);
+      env.ctx.runtime.drafts = { resumeText, resumeRead: read };
+      env.window.CommandCenterUserContent.setPrimaryResume = async () => {};
+      let body;
+      env.window.fetch = async (_url, init) => {
+        body = JSON.parse(init.body);
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      };
+      await env.beat.onAction("confirm-fit", env.ctx);
+      assert.equal(env.completions.length, 1);
+      if (stale) assert.equal(body.read, undefined);
+      else assert.deepEqual(body.read, read);
+    });
+  }
+
   it("L2-FIT-LAYOUT: renders the grouped sections, human seniority, conditional locations, and no raw JSON", () => {
     // GFX FE-B4 (B4-1/9, B4-6): three cards + "Edit details" + raw JSON
     // became five sections; the hard filters are no longer behind a

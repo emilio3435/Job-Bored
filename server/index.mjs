@@ -478,7 +478,7 @@ profileCommit.recover().catch((err) => {
  * Loopback local dev is open; hosted/non-loopback deployments are protected by
  * the global API token middleware above.
  */
-app.get("/profile", async (_req, res) => {
+app.get("/profile", guardSave(async (_req, res) => {
   try {
     const result = await readProfile();
     if (!result.ok) {
@@ -501,7 +501,7 @@ app.get("/profile", async (_req, res) => {
       detail: redactFsPaths(errorMessage(err, "read failed")),
     });
   }
-});
+}));
 
 app.post("/profile", guardSave(async (req, res) => {
   const body = req.body;

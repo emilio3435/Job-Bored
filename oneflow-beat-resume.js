@@ -880,6 +880,8 @@
     // JOBQA: the only write an upload makes is to the wizard draft. The
     // saved resume changes on B4's commit, never here.
     saveDraft(context, "resumeText", clean);
+    saveDraft(context, "resumeRead", null);
+    if (context && context.runtime) context.runtime.resumeRead = null;
     state.writeOrder.push("draft");
     setStage(context, 0);
 
@@ -937,6 +939,7 @@
       // JOBQA: what the AI read, kept for B4's commit (saved only with it).
       context.runtime.resumeRead = drafted.read || null;
     }
+    saveDraft(context, "resumeRead", drafted.read || null);
     saveDraft(context, "profileDraft", state.draft);
     // RESJ2-EXTRACT: say what the AI read, in the stage list and in a toast
     // that outlives the move to the next beat.

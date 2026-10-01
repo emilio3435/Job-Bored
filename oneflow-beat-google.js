@@ -855,7 +855,7 @@
     if (!oauthClientId()) {
       state.detourOpen = true;
       setClientIdError(DETOUR_PROMPT);
-      repaint(ctx, DETOUR_PROMPT, "info");
+      repaint(ctx, "", "info");
       focusClientIdSoon();
       return undefined;
     }

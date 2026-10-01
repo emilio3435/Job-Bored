@@ -679,7 +679,7 @@
    * them may ever touch disk — an unverified provider key is a secret,
    * a half-typed resume is not.
    */
-  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
+  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft", "resumeRead"]);
 
   /** A resume pasted in full, with room to spare — not a whole document. */
   const ONBOARDING_FLOW_DRAFT_TEXT_MAX = 100000;

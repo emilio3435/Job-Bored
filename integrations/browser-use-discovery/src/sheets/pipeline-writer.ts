@@ -70,12 +70,12 @@ export class SheetWriteError extends Error {
     uncertain?: boolean;
     cause?: unknown;
   }) {
-    super(params.message, { cause: params.cause });
+    super(params.message.slice(0, 2048), { cause: params.cause });
     this.name = "SheetWriteError";
     this.phase = params.phase;
     this.sheetId = params.sheetId;
     this.httpStatus = params.httpStatus;
-    this.detail = params.detail;
+    this.detail = params.detail?.slice(0, 2048);
     this.partialResult = params.partialResult;
     this.uncertain = params.uncertain === true;
   }
@@ -365,7 +365,7 @@ export async function batchUpdateRows(
     retry,
   );
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = (await response.text().catch(() => "")).slice(0, 2048);
     throw new SheetWriteError({
       phase: "update",
       message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
@@ -447,6 +447,29 @@ export function createPipelineWriter(
       retry,
     );
     const headerState = checkPipelineHeader(headerValues[0] || [], sheetName);
+    if (headerState.needsUpgrade || headerState.searchMatchHeader === "legacy" ||
+        headerState.searchMatchHeader === "missing" || headerState.workModeHeader === "missing") {
+      // Every legacy header write needs the full grid, including A1:Y1 and U1.
+      try {
+        await ensureSheetGridColumns({
+          sheetId,
+          sheetName,
+          token: accessToken,
+          fetchImpl,
+          minColumns: PIPELINE_HEADER_ROW.length,
+          retry,
+        });
+      } catch (error) {
+        throw new SheetWriteError({
+          phase: "update",
+          message: `Sheet write failed during header grid upgrade: ${formatError(error)}`,
+          sheetId,
+          httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
+          detail:
+            (error instanceof SheetsHttpError && error.body) || formatError(error),
+        });
+      }
+    }
     if (headerState.needsUpgrade) {
       const upgraded: string[] = PIPELINE_HEADER_ROW.slice(0, 25);
       upgraded[PIPELINE_COL.matchScore] = (headerValues[0] || [])[PIPELINE_COL.matchScore] || "";
@@ -458,7 +481,7 @@ export function createPipelineWriter(
         retry,
       );
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
+        const body = (await response.text().catch(() => "")).slice(0, 2048);
         throw new SheetWriteError({
           phase: "update",
           message: `Sheet write failed during header upgrade: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
@@ -477,7 +500,7 @@ export function createPipelineWriter(
         retry,
       );
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
+        const body = (await response.text().catch(() => "")).slice(0, 2048);
         throw new SheetWriteError({
           phase: "update",
           message: `Sheet write failed during Search Match header upgrade: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
@@ -488,27 +511,6 @@ export function createPipelineWriter(
       }
     }
     if (headerState.workModeHeader === "missing") {
-      // A legacy tab whose grid is narrower than Z rejects the Z1 write with
-      // HTTP 400, so grow the grid to the full header width first.
-      try {
-        await ensureSheetGridColumns({
-          sheetId,
-          sheetName,
-          token: accessToken,
-          fetchImpl,
-          minColumns: PIPELINE_HEADER_ROW.length,
-          retry,
-        });
-      } catch (error) {
-        throw new SheetWriteError({
-          phase: "update",
-          message: `Sheet write failed during Work Mode header upgrade: ${formatError(error)}`,
-          sheetId,
-          httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
-          detail:
-            (error instanceof SheetsHttpError && error.body) || formatError(error),
-        });
-      }
       const response = await batchUpdateSheetValues(
         sheetId,
         [{ range: `${sheetName}!Z1`, values: [["Work Mode"]] }],
@@ -517,7 +519,7 @@ export function createPipelineWriter(
         retry,
       );
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
+        const body = (await response.text().catch(() => "")).slice(0, 2048);
         throw new SheetWriteError({
           phase: "update",
           message: `Sheet write failed during Work Mode header upgrade: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
@@ -704,7 +706,7 @@ export function createPipelineWriter(
             retry,
           );
           if (!response.ok) {
-            const body = await response.text().catch(() => "");
+            const body = (await response.text().catch(() => "")).slice(0, 2048);
             throw new SheetWriteError({
               phase: "update",
               message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
@@ -814,7 +816,7 @@ export function createPipelineWriter(
           appendedLinks = appends.map((row) => row[PIPELINE_COL.link]);
           break;
         }
-        const body = await response.text().catch(() => "");
+        const body = (await response.text().catch(() => "")).slice(0, 2048);
         if (isRetryableStatus(response.status) && attempt < attempts - 1) {
           await sleep((retry.retryBaseMs ?? 400) * 2 ** attempt);
           continue;

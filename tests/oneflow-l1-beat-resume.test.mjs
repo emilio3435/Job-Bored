@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildResumeRead } from "../server/resume-read.mjs";
 import {
   actionButton,
   loadArrival,
@@ -112,6 +113,20 @@ describe("B3 Hand us your resume — the screen (spec §5 B3)", () => {
 });
 
 describe("B3 Hand us your resume — staged, not saved (JOBQA; was the dual write, spec §5 B3)", () => {
+  it("S2 keeps the hash-keyed resume read in persisted drafts across a reload", async () => {
+    const resumeText = "Jamie Fiction — Operations analyst. Builds intake dashboards.";
+    const read = buildResumeRead(resumeText);
+    const env = await openBeat({ fetchImpl: draftingFetch({
+      fromResume: () => ({ ok: true, json: { ok: true, profile: DRAFT_PROFILE, read } }),
+    }) });
+    await env.beats.resume.ingestText(resumeText, "paste");
+    await env.flow.flushDrafts();
+    const persisted = await env.store.getOnboardingFlowState();
+    assert.equal(persisted.drafts.resumeRead?.textSha256, read.textSha256);
+    assert.deepEqual(persisted.drafts.resumeRead, read);
+    assert.equal(await env.store.getActiveResume(), null, "the read remains staged with the resume");
+  });
+
   it("keeps the resume in the wizard draft, then only asks the server to READ it", async () => {
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");

@@ -697,9 +697,10 @@ export async function ensureSheetGridColumns(params: {
       body: JSON.stringify({
         requests: [
           {
-            updateSheetProperties: {
-              properties: { sheetId: tabId, gridProperties: { columnCount: minColumns } },
-              fields: "gridProperties.columnCount",
+            appendDimension: {
+              sheetId: tabId,
+              dimension: "COLUMNS",
+              length: minColumns - columnCount,
             },
           },
         ],

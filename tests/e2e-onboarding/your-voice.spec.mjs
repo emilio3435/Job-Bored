@@ -150,6 +150,12 @@ async function stubProfileRoutes(page, { voice = null, profile = null } = {}) {
       await fulfillJson(route, { ok: true, exists: false, backup: "voice.md.bak.2026-09-27T18-05-00.000Z" });
       return;
     }
+    // Completing voice reaches Fit, whose signed-in saved-setup offer
+    // checks commit state. This isolated installation has no saved setup.
+    if (path === "/profile/commit/state" && method === "GET") {
+      await fulfillJson(route, { ok: true, exists: false, revision: "empty", accountHash: null });
+      return;
+    }
     if (path === "/profile" && method === "GET") {
       await fulfillJson(route, profile ? { ok: true, profile } : { ok: false, reason: "no_profile" });
       return;
@@ -217,7 +223,7 @@ async function noSideScroll(page, selector) {
 }
 
 test.describe("the one-flow \"Your voice\" step", () => {
-  test("should copy the prompt, preview a pasted guide, warn about a missing section, and save it", async ({ page, context }, testInfo) => {
+  test("should copy the prompt, preview a pasted guide, warn about a missing section, and stage it", async ({ page, context }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: app.baseUrl });
     const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
@@ -263,17 +269,18 @@ test.describe("the one-flow \"Your voice\" step", () => {
     await guideField(beat).fill(FULL_GUIDE);
     await expect(preview.locator(".jb-voice__heading")).toHaveCount(4);
     await expect(preview.locator(".jb-voice__warn")).toHaveCount(0);
-    // Nothing is saved by typing.
+    // Typing keeps a browser draft without writing the saved guide.
     expect(calls.puts).toEqual([]);
 
-    await page.getByRole("button", { name: "Save my voice guide →" }).click();
+    await page.getByRole("button", { name: "Use this voice guide →" }).click();
     await expect(page.locator('#oneFlowMount .oneflow-beat[data-beat-id="fit"]')).toBeVisible();
     await expect(spineStep(page, "voice")).toHaveClass(/spine-step--done/);
-    // A fresh install saw no guide, so the save says so (ifUpdatedAt null):
-    // one saved on this computer meanwhile would be a 409, not overwritten.
-    expect(calls.puts).toEqual([{ text: FULL_GUIDE, ifUpdatedAt: null }]);
+    // JOBQA: completing voice stages it for Fit's one commit.
+    expect(calls.voiceGets).toBe(0);
+    expect(calls.puts).toEqual([]);
     const state = await page.evaluate(() => globalThis.JobBoredOneFlow.getState());
     expect(state.completedBeats).toContain("voice");
+    expect(state.drafts.voiceDraft).toBe(FULL_GUIDE);
 
     expect(dialogs).toEqual([]);
     expect(calls.refused).toEqual([]);
@@ -318,7 +325,7 @@ test.describe("the one-flow \"Your voice\" step", () => {
     await expect(guideField(beat)).toHaveValue("");
 
     await input.setInputFiles({ name: "voice.md", mimeType: "text/markdown", buffer: Buffer.from(FULL_GUIDE) });
-    await expect(beat.getByText("Loaded voice.md. Check it below, then save.")).toBeVisible();
+    await expect(beat.getByText("Loaded voice.md. Check it below, then use it.")).toBeVisible();
     await expect(guideField(beat)).toHaveValue(FULL_GUIDE.trim());
     await expect(beat.locator(".jb-voice__heading")).toHaveCount(4);
     await settle(page);
@@ -338,6 +345,10 @@ test.describe("the one-flow \"Your voice\" step", () => {
     expect(overflow.node).toBeLessThanOrEqual(0);
     await beat.locator(".oneflow-voice__tabs").scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(shotsDir(testInfo), "wizard-voice-chatbot-390.png"), fullPage: false });
+    const state = await page.evaluate(() => globalThis.JobBoredOneFlow.getState());
+    expect(state.drafts.voiceDraft).toBe(FULL_GUIDE.trim());
+    expect(state.completedBeats).not.toContain("voice");
+    expect(calls.voiceGets).toBe(0);
     expect(calls.puts).toEqual([]);
     expect(app.hostRequests).toEqual([]);
   });
@@ -347,7 +358,7 @@ test.describe("the one-flow \"Your voice\" step", () => {
     const calls = await stubProfileRoutes(page);
     await openVoiceBeat(page);
 
-    await page.getByRole("button", { name: "Save my voice guide →" }).click();
+    await page.getByRole("button", { name: "Use this voice guide →" }).click();
     await expect(page.getByText("Paste your voice guide first — or skip for now and add it later in Settings.")).toBeVisible();
     expect(calls.puts).toEqual([]);
 
@@ -358,22 +369,29 @@ test.describe("the one-flow \"Your voice\" step", () => {
     expect(state.completedBeats).not.toContain("voice");
     await expect(spineStep(page, "voice")).toHaveClass(/spine-step--skipped/);
     await expect(spineStep(page, "voice")).not.toHaveClass(/spine-step--done/);
+    expect(calls.voiceGets).toBe(0);
     expect(calls.puts).toEqual([]);
   });
 
-  test("should show a guide that already exists and replace it only knowingly", async ({ page }) => {
+  test("should keep a saved guide out of onboarding and stage the guide entered here", async ({ page }) => {
     await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
     const calls = await stubProfileRoutes(page, { voice: { text: PARTIAL_GUIDE, updatedAt: SAVED_AT } });
     const beat = await openVoiceBeat(page);
 
-    await expect(beat.getByText("You already have a voice guide", { exact: false })).toBeVisible();
-    await expect(beat.getByRole("tab", { name: "I already have one" })).toHaveAttribute("aria-selected", "true");
-    await expect(guideField(beat)).toHaveValue(PARTIAL_GUIDE);
+    await expect(beat.getByText("You already have a voice guide", { exact: false })).toHaveCount(0);
+    await expect(beat.getByRole("tab", { name: "Write it with your chatbot" })).toHaveAttribute("aria-selected", "true");
+    await expect(guideField(beat)).toHaveValue("");
+    expect(calls.voiceGets).toBe(0);
 
     await guideField(beat).fill(FULL_GUIDE);
-    await page.getByRole("button", { name: "Save my voice guide →" }).click();
+    await page.getByRole("button", { name: "Use this voice guide →" }).click();
     await expect(page.locator('#oneFlowMount .oneflow-beat[data-beat-id="fit"]')).toBeVisible();
-    expect(calls.puts).toEqual([{ text: FULL_GUIDE, ifUpdatedAt: SAVED_AT }]);
+    await expect(spineStep(page, "voice")).toHaveClass(/spine-step--done/);
+    const state = await page.evaluate(() => globalThis.JobBoredOneFlow.getState());
+    expect(state.completedBeats).toContain("voice");
+    expect(state.drafts.voiceDraft).toBe(FULL_GUIDE);
+    expect(calls.voiceGets).toBe(0);
+    expect(calls.puts).toEqual([]);
   });
 });
 

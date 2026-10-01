@@ -14,13 +14,13 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { describe, it } from "node:test";
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { createProfileCommitService } from "../server/profile-commit.mjs";
 import { loadArrival, makeFetchDouble } from "./oneflow-l1-harness.mjs";
 import { loadOneFlow } from "./oneflow-l0-harness.mjs";
-import { ALEX, MORGAN, accountHashOf, seedStore, storePaths } from "./fixtures/jobqa-hermetic/profiles.mjs";
+import { ALEX, MORGAN, accountHashOf, manifestOf, morganSavedProfile, seedStore, storePaths } from "./fixtures/jobqa-hermetic/profiles.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -148,6 +148,115 @@ const mutating = (env) =>
     const method = String((c.options && c.options.method) || "GET").toUpperCase();
     return method !== "GET" && !/\/profile\/(from-resume|contact\/suggest)$/.test(c.url);
   });
+
+describe("LOCALFIX saved setup adoption", () => {
+  async function savedSetup(t, { email = MORGAN.email, unowned = false, onResume } = {}) {
+    const root = await mkdtemp(join(tmpdir(), "localfix-adopt-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const paths = storePaths(join(root, "store"));
+    await seedStore(paths, "existing");
+    if (unowned) await rm(paths.record);
+    const service = createProfileCommitService({ paths });
+    const env = loadArrival();
+    new Function("window", readFileSync(join(REPO, "fit-profile-schema.js"), "utf8"))(env.window);
+    env.window.crypto = globalThis.crypto;
+    env.window.TextEncoder = TextEncoder;
+    const who = { email };
+    env.window.JobBoredApp.auth = { getUserEmail: () => who.email };
+    const calls = [];
+    env.window.fetch = async (url, init) => {
+      calls.push({ url, method: init.method, ...(init.body ? { body: JSON.parse(init.body) } : {}) });
+      let data;
+      if (url.endsWith("/profile/commit/state")) data = { ok: true, ...(await service.state()) };
+      else if (url.endsWith("/profile/resume")) {
+        if (onResume) await onResume({ paths, who });
+        data = { ok: true, resumeText: await service.savedResume() };
+      } else if (url.endsWith("/profile")) data = await service.exclusive(async () => ({ ok: true, profile: JSON.parse(await readFile(paths.profile, "utf8")) }));
+      else if (url.endsWith("/profile/commit")) data = { ok: false, reason: "replace_proof_mismatch" };
+      else throw new Error(`unexpected fixture request: ${url}`);
+      return { ok: data.ok, status: data.ok ? 200 : 409, json: async () => data };
+    };
+    const completions = [];
+    const messages = [];
+    const scope = { current: "saved#1" };
+    const ctx = {
+      state: {}, scope: "saved#1", accountHash: accountHashOf(email),
+      isCurrentScope: (value) => value === scope.current,
+      runtime: { profileDraft: morganSavedProfile(), drafts: {} },
+      saveDraft: (key, value) => { ctx.runtime.drafts[key] = value; },
+      setMessage: (text, tone) => messages.push({ text, tone }),
+      setBusy() {}, clearBusy() {}, completeBeat: async (data) => completions.push(data),
+    };
+    const beat = env.flow.getBeat("fit");
+    const container = env.document.createElement("div");
+    beat.render(container, ctx);
+    await settle();
+    return { env, beat, ctx, container, calls, completions, messages, scope, root, who, paths };
+  }
+
+  for (const unowned of [false, true]) {
+    it(`W3 a fresh browser adopts ${unowned ? "an unowned" : "its account's"} saved setup without a canonical write`, async (t) => {
+      const s = await savedSetup(t, { unowned });
+      const before = await manifestOf(join(s.root, "store"));
+      const offer = s.container.querySelector(".oneflow-fit-adopt");
+      assert.ok(offer && !offer.hidden, "matching signed-in users get an explicit adoption action");
+      await s.beat.onAction("adopt-saved-setup", s.ctx);
+      assert.equal((await s.env.store.getActiveResume()).extractedText, MORGAN.resumeText);
+      assert.equal(s.ctx.runtime.fitProfile.identity.fullName, "Morgan Existing");
+      assert.equal(s.completions.length, 1);
+      assert.equal(s.completions[0].syncReason, "adopted");
+      assert.equal(s.calls.every((call) => call.method === "GET"), true);
+      assert.deepEqual(await manifestOf(join(s.root, "store")), before);
+    });
+  }
+
+  it("W3 a different account cannot read or adopt the saved profile and resume", async (t) => {
+    const s = await savedSetup(t, { email: ALEX.email });
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    assert.equal(await s.env.store.getActiveResume(), null);
+    assert.equal(s.completions.length, 0);
+    assert.equal(s.calls.some((call) => /\/profile(?:\/resume)?$/.test(call.url)), false);
+  });
+
+  it("W3 revisiting fit after adoption uses the saved setup rather than old staged answers", async (t) => {
+    const s = await savedSetup(t);
+    s.ctx.runtime.contactIdentity = { fullName: "Unsaved Fiction" };
+    s.ctx.runtime.oneFlowFitReview.model.identity.targetRoles = ["Unsaved Fictional Role"];
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    s.beat.render(s.env.document.createElement("div"), s.ctx);
+    await s.beat.onAction("confirm-fit", s.ctx);
+    const commit = s.calls.find((call) => call.method === "POST").body;
+    assert.equal(commit.profile.identity.fullName, "Morgan Existing");
+    assert.deepEqual(commit.profile.identity.targetRoles, ["Principal Platform Architect"]);
+  });
+
+  it("W3 an account switch while reading saves no browser copy", async (t) => {
+    const s = await savedSetup(t, { onResume: ({ who }) => { who.email = ALEX.email; } });
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    assert.equal(await s.env.store.getActiveResume(), null);
+    assert.equal(s.completions.length, 0);
+  });
+
+  it("W3 a revision change during adoption saves no mixed browser copy", async (t) => {
+    const s = await savedSetup(t, { onResume: ({ paths }) => writeFile(paths.resume, `${MORGAN.resumeText}\nChanged elsewhere.\n`) });
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    assert.equal(await s.env.store.getActiveResume(), null);
+    assert.equal(s.completions.length, 0);
+    assert.ok(s.messages.some((m) => /changed/i.test(m.text)));
+  });
+
+  it("W4 drifted proof offers recovery without telling the user to reload and retry", async (t) => {
+    const s = await savedSetup(t);
+    s.ctx.runtime.drafts.resumeText = ALEX.resumeText;
+    await s.beat.onAction("confirm-fit", s.ctx);
+    const refusal = s.messages.find((m) => /nothing was replaced/i.test(m.text));
+    assert.ok(refusal);
+    assert.doesNotMatch(refusal.text, /reload/i);
+    assert.match(refusal.text, /saved|Settings.*Resume/i);
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    assert.equal(s.completions.length, 1);
+  });
+});
 
 const detailsForm = (env) => env.window.JobBoredOneFlowBeatDetails.getForm();
 

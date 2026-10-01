@@ -606,8 +606,11 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
     },
   ]);
 
-  assert.equal(calls[1].method, "POST");
-  const headerUpgradeBody = JSON.parse(calls[1].body);
+  // Grid-width ensure runs before the first legacy header write.
+  assert.equal(calls[1].method, "GET");
+  assert.match(calls[1].url, /\/v4\/spreadsheets\/sheet_123\?fields=/);
+  assert.equal(calls[2].method, "POST");
+  const headerUpgradeBody = JSON.parse(calls[2].body);
   assert.equal(
     headerUpgradeBody.data[0].range,
     "Pipeline!A1:Y1",
@@ -615,10 +618,7 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   const expectedUpgrade = PIPELINE_HEADER_ROW.slice(0, 25);
   expectedUpgrade[20] = "";
   assert.deepEqual(headerUpgradeBody.data[0].values[0], expectedUpgrade);
-  assert.equal(JSON.parse(calls[2].body).data[0].range, "Pipeline!U1");
-  // Grid-width ensure runs between the U1 and Z1 writes.
-  assert.equal(calls[3].method, "GET");
-  assert.match(calls[3].url, /\/v4\/spreadsheets\/sheet_123\?fields=/);
+  assert.equal(JSON.parse(calls[3].body).data[0].range, "Pipeline!U1");
   assert.equal(JSON.parse(calls[4].body).data[0].range, "Pipeline!Z1");
   assert.deepEqual(JSON.parse(calls[4].body).data[0].values, [["Work Mode"]]);
   assert.match(calls[5].url, /values\/Blacklist!A2%3AA/);
