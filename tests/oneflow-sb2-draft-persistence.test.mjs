@@ -214,6 +214,15 @@ describe("SB2 draft persistence — the controller seam (spec §3.2, locked deci
 });
 
 describe("SB2 NEW-14 — Beat 4 survives a refresh (BLOCKER)", () => {
+  it("S2 the controller and store both retain a resume read draft", async () => {
+    const env = await flowWithCapturedCtx();
+    const read = { version: 2, textSha256: "a".repeat(64), skills: [] };
+    const saving = env.ctx().saveDraft("resumeRead", read);
+    await env.flow.flushDrafts();
+    await saving;
+    assert.deepEqual((await env.store.getOnboardingFlowState()).drafts.resumeRead, read);
+  });
+
   it("SB2-FIT-DRAFT-READ: B4 renders from runtime.drafts.profileDraft when the in-memory draft is gone", () => {
     const env = loadOneFlow({ beatFiles: true });
     const beat = env.flow.getBeat("fit");

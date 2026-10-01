@@ -1283,6 +1283,10 @@
 
   function getRecord(ctx) {
     const runtime = ctx.runtime || {};
+    // JOBQA: a review built under another account's setup is rebuilt.
+    if (runtime.oneFlowFitReview && runtime.oneFlowFitReview.scope !== ctx.scope) {
+      runtime.oneFlowFitReview = null;
+    }
     if (!runtime.oneFlowFitReview) {
       const model = normalizeDraft(getDraft(ctx));
       runtime.oneFlowFitReview = {
@@ -1292,6 +1296,12 @@
         errors: {},
         fields: {},
         shown: {},
+        scope: ctx.scope,
+        // The saved setup's revision as this review opened: a save made
+        // elsewhere since then makes the commit a 409 instead of a silent
+        // overwrite (JOBQA). Only a browser that saved a setup here before
+        // can replace one, so only it asks.
+        base: readBaseIfReplacing(),
       };
     }
     return runtime.oneFlowFitReview;
@@ -1321,7 +1331,13 @@
     record.live = el("p", "oneflow-fit-sr");
     record.live.setAttribute("aria-live", "polite");
     root.append(zones, record.live);
+    record.adopt = button("Use the setup saved on this computer", "oneflow-fit-link-button oneflow-fit-adopt", function () {
+      adoptSavedSetup(ctx);
+    });
+    record.adopt.hidden = !record.savedSetup;
+    root.appendChild(record.adopt);
     container.appendChild(root);
+    if (!record.savedLookup) record.savedLookup = refreshSavedOffer(record, ctx);
 
     record.updateSummary = function () {
       deal.summary.textContent = summaryLine(record.model);
@@ -1337,38 +1353,233 @@
   // Save (N-B4-1, R7)
   // ---------------------------------------------------------------
 
-  function syncProfile(payload) {
-    const sync = window.JobBoredFitProfileSync;
-    if (!sync || typeof sync.syncProfile !== "function") {
-      return Promise.resolve({
-        ok: true,
-        synced: false,
-        status: 0,
-        reason: "local_only",
-        message: "Saved on this device.",
-      });
-    }
-    return Promise.resolve(sync.syncProfile(payload)).catch(function (error) {
-      return {
-        ok: false,
-        synced: false,
-        status: 0,
-        reason: "server_error",
-        message: text(error && error.message),
-      };
-    });
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const auth = window.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    // window.fetch, as fit-profile-sync.js uses: the page's own transport.
+    if (typeof window.fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
+    return window.fetch(url, init);
   }
 
-  /** A quiet note that survives the move to the next beat. */
-  function quietNote(ctx, message) {
-    if (!message) return;
-    const app = window.JobBoredApp;
-    const host = app && app.core && app.core.host;
-    if (host && typeof host.showToast === "function") {
-      host.showToast(message, "info");
-      return;
+  function profileUrl(path) {
+    const api = window.JobBoredProfileApi;
+    if (api && typeof api.profileUrl === "function") return api.profileUrl(path);
+    return path;
+  }
+
+  /** Lowercase hex sha256 of `value` (the proof of which saved resume this browser holds). */
+  async function sha256Hex(value) {
+    const subtle = window.crypto && window.crypto.subtle;
+    const Encoder = window.TextEncoder || (typeof TextEncoder === "function" ? TextEncoder : null);
+    if (!subtle || !Encoder) return "";
+    const digest = await subtle.digest("SHA-256", new Encoder().encode(value));
+    return Array.from(new Uint8Array(digest), function (byte) {
+      return byte.toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  /** The saved setup's revision, when this browser holds the resume it saved; else null. */
+  function readBaseIfReplacing() {
+    const store = window.CommandCenterUserContent;
+    if (!store || typeof store.getActiveResume !== "function") return Promise.resolve(null);
+    return Promise.resolve()
+      .then(function () {
+        return store.getActiveResume();
+      })
+      .then(function (held) {
+        return held && text(held.extractedText) ? readCommitState() : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  /** The completed canonical setup's revision and recorded owner. */
+  function readCommitState() {
+    return apiFetch(profileUrl("/profile/commit/state"), { method: "GET" })
+      .then(function (res) {
+        return res && res.ok ? res.json() : null;
+      })
+      .then(function (data) {
+        return data && data.ok === true
+          ? { exists: !!data.exists, revision: text(data.revision), accountHash: text(data.accountHash) || null, local: data.local === true }
+          : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  async function adoptionAccount(ctx) {
+    const signedIn = typeof flow.currentAccountHash === "function" ? await flow.currentAccountHash() : "";
+    const current = typeof ctx.isCurrentScope !== "function" || ctx.isCurrentScope(ctx.scope);
+    return current && signedIn && (!ctx.accountHash || ctx.accountHash === signedIn) ? signedIn : "";
+  }
+
+  function canAdopt(saved, account) {
+    return !!(account && saved && saved.exists &&
+      (saved.accountHash === account || (saved.accountHash == null && saved.local === true)));
+  }
+
+  async function refreshSavedOffer(record, ctx) {
+    const account = await adoptionAccount(ctx);
+    const saved = account ? await readCommitState() : null;
+    if (account !== await adoptionAccount(ctx)) return;
+    record.savedSetup = canAdopt(saved, account) ? saved : null;
+    if (record.adopt) record.adopt.hidden = !record.savedSetup;
+  }
+
+  /** Explicitly adopt a completed saved setup; no canonical write is made. */
+  async function adoptSavedSetup(ctx) {
+    const record = getRecord(ctx);
+    if (record.saving) return;
+    const store = window.CommandCenterUserContent;
+    if (!store || typeof store.setPrimaryResume !== "function" || typeof store.saveDiscoveryProfile !== "function") return;
+    record.saving = true;
+    const stillHere = () => typeof ctx.isCurrentScope !== "function" || ctx.isCurrentScope(ctx.scope);
+    try {
+      const account = await adoptionAccount(ctx);
+      const before = account ? await readCommitState() : null;
+      if (!canAdopt(before, account) || account !== await adoptionAccount(ctx)) {
+        if (stillHere()) ctx.setMessage("Sign in with the Google account that owns this computer's saved setup to use it.", "error");
+        return;
+      }
+      ctx.setBusy("adopt-saved-setup", [{ label: "Loading your saved setup…", state: "active" }]);
+      const profileRes = await apiFetch(profileUrl("/profile"), { method: "GET" });
+      const profileData = profileRes.ok ? await profileRes.json() : null;
+      const resumeRes = await apiFetch(profileUrl("/profile/resume"), { method: "GET" });
+      const resumeData = resumeRes.ok ? await resumeRes.json() : null;
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      const after = await readCommitState();
+      if (!canAdopt(after, account) || after.revision !== before.revision || after.accountHash !== before.accountHash) {
+        ctx.setMessage("The saved setup changed while it was loading. Use the saved setup again to load its latest version.", "error");
+        return;
+      }
+      const profile = profileData && profileData.ok === true && profileData.profile;
+      const resumeText = resumeData && resumeData.resumeText;
+      const api = schema();
+      if (!profile || !api || !api.validateProfile(profile).ok || !resumeData || resumeData.ok !== true ||
+          (resumeText !== null && typeof resumeText !== "string")) {
+        ctx.setMessage("The saved setup couldn't be loaded. Open Settings → Resume to review it.", "error");
+        return;
+      }
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      if (resumeText) {
+        await store.setPrimaryResume({ source: "file", rawMime: null, label: "My resume", extractedText: resumeText, confirmGarbled: true, syncServer: false });
+      } else if (typeof store.setActiveResumeId === "function") {
+        await store.setActiveResumeId(null);
+      }
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      await store.saveDiscoveryProfile(discoveryPayload(normalizeDraft(profile)));
+      if (!stillHere() || account !== await adoptionAccount(ctx)) return;
+      if (typeof ctx.saveDraft === "function") {
+        ctx.saveDraft("profileDraft", profile);
+        ctx.saveDraft("resumeText", resumeText || "");
+        ctx.saveDraft("contactDraft", null);
+        ctx.saveDraft("voiceDraft", null);
+        ctx.saveDraft("resumeRead", null);
+      }
+      ctx.runtime.fitProfile = profile;
+      ctx.runtime.profileDraft = profile;
+      ctx.runtime.contactIdentity = null;
+      ctx.runtime.resumeRead = null;
+      ctx.runtime.oneFlowFitReview = null;
+      ctx.runtime.fitProfileSync = { ok: true, synced: true, reason: "adopted" };
+      forgetCommitId(ctx.accountHash || account);
+      ctx.setMessage("", "info");
+      await ctx.completeBeat({ edited: false, serverSynced: true, syncReason: "adopted" });
+    } catch (_) {
+      if (stillHere()) ctx.setMessage("The saved setup couldn't be loaded into this browser. Try using it again, or open Settings → Resume.", "error");
+    } finally {
+      record.saving = false;
+      if (stillHere()) ctx.clearBusy();
     }
-    ctx.setMessage(message, "info");
+  }
+
+  function stagedResumeText(ctx) {
+    const runtime = (ctx && ctx.runtime) || {};
+    const drafts = runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
+    return typeof drafts.resumeText === "string" ? drafts.resumeText.replace(/\r/g, "").trim() : "";
+  }
+
+  /** The voice guide "Your voice" completed with; null when it was skipped or never used. */
+  function stagedVoice(ctx) {
+    const flowState = (ctx && ctx.state) || {};
+    const used =
+      Array.isArray(flowState.completedBeats) &&
+      flowState.completedBeats.indexOf("voice") !== -1 &&
+      !(flowState.skipped && flowState.skipped.voice);
+    const runtime = (ctx && ctx.runtime) || {};
+    const drafts = runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
+    const guide = typeof drafts.voiceDraft === "string" ? drafts.voiceDraft.trim() : "";
+    return used && guide ? { text: guide } : null;
+  }
+
+  /**
+   * One id per setup, kept per account in this browser until the save has
+   * fully landed here too: a double click, a lost answer, or a reload after
+   * either replays the same save instead of making a second one (or being
+   * refused as a second setup).
+   */
+  const COMMIT_ID_KEY = "jobbored.oneflow.commitId";
+  /** This page's ids, so a retry replays even where localStorage is blocked. */
+  const commitIds = new Map();
+  function commitIdFor(owner) {
+    const key = COMMIT_ID_KEY + ":" + String(owner || "unowned");
+    if (commitIds.has(key)) return commitIds.get(key);
+    try {
+      const kept = window.localStorage.getItem(key);
+      if (kept) {
+        commitIds.set(key, kept);
+        return kept;
+      }
+    } catch (_) {
+      /* localStorage blocked: the in-page copy still covers retries */
+    }
+    const random =
+      window.crypto && typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+    const id = "onb-" + String(random).replace(/[^A-Za-z0-9_-]/g, "");
+    commitIds.set(key, id);
+    try {
+      window.localStorage.setItem(key, id);
+    } catch (_) {
+      /* the in-page copy still covers retries */
+    }
+    return id;
+  }
+
+  function forgetCommitId(owner) {
+    const key = COMMIT_ID_KEY + ":" + String(owner || "unowned");
+    commitIds.delete(key);
+    try {
+      window.localStorage.removeItem(key);
+    } catch (_) {
+      /* nothing kept */
+    }
+  }
+
+  /** What a refused commit tells the user. Nothing was saved in every case. */
+  function commitRefusal(reason, fallback) {
+    switch (reason) {
+      case "canonical_profile_exists":
+        return "This computer already has a saved JobBored profile, so nothing was saved. Use the setup saved on this computer with its Google account, or open Settings → Resume. Your answers stay in this setup.";
+      case "profile_commit_stale":
+        return "Your saved setup changed since this page opened, so nothing was saved. Reload JobBored, then confirm again.";
+      case "replace_proof_mismatch":
+        return "The resume saved on this computer isn't the one this browser saved, so nothing was replaced. Use the setup saved on this computer, or open Settings → Resume to review it.";
+      case "account_mismatch":
+        return "This computer's saved setup was confirmed with a different Google account, so nothing was replaced.";
+      case "commit_id_reused":
+        return "This setup was already saved from this browser. Reload JobBored to see it.";
+      case "commit_failed_rolled_back":
+        return "Saving failed, and nothing was changed. Try again.";
+      default:
+        return fallback || "JobBored couldn't save your setup. Nothing was changed. Try again.";
+    }
   }
 
   function rejectedErrors(result) {
@@ -1395,9 +1606,26 @@
     return { payload, grouped };
   }
 
+  /**
+   * "Looks like me" is onboarding's one explicit save (JOBQA). Everything
+   * staged since the resume — the resume text, this profile with the
+   * details "Your details" confirmed, the voice guide "Your voice" kept —
+   * goes to POST /profile/commit together; nothing was saved before this.
+   * A fresh or demo browser can only create a setup where none exists; a
+   * browser that saved this setup before replaces it with proof of the
+   * resume it holds. The browser's own copy is written only after the
+   * server said yes, and only while this account's setup is still the one
+   * on screen: an answer for another account is never applied here.
+   */
   async function confirmFit(ctx) {
     const record = getRecord(ctx);
     if (record.saving) return;
+    // Captured before anything is awaited: whose setup this confirm is for.
+    const scope = ctx.scope;
+    const owner = typeof ctx.accountHash === "string" ? ctx.accountHash : "";
+    const stillHere = function () {
+      return typeof ctx.isCurrentScope !== "function" || ctx.isCurrentScope(scope);
+    };
     // What "Your details" confirmed wins over whatever the draft carried.
     const confirmed = confirmedContact(ctx);
     if (confirmed) record.model.contact = contactOf(confirmed);
@@ -1410,81 +1638,166 @@
     }
     const payload = checked.payload;
     const store = window.CommandCenterUserContent;
-    if (!store || typeof store.saveDiscoveryProfile !== "function") {
-      ctx.setMessage(
-        "Could not save your discovery profile. Reload and try again.",
-        "error",
-      );
+    if (!store || typeof store.saveDiscoveryProfile !== "function" || typeof store.setPrimaryResume !== "function") {
+      ctx.setMessage("Could not save your setup. Reload and try again.", "error");
       return;
     }
 
     record.saving = true;
-    ctx.setBusy(ACTION_ID, [
-      { label: "Saving your fit profile…", state: "active" },
-    ]);
+    ctx.setMessage("", "info");
+    ctx.setBusy(ACTION_ID, [{ label: "Saving your setup…", state: "active" }]);
+    const stop = function (message) {
+      ctx.clearBusy();
+      record.saving = false;
+      if (message) ctx.setMessage(message, "error");
+    };
+    const resumeText = stagedResumeText(ctx);
+    let held = null;
     try {
-      // The on-device store is the source of truth for the flow: only its
-      // failure blocks the beat (the catch below).
+      held = typeof store.getActiveResume === "function" ? await store.getActiveResume() : null;
+    } catch (_) {
+      held = null;
+    }
+    const signedIn =
+      flow && typeof flow.currentAccountHash === "function" ? await flow.currentAccountHash() : "";
+    const base = await (record.base || Promise.resolve(null));
+    // Another account's setup took the screen while we waited: this confirm is void.
+    if (!stillHere()) {
+      record.saving = false;
+      return;
+    }
+    if (owner && signedIn && signedIn !== owner) {
+      stop(
+        "You're signed in with a different Google account than the one these answers belong to, so nothing was saved. Sign in with that account to save them.",
+      );
+      return;
+    }
+    const heldText = held && typeof held.extractedText === "string" ? held.extractedText.replace(/\r/g, "").trim() : "";
+    const body = {
+      commitId: commitIdFor(owner),
+      mode: heldText && resumeText ? "replace" : "create",
+      profile: payload,
+      accountHash: owner || signedIn || null,
+    };
+    if (resumeText) body.resumeText = resumeText;
+    else body.noResume = true;
+    if (body.mode === "replace") {
+      body.proof = await sha256Hex(heldText);
+      body.baseRevision = base ? base.revision : null;
+      if (!stillHere()) {
+        record.saving = false;
+        return;
+      }
+    }
+    const voice = stagedVoice(ctx);
+    if (voice) body.voice = voice;
+    const runtime = ctx.runtime || {};
+    const read = runtime.resumeRead || (runtime.drafts && runtime.drafts.resumeRead);
+    if (read && typeof read === "object" && resumeText && read.textSha256 === await sha256Hex(resumeText)) {
+      body.read = read;
+    }
+    if (!stillHere()) {
+      record.saving = false;
+      return;
+    }
+
+    let res = null;
+    let data = null;
+    try {
+      res = await apiFetch(profileUrl("/profile/commit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      data = await res.json().catch(function () {
+        return null;
+      });
+    } catch (_) {
+      res = null;
+    }
+    if (!stillHere()) {
+      record.saving = false;
+      return;
+    }
+    // No answer, or one we can't read: the save may or may not have landed.
+    // The kept id makes pressing again safe either way.
+    if (!res || (!data && (!res.status || res.status >= 500))) {
+      stop(
+        "We couldn't confirm the save: the connection to JobBored on this computer dropped. Press Looks like me again — it's safe, and it won't save twice.",
+      );
+      return;
+    }
+    if (!data || data.ok !== true) {
+      const reason = text(data && data.reason);
+      if (reason === "invalid_profile") {
+        ctx.clearBusy();
+        record.saving = false;
+        const grouped = groupErrors(rejectedErrors(data));
+        showErrors(record, grouped);
+        const placed = focusFirstInvalid(record, grouped);
+        const general = grouped.general.length ? grouped.general.join(" ") : placed ? "" : text(data.message);
+        ctx.setMessage(general || "JobBored couldn't save this profile. Fix the highlighted fields.", "error");
+        return;
+      }
+      // An id already recorded for other details: the next confirm starts a fresh one.
+      if (reason === "commit_id_reused") forgetCommitId(owner);
+      stop(commitRefusal(reason, text(data && data.message)));
+      if (reason === "canonical_profile_exists" || reason === "replace_proof_mismatch") {
+        record.savedLookup = refreshSavedOffer(record, ctx);
+        await record.savedLookup;
+      }
+      return;
+    }
+
+    // The server holds the setup now. The browser keeps its copy second,
+    // and only for the account whose setup this was.
+    if (!stillHere()) {
+      record.saving = false;
+      return;
+    }
+    try {
+      if (resumeText) {
+        await store.setPrimaryResume({
+          source: "file",
+          rawMime: null,
+          label: "My resume",
+          extractedText: resumeText,
+          // The server already checked this text on commit.
+          confirmGarbled: true,
+          syncServer: false,
+        });
+        if (!stillHere()) {
+          record.saving = false;
+          return;
+        }
+      }
       await store.saveDiscoveryProfile(discoveryPayload(record.model));
-    } catch (error) {
-      ctx.clearBusy();
-      record.saving = false;
-      ctx.setMessage(
-        `Could not save your fit profile: ${text(error && error.message) || "try again."}`,
-        "error",
+    } catch (_) {
+      // Keep the id: pressing again replays the saved setup, then retries this copy.
+      stop(
+        "Your setup is saved on this computer, but this browser couldn't keep its own copy. Press Looks like me again to finish — it won't save twice.",
       );
       return;
     }
-
-    let result;
-    try {
-      result = await syncProfile(payload);
-    } finally {
-      ctx.clearBusy();
+    if (!stillHere()) {
       record.saving = false;
-    }
-
-    // N-B4-2: the server refused this profile. Stay here and say why, next
-    // to the field it names.
-    if (result && result.ok === false && result.reason === "rejected") {
-      const grouped = groupErrors(rejectedErrors(result));
-      showErrors(record, grouped);
-      const placed = focusFirstInvalid(record, grouped);
-      const general = grouped.general.length
-        ? grouped.general.join(" ")
-        : placed
-          ? ""
-          : text(result.message);
-      ctx.setMessage(
-        general || "JobBored couldn't save this profile. Fix the highlighted fields.",
-        "error",
-      );
       return;
     }
-
-    const synced = !!(result && result.ok && result.synced);
-    let note = "";
-    if (result && result.reason === "local_only") {
-      note = text(result.message);
-    } else if (!synced) {
-      const status = result && result.status ? ` (HTTP ${result.status})` : "";
-      note =
-        `Saved on this device, but JobBored couldn't save it for drafting${status}. ` +
-        "To retry, open Settings → Fit profile and save.";
-    }
+    forgetCommitId(owner);
+    ctx.clearBusy();
+    record.saving = false;
     // B6's "Your search" card prefers the profile the flow just saved
     // over a second GET /profile (spec §5 B6): leave it on the runtime
     // so the payoff renders from what the user literally just confirmed.
     if (ctx.runtime) {
       ctx.runtime.fitProfile = payload;
-      ctx.runtime.fitProfileSync = result || null;
+      ctx.runtime.fitProfileSync = { ok: true, synced: true, reason: "committed", commitId: data.commitId };
     }
     await ctx.completeBeat({
       edited: JSON.stringify(payload) !== record.originalPayload,
-      serverSynced: synced,
-      syncReason: (result && result.reason) || "",
+      serverSynced: true,
+      syncReason: data.replayed ? "replayed" : "committed",
     });
-    quietNote(ctx, note);
   }
 
   flow.registerBeat({
@@ -1504,6 +1817,7 @@
     ],
     render,
     onAction(actionId, ctx) {
+      if (actionId === "adopt-saved-setup") return adoptSavedSetup(ctx);
       if (actionId !== ACTION_ID) return;
       return confirmFit(ctx);
     },

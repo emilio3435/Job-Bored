@@ -89,15 +89,16 @@
 
   /**
    * Beat-local drafts that survive a refresh (spec §3.2, SIXBEATS2 locked
-   * decision 4). Four keys, each written by the beat that owns them:
+   * decision 4). Each key is written by the beat that owns it:
    * `resumeText` by B3 on input, `profileDraft` by B3 when the draft lands
    * and by B4 on every correction, `contactDraft` by "Your details" (the
    * name and contact the user confirmed, which B4's save carries into the
    * profile), `voiceDraft` by "Your voice" (the guide text before it is
-   * saved). Anything else is refused — a beat is
+   * saved), `resumeRead` by B3 (the AI read keyed by textSha256).
+   * Anything else is refused — a beat is
    * never allowed to talk this store into holding a key or a token.
    */
-  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
+  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft", "resumeRead"]);
 
   /** One write per typing burst, not one per keystroke (spec §3.2). */
   const DRAFT_SAVE_DELAY_MS = 400;
@@ -115,6 +116,8 @@
     drafts: {},
     startedAt: "",
     completed: false,
+    accountHash: "",
+    quarantine: {},
   });
 
   /** id -> normalized beat descriptor. */
@@ -139,6 +142,8 @@
   /** One pagehide listener per document, however many drafts go by. */
   let unloadFlushBound = false;
   let resumePillEl = null;
+  /** Bumped on every account switch: beats drop their in-memory state and late answers from an older scope. */
+  let scopeGeneration = 0;
 
   function cloneState(raw) {
     return {
@@ -149,6 +154,8 @@
       drafts: { ...(raw.drafts || {}) },
       startedAt: raw.startedAt,
       completed: !!raw.completed,
+      accountHash: raw.accountHash || "",
+      quarantine: { ...(raw.quarantine || {}) },
     };
   }
 
@@ -299,7 +306,10 @@
       ...state,
       ...partial,
       skipped: { ...state.skipped, ...(partial.skipped || {}) },
-      drafts: { ...state.drafts, ...(partial.drafts || {}) },
+      drafts:
+        partial.replaceDrafts === true
+          ? { ...(partial.drafts || {}) }
+          : { ...state.drafts, ...(partial.drafts || {}) },
     });
     return state;
   }
@@ -362,6 +372,8 @@
             DRAFT_MIRROR_TEXT_MAX,
           ),
           at: Date.now(),
+          // JOBQA: the account it was typed under; another account never reads it.
+          accountHash: state.accountHash || "",
         }),
       );
       return true;
@@ -380,10 +392,123 @@
       const raw = local.getItem(DRAFT_MIRROR_KEY);
       if (!raw) return "";
       const parsed = JSON.parse(raw);
-      return parsed && typeof parsed.text === "string" ? parsed.text : "";
+      if (!parsed || typeof parsed.text !== "string") return "";
+      // JOBQA: only the account the text was typed under gets it back.
+      if (String(parsed.accountHash || "") !== String(state.accountHash || "")) return "";
+      return parsed.text;
     } catch (e) {
       return "";
     }
+  }
+
+  // ---------------------------------------------------------------
+  // Whose drafts these are (JOBQA)
+  // ---------------------------------------------------------------
+
+  /** The signed-in Google email, lowercased, or "" before the Google beat. */
+  function signedInEmail() {
+    const app = window.JobBoredApp;
+    const auth = app && app.auth;
+    if (!auth || typeof auth.getUserEmail !== "function") return "";
+    try {
+      return String(auth.getUserEmail() || "").trim().toLowerCase();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /**
+   * sha256("jobbored-account-v1:" + email) as hex: the account a draft or
+   * a commit belongs to (the fixture mirrors it in
+   * tests/fixtures/jobqa-hermetic/profiles.mjs). The browser sends it as a
+   * consistency check; it is not authentication.
+   */
+  async function accountHashOf(email) {
+    const clean = String(email || "").trim().toLowerCase();
+    const subtle = window.crypto && window.crypto.subtle;
+    const Encoder = window.TextEncoder || (typeof TextEncoder === "function" ? TextEncoder : null);
+    if (!clean || !subtle || !Encoder) return "";
+    const digest = await subtle.digest("SHA-256", new Encoder().encode("jobbored-account-v1:" + clean));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  function currentAccountHash() {
+    return accountHashOf(signedInEmail());
+  }
+
+  /**
+   * Which account's setup the beats are showing right now. A beat that
+   * cached state under another scope resets it; an answer that arrives
+   * after the scope changed is dropped (JOBQA).
+   */
+  function currentScope() {
+    return `${state.accountHash || "unowned"}#${scopeGeneration}`;
+  }
+
+  /** True when nothing the user typed is in these drafts. */
+  function draftsEmpty(drafts) {
+    return !drafts || !Object.keys(drafts).some((key) => drafts[key] != null && drafts[key] !== "");
+  }
+
+  /**
+   * Keep the drafts with the account they were typed under.
+   *   - A setup with nothing typed yet takes its first owner: the account
+   *     that signs in.
+   *   - Drafts with no owner (typed before accounts were tracked) are never
+   *     given to whoever signs in next: they move to an "unowned-<time>"
+   *     scope in `quarantine`.
+   *   - Another account's drafts move to `quarantine` under that account,
+   *     and come back only when that account signs in again.
+   * Nothing is deleted, and nothing kept is loaded into another account.
+   * Browser flow state only: nothing saved on the server is read or written.
+   */
+  async function reconcileAccount() {
+    const current = await currentAccountHash();
+    if (!current) return false;
+    const owner = state.accountHash || "";
+    if (owner === current) return false;
+    await flushDrafts();
+    const drafts = { ...(state.drafts || {}) };
+    // The unload-proof copy of the resume text belongs to the same owner.
+    const mirrored = readDraftMirror();
+    if (mirrored && !drafts.resumeText) drafts.resumeText = mirrored;
+    if (!owner && draftsEmpty(drafts)) {
+      await patchState({ accountHash: current });
+      return false;
+    }
+    const now = new Date().toISOString();
+    const quarantine = { ...(state.quarantine || {}) };
+    if (!draftsEmpty(drafts)) {
+      const scope = owner || `unowned-${now.replace(/[:.]/g, "-")}`;
+      quarantine[scope] = { drafts, beat: state.beat, at: now };
+    }
+    const restored = quarantine[current] || null;
+    delete quarantine[current];
+    await patchState({
+      accountHash: current,
+      drafts: restored ? restored.drafts : {},
+      replaceDrafts: true,
+      quarantine,
+    });
+    // In-memory scratch from before goes too (B3's draft, the confirmed
+    // details): it lives on the runtime, not in the drafts bag, and every
+    // beat resets what it cached under the old scope.
+    scopeGeneration += 1;
+    runtime.profileDraft = null;
+    runtime.contactIdentity = null;
+    runtime.resumeRead = null;
+    runtime.oneFlowFitReview = null;
+    runtime.fitProfile = null;
+    runtime.fitProfileSync = null;
+    mirrorDrafts();
+    writeDraftMirror(runtime.drafts.resumeText || "");
+    toast(
+      owner
+        ? "You're signed in with a different Google account. The unsaved setup from the other account is kept for it and wasn't loaded here."
+        : "An unsaved setup from before this browser tracked Google accounts is kept separately and wasn't loaded for this account.",
+      "info",
+    );
+    return true;
   }
 
   /**
@@ -710,6 +835,14 @@
     return {
       state: getState(),
       runtime,
+      // JOBQA: the scope this context was built for; isCurrentScope(scope)
+      // tells a late async answer whether it still belongs on screen.
+      scope: currentScope(),
+      // The account the drafts were staged under ("" before any sign-in).
+      accountHash: state.accountHash || "",
+      isCurrentScope(scope) {
+        return scope === currentScope();
+      },
       setMessage(text, tone) {
         const sh = shell();
         if (sh && sh.setMessage) sh.setMessage(text, tone);
@@ -1068,6 +1201,8 @@
     // Land the keystrokes of the beat we are leaving before the next beat
     // reads the drafts bag (spec §3.4: resume lands "with drafts restored").
     await flushDrafts();
+    // JOBQA: never render one account's drafts to another.
+    await reconcileAccount();
     await patchState({ beat: beat.id });
     mirrorDrafts();
     hideResumePill();
@@ -1276,6 +1411,10 @@
     flushDrafts,
     writeDraftMirror,
     readDraftMirror,
+    accountHashOf,
+    currentAccountHash,
+    currentScope,
+    reconcileAccount,
     maybeStart,
     open,
     openFromDeepLink,

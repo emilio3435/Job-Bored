@@ -11,13 +11,16 @@
    (b) "I already have one": paste it, or upload a .md / .txt file.
    Either way the guide lands in one field with a live preview (word
    count, sections found, a gentle note when "Approved facts" or "Cover
-   letter rules" is missing). Nothing is saved until Save; the text rides
-   the flow draft `voiceDraft` across a refresh. Skipping is allowed and
-   stays visibly unfinished on the spine, like "Your details".
+   letter rules" is missing). The text rides the flow draft `voiceDraft`
+   across a refresh. Skipping is allowed and stays visibly unfinished on
+   the spine, like "Your details".
 
-   Saving never overwrites silently: a guide that already exists is shown
-   here first, the server backs up whatever it replaces, and a guide saved
-   elsewhere since this step loaded is a 409 the user is told about.
+   Nothing is saved here (JOBQA). "Use this voice guide" completes the step
+   with the text in the draft, and B4's one commit (POST /profile/commit)
+   saves it with the resume and the profile; a skipped step saves no guide.
+   The guide already saved on this computer is never read here: on a
+   shared machine it may be another person's voice. The commit backs up any
+   guide it replaces, and Settings stays the place to edit a saved one.
 
    Classic-global IIFE, registered against window.JobBoredOneFlow.
    ============================================ */
@@ -44,15 +47,21 @@
   const state = {
     text: "",
     tab: "",
-    // "idle" → "running" → "done": the saved guide is read once per load.
-    load: "idle",
-    saved: null,
-    offline: false,
     note: "",
     noteKind: "info",
-    saving: false,
     field: null,
+    // JOBQA: the account scope this state was built under.
+    scope: null,
   };
+
+  /** A different account's setup: none of the old text carries over. */
+  function resetState() {
+    state.text = "";
+    state.tab = "";
+    state.note = "";
+    state.noteKind = "info";
+    state.field = null;
+  }
 
   function api() {
     return window.JobBoredProfileVoice || null;
@@ -80,63 +89,12 @@
     }
   }
 
-  function words(n) {
-    return n + (n === 1 ? " word" : " words");
-  }
-
-  /** The line above the tabs: what is saved already, if anything. */
-  function savedLine() {
-    const lib = api();
-    const saved = state.saved;
-    if (!saved || !saved.exists) return "";
-    const date = lib ? lib.formatDate(saved.updatedAt) : "";
-    return (
-      "You already have a voice guide" +
-      (date ? " from " + date : "") +
-      " (" + words(saved.words) + "). It's below — edit it or save it as is. " +
-      "If you replace it, JobBored keeps the old one as a backup."
-    );
-  }
-
   function paintNote(root) {
     const node = root && root.querySelector(".oneflow-voice__note");
     if (!node) return;
     node.textContent = state.note;
     node.hidden = !state.note;
     if (state.note) node.dataset.kind = state.noteKind;
-  }
-
-  /**
-   * Read the saved guide once per load. The user's own draft wins (a
-   * refresh mid-step); otherwise an existing guide fills the field so the
-   * user sees what they would replace.
-   */
-  async function load(ctx, root) {
-    const lib = api();
-    if (!lib || state.load !== "idle") return;
-    state.load = "running";
-    const result = await lib.fetchVoice();
-    state.load = "done";
-    if (!result.ok) {
-      state.offline = result.reason === "offline";
-      return;
-    }
-    state.saved = result;
-    const mount = root && root.isConnected ? root : document.querySelector(".oneflow-voice");
-    if (result.exists && !state.text) {
-      state.text = result.text;
-      if (state.field) state.field.setText(result.text);
-      state.tab = TAB_OWN;
-      if (mount) rerenderTabs(mount);
-    }
-    if (mount) {
-      const line = mount.querySelector(".oneflow-voice__saved");
-      if (line) {
-        line.textContent = savedLine();
-        line.hidden = !line.textContent;
-      }
-      mount.dataset.load = "done";
-    }
   }
 
   // ---------------------------------------------------------------
@@ -241,7 +199,7 @@
         state.text = read.text;
         persist(ctx);
       }
-      status.textContent = "Loaded " + read.name + ". Check it below, then save.";
+      status.textContent = "Loaded " + read.name + ". Check it below, then use it.";
       status.dataset.kind = "ok";
     });
     picker.button.id = "oneflowVoiceUpload";
@@ -260,13 +218,12 @@
       container.appendChild(root);
       return;
     }
+    if (ctx && state.scope !== null && state.scope !== ctx.scope) resetState();
+    if (ctx) state.scope = ctx.scope;
     if (!state.text) state.text = draftText(ctx);
     if (!state.tab) state.tab = state.text ? TAB_OWN : TAB_CHATBOT;
-    root.dataset.load = state.load === "done" ? "done" : "pending";
-
-    const saved = el("p", "oneflow-voice__saved", savedLine());
-    saved.hidden = !saved.textContent;
-    root.appendChild(saved);
+    // Nothing to load: the saved guide is never read into onboarding.
+    root.dataset.load = "done";
 
     renderTabs(root, [renderChatbotPanel(lib), renderOwnPanel(lib, ctx)]);
     rerenderTabs(root);
@@ -302,13 +259,16 @@
       ),
     );
     container.appendChild(root);
-    if (state.load === "idle") load(ctx, root);
   }
 
+  /**
+   * Keep the guide for this setup. Nothing is saved here (JOBQA): the text
+   * stays in the draft, and B4's commit saves it with the profile.
+   */
   async function save(ctx) {
     const lib = api();
     const shared = window.JobBoredProfileVoiceShared;
-    if (!lib || state.saving) return;
+    if (!lib) return;
     if (state.field) state.text = state.field.getText();
     const problem = shared ? shared.voiceProblem(state.text) : "";
     if (problem) {
@@ -319,47 +279,18 @@
           : lib.problemMessage(problem),
         "error",
       );
+      // The shell repaints on setMessage: focus the new field after it.
+      setTimeout(() => {
+        const box = document.getElementById("oneflowVoiceGuide");
+        if (box && typeof box.focus === "function") box.focus();
+      }, 0);
       return;
     }
-    state.saving = true;
-    let result;
-    try {
-      ctx.setBusy(ACTION_SAVE, [{ label: "Saving your voice guide…", state: "active" }]);
-      const saved = state.saved;
-      // What this step read: the server refuses the save if the guide
-      // changed since. Unread (the server didn't answer): no check.
-      const seen = state.load === "done" && saved ? (saved.exists ? saved.updatedAt : null) : undefined;
-      result = await lib.saveVoice(state.text, seen);
-    } finally {
-      ctx.clearBusy();
-      state.saving = false;
-    }
-    if (result.ok) {
-      state.saved = { exists: true, updatedAt: result.updatedAt, words: result.words, text: state.text };
-      state.note = "";
-      persist(ctx);
-      ctx.setMessage("", "info");
-      await ctx.completeBeat({ words: result.words, replaced: !!result.backup, unchanged: !!result.unchanged });
-      return;
-    }
-    if (result.reason === "changed") {
-      state.saved = { exists: !!result.updatedAt, updatedAt: result.updatedAt, words: 0, text: "" };
-      ctx.setMessage(
-        "A voice guide was saved on this computer after this step opened. Your text is still here — " +
-          "save again to replace it (the other one is kept as a backup).",
-        "error",
-      );
-      return;
-    }
-    if (result.reason === "offline") {
-      ctx.setMessage(
-        "JobBored's local server didn't answer, so the guide isn't saved yet. Start JobBored on this " +
-          "computer and try again — or skip for now; your text stays here.",
-        "error",
-      );
-      return;
-    }
-    ctx.setMessage(result.message, "error");
+    state.note = "";
+    persist(ctx);
+    ctx.setMessage("", "info");
+    const count = shared && typeof shared.countWords === "function" ? shared.countWords(state.text) : 0;
+    await ctx.completeBeat({ words: count, staged: true });
   }
 
   function skip(ctx) {
@@ -377,7 +308,7 @@
     headline: HEADLINE,
     sub: SUB,
     actions: [
-      { id: ACTION_SAVE, label: "Save my voice guide →", variant: "primary" },
+      { id: ACTION_SAVE, label: "Use this voice guide →", variant: "primary" },
       { id: ACTION_SKIP, label: "Skip for now", variant: "ghost" },
     ],
     render,

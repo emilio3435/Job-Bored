@@ -335,7 +335,16 @@ test("POST /profile/from-resume returns 404 when no resume is stored", async () 
   // lookup locations resolve (worker-config resumeText is empty in the repo,
   // ~/.jobbored/resume.txt and ~/.hermes/.../resume*.md live under the temp
   // home). The endpoint must take the clean no-resume path on any machine.
-  const r = await fetch(`${BASE_URL}/profile/from-resume`, { method: "POST" });
+  // JOBQA: the stored resume is read only on an explicit source:"saved";
+  // a body with no text and no ask is refused before anything is read.
+  const empty = await fetch(`${BASE_URL}/profile/from-resume`, { method: "POST" });
+  assert.equal(empty.status, 400);
+  assert.equal((await empty.json()).reason, "resume_empty");
+  const r = await fetch(`${BASE_URL}/profile/from-resume`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: "saved" }),
+  });
   assert.equal(r.status, 404);
   const data = await r.json();
   assert.equal(data.ok, false);
@@ -354,7 +363,11 @@ test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON wi
   );
   openRouterRequests.length = 0;
 
-  const r = await fetch(`${BASE_URL}/profile/from-resume`, { method: "POST" });
+  const r = await fetch(`${BASE_URL}/profile/from-resume`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: "saved" }),
+  });
   assert.equal(r.status, 200);
   const data = await r.json();
   assert.equal(data.ok, true);

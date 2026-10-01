@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { makeFakeDocument } from "./oneflow-l0-harness.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
@@ -103,6 +104,39 @@ describe("F2B-DISC01-ORIGIN — discovery drawer must not fetch /profile on the 
 });
 
 describe("F2B-DISC01-ORIGIN — fit-profile-backcompat uses the same API base", () => {
+  it("R2-4 only a confirmed no_profile response offers the Hermes import banner", async () => {
+    for (const [status, data, expected] of [
+      [200, { ok: false, reason: "no_profile" }, true],
+      [503, { ok: false, reason: "profile_recovery_pending" }, false],
+      [200, { ok: false, reason: "invalid_profile" }, false],
+      [200, null, false],
+      [200, { ok: true, profile: { version: 1 } }, false],
+    ]) {
+      const document = makeFakeDocument();
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      document.readyState = "complete";
+      document.querySelector = () => host;
+      document.createTextNode = (text) => {
+        const node = document.createElement("span");
+        node.textContent = text;
+        return node;
+      };
+      const calls = [];
+      vm.runInNewContext(backcompatJs, {
+        document, window: { addEventListener() {} },
+        MutationObserver: class { observe() {} },
+        fetch: async (url, init) => {
+          calls.push({ url, method: init.method });
+          return { ok: status === 200, status, json: async () => data };
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(!!host.querySelector(".fp-migration-banner"), expected, `status=${status}, reason=${data?.reason}`);
+      assert.deepEqual(calls, [{ url: "/profile", method: "GET" }]);
+    }
+  });
+
   it("rescore / migrate / GET profile calls are not relative dashboard fetches", () => {
     assert.doesNotMatch(
       backcompatJs,

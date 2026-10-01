@@ -345,16 +345,22 @@ describe("B1 detour with a failing origin (oneflow-beat-google.js)", () => {
     );
     assert.ok(failing, "the rejected address renders");
     assert.match(failing.textContent, new RegExp(FAILING.replaceAll(".", "\\.")));
+    // JOBQA: the page-origin row now sits in the nested "Show the 6 steps"
+    // disclosure (opened when an origin failed), still after the rejected
+    // address in reading order.
     const kids = details.children;
     const failingIdx = kids.findIndex((k) =>
       k.classList.contains("oneflow-google__detour-failing-origin"),
     );
-    const originIdx = kids.findIndex((k) =>
-      k.classList.contains("oneflow-google__detour-origin"),
+    const howtoIdx = kids.findIndex((k) =>
+      k.classList.contains("oneflow-google__detour-howto"),
     );
-    assert.ok(failingIdx !== -1 && originIdx !== -1);
+    assert.ok(failingIdx !== -1 && howtoIdx !== -1);
+    const howto = kids[howtoIdx];
+    assert.equal(howto.open, true, "a failing origin opens the steps too — the origin row is in them");
+    assert.ok(howto.querySelector(".oneflow-google__detour-origin"), "the page-origin row is inside the steps");
     assert.ok(
-      failingIdx < originIdx,
+      failingIdx < howtoIdx,
       "the rejected address renders BEFORE the page-origin row",
     );
     failing.querySelector(".oneflow-google__detour-copy").dispatch("click");

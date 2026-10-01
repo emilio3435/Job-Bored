@@ -192,7 +192,7 @@ async function installHermeticBoundaries(page) {
     geminiEnvWrites: [],
     llmConfigPins: [],
     profileTemplates: [],
-    profileWrites: [],
+    profileCommits: [],
     serpApiChecks: [],
     discoveryEnvWrites: [],
     discoveryBoots: [],
@@ -247,15 +247,20 @@ async function installHermeticBoundaries(page) {
       return;
     }
 
-    if (url.origin === baseUrl && method === "POST" && url.pathname === "/profile") {
-      calls.profileWrites.push(request.postDataJSON());
-      await fulfillJson(route, { ok: true, updatedAt: "2026-09-02T00:00:00Z" });
+    if (url.origin === baseUrl && method === "POST" && url.pathname === "/profile/commit") {
+      const body = request.postDataJSON();
+      calls.profileCommits.push(body);
+      await fulfillJson(route, { ok: true, replayed: false, commitId: body.commitId, mode: body.mode, revision: "onboarding-e2e-revision" });
       return;
     }
 
-    // "Your details": the beat reads the saved profile, asks for resume
-    // suggestions and (when a profile exists) saves the contact half. A
-    // fresh install has no profile; the suggestions come from the stub.
+    // Fit can offer a saved setup, but this fresh install has none.
+    if (url.origin === baseUrl && method === "GET" && url.pathname === "/profile/commit/state") {
+      await fulfillJson(route, { ok: true, exists: false, revision: "empty", accountHash: null });
+      return;
+    }
+    // JOBQA: details are entered here when no resume was staged. Keep the
+    // old suggestion boundary observable so an accidental read is caught.
     if (url.origin === baseUrl && method === "GET" && url.pathname === "/profile") {
       await fulfillJson(route, { ok: false, reason: "no_profile" });
       return;
@@ -274,8 +279,8 @@ async function installHermeticBoundaries(page) {
       );
       return;
     }
-    // "Your voice": the beat reads the saved guide (none on a fresh
-    // install); this walk skips the step, so nothing is ever PUT.
+    // JOBQA: onboarding never reads a saved guide. This boundary remains
+    // observable, and the walk skips voice without committing one.
     if (url.origin === baseUrl && method === "GET" && url.pathname === "/profile/voice") {
       calls.voiceReads.push(url.pathname);
       await fulfillJson(route, { ok: true, exists: false, text: "", updatedAt: null, words: 0 });
@@ -691,29 +696,40 @@ test("VAL-ONEFLOW-001: every beat reaches the payoff on a fresh install", async 
     .getByRole("button", { name: "I'd rather start from a template" })
     .click();
   await beat(page, "resume").locator('[data-template-id="engineer"]').click();
-  // "Your details" follows the resume: pre-filled from the suggestion,
-  // edited, confirmed — and carried into the profile the fit beat saves.
+  // A template supplies fit defaults, not a staged resume: enter fictional
+  // contact details, then carry them into the single profile commit.
   await expect(beat(page, "details")).toBeVisible();
   expect(state.calls.profileTemplates).toHaveLength(1);
   const details = beat(page, "details");
   await expect(details.locator(".jb-details")).toHaveAttribute("data-prefill", "done");
-  await expect(details.getByLabel("Full name", { exact: true })).toHaveValue("Jordan Rivera");
-  await expect(details.getByLabel("Email", { exact: true })).toHaveValue("jordan.rivera@example.com");
+  await expect(details.getByLabel("Full name", { exact: true })).toHaveValue("");
+  await expect(details.getByLabel("Email", { exact: true })).toHaveValue("");
+  await details.getByLabel("Full name", { exact: true }).fill("Jordan Rivera");
+  await details.getByLabel("Email", { exact: true }).fill("jordan.rivera@example.com");
   await details.getByLabel("Headline", { exact: true }).fill("Staff Backend Engineer");
+  await details.getByLabel("LinkedIn", { exact: true }).fill("https://linkedin.com/in/jordan-rivera");
   await page.getByRole("button", { name: "Confirm my details →" }).click();
-  // "Your voice" follows: skipped here (the voice spec covers saving),
+  // "Your voice" follows: skipped here (the voice spec covers staging),
   // and it stays unfinished on the spine.
   await expect(beat(page, "voice")).toBeVisible();
   await expect(beat(page, "voice").locator(".oneflow-voice")).toHaveAttribute("data-load", "done");
-  expect(state.calls.voiceReads).toHaveLength(1);
+  expect(state.calls.voiceReads).toHaveLength(0);
   await page.getByRole("button", { name: "Skip for now" }).click();
   await expect(beat(page, "fit")).toBeVisible();
-  expect(state.calls.contactSuggests).toHaveLength(1);
+  expect(state.calls.contactSuggests).toHaveLength(0);
+  expect(state.calls.contactWrites).toHaveLength(0);
+  expect(state.calls.profileCommits).toHaveLength(0);
 
   await page.getByRole("button", { name: "Looks like me →" }).click();
   await expect(beat(page, "discovery")).toBeVisible();
-  expect(state.calls.profileWrites).toHaveLength(1);
-  const savedIdentity = state.calls.profileWrites[0].identity;
+  expect(state.calls.profileCommits).toHaveLength(1);
+  const commit = state.calls.profileCommits[0];
+  expect(commit.commitId).toMatch(/^onb-/);
+  expect(commit.mode).toBe("create");
+  expect(commit.noResume).toBe(true);
+  expect(commit).not.toHaveProperty("resumeText");
+  expect(commit).not.toHaveProperty("voice");
+  const savedIdentity = commit.profile.identity;
   expect(savedIdentity.fullName).toBe("Jordan Rivera");
   expect(savedIdentity.headline).toBe("Staff Backend Engineer");
   expect(savedIdentity.email).toBe("jordan.rivera@example.com");

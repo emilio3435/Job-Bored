@@ -164,15 +164,21 @@ describe("GREENFIELD C3 · Beat 1 with no Client ID opens its own detour", () =>
     assert.ok(!names.includes("handleSetupCreateStarterSheet"));
   });
 
-  it("renders the locked line in the message slot", async () => {
+  it("shows the missing Client ID guidance once beside the invalid field", async () => {
     const env = await openBeatOne({ oauthClientId: "" });
 
     await env.beats.google.handleAction("google_continue");
 
-    assert.ok(
-      renderedText(env.mount()).includes(DETOUR_MESSAGE),
-      `spec §4.4 copy is locked: "${DETOUR_MESSAGE}"`,
+    const visiblePrompts = [
+      ...env.mount().querySelectorAll(".oneflow-field-error"),
+      ...env.mount().querySelectorAll(".discovery-setup-wizard__message"),
+    ].filter(
+      (node) => !node.hidden && node.textContent === DETOUR_MESSAGE,
     );
+    assert.equal(visiblePrompts.length, 1, "the same guidance must not repeat in the field and shell status");
+    const input = clientIdInput(env);
+    assert.equal(input.getAttribute("aria-invalid"), "true");
+    assert.equal(input.getAttribute("aria-describedby"), visiblePrompts[0].id);
   });
 
   it("opens the detour <details> so the guide is on screen, not behind a summary", async () => {

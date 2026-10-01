@@ -108,9 +108,10 @@ async function ensureParentDir(path) {
  *   { ok: false, reason: "invalid_profile", errors } when it fails the
  *   schema (F17: a hand-edited file must not pass rescore and materials
  *   only to fail discovery)
+ * @param {{ path?: string }} [options] an explicit profile path (tests, the JOBQA fixture)
  */
-export async function readProfile() {
-  const path = resolveProfilePath();
+export async function readProfile(options = {}) {
+  const path = options.path || resolveProfilePath();
   if (!existsSync(path)) {
     return { ok: false, reason: "no_profile" };
   }
@@ -195,8 +196,11 @@ export function validateProfile(candidate) {
  * Always stamps `updatedAt` to "now" before writing; preserves `createdAt`
  * if the caller didn't provide one and a previous file existed.
  */
-/** @param {Record<string, unknown>} input */
-export async function writeProfileAtomic(input) {
+/**
+ * @param {Record<string, unknown>} input
+ * @param {{ path?: string }} [options] an explicit profile path (tests, the JOBQA fixture)
+ */
+export async function writeProfileAtomic(input, options = {}) {
   const candidate = /** @type {Record<string, unknown>} */ (migrateProfile(input));
   const validation = validateProfile(candidate);
   if (!validation.ok) {
@@ -207,7 +211,7 @@ export async function writeProfileAtomic(input) {
     err.errors = validation.errors;
     throw err;
   }
-  const path = resolveProfilePath();
+  const path = options.path || resolveProfilePath();
   await ensureParentDir(path);
 
   const nowIso = new Date().toISOString();

@@ -86,8 +86,8 @@ describe("RESJ2-EXTRACT — B3 status: running, done with counts, failed with re
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
       rows(stagesDuringCall[0]),
-      ["Saving your resume in this browser:done", `Reading your resume with OpenRouter (${MODEL}):active`],
-      "the browser's save is done before the AI read starts, and the read says who is reading",
+      ["Keeping your resume for review (not saved yet):done", `Reading your resume with OpenRouter (${MODEL}):active`],
+      "the resume is kept for review (not saved, JOBQA) before the AI read starts, and the read says who is reading",
     );
   });
 
@@ -96,7 +96,7 @@ describe("RESJ2-EXTRACT — B3 status: running, done with counts, failed with re
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     const stages = env.beats.resume.getRenderedStages();
     assert.deepEqual(rows(stages), [
-      "Saving your resume in this browser:done",
+      "Keeping your resume for review (not saved yet):done",
       `${DONE_LINE}:done`,
     ]);
     const toasts = env.host.__calls.filter((c) => c.name === "showToast").map((c) => c.args);

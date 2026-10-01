@@ -76,6 +76,7 @@ function createMockFetch({
   blacklistReadError = null,
   dataRows,
   responses,
+  gridColumnCount = PIPELINE_HEADER_ROW.length,
 }) {
   const sheet = createFakeSheets({
     Pipeline: [...headerRows, ...(dataRows || [])],
@@ -102,7 +103,30 @@ function createMockFetch({
         status: Number(blacklistReadError.status || 400),
       });
     }
+    // Grid-width metadata read for the Work Mode header upgrade.
+    if (
+      method === "GET" &&
+      url.hostname === "sheets.googleapis.com" &&
+      /^\/v4\/spreadsheets\/[^/]+$/.test(url.pathname)
+    ) {
+      return responseJson({
+        sheets: [
+          {
+            properties: {
+              title: "Pipeline",
+              sheetId: 424242,
+              gridProperties: { columnCount: gridColumnCount },
+            },
+          },
+        ],
+      });
+    }
     if (method === "POST") {
+      // Grid-grow calls go straight to the fake; scripted responses are for
+      // the values write path only.
+      if (/:batchUpdate$/.test(url.pathname) && !/values:batchUpdate$/.test(url.pathname)) {
+        return sheet.fetchImpl(input, init);
+      }
       const scripted = responses[responseIndex];
       responseIndex += 1;
       if (scripted && !scripted.ok) return scripted;
@@ -582,8 +606,11 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
     },
   ]);
 
-  assert.equal(calls[1].method, "POST");
-  const headerUpgradeBody = JSON.parse(calls[1].body);
+  // Grid-width ensure runs before the first legacy header write.
+  assert.equal(calls[1].method, "GET");
+  assert.match(calls[1].url, /\/v4\/spreadsheets\/sheet_123\?fields=/);
+  assert.equal(calls[2].method, "POST");
+  const headerUpgradeBody = JSON.parse(calls[2].body);
   assert.equal(
     headerUpgradeBody.data[0].range,
     "Pipeline!A1:Y1",
@@ -591,10 +618,10 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   const expectedUpgrade = PIPELINE_HEADER_ROW.slice(0, 25);
   expectedUpgrade[20] = "";
   assert.deepEqual(headerUpgradeBody.data[0].values[0], expectedUpgrade);
-  assert.equal(JSON.parse(calls[2].body).data[0].range, "Pipeline!U1");
-  assert.equal(JSON.parse(calls[3].body).data[0].range, "Pipeline!Z1");
-  assert.deepEqual(JSON.parse(calls[3].body).data[0].values, [["Work Mode"]]);
-  assert.match(calls[4].url, /values\/Blacklist!A2%3AA/);
+  assert.equal(JSON.parse(calls[3].body).data[0].range, "Pipeline!U1");
+  assert.equal(JSON.parse(calls[4].body).data[0].range, "Pipeline!Z1");
+  assert.deepEqual(JSON.parse(calls[4].body).data[0].values, [["Work Mode"]]);
+  assert.match(calls[5].url, /values\/Blacklist!A2%3AA/);
   assert.match(
     writes(calls).at(-1).url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),

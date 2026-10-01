@@ -210,9 +210,27 @@
     + '</header>';
   }
 
+  /* JOBQA: a browser that has not finished setup (a fresh or demo
+     profile) shows no queue. The queue on this computer belongs to whoever
+     set JobBored up here, and its Cancel buttons would act on their drafts.
+     Without the store (a page that never loads it) nothing changes. */
+  function setupFinishedHere() {
+    var store = root.CommandCenterUserContent;
+    if (!store || typeof store.isOnboardingComplete !== "function") return Promise.resolve(true);
+    return Promise.resolve()
+      .then(function () { return store.isOnboardingComplete(); })
+      .then(function (done) { return !!done; }, function () { return false; });
+  }
+
   function refresh() {
-    fetchQueue()
-      .then(function (queue) { fetchFailures = 0; render(queue); })
+    setupFinishedHere()
+      .then(function (finished) {
+        if (!finished) {
+          render([]);
+          return null;
+        }
+        return fetchQueue().then(function (queue) { fetchFailures = 0; render(queue); });
+      })
       .catch(function () {
         /* Tolerate transient blips, but stop pretending after a few
            consecutive failures; we'll keep retrying next tick. */

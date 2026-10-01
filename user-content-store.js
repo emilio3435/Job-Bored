@@ -679,7 +679,7 @@
    * them may ever touch disk — an unverified provider key is a secret,
    * a half-typed resume is not.
    */
-  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
+  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft", "resumeRead"]);
 
   /** A resume pasted in full, with room to spare — not a whole document. */
   const ONBOARDING_FLOW_DRAFT_TEXT_MAX = 100000;
@@ -693,7 +693,47 @@
     drafts: {},
     startedAt: "",
     completed: false,
+    // JOBQA: the Google account (sha256, onboarding-flow.js accountHashOf)
+    // these drafts were typed under; "" before anyone signed in.
+    accountHash: "",
+    // JOBQA: other accounts' unsaved drafts, kept under their own account
+    // and never loaded into this one (onboarding-flow.js reconcileAccount).
+    quarantine: {},
   };
+
+  function normalizeAccountHash(raw) {
+    const text = raw == null ? "" : String(raw).trim().toLowerCase();
+    return /^[0-9a-f]{64}$/.test(text) ? text : "";
+  }
+
+  /**
+   * A quarantine scope: an account hash, or "unowned-<stamp>" for drafts
+   * typed before accounts were tracked (never handed to any account).
+   */
+  function normalizeQuarantineScope(raw) {
+    const hash = normalizeAccountHash(raw);
+    if (hash) return hash;
+    const text = raw == null ? "" : String(raw).trim();
+    return /^unowned-[0-9A-Za-z-]{1,60}$/.test(text) ? text : "";
+  }
+
+  /** Every kept scope stays: nothing is evicted, so no one's unsaved setup is lost. */
+  function normalizeOnboardingFlowQuarantine(raw) {
+    const o = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const kept = {};
+    for (const [key, value] of Object.entries(o)) {
+      const scope = normalizeQuarantineScope(key);
+      if (!scope || !value || typeof value !== "object") continue;
+      kept[scope] = {
+        drafts: normalizeOnboardingFlowDrafts(value.drafts),
+        beat: ONBOARDING_FLOW_BEATS.includes(normalizeWizardText(value.beat, ""))
+          ? normalizeWizardText(value.beat, "")
+          : "",
+        at: normalizeWizardText(value.at, ""),
+      };
+    }
+    return kept;
+  }
 
   /**
    * Beat-local drafts (spec §3.2): text stays text, structured drafts are
@@ -750,6 +790,8 @@
       drafts: normalizeOnboardingFlowDrafts(o.drafts),
       startedAt: normalizeWizardText(o.startedAt, ""),
       completed: !!o.completed,
+      accountHash: normalizeAccountHash(o.accountHash),
+      quarantine: normalizeOnboardingFlowQuarantine(o.quarantine),
     };
   }
 
@@ -761,6 +803,7 @@
         skipped: {},
         drafts: {},
         completedBeats: [],
+        quarantine: {},
       };
     }
     return normalizeOnboardingFlowState({
@@ -779,8 +822,13 @@
       // must not erase a skip another beat recorded.
       skipped: { ...cur.skipped, ...(patch.skipped || {}) },
       // Same for drafts: a debounced B3 write naming only resumeText must
-      // not drop the profile draft B4 is about to confirm.
-      drafts: { ...cur.drafts, ...(patch.drafts || {}) },
+      // not drop the profile draft B4 is about to confirm. An account
+      // switch (JOBQA) replaces them outright with `replaceDrafts: true`.
+      drafts:
+        patch.replaceDrafts === true
+          ? { ...(patch.drafts || {}) }
+          : { ...cur.drafts, ...(patch.drafts || {}) },
+      quarantine: patch.quarantine !== undefined ? patch.quarantine : cur.quarantine,
     });
     await setSetting("onboardingFlowState", next);
     return next;
@@ -795,11 +843,20 @@
   const ONBOARDING_FLOW_DRAFT_MIRROR_KEY = "jb_oneflow_draft_resumeText";
 
   async function clearOnboardingFlowState() {
+    /* A reset clears this flow; other accounts' kept drafts are theirs, not
+     * this flow's, so they stay (JOBQA). */
+    let quarantine = {};
+    try {
+      quarantine = (await getOnboardingFlowState()).quarantine || {};
+    } catch (_e) {
+      quarantine = {};
+    }
     const fresh = {
       ...DEFAULT_ONBOARDING_FLOW_STATE,
       skipped: {},
       drafts: {},
       completedBeats: [],
+      quarantine,
     };
     await setSetting("onboardingFlowState", fresh);
     try {
@@ -1272,7 +1329,11 @@
    * Throws code "resume_garbled" for broken PDF text unless
    * payload.confirmGarbled (RESJ K3); savePrimaryResumeChecked() asks.
    *
-   * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null, confirmGarbled?: boolean }} payload
+   * `syncServer: false` skips the server copy. Onboarding's commit uses it
+   * (JOBQA): POST /profile/commit already wrote resume.txt, and a second
+   * PUT would be a write outside that commit.
+   *
+   * @param {{ source?: string, rawMime?: string|null, label?: string, extractedText: string, structured?: object|null, confirmGarbled?: boolean, syncServer?: boolean }} payload
    */
   async function setPrimaryResume(payload) {
     const text = String(payload.extractedText || "").trim();
@@ -1320,7 +1381,10 @@
     await setSetting("activeResumeId", PRIMARY_RESUME_ID);
     /* Not awaited: a slow or hung server never holds up the save. Callers
      * that show a status await record.serverSync (it never rejects). */
-    const serverSync = syncPrimaryResumeToServer(text);
+    const serverSync =
+      payload.syncServer === false
+        ? Promise.resolve({ ok: true, skipped: true })
+        : syncPrimaryResumeToServer(text);
     return Object.assign({}, record, { serverSync });
   }
 
