@@ -28,7 +28,7 @@ function runNode(args, env, cwd) {
 }
 
 describe("W2SQ-E — dotenv/config behaviour on dotenv 18", () => {
-  it("loads the env file, never overrides preset env, and logs once on stderr", async () => {
+  it("loads the env file, never overrides preset env, and logs at most once, on stderr", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "jobbored-dotenv-"));
     try {
       writeFileSync(
@@ -55,8 +55,10 @@ describe("W2SQ-E — dotenv/config behaviour on dotenv 18", () => {
       assert.equal(seen.fromFile, "fromfile", "file vars load");
       assert.equal(seen.preset, "fromenv", "preset env wins without override");
       const stderrNotices = stderr.split("\n").filter((line) => /injected env \(\d+\) from /.test(line));
-      assert.equal(stderrNotices.length, 1, `one stderr notice, got: ${JSON.stringify(stderr)}`);
-      assert.match(stderrNotices[0], /injected env \(1\) from /);
+      // dotenv 18.0.4 stopped printing the notice by default; older 18.x printed
+      // exactly one, on stderr. Either is fine; it must never reach stdout.
+      assert.ok(stderrNotices.length <= 1, `at most one stderr notice, got: ${JSON.stringify(stderr)}`);
+      if (stderrNotices.length) assert.match(stderrNotices[0], /injected env \(1\) from /);
       assert.doesNotMatch(stdout, /injected env/);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
