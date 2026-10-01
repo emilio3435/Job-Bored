@@ -1404,7 +1404,7 @@
       })
       .then(function (data) {
         return data && data.ok === true
-          ? { exists: !!data.exists, revision: text(data.revision), accountHash: text(data.accountHash) || null }
+          ? { exists: !!data.exists, revision: text(data.revision), accountHash: text(data.accountHash) || null, local: data.local === true }
           : null;
       })
       .catch(function () {
@@ -1419,7 +1419,8 @@
   }
 
   function canAdopt(saved, account) {
-    return !!(account && saved && saved.exists && (!saved.accountHash || saved.accountHash === account));
+    return !!(account && saved && saved.exists &&
+      (saved.accountHash === account || (saved.accountHash == null && saved.local === true)));
   }
 
   async function refreshSavedOffer(record, ctx) {

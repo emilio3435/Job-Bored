@@ -3,7 +3,7 @@
  *
  *   POST /profile/commit        the staged resume, profile, voice guide and
  *                               resume read, written together or not at all
- *   GET  /profile/commit/state  { ok, exists, revision, accountHash }
+ *   GET  /profile/commit/state  { ok, exists, revision, accountHash, local }
  *   GET  /profile/resume        { ok, resumeText }: the canonical resume
  *
  * Until this commit, onboarding writes nothing canonical: the upload, the
@@ -636,8 +636,10 @@ export function commitBarrier(service) {
 /**
  * @param {{ get: (path: string, handler: (req: import("express").Request, res: import("express").Response) => unknown) => unknown, post: (path: string, handler: (req: import("express").Request, res: import("express").Response) => unknown) => unknown }} app
  * @param {ProfileCommitService} service
+ * @param {{ local?: boolean }} [options] trusted deployment context from the server
  */
-export function mountProfileCommit(app, service) {
+export function mountProfileCommit(app, service, options = {}) {
+  const local = options.local === true;
   app.get("/profile/resume", async (_req, res) => {
     try {
       return res.json({ ok: true, resumeText: await service.savedResume() });
@@ -647,7 +649,7 @@ export function mountProfileCommit(app, service) {
   });
   app.get("/profile/commit/state", async (_req, res) => {
     try {
-      return res.json({ ok: true, ...(await service.state()) });
+      return res.json({ ok: true, ...(await service.state()), local });
     } catch {
       return res.status(500).json({ ok: false, reason: "read_failed", message: "JobBored's server couldn't read the saved profile." });
     }

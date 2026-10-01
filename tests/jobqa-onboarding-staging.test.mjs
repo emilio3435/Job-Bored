@@ -150,7 +150,7 @@ const mutating = (env) =>
   });
 
 describe("LOCALFIX saved setup adoption", () => {
-  async function savedSetup(t, { email = MORGAN.email, unowned = false, onResume } = {}) {
+  async function savedSetup(t, { email = MORGAN.email, unowned = false, local = true, onResume } = {}) {
     const root = await mkdtemp(join(tmpdir(), "localfix-adopt-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const paths = storePaths(join(root, "store"));
@@ -167,7 +167,7 @@ describe("LOCALFIX saved setup adoption", () => {
     env.window.fetch = async (url, init) => {
       calls.push({ url, method: init.method, ...(init.body ? { body: JSON.parse(init.body) } : {}) });
       let data;
-      if (url.endsWith("/profile/commit/state")) data = { ok: true, ...(await service.state()) };
+      if (url.endsWith("/profile/commit/state")) data = { ok: true, local, ...(await service.state()) };
       else if (url.endsWith("/profile/resume")) {
         if (onResume) await onResume({ paths, who });
         data = { ok: true, resumeText: await service.savedResume() };
@@ -216,6 +216,26 @@ describe("LOCALFIX saved setup adoption", () => {
     assert.equal(await s.env.store.getActiveResume(), null);
     assert.equal(s.completions.length, 0);
     assert.equal(s.calls.some((call) => /\/profile(?:\/resume)?$/.test(call.url)), false);
+  });
+
+  it("R2-1 a hosted ownerless setup is hidden and cannot read profile or resume", async (t) => {
+    for (const local of [false, null, "true"]) {
+      const s = await savedSetup(t, { unowned: true, local });
+      const offer = s.container.querySelector(".oneflow-fit-adopt");
+      assert.ok(offer && offer.hidden, `local=${local} must not authorize ownerless adoption`);
+      await s.beat.onAction("adopt-saved-setup", s.ctx);
+      assert.equal(s.calls.some((call) => /\/profile(?:\/resume)?$/.test(call.url)), false);
+      assert.equal(await s.env.store.getActiveResume(), null);
+      assert.equal(s.completions.length, 0);
+    }
+  });
+
+  it("R2-1 a hosted setup remains adoptable by its recorded owner", async (t) => {
+    const s = await savedSetup(t, { local: false });
+    assert.equal(s.container.querySelector(".oneflow-fit-adopt").hidden, false);
+    await s.beat.onAction("adopt-saved-setup", s.ctx);
+    assert.equal((await s.env.store.getActiveResume()).extractedText, MORGAN.resumeText);
+    assert.equal(s.completions.length, 1);
   });
 
   it("W3 revisiting fit after adoption uses the saved setup rather than old staged answers", async (t) => {

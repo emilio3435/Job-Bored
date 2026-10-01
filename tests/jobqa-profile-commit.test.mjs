@@ -63,6 +63,28 @@ function alexCommit(overrides = {}) {
 const text = (path) => readFile(path, "utf8");
 
 describe("LOCALFIX saved setup reads and derived work", () => {
+  it("R2-1 commit state reports the server's local deployment flag and defaults closed", async () => {
+    const { paths } = await store("empty");
+    const service = createProfileCommitService({ paths });
+    const source = await readFile(new URL("../server/index.mjs", import.meta.url), "utf8");
+    const start = source.indexOf("mountProfileCommit(app, profileCommit");
+    const registration = source.slice(start, source.indexOf("\n", start));
+    for (const requireAuth of [true, false]) {
+      const routes = new Map();
+      new Function("app", "profileCommit", "mountProfileCommit", "REQUIRE_API_AUTH", registration)(
+        { get: (path, handler) => routes.set(path, handler), post() {} }, service, mountProfileCommit, requireAuth,
+      );
+      let answer;
+      await routes.get("/profile/commit/state")({}, { json: (value) => { answer = value; } });
+      assert.equal(answer.local, !requireAuth);
+    }
+    const routes = new Map();
+    mountProfileCommit({ get: (path, handler) => routes.set(path, handler), post() {} }, service);
+    let answer;
+    await routes.get("/profile/commit/state")({}, { json: (value) => { answer = value; } });
+    assert.equal(answer.local, false, "missing deployment context must never authorize legacy adoption");
+  });
+
   it("W3 GET /profile returns the original profile after a paused write rolls back", async () => {
     const { paths } = await store("existing");
     let release;

@@ -676,6 +676,31 @@ describe("SetupDoctor pipeline tab repair", () => {
     assert.deepEqual(order, ["grow", "Pipeline!Z1"]);
   });
 
+  it("R2-3 missing or invalid columnCount refuses repair without a mutation", async () => {
+    for (const columnCount of [undefined, null, 0, -1, 25.5, "25"]) {
+      const mutations = [];
+      const headers = pipelineSchema.headerRow.slice(0, 25);
+      const { api } = loadDoctor({
+        accessToken: "tok", getSheetId: () => "SHEET",
+        fetch: async (url, init = {}) => {
+          if (String(url) === "schemas/pipeline-row.v1.json") return { ok: true, json: async () => pipelineSchema };
+          if (String(url).includes("?fields=")) return { ok: true, json: async () => ({ sheets: [{ properties: { title: "Pipeline", sheetId: 7, gridProperties: { columnCount } } }] }) };
+          if (String(url).includes("/values/Pipeline!A1:Z1")) return { ok: true, json: async () => ({ values: [headers] }) };
+          if (init.method && init.method !== "GET") {
+            mutations.push({ url, method: init.method });
+            return { ok: true, json: async () => ({}) };
+          }
+          return { ok: false, status: 404, json: async () => ({}) };
+        },
+      });
+      const diagnosis = await api.diagnose({});
+      const result = await diagnosis.issues.find((issue) => issue.id === "pipeline_headers_wrong").fix();
+      assert.equal(result.ok, false);
+      assert.match(result.error, /columnCount/);
+      assert.deepEqual(mutations, []);
+    }
+  });
+
   it("preserves AA and AB when the grid widens between GET and POST", async () => {
     const routed = loadGridDoctor(pipelineSchema.headerRow.slice(0, 25), 25, 30);
     const out = await routed.api.autoHeal({});

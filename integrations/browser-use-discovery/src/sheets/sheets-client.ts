@@ -685,7 +685,14 @@ export async function ensureSheetGridColumns(params: {
       body,
     );
   }
-  const columnCount = Number(match?.properties?.gridProperties?.columnCount) || 0;
+  const columnCount = match?.properties?.gridProperties?.columnCount;
+  if (typeof columnCount !== "number" || !Number.isInteger(columnCount) || columnCount <= 0) {
+    throw new SheetsHttpError(
+      `Missing or invalid gridProperties.columnCount for ${sheetName}; expected a positive integer`,
+      response.status,
+      body,
+    );
+  }
   if (columnCount >= minColumns) return;
   const updateUrl = new URL(`${SHEETS_API}/${encodeURIComponent(sheetId)}:batchUpdate`);
   const updateResponse = await sendWithRetry(

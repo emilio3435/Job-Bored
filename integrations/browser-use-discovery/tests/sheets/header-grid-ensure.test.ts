@@ -170,6 +170,22 @@ test("a concurrent grid widening preserves user data in AA and AB", async () => 
   assert.equal(routed.cells.get(27), "User data in AB");
 });
 
+test("R2-3 missing or invalid columnCount fails without a grid or header write", async () => {
+  for (const columnCount of [undefined, null, 0, -1, 25.5, "25"]) {
+    const routed = createRoutedFetch({
+      headerRow: missingWorkModeHeader(),
+      metaPayload: { sheets: [{ properties: { title: "Pipeline", sheetId: TAB_ID, gridProperties: { columnCount } } }] },
+    });
+    await assert.rejects(createPipelineWriter(runtimeConfig, { fetchImpl: routed.fetchImpl, retries: 0 }).write("sheet_123", []), (error: unknown) => {
+      assert.ok(error instanceof SheetWriteError);
+      assert.equal(error.phase, "update");
+      assert.match(error.message, /columnCount/);
+      return true;
+    });
+    assert.equal(routed.calls.some((call) => call.method !== "GET"), false);
+  }
+});
+
 test("legacy grids below U and Y grow once before the first header write", async () => {
   for (const width of [17, 20, 24]) {
     const routed = createRoutedFetch({ headerRow: PIPELINE_HEADER_ROW.slice(0, width), gridColumns: width });

@@ -464,7 +464,7 @@ app.post("/api/leads/chat", leadsChatHandler);
  * its rollback. */
 const profileCommit = createProfileCommitService({ postCommit: refreshDerivedAfterCommit });
 const guardSave = commitBarrier(profileCommit);
-mountProfileCommit(app, profileCommit);
+mountProfileCommit(app, profileCommit, { local: !REQUIRE_API_AUTH });
 profileCommit.recover().catch((err) => {
   console.warn("[profile-commit] could not finish an interrupted save:", errorMessage(err, "recover failed"));
 });

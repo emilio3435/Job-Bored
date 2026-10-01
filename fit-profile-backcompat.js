@@ -121,7 +121,7 @@
     apiFetch(profileApiPath("/profile"), { method: "GET" })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data && data.ok && data.profile) return; // already has profile
+        if (!data || data.reason !== "no_profile") return;
         // Probe whether legacy files exist via a HEAD-style migrate dry-run.
         // The migrate endpoint is idempotent; we don't actually trigger
         // until the user clicks.

@@ -471,11 +471,10 @@
     );
     const tabId = tab && tab.properties && tab.properties.sheetId;
     if (typeof tabId !== "number") return "Pipeline tab not found";
-    const columnCount =
-      Number(
-        tab.properties.gridProperties &&
-          tab.properties.gridProperties.columnCount,
-      ) || 0;
+    const columnCount = tab.properties.gridProperties && tab.properties.gridProperties.columnCount;
+    if (typeof columnCount !== "number" || !Number.isInteger(columnCount) || columnCount <= 0) {
+      return "Pipeline gridProperties.columnCount is missing or invalid; expected a positive integer";
+    }
     if (columnCount >= minColumns) return null;
     const growResp = await doFetch(
       "https://sheets.googleapis.com/v4/spreadsheets/" +
