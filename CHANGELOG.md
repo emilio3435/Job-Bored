@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.3.0](https://github.com/emilio3435/Job-Bored/compare/v0.2.0...v0.3.0) (2026-10-01)
+
+
+### Features
+
+* **case:** one fit score and a full-width why-it-fits gauge ([#142](https://github.com/emilio3435/Job-Bored/issues/142)) ([c0fcbf4](https://github.com/emilio3435/Job-Bored/commit/c0fcbf4dcf41b28f0622f55ac06adf9a4f0e85d0))
+* expose stable judge failure codes in QA ([efe90d3](https://github.com/emilio3435/Job-Bored/commit/efe90d36309860f8835a8630d702af3f1f2c824b))
+* **judge:** live model catalogs for every provider, fixed endpoints, probe script ([0f4c380](https://github.com/emilio3435/Job-Bored/commit/0f4c380eb15d8f48f3859c18ca868e602f50d559))
+* **judge:** live model catalogs for every provider, fixed endpoints, probe script ([3ae3e61](https://github.com/emilio3435/Job-Bored/commit/3ae3e61d88e7b2cbc5da23488c6ac17e2d0d8ec7))
+* **judge:** onboarding offer shares the live judge picker with Settings ([9fee112](https://github.com/emilio3435/Job-Bored/commit/9fee1122ce1eda8bdc1bbcfa90a3ffcd2410c996))
+* **judge:** share per-provider key guidance with Settings ([fbaea43](https://github.com/emilio3435/Job-Bored/commit/fbaea43d76c6cc5e4c0a389ba5b92d5c6bb74ea7))
+* **judge:** shared Grading model field in judge-picker mount() ([c32a8cf](https://github.com/emilio3435/Job-Bored/commit/c32a8cf180e95921aa0d22b0deb22388243b7ff3))
+* land the test stack (materials overhaul, resume journey, discovery write retry, AI output limits) ([1aba206](https://github.com/emilio3435/Job-Bored/commit/1aba20605ccd518a101b9c067fdaec651a86ea46))
+* leads filters and chat, plus the Scribe v2 editor ([#141](https://github.com/emilio3435/Job-Bored/issues/141)) ([0462175](https://github.com/emilio3435/Job-Bored/commit/046217588ec81bf8ea0f5ac548cbc95fe243afee))
+* **materials:** an honest judge, fewer stages, a real repair and a scorecard ([#144](https://github.com/emilio3435/Job-Bored/issues/144)) ([7fe8a6b](https://github.com/emilio3435/Job-Bored/commit/7fe8a6be31450bf85015320bd13619a6e01fc169))
+* **materials:** round 2 — grading setup, logos, LLM resume read, confident spin ([7245c74](https://github.com/emilio3435/Job-Bored/commit/7245c74b4bc73824e399c6110b6906eb4b4a3996))
+* **materials:** scorecard says who graded it, or why not, with ways out ([d011131](https://github.com/emilio3435/Job-Bored/commit/d011131ffbd0816c893da5032c034576f5a963be))
+* **onboarding:** collapsed grading model offer shares the Settings field ([6b378a0](https://github.com/emilio3435/Job-Bored/commit/6b378a0acae8f307bf7f7980991cb04d5e12c29b))
+* **onboarding:** optional grading-model setup in the AI beat ([63d7177](https://github.com/emilio3435/Job-Bored/commit/63d71773bc9c4d0613fcc0dc995a237472bd778d))
+* preserve exact writer pin on judge-only save ([18483e0](https://github.com/emilio3435/Job-Bored/commit/18483e08a5f211f3d144b6cff4098bf45b744dad))
+* **settings:** one optional Grading model row under the writer Provider ([6a6104e](https://github.com/emilio3435/Job-Bored/commit/6a6104e5805754a3de76b1aa9a695b8790bd17e9))
+* use structured grade for judge connection test ([91438d5](https://github.com/emilio3435/Job-Bored/commit/91438d58897c83ddef2abc3b8de9da9991817b94))
+
+
+### Bug Fixes
+
+* ground Dossier resume evidence and show budget exclusions ([#146](https://github.com/emilio3435/Job-Bored/issues/146)) ([4a12412](https://github.com/emilio3435/Job-Bored/commit/4a12412bf145a519289176ca96b71ff74e50d80b))
+* grow the sheet grid before header writes, and stage onboarding until one journaled commit ([#159](https://github.com/emilio3435/Job-Bored/issues/159)) ([f3a0fea](https://github.com/emilio3435/Job-Bored/commit/f3a0fea13045a55c28adccc52884fbd9b5424daf))
+* **ingest:** let one bounded AI pass clear false refusals, never hide work ([#155](https://github.com/emilio3435/Job-Bored/issues/155)) ([dfc84b3](https://github.com/emilio3435/Job-Bored/commit/dfc84b3511e93977f6ca4f3515d7f6fc7f2f6e19))
+* **ingest:** read résumés with one checked AI pass and never draft from a partial read ([#153](https://github.com/emilio3435/Job-Bored/issues/153)) ([99de4cd](https://github.com/emilio3435/Job-Bored/commit/99de4cd6cc6caa8c9497267669bdc14a9ad0e2f7))
+* **judge:** allow 240 s for the grading model ([473e8ab](https://github.com/emilio3435/Job-Bored/commit/473e8ab41f1c7f9efa3a77c64a6be18c84329583))
+* **judge:** grading-settings review fixes and a 240 s grading timeout ([a20cd42](https://github.com/emilio3435/Job-Bored/commit/a20cd42d1aa84d9eb5f4d180a2f3ddc054c9b598))
+* **judge:** Grok catalog review P1-P3 — verbatim fill, alias round-trip, paged lists ([46438d7](https://github.com/emilio3435/Job-Bored/commit/46438d7cf081f41ca11da7c6a3d9ed4eb1b15aa9))
+* **judge:** status-aware catalog failures; typecheck the picker ([71d678d](https://github.com/emilio3435/Job-Bored/commit/71d678d2111ca29260d520f5ed03d62a804116ed))
+* **materials:** close replay wrap-marker grounding gaps ([5d3cf9a](https://github.com/emilio3435/Job-Bored/commit/5d3cf9ae1da655b3005686bf7b4a3ee5d53f5f70))
+* **materials:** ground replay hyphens and local dates ([cced79b](https://github.com/emilio3435/Job-Bored/commit/cced79bab831d6172201a5037a8121506d766373))
+* **materials:** restore [#146](https://github.com/emilio3435/Job-Bored/issues/146) resume-read hardening on the model-only ingest ([d1ce562](https://github.com/emilio3435/Job-Bored/commit/d1ce562c51f9b425c84cd47c8f2423bc48f1f89f))
+* **materials:** size the draft deadline for two passes with jd extract ([c81b2f7](https://github.com/emilio3435/Job-Bored/commit/c81b2f731505082a478c1f88cba9b847826698d9))
+* **net:** give Node's IPv6/IPv4 connection race 2 s so AI calls stop timing out ([7150681](https://github.com/emilio3435/Job-Bored/commit/7150681d28cd1df1d888afdc35cce83446ac57eb))
+* **net:** give Node's IPv6/IPv4 connection race 2 s so AI calls stop timing out ([7ddb794](https://github.com/emilio3435/Job-Bored/commit/7ddb7949c202dceed19c52af64d07399d743327d))
+* **pipeline:** search match gets one meaning, fit assessment follows fit score, dawn uses the card's fit colors ([#145](https://github.com/emilio3435/Job-Bored/issues/145)) ([4614d8c](https://github.com/emilio3435/Job-Bored/commit/4614d8cd64407a037a537c2afc970c63a9184d6b))
+* preserve writer settings and grading operation ownership ([899dc2d](https://github.com/emilio3435/Job-Bored/commit/899dc2d7ec4524f559020189f3acbee83494c975))
+* recover writer saves and invalidated grading catalogs ([be59b38](https://github.com/emilio3435/Job-Bored/commit/be59b38469f6276601ff7e0adacf5c256bc1f262))
+* render existing materials drafts in Scribe preview ([#143](https://github.com/emilio3435/Job-Bored/issues/143)) ([ec34030](https://github.com/emilio3435/Job-Bored/commit/ec34030f5dcf3f540319760733400144e3b997ec))
+* resolve grading model review findings and save races ([8507079](https://github.com/emilio3435/Job-Bored/commit/8507079ed363aa8b6a72842ca78af58e9d0aa10b))
+* **scribe:** tolerate duplicate ids in historical version views ([#147](https://github.com/emilio3435/Job-Bored/issues/147)) ([746bb9e](https://github.com/emilio3435/Job-Bored/commit/746bb9e2030eda0de123349e838358a72876f5fa))
+
 ## [0.2.0](https://github.com/emilio3435/Job-Bored/compare/v0.1.0...v0.2.0) (2026-09-27)
 
 
