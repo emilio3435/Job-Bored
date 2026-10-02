@@ -15,7 +15,7 @@ import { claimById } from "./materials-ledger.mjs";
 import { loadVoiceProfile, withVoiceClaims } from "./materials-voice-profile.mjs";
 import { runStageWithExecutor } from "./materials-executor.mjs";
 import { formatProvenanceLine, runResumeBlock } from "./materials-resume-source.mjs";
-import { extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
+import { boundEchoBans, extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
@@ -334,7 +334,8 @@ async function runPipelineBody(input, assertBase) {
   const extracted = cachedExtract
     ? { extract: cachedExtract, degraded: Boolean(cachedExtract.degraded), call: undefined }
     : await withExecutor("jd.extract", () => (services.extractJd || extractJd)({ jdText, company: payload.company, title: payload.title, gate, pin, fetchImpl, source: jdSource }));
-  const extract = extracted.extract;
+  /* M11: an extract cached before the echo-ban cap is capped here too. */
+  const extract = { ...extracted.extract, echoBans: boundEchoBans(extracted.extract.echoBans) };
   const extractFailure = extracted.degraded ? extracted.call?.degradedReason || (pin ? "model fill unavailable" : "no model configured") : "";
   if (extracted.degraded) degraded.push(`jd.extract: deterministic half (${extractFailure})`);
   await writeJson(join(runDir, "jd-extract.json"), {
