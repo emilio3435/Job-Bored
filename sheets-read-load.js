@@ -1061,7 +1061,9 @@
           h.setPipelineData([]);
           h.setDashboardDataHydrated(false);
           h.showSheetAccessGate("signin");
-          return true;
+          // Signed out mid-load: no rows were shown, so end this generation.
+          closeOpenGeneration(401, "signed_out", "Signed out of Google");
+          return false;
         }
         h.setInitialSheetAccessResolved(true);
         h.revealDashboardShell();
