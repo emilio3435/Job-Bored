@@ -32,6 +32,7 @@
 // resolveRowsByLink (integrations/browser-use-discovery/src/sheets/sheets-client.ts).
 
 const PIPELINE_ROW_RANGE = /^Pipeline!([A-Z]+)(\d+)$/;
+const W_INDEX = 22; // Pipeline column W (Dismissed At), 0-based
 const PIPELINE_LAST_COLUMN = "Z";
 const IDENTITY_COL = { title: 1, company: 2, link: 4, notes: 14 };
 const NOTES_COLUMN = "O";
@@ -238,6 +239,11 @@ async function guardUpdates(updates, targets, silent, sid) {
     }
     return null;
   }
+  // Each target keeps the row as the guard read it (a rollback restores
+  // that, not this tab's older copy).
+  targets.forEach((t, i) => {
+    t.found = resolved[i];
+  });
   const byRow = new Map(targets.map((t, i) => [t.row, { target: t, found: resolved[i] }]));
   const notes = [];
   for (const u of updates) {
@@ -689,6 +695,17 @@ async function deleteBlacklistRows(urls, providerKeys, pinnedSid) {
     (s) => s.properties && s.properties.title === "Blacklist",
   );
   if (!sheet) return false;
+  // Read again right before deleting: a row added or removed since the
+  // first read shifts the indexes onto someone else's block, so refuse.
+  const again = (await sheetsValuesGet("Blacklist!A:F", sid)).values || [];
+  const same = (i) =>
+    normalizeLeadUrlClient((again[i] || [])[0] || "") === normalizeLeadUrlClient((values[i] || [])[0] || "") &&
+    blacklistRowProviderKey(again[i]) === blacklistRowProviderKey(values[i]);
+  if (again.length !== values.length || !rows.every(same)) {
+    const e = new Error("The Blacklist changed while removing a block; nothing was removed");
+    e.status = 409;
+    throw e;
+  }
   // Bottom-up, so each delete leaves the earlier row indexes in place.
   await sheetsBatchUpdate({
     requests: rows.reverse().map((rowIndex) => ({
@@ -886,20 +903,27 @@ async function persistDismiss(target, at, prevW) {
   }
 }
 
-async function persistRestore(target, prevW, also) {
-  const w = { range: `Pipeline!W${target.row}`, value: "" };
-  if (!(await updateMultipleCells([w], false, { guard: true, sid: target.sid }))) return false;
-  const link = normalizeLeadUrlClient(target.job.link || "");
+/** Clear W on every row in `targets` (one role, one spreadsheet), then lift
+ *  its blocks; a failed lift puts back each row's W as the guard read it. */
+async function persistRestore(targets, also) {
+  const list = [].concat(targets);
+  const sid = list[0].sid;
+  const ws = list.map((t) => ({ range: `Pipeline!W${t.row}`, value: "" }));
+  if (!(await updateMultipleCells(ws, false, { guard: true, sid, targets: list }))) return false;
+  const prevWs = list.map((t) =>
+    String((t.found && t.found.cells ? t.found.cells[W_INDEX] : t.job.dismissedAt) || ""),
+  );
+  const links = list.map((t) => normalizeLeadUrlClient(t.job.link || "")).filter(Boolean);
   try {
     await deleteBlacklistRows(
-      [link].concat((also && also.urls) || []),
-      [providerKeyForUrl(link)].concat((also && also.providerKeys) || []),
-      target.sid,
+      links.concat((also && also.urls) || []),
+      links.map(providerKeyForUrl).concat((also && also.providerKeys) || []),
+      sid,
     );
     return true;
   } catch (err) {
     console.error("[JobBored] restore: Blacklist delete failed; putting W back", err);
-    await putBack(w.range, prevW || "", target);
+    for (let i = 0; i < list.length; i++) await putBack(ws[i].range, prevWs[i], list[i]);
     return false;
   }
 }
@@ -955,7 +979,7 @@ async function dismissJob(stableKey) {
 
 async function undoDismiss(target, dismissedAt) {
   setDismissedAt(target, null);
-  if (await persistRestore(target, dismissedAt)) {
+  if (await persistRestore([target])) {
     host().showToast("Restored", "success");
     return true;
   }
@@ -976,7 +1000,7 @@ async function restoreJob(stableKey) {
   const prev = job.dismissedAt;
   job.dismissedAt = null;
   host().renderPipeline();
-  if (await persistRestore(target, prev)) {
+  if (await persistRestore([target])) {
     setDismissedAt(target, null);
     host().showToast("Restored", "success");
     return true;
@@ -993,29 +1017,38 @@ async function restoreBlockedRole(entry) {
   if (!entry || !host().getAccessToken()) return false;
   const urls = entry.url ? [entry.url] : [];
   const providerKeys = entry.providerKey ? [entry.providerKey] : [];
+  const sid = sheetId();
   const data = host().getPipelineData() || [];
-  // This tab's copy may predate the dismiss, so match the role whether or
-  // not it shows as dismissed here; W is cleared either way.
-  const idx = data.findIndex((job) => {
-    if (!job) return false;
+  // Every Pipeline row for the role, dismissed here or not (this tab's copy
+  // may predate the dismiss, and an active duplicate can sit above it).
+  const targets = [];
+  data.forEach((job, idx) => {
+    if (!job) return;
     const link = normalizeLeadUrlClient(job.link || "");
     const key = providerKeyForUrl(link);
-    return (!!link && urls.includes(link)) || (!!key && providerKeys.includes(key));
+    if ((!!link && urls.includes(link)) || (!!key && providerKeys.includes(key))) {
+      const target = writeTarget(idx);
+      if (target) targets.push(target);
+    }
   });
-  const target = idx === -1 ? null : writeTarget(idx);
-  if (!target) {
+  if (!targets.length) {
     try {
-      await deleteBlacklistRows(urls, providerKeys);
+      await deleteBlacklistRows(urls, providerKeys, sid);
       return true;
     } catch (err) {
       console.error("[JobBored] lifting a block failed", err);
       return false;
     }
   }
-  const prev = target.job.dismissedAt || entry.dismissedAt || null;
-  setDismissedAt(target, null);
-  if (await persistRestore(target, prev, { urls, providerKeys })) return true;
-  setDismissedAt(target, prev);
+  const roles = new Set(targets.map((t) => `${identityText(t.job.company)}::${identityText(t.job.title)}`));
+  if (roles.size > 1) {
+    console.warn("[JobBored] restore refused: the block matches rows for different roles");
+    return false;
+  }
+  const prevs = targets.map((t) => t.job.dismissedAt || null);
+  targets.forEach((t) => setDismissedAt(t, null));
+  if (await persistRestore(targets, { urls, providerKeys })) return true;
+  targets.forEach((t, i) => setDismissedAt(t, prevs[i]));
   return false;
 }
 

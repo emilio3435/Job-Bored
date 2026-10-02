@@ -116,6 +116,60 @@ describe("R13 · listBlockedRoles and restoreBlockedRole", () => {
     assert.equal(rowByLink(fake, GH_MOVED)[COL.dismissedAt], "");
   });
 
+  it("Restore clears W on every matching row, not just the first (an active duplicate above)", async () => {
+    const fake = createFakeSheets({
+      Pipeline: [
+        HEADERS.slice(),
+        pipelineRow({ title: "Eng", company: "Acme", link: GH }),
+        pipelineRow({ title: "Eng", company: "Acme", link: GH, dismissedAt: "2026-09-20T10:00:00.000Z" }),
+      ],
+      Blacklist: [BL_HEADER, [GH, "2026-09-20T10:00:00.000Z", "Eng", "Acme", "", GH_KEY]],
+    });
+    const env = loadWriteback(fake);
+    env.load();
+    const [eng] = await env.sw.listBlockedRoles();
+    assert.equal(await env.sw.restoreBlockedRole(eng), true);
+    assert.deepEqual(fake.rows("Pipeline").slice(1).map((r) => r[COL.dismissedAt]), ["", ""]);
+    assert.equal(fake.rows("Blacklist").length, 1);
+  });
+
+  it("Restore refuses when the matching rows are different roles, and writes nothing", async () => {
+    const fake = createFakeSheets({
+      Pipeline: [
+        HEADERS.slice(),
+        pipelineRow({ title: "Eng", company: "Acme", link: GH, dismissedAt: "2026-09-20T10:00:00.000Z" }),
+        pipelineRow({ title: "Sales Lead", company: "Other Co", link: GH_MOVED }),
+      ],
+      Blacklist: [BL_HEADER, [GH, "2026-09-20T10:00:00.000Z", "Eng", "Acme", "", GH_KEY]],
+    });
+    const env = loadWriteback(fake);
+    env.load();
+    const [eng] = await env.sw.listBlockedRoles();
+    assert.equal(await env.sw.restoreBlockedRole(eng), false);
+    assert.equal(fake.requests.filter((r) => r.method !== "GET").length, 0);
+    assert.equal(fake.rows("Blacklist").length, 2);
+  });
+
+  it("a block delete aborts when the Blacklist shifts before deleteDimension", async () => {
+    const fake = blockedSheet();
+    const env = loadWriteback(fake);
+    env.load();
+    const [eng] = await env.sw.listBlockedRoles();
+    fake.intercept(async (req) => {
+      if (/fields=sheets\.properties/.test(req.url)) {
+        fake.rows("Blacklist").splice(1, 0, ["https://example.com/careers/new-1", "2026-10-01T10:00:00.000Z", "New", "Hooli", ""]);
+      }
+      return null;
+    });
+    assert.equal(await env.sw.restoreBlockedRole(eng), false);
+    assert.deepEqual(
+      fake.rows("Blacklist").slice(1).map((r) => r[0]),
+      ["https://example.com/careers/new-1", GH, "https://example.com/careers/role-9", GH_MOVED],
+      "no block was deleted, least of all someone else's",
+    );
+    assert.equal(rowByLink(fake, GH_MOVED)[COL.dismissedAt], "2026-09-20T10:00:00.000Z", "W put back");
+  });
+
   it("Restore lifts every block for the role and un-dismisses its Pipeline row", async () => {
     const fake = blockedSheet();
     const env = loadWriteback(fake);
