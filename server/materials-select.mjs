@@ -546,30 +546,46 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
       };
     }),
     dropped,
-    omittedEmployers: omittedEmployers({ ledger, finalKept, employerOf }),
+    omittedEmployers: omittedEmployers({ ledger, finalKept, employerOf, dropped, shortlist }),
     transfers,
     letter: letterOut,
   };
 }
 
 /**
- * Employers with ledger claims that this run does not feature. Every one
- * is recorded with a reason, which is what makes omission legal.
+ * Employers with ledger claims that this run does not feature, each with
+ * the reason its claims' drop records give (M5): retired, cut by the page
+ * budget, or too weak for this posting (restated, unmapped, low signal,
+ * unverified, or never shortlisted). A shortlisted employer with no drop
+ * record has no reason, so its omission is not justified.
  * @param {object} input
  * @param {{ employers?: Array<{ id?: unknown, retired?:unknown, start?:unknown, end?:unknown }> }} input.ledger
  * @param {Array<{ claimId: string }>} input.finalKept
  * @param {(id: string) => string} input.employerOf
+ * @param {Array<{ claimId: string, code: string }>} input.dropped
+ * @param {Array<{ claimId: string }>} input.shortlist
  */
-function omittedEmployers({ ledger, finalKept, employerOf }) {
+function omittedEmployers({ ledger, finalKept, employerOf, dropped, shortlist }) {
   const featured = new Set(finalKept.map((k) => employerOf(k.claimId)).filter(Boolean));
   const floor = tenureFloorIds(ledger);
+  /** @type {Map<string, Set<string>>} */
+  const codes = new Map();
+  for (const drop of dropped) {
+    const id = employerOf(drop.claimId);
+    if (id) codes.set(id, (codes.get(id) || new Set()).add(drop.code));
+  }
+  const shortlisted = new Set(shortlist.map((s) => employerOf(s.claimId)).filter(Boolean));
   return (ledger.employers || [])
     .filter((e) => e && typeof e.id === "string" && !featured.has(e.id) && !floor.has(e.id))
-    .map((e) => ({
-      employerId: e.id,
-      reason: e.retired ? "user_retired" : "low_relevance",
-      justified: true,
-    }));
+    .map((e) => {
+      const id = /** @type {string} */ (e.id);
+      const recorded = codes.get(id) || new Set();
+      return {
+        employerId: id,
+        reason: e.retired ? "user_retired" : recorded.has("budget") ? "page_budget" : "low_relevance",
+        justified: Boolean(e.retired) || recorded.size > 0 || !shortlisted.has(id),
+      };
+    });
 }
 
 /**
