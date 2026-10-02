@@ -212,11 +212,15 @@
     }
   }
 
+  /** B12: through window.JobBoredFlowing.toast (flowing-writes.js), the
+   *  board's one entry point, so the Undo and Retry actions always show. */
   function toast(message, type, action) {
+    var opts = action ? { action: action } : {};
+    var flowing = root.JobBoredFlowing;
+    if (flowing && typeof flowing.toast === "function") return flowing.toast(message, type || "success", opts);
+    // flowing-writes.js absent (unit harnesses): the shared primitive directly.
     var a11y = root.JobBoredA11y;
-    if (a11y && typeof a11y.toast === "function") {
-      return a11y.toast(message, type || "success", action ? { action: action } : {});
-    }
+    if (a11y && typeof a11y.toast === "function") return a11y.toast(message, type || "success", opts);
     return null;
   }
 

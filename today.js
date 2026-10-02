@@ -617,14 +617,30 @@
     document.addEventListener("jb:pipeline:filters-changed", scheduleRender);
     document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     document.addEventListener("jb:write:failed", onWriteFailed);
-    /* jb:data:* is lane F's load contract. Before the first signal the
-       surface keeps its old behaviour; once it arrives, an empty queue is
-       only called empty after the data actually loaded. */
-    document.addEventListener("jb:data:loading", function () { dataState = "loading"; scheduleRender(); });
-    document.addEventListener("jb:data:loaded", function () { dataState = "loaded"; scheduleRender(); });
-    document.addEventListener("jb:data:load-failed", function () { dataState = "failed"; scheduleRender(); });
     scheduleRender();
   }
+
+  /* jb:data:* is SHEETS' load contract (spec §1b.10): loading {generation},
+     loaded {generation, rowCount}, failed {generation, status, message};
+     jb:data:load-failed is today's name for failed. Before the first signal
+     the surface keeps its old behaviour; once it arrives, an empty queue is
+     only called empty after the data actually loaded. Bound at load, not in
+     wireLive: the first read can start before body.jb-v2, and a lost
+     loading signal shows a returning user the first-run card. An event
+     from a generation older than the newest seen is stale (B2). */
+  var dataGeneration = null;
+  function onDataEvent(next, e) {
+    var d = (e && e.detail) || {};
+    var gen = typeof d.generation === "number" && isFinite(d.generation) ? d.generation : null;
+    if (gen != null && dataGeneration != null && gen < dataGeneration) return;
+    if (gen != null) dataGeneration = gen;
+    dataState = next;
+    if (shouldRun()) scheduleRender();
+  }
+  document.addEventListener("jb:data:loading", function (e) { onDataEvent("loading", e); });
+  document.addEventListener("jb:data:loaded", function (e) { onDataEvent("loaded", e); });
+  document.addEventListener("jb:data:failed", function (e) { onDataEvent("failed", e); });
+  document.addEventListener("jb:data:load-failed", function (e) { onDataEvent("failed", e); });
 
   /* PIPE-01a: body.jb-v2 is added on DOMContentLoaded, after deferred scripts
      run, so the flag must be observed rather than sampled once. Attribute

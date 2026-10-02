@@ -19,7 +19,8 @@
  * pinned as ADOPTED below. discovery-drawer.js is owned by lane P0-B this
  * phase, so its adoption is pinned as a documented GAP with the exact recipe in
  * the P0-F lane report — the pin records today's truth (no restore, no inert)
- * so nobody mistakes the drawer for fixed.
+ * so nobody mistakes the drawer for fixed. settings-modal.js, out of the T0
+ * fence, was migrated later by HOLES BOARD B5 and is pinned as ADOPTED below.
  *
  * Mutation check: revert fit-profile-wizard.js's ensureWizardRoot/openWizard to
  * the pre-migration shape and the adoption assertions fail; the drawer-gap
@@ -200,21 +201,35 @@ describe("discovery-drawer.js — DOCUMENTED GAP (owned by lane P0-B)", () => {
   });
 });
 
-describe("out-of-fence surfaces stay untouched this phase", () => {
-  // tests/wizards-modal-a11y-focus.test.mjs regex-pins the internal focus wiring
-  // of this module. Migrating it requires updating those pins in the same
-  // change (F3-D follow-up), so P0-F deliberately leaves it alone.
-  // (first-run-wizard.js and onboarding-wizard.js left this list with the
-  // wizards themselves — ONE-FLOW-ONBOARDING-SPEC §7.)
-  for (const file of ["settings-modal.js"]) {
-    it(`${file} still owns its own focus wiring (pins in wizards-modal-a11y-focus stay green)`, () => {
-      const src = readFileSync(join(repoRoot, file), "utf8");
-      assert.equal(
-        /JobBoredA11y/.test(src),
-        false,
-        `${file} must NOT adopt the primitive in T0 — tests/wizards-modal-a11y-focus.test.mjs ` +
-          "pins its internal identifiers and would go red without an atomic pin update",
-      );
-    });
-  }
+describe("settings-modal.js — ADOPTED (HOLES BOARD B5)", () => {
+  // T0 left this module out of fence because tests/wizards-modal-a11y-focus.test.mjs
+  // regex-pinned its private trap. B5 migrated it and rewrote those pins in the
+  // same change; the behaviour (stacking under the scraper guide, out-of-order
+  // close, Escape) is proven in tests/holes-board-modal-dialogs.test.mjs.
+  const settingsJs = stripComments(
+    readFileSync(join(repoRoot, "settings-modal.js"), "utf8"),
+  );
+
+  it("opens through JobBoredA11y.dialog.open and keeps the handle", () => {
+    assert.match(
+      settingsJs,
+      /window\.JobBoredA11y/,
+      "Settings must read the shared global at call time, not assume it loaded",
+    );
+    assert.match(
+      settingsJs,
+      /settingsDialogHandle = [\w.]+\.dialog\.open\(modal,/,
+      "Settings must hand its modal to the shared dialog primitive and keep the " +
+        "handle, so a dialog stacked on it (the scraper guide) inerts it correctly",
+    );
+  });
+
+  it("no longer sets inert itself", () => {
+    assert.equal(
+      /\.inert\s*=/.test(settingsJs),
+      false,
+      "settings-modal.js must leave inert to the primitive — its open-time " +
+        "snapshot of body children was the A11Y-02 stacking leak",
+    );
+  });
 });

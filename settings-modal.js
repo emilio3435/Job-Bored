@@ -57,10 +57,12 @@
     return typeof model === "string" ? model : "";
   }
 
-// A11y focus + trap state (per-module). Saved on open and reapplied on close
-// so the user lands back on the gear/auth-menu button that opened Settings.
+// A11y focus + trap state (per-module). The opener is saved on open so the
+// user lands back on the gear/auth-menu button that opened Settings; the
+// shared dialog primitive (jb-a11y.js) owns inert, focus-in and that restore
+// through settingsDialogHandle. Settings keeps its own Escape handler.
 let settingsLastOpener = null;
-let settingsInertedSiblings = [];
+let settingsDialogHandle = null;
 let settingsEscapeHandler = null;
 
 function isSettingsModalOpen() {
@@ -68,23 +70,30 @@ function isSettingsModalOpen() {
   return !!(modal && modal.style.display === "flex");
 }
 
-function applySettingsInertBackground(root) {
-  if (!root || typeof document === "undefined") return;
-  if (settingsInertedSiblings.length) return;
-  const body = document.body;
-  if (!body || !body.children) return;
-  for (const child of Array.from(body.children)) {
-    if (!child || child === root) continue;
-    if (child.inert === true) continue;
-    child.inert = true;
-    settingsInertedSiblings.push(child);
+/**
+ * Hand the visible modal to JobBoredA11y.dialog: it inerts everything behind
+ * Settings (and Settings itself while the scraper guide stacks on top),
+ * focuses the close button, and on close returns focus to the opener.
+ * Without jb-a11y.js, Settings still lands focus on its close button.
+ */
+function openSettingsDialog(modal) {
+  // Re-opening an open Settings must not push a second stack entry.
+  if (settingsDialogHandle) return;
+  const api = window.JobBoredA11y;
+  if (api && api.dialog && typeof api.dialog.open === "function") {
+    settingsDialogHandle = api.dialog.open(modal, {
+      opener: settingsLastOpener,
+      initialFocus: "#settingsModalClose",
+    });
+    return;
   }
-}
-
-function releaseSettingsInertBackground() {
-  while (settingsInertedSiblings.length) {
-    const child = settingsInertedSiblings.pop();
-    if (child) child.inert = false;
+  const closeBtn = document.getElementById("settingsModalClose");
+  if (closeBtn && typeof closeBtn.focus === "function") {
+    try {
+      closeBtn.focus({ preventScroll: true });
+    } catch (_) {
+      /* focus is best-effort */
+    }
   }
 }
 
@@ -1316,7 +1325,7 @@ async function openCommandCenterSettingsModal(opts) {
   syncSettingsModalMode();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "flex";
-  if (modal) applySettingsInertBackground(modal);
+  if (modal) openSettingsDialog(modal);
   snapshotSettingsForm();
   // Keep the writer's open-time baseline separate: async hydration below
   // refreshes the general form snapshot, but must not absorb a writer edit.
@@ -1327,14 +1336,13 @@ async function openCommandCenterSettingsModal(opts) {
   serverWriterMissing = false;
   // The drafting-model block reads the local API; it never blocks opening.
   void refreshLlmStatus({ resetJudge: true });
-  // Escape-to-close + auto-focus the close button. The brief asks for both:
-  // - Escape lets keyboard users dismiss without hunting for the X.
-  // - Focusing #settingsModalClose lands the user inside the trap with a
-  //   discoverable exit affordance.
+  // Escape-to-close: keyboard users dismiss without hunting for the X (the
+  // dialog primitive already put focus on #settingsModalClose above).
   if (typeof document !== "undefined" && !settingsEscapeHandler) {
     // Capture phase + stopImmediatePropagation: materials-feature.js has a
     // global Escape that closes Settings raw, which skipped the unsaved-
-    // changes question (UX01 SS-27). Settings owns its own Escape now.
+    // changes question (UX01 SS-27), and jb-a11y.js's dialog Escape cannot
+    // be vetoed. Settings owns its own Escape now.
     settingsEscapeHandler = (e) => {
       if (e.key === "Escape" && isSettingsModalOpen()) {
         const scraper = document.getElementById("scraperSetupModal");
@@ -1349,26 +1357,6 @@ async function openCommandCenterSettingsModal(opts) {
       }
     };
     document.addEventListener("keydown", settingsEscapeHandler, true);
-  }
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(() => {
-      let target = document.getElementById("settingsModalClose");
-      if (!target || typeof target.focus !== "function" || target.disabled) {
-        if (modal) {
-          if (!modal.hasAttribute("tabindex")) {
-            modal.setAttribute("tabindex", "-1");
-          }
-          target = modal;
-        }
-      }
-      if (target && typeof target.focus === "function") {
-        try {
-          target.focus({ preventScroll: true });
-        } catch (_) {
-          /* focus is best-effort */
-        }
-      }
-    });
   }
   // Initialize settings tabs
   const TabSchema = window.JobBoredSettingsTabSchema;
@@ -1520,7 +1508,10 @@ function closeCommandCenterSettingsModal() {
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
-  releaseSettingsInertBackground();
+  // The shared primitive releases inert and hands focus back to the opener.
+  const dialogHandle = settingsDialogHandle;
+  settingsDialogHandle = null;
+  if (dialogHandle) dialogHandle.close();
   if (
     settingsEscapeHandler &&
     typeof document !== "undefined" &&
@@ -1530,19 +1521,6 @@ function closeCommandCenterSettingsModal() {
     document.removeEventListener("keydown", settingsEscapeHandler, true);
     document.removeEventListener("keydown", settingsEscapeHandler);
     settingsEscapeHandler = null;
-  }
-  if (
-    settingsLastOpener &&
-    typeof document !== "undefined" &&
-    typeof document.contains === "function" &&
-    document.contains(settingsLastOpener) &&
-    typeof settingsLastOpener.focus === "function"
-  ) {
-    try {
-      settingsLastOpener.focus({ preventScroll: true });
-    } catch (_) {
-      /* focus restoration is best-effort */
-    }
   }
   settingsLastOpener = null;
 }

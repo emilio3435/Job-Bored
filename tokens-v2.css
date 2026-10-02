@@ -250,4 +250,20 @@
   --jb-transition-fast: var(--jb-duration-fast) var(--jb-ease);
   --jb-transition-base: var(--jb-duration-base) var(--jb-ease);
   --jb-transition-slow: var(--jb-duration-slow) var(--jb-ease);
+
+  /* ========================================================
+     BREAKPOINTS (B16) — 430 · 600 · 760 · 1100 · 1280
+     The only widths a board / app-shell media query may use
+     (pipeline.css, flowing-chrome.css, today.css, dawn.css).
+     var() does not work inside @media and there is no CSS build
+     step, so each query writes the literal px value and names
+     its token in a trailing comment; JS reads the value here
+     with getComputedStyle. tests/holes-board-breakpoints.test.mjs
+     fails on a width query off this scale.
+     ======================================================== */
+  --jb-bp-xs: 430px;    /* small phone */
+  --jb-bp-sm: 600px;    /* phone */
+  --jb-bp-md: 760px;    /* tablet */
+  --jb-bp-lg: 1100px;   /* laptop */
+  --jb-bp-xl: 1280px;   /* desktop */
 }

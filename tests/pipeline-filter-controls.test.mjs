@@ -148,7 +148,8 @@ describe("v2 pipeline filter controls", () => {
     );
     assert.ok(
       pipelineJs.includes('document.addEventListener("jb:write:succeeded"') &&
-        successHandler.includes("pendingList[i].jobKey === jobKey") &&
+        // B13: keys compare as strings, so a numeric jobKey still settles the move.
+        successHandler.includes("String(pendingList[i].jobKey) === String(jobKey)") &&
         successHandler.includes("pendingList.splice(i, 1)") &&
         successHandler.includes("scheduleRender();"),
       "pipeline.js should clear successful optimistic moves so filtered renders are no longer blocked",

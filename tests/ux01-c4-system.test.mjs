@@ -34,10 +34,10 @@ describe("C4 · SS-08 Today stays hidden behind the auth gates", () => {
     assert.match(gated, /body\.jb-v2 \[data-region="today"\]/);
   });
 
-  it("should reveal [data-region=\"today\"] only once #dashboard is visible", () => {
+  it("should reveal [data-region=\"today\"] only once #dashboard is visible (body.jb-authed, B10)", () => {
     assert.match(
       css,
-      /body\.jb-v2:has\(#dashboard:not\(\[style\*="display: none"\]\)\) \[data-region="today"\][^{]*\{\s*display:\s*block !important;/,
+      /body\.jb-v2\.jb-authed \[data-region="today"\][^{]*\{\s*display:\s*block !important;/,
     );
   });
 });

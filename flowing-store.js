@@ -14,6 +14,8 @@
        set(key): void   // dispatches jb:role:opened, syncs hash
        clear():  void   // dispatches jb:role:closed, clears hash
      };
+   Opening a role from none pushes one history entry, so the
+   browser's Back closes it (popstate / hashchange).
 
    Events (window):
      jb:role:opened   detail: { jobKey }
@@ -81,7 +83,33 @@
     return v ? String(v) : null;
   }
 
-  function writeHashJobKey(jobKey) {
+  /* B15: opening a role from none pushes ONE history entry, so the browser's
+     Back closes the role. Switching roles replaces that entry (no history
+     spam per card click), and a close from the UI pops it with
+     history.back(), so a later Back does not land on a dead duplicate. The
+     entry's state carries HISTORY_MARKER set to this page load's token: a
+     reload keeps history.state, and popping an entry an earlier load pushed
+     would load the page again, so only this load's entries are popped. */
+  var HISTORY_MARKER = "jbFlowingRole";
+  var HISTORY_TOKEN = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+
+  function markedState() {
+    var st = {};
+    st[HISTORY_MARKER] = HISTORY_TOKEN;
+    return st;
+  }
+
+  function ownsHistoryEntry(hist) {
+    try {
+      var st = hist.state;
+      return !!st && st[HISTORY_MARKER] === HISTORY_TOKEN;
+    } catch (e) { return false; }
+  }
+
+  /* mode: "open" when a role opens from none (push), "close" when an open
+     role closes (pop this load's entry); anything else, including a re-sync
+     while a pop is still in flight, replaces. */
+  function writeHashJobKey(jobKey, mode) {
     if (typeof root.location === "undefined") return;
     var parts = parseHash(root.location.hash);
     if (jobKey == null) {
@@ -95,11 +123,22 @@
     if (!next) next = "";
     var cur = String(root.location.hash || "");
     if (cur === next) return;
-    // Avoid pushing history entries for every card click.
-    if (typeof root.history !== "undefined" && typeof root.history.replaceState === "function") {
+    var hist = root.history;
+    if (typeof hist !== "undefined" && hist && typeof hist.replaceState === "function") {
       try {
+        var owned = ownsHistoryEntry(hist);
+        if (mode === "close" && owned && typeof hist.back === "function") {
+          // The traversal's popstate / hashchange reach onHashChange, which
+          // finds the store already closed.
+          hist.back();
+          return;
+        }
         var url = root.location.pathname + root.location.search + next;
-        root.history.replaceState(null, "", url);
+        if (mode === "open" && typeof hist.pushState === "function") {
+          hist.pushState(markedState(), "", url);
+        } else {
+          hist.replaceState(owned && jobKey != null ? markedState() : null, "", url);
+        }
         // History API does not fire hashchange; nothing else here listens.
         return;
       } catch (e) { /* fall through */ }
@@ -204,8 +243,9 @@
       writeHashJobKey(key);
       return;
     }
+    var mode = state.jobKey == null ? "open" : key == null ? "close" : null;
     state.jobKey = key;
-    writeHashJobKey(key);
+    writeHashJobKey(key, mode);
     if (key) {
       var meta = lookupJobMeta(key);
       recordRecent({ jobKey: key, role: meta.role, company: meta.company });
@@ -221,7 +261,7 @@
       return;
     }
     state.jobKey = null;
-    writeHashJobKey(null);
+    writeHashJobKey(null, "close");
     dispatch("jb:role:closed", {});
   }
 
@@ -257,7 +297,10 @@
         else setTimeout(fire, 0);
       }
     }
+    // Back / Forward over the entry setOpen pushed fires popstate, then
+    // hashchange; onHashChange is a no-op for whichever arrives second.
     root.addEventListener("hashchange", onHashChange);
+    root.addEventListener("popstate", onHashChange);
   }
 
   if (typeof document !== "undefined") init();

@@ -33,6 +33,32 @@
     startupLog("bootstrap:auth-prepaint-released", { reason });
   }
 
+  /* B10 (§1b.11): jb-v2-legacy-hide.css reveals .page-top and the v2 region
+     hosts on body.jb-authed, which mirrors whether #dashboard is shown. It is
+     set when this deferred script runs (before DOMContentLoaded adds
+     body.jb-v2), then kept in step by an observer on #dashboard's style
+     attribute. The writers are init() below and sheet-access-setup.js
+     (showSheetAccessGate, revealDashboardShell). */
+  function syncAuthedClass() {
+    const dashboard = document.getElementById("dashboard");
+    const shown = !!dashboard && dashboard.style.display !== "none";
+    document.body.classList.toggle("jb-authed", shown);
+  }
+
+  function watchDashboardVisibility() {
+    if (!document.body) return;
+    syncAuthedClass();
+    const dashboard = document.getElementById("dashboard");
+    const Observer = window.MutationObserver;
+    if (!dashboard || typeof Observer !== "function") return;
+    new Observer(syncAuthedClass).observe(dashboard, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+  }
+
+  watchDashboardVisibility();
+
   /**
    * A genuinely broken stored config keeps the login gate
    * (ONE-FLOW-ONBOARDING-SPEC §4: "keep the gate's error mode for
@@ -93,6 +119,43 @@
   }
 
   const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+  /* B8: the background refresh. A hidden tab does not poll. Coming back to
+     it once the last poll load is a full interval old loads right away and
+     restarts the cadence from that load. A poll load never starts while the
+     previous one is still pending (loadAllData returns a Promise). */
+  const refreshPoll = { timer: null, lastLoadAt: 0, pending: false };
+
+  function runPollLoad() {
+    if (refreshPoll.pending) return;
+    refreshPoll.lastLoadAt = Date.now();
+    const load = h("loadAllData");
+    refreshPoll.pending = true;
+    Promise.resolve(load).finally(() => {
+      refreshPoll.pending = false;
+    });
+  }
+
+  function restartRefreshTimer() {
+    if (refreshPoll.timer !== null) clearInterval(refreshPoll.timer);
+    refreshPoll.timer = setInterval(() => {
+      if (!document.hidden) runPollLoad();
+    }, REFRESH_INTERVAL);
+  }
+
+  function onRefreshVisibilityChange() {
+    if (document.hidden || refreshPoll.pending) return;
+    if (Date.now() - refreshPoll.lastLoadAt < REFRESH_INTERVAL) return;
+    restartRefreshTimer();
+    runPollLoad();
+  }
+
+  function startRefreshPoll() {
+    if (refreshPoll.timer !== null) return;
+    refreshPoll.lastLoadAt = Date.now();
+    restartRefreshTimer();
+    document.addEventListener("visibilitychange", onRefreshVisibilityChange);
+  }
 
   function initPipelineEmptyAndBriefActions() {
     document
@@ -327,7 +390,7 @@
       h("loadAllData");
     }
 
-    setInterval(() => h("loadAllData"), REFRESH_INTERVAL);
+    startRefreshPoll();
     startupLog("bootstrap:init:complete");
   }
 

@@ -677,16 +677,26 @@ body.jb-v2 [data-region="dawn"] .brief-leads-empty {
   border-radius: var(--jb-radius-lg);
 }
 
+/* R5: "+N hidden" is a Show all / Show fewer toggle. */
 body.jb-v2 [data-region="dawn"] .brief-leads-hidden {
+  display: block;
+  width: 100%;
   margin: var(--space-3, 12px) 0 0;
   padding: 6px 8px;
   font-family: var(--jb-font-mono);
   font-size: var(--jb-text-xs);
-  color: var(--jb-ink-3);
+  color: var(--jb-ink-2);
   letter-spacing: 0.04em;
   text-align: center;
-  opacity: 0.7;
-  cursor: help;
+  background: transparent;
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  cursor: pointer;
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-hidden:hover {
+  color: var(--jb-ink);
+  border-color: var(--jb-line-strong);
 }
 
 /* --- Sticker: tilted yellow paper card with the FIT number ----
@@ -940,7 +950,7 @@ body.jb-v2 [data-region="dawn"] .brief-leads-queue__fit--empty {
 }
 
 /* --- Responsive: collapse main grid below 1024px ------------ */
-@media (max-width: 1023px) {
+@media (max-width: 1100px) { /* --jb-bp-lg */
   body.jb-v2 [data-region="dawn"] .brief-main {
     grid-template-columns: 1fr;
     gap: var(--space-6, 22px);
