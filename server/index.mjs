@@ -16,6 +16,7 @@ import {
   toScrapeFailureResponse,
 } from "./shared/job-scraper-core.mjs";
 import {
+  createDashboardOriginVerifier,
   normalizeAllowedBrowserOrigins,
   redactSecrets,
   resolveAllowedBrowserOrigin,
@@ -104,9 +105,6 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
     process.env.CORS_ALLOWED_ORIGINS ||
     process.env.ALLOWED_ORIGINS ||
     "",
-  {
-    listenHost: HOST,
-  },
 );
 const app = express();
 
@@ -179,6 +177,11 @@ const API_TRUSTED_HOSTS = String(process.env.JOBBORED_API_ALLOWED_HOSTS || "")
 const API_ACCESS_TOKEN = String(
   process.env.JOBBORED_API_TOKEN || process.env.API_ACCESS_TOKEN || "",
 ).trim();
+/* HOLES S7: with no configured origins, a loopback API trusts the local
+ * dashboard's :8080 origins only while JobBored's dashboard answers there,
+ * never any app that happens to hold the port. */
+const verifyDashboardOrigin =
+  !REQUIRE_API_AUTH && ALLOWED_BROWSER_ORIGINS.length === 0 ? createDashboardOriginVerifier() : null;
 
 /**
  * @param {unknown} value
@@ -305,15 +308,18 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const { requestOrigin, requestHost, requestProtocol } = trustedRequestOriginParts(req);
-  const allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
+  let allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
     allowedOrigins: ALLOWED_BROWSER_ORIGINS,
     requestHost,
     requestProtocol,
     loopbackPort: REQUIRE_API_AUTH ? undefined : req.socket.localPort,
     trustedHosts: API_TRUSTED_HOSTS,
   });
+  if (!allowOrigin && requestOrigin && verifyDashboardOrigin && (await verifyDashboardOrigin(requestOrigin))) {
+    allowOrigin = requestOrigin;
+  }
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader(

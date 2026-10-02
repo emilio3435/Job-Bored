@@ -7,10 +7,20 @@ export type LookupAll = (
   options: { all: true },
 ) => Promise<Array<{ address: string; family: number }>>;
 
-export function normalizeAllowedBrowserOrigins(
-  raw: unknown,
-  options?: { listenHost?: unknown },
-): string[];
+export function normalizeAllowedBrowserOrigins(raw: unknown): string[];
+
+export const LOCAL_DASHBOARD_ORIGINS: readonly string[];
+
+export function isJobBoredDashboardPing(body: unknown): boolean;
+
+export function createDashboardOriginVerifier(options?: {
+  origins?: readonly string[];
+  probe?: (origin: string) => Promise<unknown>;
+  ttlMs?: number;
+  failTtlMs?: number;
+  timeoutMs?: number;
+  now?: () => number;
+}): (origin: string) => Promise<boolean>;
 
 export function trustedRequestOriginParts(req: {
   get?: (name: string) => unknown;

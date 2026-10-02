@@ -7,7 +7,7 @@ Browsers **block** an HTTPS page from calling **`http://127.0.0.1`** or **`http:
 1. **Run the UI locally** — `npm start` and open `http://localhost:8080` (the app defaults the scraper to `http://127.0.0.1:3847` when the scraper URL in config is empty), or
 2. **Deploy the scraper** to a public URL with **HTTPS**, then set **Settings → Job posting scraper URL** to that base URL (no trailing slash).
 
-The hosted server **fails closed** for browser CORS unless an origin is explicitly allowed. Local-only runs (`LISTEN_HOST=127.0.0.1`, the default) allow `http://localhost:8080`, `http://127.0.0.1:8080`, and `https://localhost:8080`. Hosted/container runs (`LISTEN_HOST=0.0.0.0`) must set `COMMAND_CENTER_ALLOWED_ORIGINS` (or `CORS_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS`) to your dashboard origin, for example `https://yourname.github.io`. Hosted/container runs also require `JOBBORED_API_TOKEN`; send it as `Authorization: Bearer <token>` or `x-api-token` on non-health requests.
+The hosted server **fails closed** for browser CORS unless an origin is explicitly allowed. Local-only runs (`LISTEN_HOST=127.0.0.1`, the default) with no origins set allow `http://localhost:8080` and `http://127.0.0.1:8080` only while JobBored's own dashboard answers there (its `/__proxy/ping`), never another app on that port; the TLS dev mode (`https://localhost:8080`) is set explicitly. Hosted/container runs (`LISTEN_HOST=0.0.0.0`) must set `COMMAND_CENTER_ALLOWED_ORIGINS` (or `CORS_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS`) to your dashboard origin, for example `https://yourname.github.io`. Hosted/container runs also require `JOBBORED_API_TOKEN`; send it as `Authorization: Bearer <token>` or `x-api-token` on non-health requests.
 
 ## Environment variables
 

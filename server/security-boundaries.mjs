@@ -11,23 +11,126 @@ const PLATFORM_FETCH = globalThis.fetch;
 /** @typedef {(hostname: string, options: { all: true }) => Promise<import("node:dns").LookupAddress[]>} LookupAll */
 /** @typedef {{ ok: true, url: string } | { ok: false, error: string }} ScrapeTargetValidation */
 
-const DEFAULT_LOCAL_BROWSER_ORIGINS = [
+/**
+ * HOLES S7: the origins the local dashboard (dev-server.mjs) serves from.
+ * A loopback API with no configured origins no longer trusts them outright
+ * (any app on :8080 got full CORS access); createDashboardOriginVerifier
+ * trusts one only after JobBored's dashboard answers there. The TLS dev
+ * mode's self-signed origin (https://localhost:8080) cannot be probed with
+ * verification, so it is configured explicitly instead
+ * (COMMAND_CENTER_ALLOWED_ORIGINS).
+ */
+export const LOCAL_DASHBOARD_ORIGINS = Object.freeze([
   "http://localhost:8080",
   "http://127.0.0.1:8080",
-  "https://localhost:8080",
-];
+]);
 
 /**
+ * The browser origins an operator configured. Nothing is trusted by default.
  * @param {unknown} raw
- * @param {{ listenHost?: unknown }} [options]
  */
-export function normalizeAllowedBrowserOrigins(
-  raw,
-  { listenHost = "" } = {},
-) {
-  const explicit = normalizeList(raw);
-  if (explicit.length) return explicit;
-  return isLocalListenHost(listenHost) ? [...DEFAULT_LOCAL_BROWSER_ORIGINS] : [];
+export function normalizeAllowedBrowserOrigins(raw) {
+  return normalizeList(raw);
+}
+
+/**
+ * The dev-server's presence probe body (dev-server.mjs buildPingBody).
+ * @param {unknown} body
+ */
+export function isJobBoredDashboardPing(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const ping = /** @type {{ ok?: unknown, runtime?: unknown, routes?: unknown }} */ (body);
+  return (
+    ping.ok === true &&
+    (ping.runtime === "source" || ping.runtime === "desktop") &&
+    Array.isArray(ping.routes) &&
+    ping.routes.includes("ping")
+  );
+}
+
+/**
+ * GET <origin>/__proxy/ping on the loopback dashboard, sending that origin
+ * as Origin (the dev server refuses a bare client).
+ * @param {string} origin
+ * @param {number} timeoutMs
+ * @returns {Promise<unknown>} the parsed body, or null
+ */
+function probeDashboardPing(origin, timeoutMs) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL("/__proxy/ping", origin);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const request = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const req = request(url, { method: "GET", headers: { origin }, timeout: timeoutMs }, (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        text += chunk;
+        if (text.length > 64 * 1024) req.destroy();
+      });
+      res.on("end", () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          resolve(JSON.parse(text));
+        } catch {
+          resolve(null);
+        }
+      });
+      res.on("error", () => resolve(null));
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.end();
+  });
+}
+
+/**
+ * HOLES S7: decides whether a default dashboard origin is JobBored's own
+ * dashboard right now. Answers are cached (a positive one for `ttlMs`, a
+ * negative one for `failTtlMs`), and concurrent requests share one probe.
+ * @param {{
+ *   origins?: readonly string[],
+ *   probe?: (origin: string) => Promise<unknown>,
+ *   ttlMs?: number,
+ *   failTtlMs?: number,
+ *   timeoutMs?: number,
+ *   now?: () => number,
+ * }} [options]
+ * @returns {(origin: string) => Promise<boolean>}
+ */
+export function createDashboardOriginVerifier({
+  origins = LOCAL_DASHBOARD_ORIGINS,
+  probe,
+  ttlMs = 30_000,
+  failTtlMs = 3_000,
+  timeoutMs = 1_500,
+  now = Date.now,
+} = {}) {
+  const ask = probe || ((/** @type {string} */ origin) => probeDashboardPing(origin, timeoutMs));
+  /** @type {Map<string, { ok: boolean, until: number }>} */
+  const answers = new Map();
+  /** @type {Map<string, Promise<boolean>>} */
+  const inFlight = new Map();
+  return async (origin) => {
+    if (!origins.includes(origin)) return false;
+    const cached = answers.get(origin);
+    if (cached && now() < cached.until) return cached.ok;
+    const pending = inFlight.get(origin);
+    if (pending) return pending;
+    const asking = Promise.resolve(ask(origin))
+      .then(isJobBoredDashboardPing, () => false)
+      .then((ok) => {
+        answers.set(origin, { ok, until: now() + (ok ? ttlMs : failTtlMs) });
+        inFlight.delete(origin);
+        return ok;
+      });
+    inFlight.set(origin, asking);
+    return asking;
+  };
 }
 
 /**
@@ -253,17 +356,6 @@ function buildRequestOrigin(host, protocol) {
   const normalizedProtocol = cleanString(protocol).replace(/:$/, "");
   if (!normalizedHost || !normalizedProtocol) return "";
   return `${normalizedProtocol}://${normalizedHost}`;
-}
-
-/** @param {unknown} value */
-function isLocalListenHost(value) {
-  const host = cleanString(value).toLowerCase();
-  return (
-    !host ||
-    host === "127.0.0.1" ||
-    host === "localhost" ||
-    host === "::1"
-  );
 }
 
 /** @param {string} ip */

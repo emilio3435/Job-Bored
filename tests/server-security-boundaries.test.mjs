@@ -12,15 +12,11 @@ import {
 } from "../server/security-boundaries.mjs";
 
 describe("server security boundaries", () => {
-  it("defaults localhost listeners to the local dashboard origins", () => {
-    assert.deepEqual(
-      normalizeAllowedBrowserOrigins("", { listenHost: "127.0.0.1" }),
-      [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://localhost:8080",
-      ],
-    );
+  it("trusts no origin by default on a localhost listener either (HOLES S7)", () => {
+    // The :8080 dashboard origins are trusted only after the dashboard
+    // answers JobBored's ping (createDashboardOriginVerifier); see
+    // tests/holes-host-dashboard-origin.test.mjs.
+    assert.deepEqual(normalizeAllowedBrowserOrigins("", { listenHost: "127.0.0.1" }), []);
   });
 
   it("fails closed for hosted listeners without explicit browser origins", () => {
