@@ -351,7 +351,7 @@ for (const width of [1440, 375]) {
     test("D1 · the quality check says why: the verdict, the deciding claims with their sentences, background gaps", async ({ page }, testInfo) => {
       const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() }, { width, height: width === 375 ? 1600 : 1100 });
       const letter = section.locator('[data-doc="cover_letter"]');
-      await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(letter.locator(".case__docst")).toHaveText(/^drafted$/i);
       const grade = letter.locator("[data-score-open]");
       await expect(grade).toHaveAttribute("aria-label", /^Cover letter: Fails — 1 claim needs a source\. Open the quality check\.$/);
       await expect(grade).toHaveText("Fails · 1 claim needs a source");
@@ -370,7 +370,7 @@ for (const width of [1440, 375]) {
       await expect(grade).toBeFocused();
 
       const resume = section.locator('[data-doc="resume"]');
-      await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(resume.locator(".case__docst")).toHaveText(/^drafted$/i);
       await expect(resume.locator("[data-score-open]")).toHaveAttribute("aria-label", /^Resume: Ready\. Open the quality check\.$/);
       await expectNoSidewaysScroll(page, width);
       await shoot(letter, testInfo, `mrev-scorecard-${width}`);
@@ -517,7 +517,7 @@ test("G5 · a stale base keeps the dialog open and says to refresh", async ({ pa
 test("D2 · an old rubric run renders read-only in the old style", async ({ page }, testInfo) => {
   const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest({ resume: V1_RESUME_FAIL }) });
   const resume = section.locator('[data-doc="resume"]');
-  await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+  await expect(resume.locator(".case__docst")).toHaveText(/^drafted$/i);
   await expect(resume.locator(".mat-rubric")).toHaveCount(0);
   const modal = await openScore(resume);
   await expect(modal).toContainText("Graded by the old checker");

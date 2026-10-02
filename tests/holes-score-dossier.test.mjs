@@ -152,10 +152,11 @@ describe("Dossier rows · the grade button is the only score (§0.3)", () => {
       assert.doesNotMatch(text(row), /\/ 100|\d+ \/ \d+|\+\d+ more|Factual blockers|Writing quality/);
     }
     /* Grok review: the verdict word is the modal's; the pill beside the
-       grade button says the document's own state. */
+       verdict button says the document's own state — since GRADE FIX3-W2,
+       "drafted", never a green "ready" beside "Fails". */
     for (const row of [letter, resume]) {
       const pill = row.querySelector(".case__docst");
-      assert.equal(text(pill), "ready", "the document's own state");
+      assert.equal(text(pill), "drafted", "the document's own state");
       assert.doesNotMatch(pill.getAttribute("class"), /qa-/, "no verdict tone on the pill");
     }
     assert.ok(env.rowOf("cover_letter").getAttribute("data-qa") === "fail", "the FAIL gate still knows (downloads stay gated)");

@@ -461,10 +461,13 @@
       : [];
     var primaryQualityIssue = qualityIssues[0] || null;
     var isPending = false;
-    var statusLabel = primaryQualityIssue ? "Review" : "Ready";
-    var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
-
     var mi = insights();
+    /* FIX3-W2: with a quality record the verdict button says how it did;
+       the status says only that the file was drafted. */
+    var drafted = !!(manifest && mi && (doc.type === "resume" || doc.type === "cover_letter") && mi.qaVersion(quality && quality.qa));
+    var statusLabel = drafted ? "Drafted" : (primaryQualityIssue ? "Review" : "Ready");
+    var statusAttr = drafted ? "drafted" : (primaryQualityIssue ? "needs_review" : "ready");
+
     var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
       return "brief-materials__btn brief-materials__btn--" + kind;
     }, { fail: !!(mi && mi.isFail(quality)), held: heldReason(manifest, doc.type) });
@@ -1258,10 +1261,11 @@
       var stateClass = isPending && isQueued ? "queued" : status;
       if (isNextInLine) stateWord = "next";
       if (verdict) {
-        /* The verdict and the score are the grade button's and its modal's
-           (§0.3); the pill beside it says the document's own state. */
-        stateWord = "ready";
-        stateClass = "ready";
+        /* The verdict is the verdict button's and its modal's (§0.3); the
+           pill beside it says only that the file exists. FIX3-W2: never a
+           green "ready" beside "Fails · …". */
+        stateWord = "drafted";
+        stateClass = "drafted";
       }
       if (verdict && (def.type === "resume" || def.type === "cover_letter")) {
         actions = actions.concat(['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-history"'
@@ -1734,7 +1738,7 @@
           }
           if (action === "materials-confirm-cancel") {
             if (typeof e.preventDefault === "function") e.preventDefault();
-            removeFailConfirm(t);
+            removeFailConfirm(t, true);
             return;
           }
         }
@@ -1756,7 +1760,7 @@
         closeDownloadMenus(section);
         if (toggle && typeof toggle.focus === "function") toggle.focus();
       } else if (confirm) {
-        removeFailConfirm(confirm);
+        removeFailConfirm(confirm, true);
       }
     });
     ensureOutsideMenuClose();
@@ -1859,16 +1863,34 @@
     });
     var box = holder.firstElementChild || holder.firstChild;
     if (!box) return;
+    /* FIX3-W1: the confirm gives focus back to what opened it. */
+    box.__jbOpener = confirmOpener(trigger);
     host.appendChild(box);
     var first = box.querySelector("button");
     if (first && typeof first.focus === "function") first.focus();
   }
 
-  function removeFailConfirm(node) {
+  /* A Download inside the Download menu is hidden once the menu closes, so
+     its confirm hands focus back to the menu's toggle instead. */
+  function confirmOpener(trigger) {
+    for (var t = trigger; t && t.getAttribute; t = t.parentNode) {
+      if (t.classList && t.classList.contains("mat-dl__menu")) {
+        var toggle = t.parentNode && t.parentNode.querySelector ? t.parentNode.querySelector(".mat-dl__toggle") : null;
+        return toggle || trigger;
+      }
+    }
+    return trigger;
+  }
+
+  /* restore (FIX3-W1): Escape, Cancel and Download anyway put focus back
+     on the control that opened the confirm, never on BODY. */
+  function removeFailConfirm(node, restore) {
     var t = node;
     while (t && t.getAttribute) {
       if (t.classList && t.classList.contains("mat-confirm")) {
+        var opener = t.__jbOpener;
         if (t.parentNode) t.parentNode.removeChild(t);
+        if (restore && opener && typeof opener.focus === "function" && (typeof document === "undefined" || !document.contains || document.contains(opener))) opener.focus();
         return;
       }
       t = t.parentNode;
@@ -1890,7 +1912,7 @@
   function downloadAnyway(btn, section) {
     var kind = btn.getAttribute("data-kind") || "link";
     var host = docHostOf(btn);
-    removeFailConfirm(btn);
+    removeFailConfirm(btn, true);
     if (kind === "linkedin") {
       copyForLinkedIn(host || btn, section);
       return;

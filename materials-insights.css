@@ -91,6 +91,13 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-confirm {
 }
 body.jb-v2 [data-region="role"] .brief-materials .mat-confirm .mat-confirm__q { margin: 0; font-family: var(--jb-font-body); font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-confirm__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); margin-top: var(--jb-space-2); }
+/* GRADE FIX3-W1: the confirm takes focus on open, often after a pointer
+   click, when :focus-visible would paint nothing — so ring :focus here. */
+body.jb-v2 [data-region="role"] .brief-materials .mat-confirm .case__doc-btn:focus,
+.jb-score .mat-confirm .case__doc-btn:focus { outline: none; box-shadow: var(--jb-shadow-focus); }
+/* GRADE FIX3-W2: a drafted document's pill is neutral; its verdict is the
+   verdict button's. */
+body.jb-v2 [data-region="role"] .brief-materials .case__docst--drafted { background: var(--jb-paper-2); color: var(--jb-ink-2); }
 
 body.jb-v2 [data-region="role"] .brief-materials .mat-copy { grid-column: 1 / -1; margin-top: var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-copy .mat-copy__hint { margin: 0 0 var(--jb-space-1); font-size: var(--jb-type-small); color: var(--jb-ink-2); }

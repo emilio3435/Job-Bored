@@ -87,6 +87,7 @@
 }
 .case__grade:empty,
 .scribe__grade:empty { display: none; }
+.case__grade .case__grade-doc { font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink-2); }
 .case__doc-grade { min-width: 0; max-width: 100%; }
 /* The Case's coverage tile (GRADE D6) reads as a sentence, not a number. */
 .case__num[data-num="coverage"] .case__num-v { font-size: var(--jb-type-body); font-weight: 600; line-height: 1.3; }
