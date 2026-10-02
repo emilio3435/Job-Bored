@@ -1,5 +1,6 @@
 import { loadStoredLlmConfig } from "./llm-config.mjs";
 import { GEMINI_API_BASE, geminiHeaders, normalizeProvider } from "./ai/provider.mjs";
+import { isProviderUrlBlocked, providerFetch } from "./provider-url-guard.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
 const XAI_BASE_URL = "https://api.x.ai/v1";
@@ -320,13 +321,18 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   for (let page = 0; page < MAX_CATALOG_PAGES && url; page += 1) {
     let upstream;
     try {
-      upstream = await fetchImpl(url, {
+      // The local list's address is caller-supplied: the guard applies (P11).
+      upstream = await providerFetch(url, {
         method: "GET",
         headers: spec.headers(apiKey),
-      });
-    } catch {
+      }, { fetchImpl });
+    } catch (error) {
       if (page > 0) break;
-      res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
+      if (isProviderUrlBlocked(error)) {
+        res.status(400).json({ error: error instanceof Error ? error.message : "That address can't be used." });
+      } else {
+        res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
+      }
       return;
     }
 

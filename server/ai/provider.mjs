@@ -6,6 +6,7 @@
  * - Keys come from the llm.json pin only; nothing here reads the environment.
  * - The Gemini key travels in the `x-goog-api-key` header, never the URL.
  * - Every call merges the caller's signal with a timeout (AbortSignal.any).
+ * - Every endpoint passes the provider URL guard (HOLES PROV S1).
  * - Every failure is a ProviderApiError whose message never carries the
  *   upstream body.
  *
@@ -14,6 +15,7 @@
  */
 
 import { outputBudget, geminiThinkingConfig, openAIUsesMaxCompletionTokens as usesCompletionTokens } from "../llm-output-budget.mjs";
+import { PROVIDER_URL_BLOCKED, isProviderUrlBlocked, providerFetch } from "../provider-url-guard.mjs";
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} ProviderName */
 /** @typedef {{ role: "system" | "user" | "assistant", content: string }} ChatMessage */
@@ -389,6 +391,22 @@ export function providerRequestError(provider, cause, callerSignal) {
   });
 }
 
+/**
+ * The guard refused the endpoint (S1): a configuration problem, never retried.
+ * @param {ProviderName | ""} provider
+ * @param {unknown} cause
+ */
+function providerUrlBlockedError(provider, cause) {
+  const message = cause instanceof Error ? cause.message : "That provider address is not allowed.";
+  return new ProviderApiError(message, {
+    provider,
+    providerCode: PROVIDER_URL_BLOCKED,
+    classification: "config",
+    retryable: false,
+    cause,
+  });
+}
+
 /* ─── Schema helpers ──────────────────────────────────────────────────── */
 
 const GEMINI_SCHEMA_KEYS = new Set([
@@ -709,13 +727,14 @@ export async function chat(input) {
   const fetchImpl = input.fetchImpl || globalThis.fetch;
   let resp;
   try {
-    resp = await fetchImpl(endpoint, {
+    resp = await providerFetch(endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal: composeSignal(input.signal, input.timeoutMs, input.timeoutCeilingMs),
-    });
+    }, { fetchImpl });
   } catch (error) {
+    if (isProviderUrlBlocked(error)) throw providerUrlBlockedError(provider, error);
     throw providerRequestError(provider, error, input.signal);
   }
   /** @type {unknown} */
