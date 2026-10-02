@@ -869,8 +869,11 @@
   }
 
   function onKeydown(ctl, e) {
-    if (e.key === "Escape" && !ctl.dialog) {
+    /* Esc closes this modal and stops here: the page's own Esc handlers
+       (materials-feature.js closes the draft modal) must not also see it. */
+    if (e.key === "Escape") {
       if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
       closeCtl(ctl, "escape");
       return;
     }

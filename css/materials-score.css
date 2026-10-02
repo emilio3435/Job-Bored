@@ -66,6 +66,29 @@
   box-shadow: 0 0 0 2px var(--jb-paper);
 }
 
+/* ---------- Where the button sits outside the rows ---------- */
+/* The Case's "You have", Scribe's header and the draft modal's header. */
+.case__grade,
+.scribe__grade,
+.doc-output-grade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jb-space-2);
+  margin: 0;
+}
+.case__grade:empty,
+.scribe__grade:empty { display: none; }
+.doc-output-grade[hidden] { display: none; }
+.doc-output-grade { margin-left: auto; align-self: center; }
+.doc-output-grade__k {
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.doc-output-grade__status { font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+.doc-output-grade__status:empty { display: none; }
+
 /* ---------- The modal ---------- */
 html.jb-score-open { overflow: hidden; }
 
