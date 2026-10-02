@@ -585,7 +585,16 @@
     }
   }
 
-  function clearStoredJobDiscoveryRun() {
+  function clearStoredJobDiscoveryRun(runId) {
+    // HOLES DISCO D12: the run tracker owns this key. Clearing through it
+    // drops its in-memory copy too, so its next write can't bring the run
+    // back; a tracker holding a newer run is left alone.
+    var rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+    var tracker = rt && rt.discoveryRunTracker;
+    if (tracker && typeof tracker.clear === "function" && typeof tracker.getState === "function") {
+      if (String(tracker.getState().runId || "") === String(runId || "")) tracker.clear();
+      return;
+    }
     try {
       if (typeof localStorage === "undefined" || !localStorage) return;
       localStorage.removeItem(JOB_DISCOVERY_RUN_STORAGE_KEY);
@@ -677,6 +686,16 @@
         (actionHtml || "") +
       "</td>"
     );
+  }
+
+  // HOLES DISCO D7: a run the worker is still running (its last status poll
+  // answered) can be cancelled from its live row.
+  function cancelRunButtonHtml(run) {
+    return run && run.runId && run.statusPath && !run.statusUnavailable &&
+      (run.status === "pending" || run.status === "running")
+      ? ' <button type="button" class="jb-btn jb-btn--secondary jb-btn--sm" data-runs-cancel-run="' +
+          escapeHtml(run.runId) + '">Cancel run</button>'
+      : "";
   }
 
   function retryWriteButtonHtml(run) {
@@ -810,7 +829,11 @@
         (leadsWritten > 0
           ? newRolesCellHtml(leadsWritten, "")
           : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
-        whyCellHtml(terminal ? status : "", errorText, retryWriteButtonHtml(run)) +
+        whyCellHtml(
+          terminal ? status : "",
+          errorText,
+          retryWriteButtonHtml(run) + (terminal ? "" : cancelRunButtonHtml(run)),
+        ) +
       "</tr>" +
       (terminal ? filterHintRowHtml(filterHintText(run && run.filterStats)) : "") +
       (progressCell
@@ -1814,8 +1837,9 @@
         }
         applyHistoryView(view);
         if (state.liveJobRun && hasTerminalSheetMatchForLiveRun(state.liveJobRun, state.rawRuns)) {
+          var settledRunId = state.liveJobRun.runId;
           state.liveJobRun = null;
-          clearStoredJobDiscoveryRun();
+          clearStoredJobDiscoveryRun(settledRunId);
         }
         if (result.reason === "missing_tab" || result.reason === "empty") {
           if (state.ghostRun || state.liveJobRun) {
@@ -2019,6 +2043,20 @@
         var retry = target.closest("[data-runs-detail-retry]");
         if (retry) {
           loadDetail(retry.getAttribute("data-runs-detail-retry") || "", true);
+          return;
+        }
+        var cancelRun = target.closest("[data-runs-cancel-run]");
+        if (cancelRun) {
+          var cancelApi = statusApi();
+          if (!cancelApi || typeof cancelApi.cancelDiscoveryRun !== "function") return;
+          cancelRun.disabled = true;
+          cancelApi
+            .cancelDiscoveryRun(cancelRun.getAttribute("data-runs-cancel-run") || "")
+            .then(function (res) {
+              if (!res || !res.ok) cancelRun.disabled = false;
+            }, function () {
+              cancelRun.disabled = false;
+            });
           return;
         }
         var retryWrite = target.closest("[data-runs-retry-write]");
