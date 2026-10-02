@@ -595,7 +595,7 @@ When a draft is generated or refined, the dashboard can POST:
 }
 ```
 
-Return JSON matching `schemas/ats-scorecard-response.v1.schema.json` (includes `overallScore`, dimensions, strengths, gaps, evidence, rewrites, confidence, and model). Full schemas and fixtures are in `schemas/` and `examples/`.
+Return JSON matching `schemas/ats-scorecard-response.v1.schema.json` (includes `overallScore`, dimensions, strengths, gaps, evidence, rewrites, confidence, and model). The local server sets `overallScore` to the rounded mean of the five dimensions (`overallScoreSource: "dimensions"`), keeps only evidence whose snippet is in `docText`, and adds the optional `docHash` and `runId`. Full schemas and fixtures are in `schemas/` and `examples/`.
 
 ---
 
