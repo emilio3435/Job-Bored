@@ -387,3 +387,17 @@ test("HUNT-FE-STORE-12: page boot never calls GET /hunts; only the §0.9 flush m
     "no /hunts request at boot",
   );
 });
+
+test("HUNT-FE-STORE-13 (verdict 4): offline, the cached worker hitlist stays; it is not replaced by a local derive", async () => {
+  const storage = memoryStorage();
+  const online = makeStore({ routes: ONLINE, storage });
+  await online.store.refresh();
+  const workerClusters = online.store.snapshot().clusters;
+  assert.equal(workerClusters[0].runCount, 2, "the worker counted runs the 100-run cache does not hold");
+
+  const offline = makeStore({ routes: {}, storage });
+  await offline.store.refresh();
+  const snap = offline.store.snapshot();
+  assert.equal(snap.offline, true);
+  assert.deepEqual(snap.clusters, workerClusters);
+});

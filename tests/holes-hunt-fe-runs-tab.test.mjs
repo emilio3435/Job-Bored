@@ -175,3 +175,28 @@ test("HUNT-FE-RUNS-4: triggerDiscoveryRun forwards opts.hunt and readiness hands
   const body = call.slice(0, call.indexOf("});"));
   assert.ok(/\bhunt: payloadOptions\.hunt,/.test(body), "readiness passes payloadOptions.hunt");
 });
+
+test("HUNT-FE-RUNS-5 (verdict 3): worker rows keep the summary's searchKey, also when merged with a Sheet row", () => {
+  const { mod } = loadRunsTab(null);
+  const summary = { runId: "run_later", status: "completed", completedAt: "2026-10-02T09:00:00Z", headline: {}, searchKey: "sk_22819704278edfea" };
+  const [alone] = mod.mergeRunHistory([], [summary]);
+  assert.equal(alone.searchKey, "sk_22819704278edfea");
+  const [merged] = mod.mergeRunHistory([{ ...RUN, runId: "run_later" }], [summary]);
+  assert.equal(merged.origin, "both");
+  assert.equal(merged.searchKey, "sk_22819704278edfea");
+});
+
+test("HUNT-FE-RUNS-6 (verdict 5): the row's switch is described by that row's run-time control", () => {
+  const seen = [];
+  const { mod } = loadRunsTab({
+    runToggleHtml(run, _store, opts) {
+      seen.push(opts && opts.describedBy);
+      return "";
+    },
+  });
+  const tbody = { innerHTML: "" };
+  mod.__test.renderRunsTable(tbody, [RUN]);
+  assert.equal(seen.length, 1);
+  assert.match(String(seen[0]), /-toggle$/);
+  assert.ok(tbody.innerHTML.includes(`id="${seen[0]}"`), "the id points at the row's run-time button");
+});

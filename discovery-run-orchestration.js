@@ -502,6 +502,7 @@ async function dispatchDiscoveryRun(runOptions, runTrigger) {
       sheetId: h("getSHEET_ID") || "",
       timeoutMs: DISCOVERY_RUN_DISPATCH_TIMEOUT_MS,
     });
+    if (result.reason === "run_active") return answerRunActive(runTrigger, ""); // HOLES HUNT-FE: worker 409 (§4)
     if (result.ok) {
       const engineState = h("getDiscoveryEngineStateFromVerificationResult", result);
       if (engineState) {

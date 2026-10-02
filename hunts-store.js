@@ -348,10 +348,14 @@
             return run.runId;
           });
         }
+        // Unreachable: keep the worker's last hitlist (it ranks up to 500 runs);
+        // derive from the cached 100 only when there is none.
         var clusters =
           hitlistRes.ok && Array.isArray(hitlistRes.body.clusters)
             ? Promise.resolve(hitlistRes.body.clusters)
-            : deriveLocalHitlist();
+            : hitlistRes.offline && cache.clusters.length
+              ? Promise.resolve(cache.clusters)
+              : deriveLocalHitlist();
         return clusters.then(function (list) {
           cache.clusters = list;
           if (!status.offline) writeCache();
@@ -488,6 +492,7 @@
             kind: clean(payload.kind, 40),
             runId: clean(payload.runId, 200),
             statusPath: clean(payload.statusPath, 400),
+            pollAfterMs: Number.isFinite(Number(payload.pollAfterMs)) ? Number(payload.pollAfterMs) : 2000,
             queuedAt: clean(payload.queuedAt, 80),
             message: clean(payload.message, 400),
           };
