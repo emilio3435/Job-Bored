@@ -54,6 +54,8 @@
      answer instead). */
   let loadGeneration = 0;
   let inFlightLoad = null; // { generation, sheetId, promise }
+  // The generation that emitted jb:data:loading and has no outcome yet.
+  let openGeneration = null;
   let lastLoadResult = false;
 
   function emitDataEvent(type, detail) {
@@ -393,6 +395,7 @@
     startSyncTicker();
     wireConnectivity();
     const count = Array.isArray(pipelineData) ? pipelineData.length : 0;
+    if (openGeneration === generation) openGeneration = null;
     emitDataEvent("jb:data:loaded", {
       generation,
       rowCount: count,
@@ -407,6 +410,7 @@
     const failure = lastReadFailure ||
       (isOnline() ? { status: 0, kind: "unknown" } : { status: 0, kind: "offline" });
     loadState.lastFailure = failure;
+    if (openGeneration === generation) openGeneration = null;
     emitDataEvent("jb:data:failed", {
       generation,
       status: Number(failure.status) || 0,
@@ -970,12 +974,14 @@
       h.showSheetAccessGate("signin");
       hideSyncBar();
       clearLoadBusy();
+      closeOpenGeneration(401, "signed_out", "Signed out of Google");
       return false;
     }
 
     if (!normalizeActiveSheetId(h.getActiveSheetId())) {
       hideSyncBar();
       clearLoadBusy();
+      closeOpenGeneration(0, "no_sheet", "No Sheet connected");
       startupLog("sheets-read:load:missing-sheet-id", {
         hasAccessToken: !!h.getAccessToken(),
         hasOAuthClientId: !!h.getOAuthClientId(),
@@ -1000,6 +1006,7 @@
     if (refreshBtn) refreshBtn.classList.add("loading");
     loadState.loading = true;
     setSyncBusy(true);
+    openGeneration = generation;
     emitDataEvent("jb:data:loading", { generation });
 
     try {
@@ -1088,6 +1095,22 @@
     } finally {
       if (!superseded()) clearLoadBusy();
     }
+  }
+
+  /** An early return (signed out, no Sheet id) is not a load and emits no
+   *  loading event, but a load it superseded did: end that generation with
+   *  jb:data:failed (and the legacy event) so no listener waits on it. */
+  function closeOpenGeneration(status, kind, message) {
+    if (openGeneration == null) return;
+    const generation = openGeneration;
+    openGeneration = null;
+    emitDataEvent("jb:data:failed", { generation, status, message });
+    emitDataEvent("jb:data:load-failed", {
+      status,
+      kind,
+      lastSyncedAt: loadState.lastSyncedAt,
+      hasLastGood: loadState.dataLoaded,
+    });
   }
 
   /** A superseded load leaves the busy state to the newest load, so every

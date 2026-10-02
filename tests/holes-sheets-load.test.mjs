@@ -119,6 +119,38 @@ describe("A15 / B8 · loadAllData is single-flight with a generation counter", (
     await old;
     assert.equal(env.sr.getLoadState().loading, false);
   });
+
+  for (const [how, cut] of [
+    ["the Sheet id is cleared", (env) => (env.state.sheetId = "")],
+    // Same Sheet would join the in-flight load; a switch plus sign-out supersedes it.
+    ["the person switches Sheet signed out", (env) => ((env.state.sheetId = "sheet-B"), (env.state.token = ""))],
+  ]) {
+    it(`a load superseded because ${how} ends its generation with jb:data:failed`, async () => {
+      const gateA = deferred();
+      const env = loadReader({
+        fetch: async () => {
+          await gateA.promise;
+          return valuesOk(ROWS_A);
+        },
+      });
+      env.state.sheetId = "sheet-A";
+      const old = env.sr.loadAllData();
+      await new Promise((r) => setTimeout(r, 0));
+      cut(env);
+      assert.equal(await env.sr.loadAllData(), false);
+      gateA.resolve();
+      await old;
+      const opened = ofType(env, "jb:data:loading").map((e) => e.detail.generation);
+      const failed = ofType(env, "jb:data:failed").map((e) => e.detail);
+      assert.deepEqual(opened, [1]);
+      assert.equal(failed.length, 1, "exactly one outcome for the open generation");
+      assert.equal(failed[0].generation, 1);
+      assert.equal(typeof failed[0].status, "number");
+      assert.ok(failed[0].message);
+      assert.equal(ofType(env, "jb:data:load-failed").length, 1, "the legacy event fires too");
+      assert.equal(ofType(env, "jb:data:loaded").length, 0);
+    });
+  }
 });
 
 describe("B2 · loadAllData emits jb:data:loading / loaded / failed (§1b.10)", () => {
