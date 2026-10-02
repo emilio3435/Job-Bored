@@ -308,6 +308,17 @@ void recoverAbandonedRuns({
 });
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
+// The hunt's exploration share reaches its run by run id; the run reads it
+// while planning, so only recent entries matter.
+const huntRunShares = new Map<string, number>();
+function rememberHuntRunShare(runId: string, share: number): void {
+  huntRunShares.set(runId, share);
+  if (huntRunShares.size > 100) {
+    const oldest = huntRunShares.keys().next().value;
+    if (oldest !== undefined) huntRunShares.delete(oldest);
+  }
+}
+
 const sharedRunDependencies = {
   runtimeConfig,
   sourceAdapterRegistry,
@@ -325,6 +336,10 @@ const sharedRunDependencies = {
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
   maxRunDurationMs: runtimeConfig.maxRunDurationMs,
+  // HOLES HUNT (INTERFACE-HUNTS §6): the exploration ledger and shares.
+  noveltyMemory: rawDiscoveryMemoryStore,
+  explorationShare: runtimeConfig.hunts?.explorationShare,
+  explorationShareForRun: (runId: string) => huntRunShares.get(runId) ?? null,
 } satisfies RunDiscoveryDependencies & { companyPlanner: CompanyPlanner };
 
 function mapPlannerCompany(company: RankedPlannedCompany): PlannedCompany {
@@ -1024,16 +1039,6 @@ function isDiscoveryRunActive(): boolean {
   return !!runStatusStore
     .list({ limit: 25 })
     ?.runs.some((run) => run.status === "accepted" || run.status === "running");
-}
-// The hunt's exploration share reaches its run by run id; the run reads it
-// while planning, so only recent entries matter.
-const huntRunShares = new Map<string, number>();
-function rememberHuntRunShare(runId: string, share: number): void {
-  huntRunShares.set(runId, share);
-  if (huntRunShares.size > 100) {
-    const oldest = huntRunShares.keys().next().value;
-    if (oldest !== undefined) huntRunShares.delete(oldest);
-  }
 }
 const dispatchHuntRun = createHuntRunDispatcher({
   webhookSecret: runtimeConfig.webhookSecret,
