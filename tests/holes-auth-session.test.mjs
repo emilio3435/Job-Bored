@@ -460,3 +460,90 @@ describe("A1/A6 · a sign-in during a 401 refresh survives the 401 caller", () =
     assert.equal(tab.auth.getAccessToken(), "tok-2");
   });
 });
+
+/* Round 3 (Grok's verdict): GIS's error_callback carries no state, so an
+   error from a written-off window must not settle the op now current; and
+   a wait on an open sign-in has a deadline. */
+
+describe("A6 · an error from a written-off request leaves the current sign-in alone (P1)", () => {
+  it("lets the second sign-in finish after the first window closes", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    const first = tab.auth.signIn();
+    const second = tab.auth.signIn();
+
+    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    assert.equal(await settledWithin(second), "pending", "the first window's closing is not the second's");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await first) }, { ok: false, reason: "superseded" });
+    assert.deepEqual({ ...(await second) }, { ok: true });
+    assert.equal(tab.auth.getAccessToken(), "tok-2");
+  });
+
+  it("lets a sign-in finish after the refresh it replaced reports an error", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    void tab.auth.refreshAccessTokenSilently();
+    const attempt = tab.auth.signIn();
+
+    tab.gis.fail({ type: "unknown", message: "prompt=none failed" });
+    assert.equal(await settledWithin(attempt), "pending", "the refresh's error is not the sign-in's");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+  });
+
+  it("still ends a lone sign-in when its own window closes", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    const attempt = tab.auth.signIn({ prompt: "consent" });
+    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    assert.deepEqual({ ...(await settledWithin(attempt)) }, { ok: false, reason: "popup_closed" });
+  });
+});
+
+describe("A1 · a 401 caller's wait on an open sign-in has a deadline (P2)", () => {
+  it("answers false after 25 s and leaves the sign-in open", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    const attempt = tab.auth.signIn({ prompt: "consent" });
+    const refresh = tab.auth.refreshAccessTokenSilently();
+
+    await tab.clock.advance(25_000);
+    assert.equal(await settledWithin(refresh), false, "the caller is not held by an open window");
+    assert.equal(await settledWithin(attempt), "pending");
+    assert.equal(tab.auth.getOauthPendingOp()?.kind, "interactive", "the sign-in stays open");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+  });
+});
+
+describe("A3 · a window that closes after a remote sign-out is quiet (P2)", () => {
+  it("shows no error toast", async () => {
+    const origin = makeOrigin();
+    const a = loadAuthTab(origin, { sheetId: "sheet-1" });
+    const b = loadAuthTab(origin, { sheetId: "sheet-1" });
+    a.auth.initAuth();
+    b.auth.initAuth();
+    await signInInteractively(a, "tok-a");
+    await signInInteractively(b, "tok-b");
+    void b.auth.signIn({ prompt: "consent" });
+    a.auth.signOut();
+    await flush();
+    const before = b.toasts.length;
+
+    b.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    await flush();
+
+    assert.deepEqual(b.toasts.slice(before), [], "the session already ended; nothing to report");
+    assert.equal(b.auth.isSignedIn(), false);
+  });
+});

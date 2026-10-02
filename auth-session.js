@@ -74,12 +74,42 @@ let oauthRequestSeq = 0;
 function requestOAuthToken(op, request) {
   oauthRequestSeq += 1;
   const state = `jb-${Date.now().toString(36)}-${oauthRequestSeq}`;
+  op.state = state;
   oauthRequestsByState.set(state, op);
   tokenClient.requestAccessToken({ ...request, state });
 }
 
+/**
+ * GIS's error_callback carries no state. A request written off while it was
+ * still current — replaced by a sign-in, ended by a sign-out — may still
+ * report an error (its window closes, its prompt:none fails); that error is
+ * its own, not the op now current (A6, A3). Each entry absorbs one error, or
+ * goes when its reply arrives, or after ORPHANED_REQUEST_TTL_MS.
+ */
+const orphanedOAuthRequests = new Map();
+const ORPHANED_REQUEST_TTL_MS = 120_000;
+
+function orphanOAuthRequest(op) {
+  if (op && op.state && oauthRequestsByState.has(op.state)) {
+    orphanedOAuthRequests.set(op.state, Date.now());
+  }
+}
+
+/** @returns {boolean} whether this error belongs to a written-off request */
+function takeOrphanedOAuthError() {
+  const now = Date.now();
+  for (const [state, at] of orphanedOAuthRequests) {
+    orphanedOAuthRequests.delete(state);
+    if (now - at < ORPHANED_REQUEST_TTL_MS) return true;
+  }
+  return false;
+}
+
 /** Clear settings: no silent request may sign this tab back in. */
 function writeOffSilentRequests() {
+  if (oauthPendingOp && oauthPendingOp.kind !== "interactive") {
+    orphanOAuthRequest(oauthPendingOp);
+  }
   for (const [state, op] of oauthRequestsByState) {
     if (op.kind !== "interactive") oauthRequestsByState.delete(state);
   }
@@ -505,13 +535,21 @@ function refreshAccessTokenSilently() {
   if (!tokenClient) return Promise.resolve(false);
   // A1/A6: a sign-in the user started brings the new token. Wait for it
   // rather than replacing its op, which would leave its caller waiting.
+  // The wait keeps the silent path's 25 s deadline, so a consent window
+  // left open does not hold every 401 caller; the sign-in stays open.
   const interactive = oauthPendingOp;
   if (interactive?.kind === "interactive" && interactive.outcome) {
-    return interactive.outcome.then((result) => {
+    let deadline;
+    const timedOut = new Promise((resolve) => {
+      deadline = setTimeout(() => resolve(false), 25_000);
+    });
+    const followed = interactive.outcome.then((result) => {
+      clearTimeout(deadline);
       if (result && result.ok) return true;
       if (result && result.reason === "superseded") return refreshAccessTokenSilently();
       return false;
     });
+    return Promise.race([followed, timedOut]);
   }
   // A1: a second caller joins the refresh in flight. A second request would
   // replace the first op, orphan its waiter, and time it out into a sign-out.
@@ -822,6 +860,7 @@ function applyOAuthClientChange(clientId) {
       callback: handleTokenResponse,
       error_callback: (err) => {
         console.error("[JobBored] GIS error_callback (re-init):", err);
+        if (takeOrphanedOAuthError()) return;
         host().recordSheetAccessError(err);
         settleInteractiveSignIn(err);
         if (isOAuthOriginClientFailure(err)) {
@@ -879,6 +918,9 @@ function initAuth() {
         callback: handleTokenResponse,
         error_callback: (err) => {
           console.error("[JobBored] GIS error_callback:", err);
+          // P1/A3: a written-off request's error; the current op, if any,
+          // waits for its own answer.
+          if (takeOrphanedOAuthError()) return;
           if (oauthPendingOp?.kind === "silent-refresh") {
             oauthPendingOp.finish(false);
             return;
@@ -942,6 +984,7 @@ function handleTokenResponse(tokenResponse) {
   const state =
     tokenResponse && typeof tokenResponse.state === "string" ? tokenResponse.state : "";
   if (state) {
+    orphanedOAuthRequests.delete(state);
     const asked = oauthRequestsByState.get(state);
     // A3: written off — signed out here or in another tab, Clear settings,
     // or a newer sign-in took over. Its answer must not sign anyone in.
@@ -1127,6 +1170,7 @@ function signIn(options = {}) {
     );
     return Promise.resolve({ ok: false, reason: "not_ready" });
   }
+  orphanOAuthRequest(oauthPendingOp);
   if (oauthPendingOp?.kind === "silent-refresh") {
     oauthPendingOp.finish(false);
   } else if (oauthPendingOp?.kind === "silent-restore") {
@@ -1185,7 +1229,8 @@ function signOut() {
 function endSessionLocally(message) {
   clearSessionAuthState();
   // A3: a sign-out ends a sign-in still open too, and no reply still on its
-  // way may sign this tab back in.
+  // way may sign this tab back in; its window closing later is no error.
+  if (oauthPendingOp?.kind === "interactive") orphanOAuthRequest(oauthPendingOp);
   settleInteractiveSignIn({ type: "cancelled" });
   oauthRequestsByState.clear();
   // Wipe in-memory and on-DOM pipeline data so the signed-out session can't
