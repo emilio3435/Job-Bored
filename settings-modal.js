@@ -3,7 +3,7 @@
    Extracted from app.js (settings-modal cut).
 
    Classic-global IIFE under window.JobBoredApp.settings — NOT an ES module.
-   Loaded AFTER onboarding-wizard.js, BEFORE app.js. Reads app.js helpers via
+   Loaded AFTER model-download.js, BEFORE app.js. Reads app.js helpers via
    lazy core.host.
    ============================================ */
 (() => {

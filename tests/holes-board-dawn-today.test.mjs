@@ -214,3 +214,21 @@ describe("R5 · the Daily Brief caps only New and Researching leads, with a Show
     assert.deepEqual(leadKeys(d), ["1", "2", "3", "5"]);
   });
 });
+
+describe("Grok nit · Draft cover letter brings the dossier into view", () => {
+  it("should open the role, ask for the cover letter and scroll to the role region", () => {
+    const d = mountDawn({ leads: [lead("1")], html: '<section data-region="role"></section>' });
+    const opened = [];
+    const actions = [];
+    d.window.JobBoredFlowing = { openRole: { set: (k) => opened.push(k) } };
+    d.document.addEventListener("jb:role:action", (e) => actions.push(e.detail));
+    const role = d.document.querySelector('[data-region="role"]');
+    let scrolled = 0;
+    role.scrollIntoView = () => { scrolled += 1; };
+    d.fire(d.region.querySelector('[data-lead-action="draft-cover"]'), "click");
+    assert.deepEqual(opened, ["1"]);
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].action, "resume-cover");
+    assert.equal(scrolled, 1, "the role region is scrolled into view");
+  });
+});

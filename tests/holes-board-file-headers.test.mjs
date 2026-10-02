@@ -5,6 +5,7 @@
  * click writes "#letter=<jobKey>" (the role lives at #role= now), and
  * whats-next-banner.js said it loads after first-run-wizard.js and shares a
  * handler with #firstRunPanelDone — neither the file nor the element exists.
+ * settings-modal.js said it loads after onboarding-wizard.js, which is gone.
  * These checks keep a header from pointing at things that are gone.
  */
 import assert from "node:assert/strict";
@@ -35,7 +36,7 @@ function elementIdsIn(header) {
 }
 
 describe("B18 · file headers name only files and elements that exist", () => {
-  for (const name of ["pipeline.js", "whats-next-banner.js"]) {
+  for (const name of ["pipeline.js", "whats-next-banner.js", "settings-modal.js"]) {
     it(`should name only existing files in the ${name} header`, () => {
       const missing = filesNamedIn(headerOf(name)).filter((f) => !existsSync(join(repoRoot, f)));
       assert.deepEqual(missing, [], `${name} header names files that do not exist`);

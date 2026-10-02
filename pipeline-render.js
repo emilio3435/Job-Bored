@@ -438,22 +438,31 @@ function applyLegacyKanbanCap(jobs) {
   return { visible: kept, hidden: hidden };
 }
 
-function renderLegacyKanbanHiddenAffordance(hidden) {
+/* R5: lanes the user expanded past the company cap ("Show all"), by stage
+   label. Session-only, like pipeline.js's per-column showAll. */
+const legacyShowAllLanes = new Set();
+
+/* R5: "+N hidden" is a Show all / Show fewer button (aria-expanded), the
+   same control as pipeline.js hiddenToggle. */
+function renderLegacyKanbanHiddenAffordance(hidden, stage, expanded) {
   if (!Array.isArray(hidden) || hidden.length === 0) return "";
   const label = hidden
     .map((entry) => `+${entry.hidden} from ${host().escapeHtml(entry.company)}`)
     .join(" · ");
-  return `<p class="stage-lane__hidden" title="${host().escapeHtml(label)} — hidden so one company can’t dominate this column. Star a role to keep it pinned.">${label} hidden</p>`;
+  const text = expanded ? "Show fewer" : `Show all (${label} hidden)`;
+  return `<button type="button" class="stage-lane__hidden" data-action="toggle-show-all" data-stage="${host().escapeHtml(stage || "")}" aria-expanded="${expanded ? "true" : "false"}" title="Up to 3 roles per company show here, so one company can’t dominate this column. Star a role to keep it pinned.">${text}</button>`;
 }
 
 function renderStageLane(stage, jobs) {
   const isExpanded = core().getExpandedStages().has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
-  const { visible: visibleJobs, hidden } = LEGACY_CAPPED_LANES.has(stage)
+  const showAll = legacyShowAllLanes.has(stage);
+  const capped = LEGACY_CAPPED_LANES.has(stage)
     ? applyLegacyKanbanCap(jobs)
     : { visible: jobs, hidden: [] };
-  const hiddenHtml = renderLegacyKanbanHiddenAffordance(hidden);
+  const visibleJobs = showAll ? jobs : capped.visible;
+  const hiddenHtml = renderLegacyKanbanHiddenAffordance(capped.hidden, stage, showAll);
 
   return `
     <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${host().escapeHtml(stage)}">
@@ -998,6 +1007,21 @@ function updateNavVisibility(track) {
 }
 
 function attachBoardListeners() {
+  // R5: Show all / Show fewer under a capped lane. The board is rebuilt, so
+  // focus moves to the new toggle for the same lane.
+  document.querySelectorAll('[data-action="toggle-show-all"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const stage = btn.dataset.stage;
+      if (legacyShowAllLanes.has(stage)) legacyShowAllLanes.delete(stage);
+      else legacyShowAllLanes.add(stage);
+      renderPipeline();
+      const next = Array.from(
+        document.querySelectorAll('[data-action="toggle-show-all"]'),
+      ).find((el) => el.dataset.stage === stage);
+      if (next) next.focus();
+    });
+  });
+
   // Stage collapse toggle + indicator init on expand
   document.querySelectorAll('[data-action="toggle-stage"]').forEach((btn) => {
     btn.addEventListener("click", () => {

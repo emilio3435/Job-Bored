@@ -205,17 +205,26 @@
   cursor: default;
 }
 
-/* Per-company cap affordance — small label between the cards and the
-   scroll indicator. Purely informative; pointer:help reveals the tooltip. */
+/* Per-company cap affordance (R5) — a Show all / Show fewer toggle between
+   the cards and the scroll indicator. */
 .stage-lane__hidden {
+  display: block;
+  width: calc(100% - 2 * var(--space-3));
   margin: 4px var(--space-3) 4px;
+  padding: 4px 8px;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--jb-ink-3);
+  color: var(--jb-ink-2);
   text-align: center;
-  opacity: 0.7;
-  cursor: help;
+  background: transparent;
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  cursor: pointer;
+}
+
+.stage-lane__hidden:hover {
+  color: var(--jb-ink);
 }
 
 /* Scroll position indicator bar */
