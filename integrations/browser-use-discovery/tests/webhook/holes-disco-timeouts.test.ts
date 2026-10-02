@@ -19,7 +19,7 @@ import {
 } from "../../src/grounding/grounded-search.ts";
 import {
   DEFAULT_MATCHER_TIMEOUT_MS,
-  DEFAULT_MAX_RUN_DURATION_MS as RUN_DISCOVERY_MAX_RUN_DURATION_MS,
+  DEFAULT_RUN_DISCOVERY_MAX_DURATION_MS,
   DEFAULT_SOURCE_TIMEOUT_MS,
 } from "../../src/run/run-discovery.ts";
 import {
@@ -85,7 +85,7 @@ test("§0.11: the worker lets a run take 3 hours by default", () => {
 test("§0.11: runDiscovery's own abort fallback is the same 3 hours", () => {
   // A caller that omits maxRunDurationMs must not be killed at 1 h while the
   // dashboard's status backstop waits 3 h (Grok DISCO review).
-  assert.equal(RUN_DISCOVERY_MAX_RUN_DURATION_MS, THREE_HOURS_MS);
+  assert.equal(DEFAULT_RUN_DISCOVERY_MAX_DURATION_MS, THREE_HOURS_MS);
 });
 
 test("§0.11: grounded search gets 15 minutes in every preset", () => {
