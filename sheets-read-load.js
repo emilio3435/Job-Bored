@@ -33,8 +33,10 @@
        lastSyncedAt  epoch ms of the last good read (0 = never)
        lastFailure   { status, kind } of the last failed read, or null
      Events (window AND document; lane C gates its empty copy on them):
-       jb:data:loaded       { rows, count, first, lastSyncedAt }
-       jb:data:load-failed  { status, kind, lastSyncedAt, hasLastGood }
+       jb:data:loading      { generation }                      (HOLES B2)
+       jb:data:loaded       { generation, rowCount, rows, count, first, lastSyncedAt }
+       jb:data:failed       { generation, status, message }     (HOLES B2)
+       jb:data:load-failed  { status, kind, lastSyncedAt, hasLastGood }  (legacy)
      ------------------------------------------------------------------ */
   const loadState = {
     dataLoaded: false,
@@ -45,6 +47,14 @@
   let lastReadFailure = null;
   let syncTicker = null;
   let connectivityWired = false;
+
+  /* HOLES A15 / B8: one load at a time. Overlapping callers share the
+     in-flight promise; each real load gets the next generation, and a load
+     a Sheet switch superseded never paints (its callers get the newest
+     answer instead). */
+  let loadGeneration = 0;
+  let inFlightLoad = null; // { generation, sheetId, promise }
+  let lastLoadResult = false;
 
   function emitDataEvent(type, detail) {
     try {
@@ -135,6 +145,7 @@
       lastSyncedAt: loadState.lastSyncedAt,
       lastFailure: loadState.lastFailure ? { ...loadState.lastFailure } : null,
       loading: loadState.loading,
+      generation: loadGeneration,
     };
   }
 
@@ -305,7 +316,7 @@
     });
   }
 
-  function recordLoadSuccess(pipelineData) {
+  function recordLoadSuccess(pipelineData, generation) {
     const first = !loadState.dataLoaded;
     loadState.dataLoaded = true;
     loadState.lastSyncedAt = Date.now();
@@ -323,18 +334,26 @@
     renderSyncLabel();
     startSyncTicker();
     wireConnectivity();
+    const count = Array.isArray(pipelineData) ? pipelineData.length : 0;
     emitDataEvent("jb:data:loaded", {
+      generation,
+      rowCount: count,
       rows: pipelineData,
-      count: Array.isArray(pipelineData) ? pipelineData.length : 0,
+      count,
       first,
       lastSyncedAt: loadState.lastSyncedAt,
     });
   }
 
-  function recordLoadFailure() {
+  function recordLoadFailure(generation) {
     const failure = lastReadFailure ||
       (isOnline() ? { status: 0, kind: "unknown" } : { status: 0, kind: "offline" });
     loadState.lastFailure = failure;
+    emitDataEvent("jb:data:failed", {
+      generation,
+      status: Number(failure.status) || 0,
+      message: describeLoadFailure(failure).title,
+    });
     emitDataEvent("jb:data:load-failed", {
       status: failure.status,
       kind: failure.kind,
@@ -842,8 +861,38 @@
     return results;
   }
 
-  async function loadAllData() {
+  /** Resolves true when the board now shows this Sheet's rows. A
+   *  superseded generation emits no outcome event: listeners key on the
+   *  latest generation they saw in jb:data:loading. */
+  function loadAllData() {
+    const sheetId = normalizeActiveSheetId(host().getActiveSheetId());
+    if (inFlightLoad && inFlightLoad.sheetId === sheetId) return inFlightLoad.promise;
+    const entry = { generation: ++loadGeneration, sheetId, promise: null };
+    const settle = () => {
+      if (inFlightLoad === entry) inFlightLoad = null;
+    };
+    entry.promise = runLoad(entry.generation).then(
+      (ok) => {
+        settle();
+        if (entry.generation !== loadGeneration) {
+          // A Sheet switch superseded this load: answer with the newest one.
+          return inFlightLoad ? inFlightLoad.promise : lastLoadResult;
+        }
+        lastLoadResult = ok;
+        return ok;
+      },
+      (err) => {
+        settle();
+        throw err;
+      },
+    );
+    inFlightLoad = entry;
+    return entry.promise;
+  }
+
+  async function runLoad(generation) {
     const h = host();
+    const superseded = () => generation !== loadGeneration;
     lastReadFailure = null;
     startupLog("sheets-read:load:start", {
       hasOAuthClientId: !!h.getOAuthClientId(),
@@ -891,16 +940,18 @@
     if (refreshBtn) refreshBtn.classList.add("loading");
     loadState.loading = true;
     setSyncBusy(true);
+    emitDataEvent("jb:data:loading", { generation });
 
     try {
       const pipelineRows = await fetchSheetCSV("Pipeline");
+      if (superseded()) return false;
 
       if (!pipelineRows) {
         startupLog("sheets-read:load:fetch-failed", {
           initialAccessResolved: !!h.getInitialSheetAccessResolved(),
           hasAccessToken: !!h.getAccessToken(),
         }, "error");
-        const failure = recordLoadFailure();
+        const failure = recordLoadFailure(generation);
         if (!h.getInitialSheetAccessResolved()) {
           if (!h.getAccessToken() && h.getOAuthClientId()) {
             h.showSheetAccessGate("signin");
@@ -949,7 +1000,7 @@
         h.revealDashboardShell();
         h.runPostAccessBootstrapOnce();
       }
-      recordLoadSuccess(pipelineData);
+      recordLoadSuccess(pipelineData, generation);
       startupLog("sheets-read:load:complete", {
         jobCount: pipelineData.length,
         dashboardHydrated: true,
@@ -962,7 +1013,8 @@
         { message: err && err.message ? err.message : String(err) },
         "error",
       );
-      const failure = recordLoadFailure();
+      if (superseded()) return false;
+      const failure = recordLoadFailure(generation);
       if (!h.getInitialSheetAccessResolved()) {
         h.showSheetAccessGate(
           !h.getAccessToken() && h.getOAuthClientId() ? "signin" : "error",
@@ -974,9 +1026,11 @@
       h.setDataLoadFailed(true);
       return false;
     } finally {
-      if (refreshBtn) refreshBtn.classList.remove("loading");
-      loadState.loading = false;
-      setSyncBusy(false);
+      if (!superseded()) {
+        if (refreshBtn) refreshBtn.classList.remove("loading");
+        loadState.loading = false;
+        setSyncBusy(false);
+      }
     }
   }
 

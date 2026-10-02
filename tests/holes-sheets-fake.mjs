@@ -384,3 +384,130 @@ export function loadWriteback(fake, options = {}) {
 export function rowByLink(fake, link) {
   return fake.rows("Pipeline").find((row, i) => i > 0 && row[COL.link] === link) || null;
 }
+
+function fakeElement(tag, doc) {
+  const el = {
+    tagName: String(tag).toUpperCase(),
+    children: [],
+    attributes: {},
+    dataset: {},
+    style: {},
+    hidden: false,
+    textContent: "",
+    listeners: {},
+    classList: {
+      _s: new Set(),
+      add(c) { this._s.add(c); },
+      remove(c) { this._s.delete(c); },
+      contains(c) { return this._s.has(c); },
+    },
+    setAttribute(k, v) {
+      this.attributes[k] = String(v);
+      if (k === "id") doc._ids.set(String(v), this);
+    },
+    getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; },
+    removeAttribute(k) { delete this.attributes[k]; },
+    appendChild(child) { this.children.push(child); return child; },
+    insertBefore(child) { this.children.push(child); return child; },
+    addEventListener(type, fn) { (this.listeners[type] || (this.listeners[type] = [])).push(fn); },
+    click() { for (const fn of this.listeners.click || []) fn({ preventDefault() {} }); },
+    replaceChildren() { this.children = []; },
+    remove() {},
+  };
+  return el;
+}
+
+/**
+ * Load sheets-read-load.js with a hand-rolled DOM and a fetch the test
+ * controls. `options.fetch(url, init)` answers every request.
+ */
+export function loadReader(options = {}) {
+  const doc = { _ids: new Map() };
+  doc.createElement = (tag) => fakeElement(tag, doc);
+  doc.body = fakeElement("body", doc);
+  doc.head = fakeElement("head", doc);
+  doc.head.appendChild = (el) => {
+    if (typeof el.onerror === "function") el.onerror(); // JSONP fallback fails fast
+    return el;
+  };
+  doc.documentElement = fakeElement("html", doc);
+  for (const id of ["errorState", "errorOpenDirect", "errorViewSheet", "errorStateHint", "jobCards"]) {
+    fakeElement("div", doc).setAttribute("id", id);
+  }
+  doc.getElementById = (id) => doc._ids.get(id) || null;
+  doc.querySelector = () => null;
+  const events = [];
+  doc.dispatchEvent = (ev) => {
+    events.push({ target: "document", type: ev.type, detail: ev.detail });
+    return true;
+  };
+  const state = { sheetId: "sheet-123", token: "test-token", data: null, resolved: true };
+  const calls = { setPipelineData: [], gates: [] };
+  const host = {
+    getOAuthClientId: () => "client-id",
+    getAccessToken: () => state.token,
+    getActiveSheetId: () => state.sheetId,
+    getInitialSheetAccessResolved: () => state.resolved,
+    setInitialSheetAccessResolved: (v) => { state.resolved = v; },
+    setPipelineRawRows() {},
+    setPipelineData: (v) => { state.data = v; calls.setPipelineData.push(v); },
+    getPipelineData: () => state.data || [],
+    setDashboardDataHydrated() {},
+    setDataLoadFailed() {},
+    showSheetAccessGate: (m) => calls.gates.push(m),
+    revealSetupScreenAfterAuth() {},
+    revealDashboardShell() {},
+    runPostAccessBootstrapOnce() {},
+    applyEnrichmentCache() {},
+    renderPipeline() {},
+    renderBrief() {},
+    updateLastRefresh() {},
+    maybeAutoOpenExpiredReviewModal() {},
+    hasGrantedOauthScope: () => true,
+    getGoogleSheetsScope: () => "https://www.googleapis.com/auth/spreadsheets",
+    recordSheetAccessError() {},
+    refreshAccessTokenSilently: async () => false,
+    clearSessionAuthState() { state.token = ""; },
+    showToast() {},
+    ...(options.host || {}),
+  };
+  const windowTarget = {
+    JobBoredApp: { core: { host }, auth: { getUserEmail: () => "user@example.com" } },
+    navigator: { onLine: true },
+    addEventListener() {},
+    dispatchEvent(ev) {
+      events.push({ target: "window", type: ev.type, detail: ev.detail });
+      return true;
+    },
+  };
+  const context = vm.createContext({
+    console: { log() {}, info() {}, warn() {}, error() {} },
+    document: doc,
+    window: windowTarget,
+    navigator: windowTarget.navigator,
+    CustomEvent: TestCustomEvent,
+    localStorage: memoryStorage(),
+    setTimeout,
+    clearTimeout,
+    setInterval: () => 0,
+    clearInterval() {},
+    Date,
+    fetch: (url, init) => options.fetch(String(url), init),
+  });
+  vm.runInContext(readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8"), context, {
+    filename: "sheets-read-load.js",
+  });
+  return { sr: windowTarget.JobBoredApp.sheetsRead, host, state, calls, events, doc };
+}
+
+/** A promise plus its resolve, for holding a fetch open. */
+export function deferred() {
+  let resolve;
+  const promise = new Promise((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/** A Sheets values response with the given rows. */
+export function valuesOk(rows) {
+  return { ok: true, status: 200, json: async () => ({ values: rows }) };
+}
