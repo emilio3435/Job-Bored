@@ -22,6 +22,7 @@ import {
   V2_LETTER_JUDGE_DOWN,
   V2_RESUME_READY_SAME_MODEL,
 } from "./fixtures/materials-qa-v2.mjs";
+import { V3_LOW_DIMENSION, V3_READY, V3_SECOND_DISAGREEMENT, V3_SECOND_OUTAGE, V3_UNSUPPORTED } from "./fixtures/materials-qa-v3.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -47,10 +48,10 @@ function loadScore() {
 }
 
 /* HOLES SCORE (spec §0.3): the judge's verdict no longer paints inline in
-   the row; everything below reads the score modal (materials-score.js),
-   which takes the K3 record through materials-insights.js. The intents are
-   the same: the reason first, facts apart from writing, every blocker
-   kept, the grading model named, failures with their ways out. */
+   the row; everything below reads the quality-check modal
+   (materials-score.js). The intents are the same: the reason first, the
+   deciding checks with their sentences, every blocker kept, the reviewer
+   named, failures with their ways out — and, since GRADE, no score. */
 const sw = loadScore();
 const ms = sw.JobBoredMaterialsScore;
 const CAN = { fix: true, apply: true, repair: true, rescore: true, promote: true, retry: true, profile: true };
@@ -66,20 +67,24 @@ function step(html, id) {
   return html.slice(start, next < 0 ? undefined : next);
 }
 
-/* The blocker items of one group, as markup. */
+/* The Why items of one group (a check kind), as markup. */
 function items(html, group) {
-  return [...step(html, "blockers").matchAll(new RegExp(`<li class="jb-score__item" data-group="${group}">([\\s\\S]*?)</li>`, "g"))].map((m) => m[1]);
+  return [...step(html, "why").matchAll(new RegExp(`<li class="jb-score__item" data-group="${group}"[^>]*>([\\s\\S]*?)</li>`, "g"))].map((m) => m[1]);
 }
 
 const verdictBlock = (html) => {
   const head = /<header class="jb-score__head">([\s\S]*?)<\/header>/.exec(html);
   assert.ok(head, "the modal has a header");
   const pick = (cls) => (new RegExp(`<p class="${cls}"[^>]*>([\\s\\S]*?)</p>`).exec(head[1]) || ["", ""])[1];
-  return { verdict: pick("jb-score__verdict"), judge: pick("jb-score__judge"), head: head[1] };
+  return { verdict: pick("jb-score__verdict"), prov: pick("jb-score__prov"), head: head[1] };
 };
 
-describe("D1 · the score modal reads the K3 record", () => {
-  it("FIX1 P1-1: the whole verdict uses grading model copy for success, unsupported facts and failures", () => {
+/* GRADE (SPEC-GRADE D1, D4, D7): a v2 judge record is an old checker's
+   now. The modal shows its stored verdict and the gates and sentences that
+   decided it — never its 0-100 score, its weights or its stored prose —
+   and the reviews of a v3 record name who reviewed it and why one didn't. */
+describe("D1 · the modal reads the judge's record as the old checker's", () => {
+  it("FIX1 P1-1: our own words never say judge, whatever the grade's outcome", () => {
     const finalText = "I built a forecast.";
     const textHash = hashRenderedText(finalText);
     for (const status of ["ok", "unsupported", "unavailable", "invalid"]) {
@@ -90,57 +95,45 @@ describe("D1 · the score modal reads the K3 record", () => {
       const qa = buildQaRecord({ document: "letter", runId: "fictional-fix1", finalText, textHash,
         judge: { status: ["ok", "unsupported"].includes(status) ? "ok" : status, judgment,
           meta: { model: "fictional-grader", independent: true, errorCode: "timeout" } } });
-      const { verdict, judge } = verdictBlock(modal({ qa }, "cover_letter"));
-      const text = words(verdict + " " + judge);
-      assert.doesNotMatch(text, /\bjudge\b/i, status);
-      assert.match(text, /grading model/i, status);
+      assert.doesNotMatch(words(modal({ qa }, "cover_letter")).replace(/fictional-grader/g, ""), /\bjudge\b/i, status);
     }
   });
 
-  it("should head the modal with the score out of 100, and none when nobody graded it", () => {
-    assert.match(verdictBlock(modal(V2_LETTER_FAIL, "cover_letter")).head, /64 \/ 100/);
-    assert.match(verdictBlock(modal(V2_RESUME_READY_SAME_MODEL, "resume")).head, /86 \/ 100/);
-    assert.match(verdictBlock(modal(V2_LETTER_JUDGE_DOWN, "cover_letter")).head, /Not graded/, "no score when nobody graded it");
+  it("should head the modal with the verdict word, never the score out of 100", () => {
+    assert.match(verdictBlock(modal(V2_LETTER_FAIL, "cover_letter")).head, /Fails/);
+    assert.match(verdictBlock(modal(V2_RESUME_READY_SAME_MODEL, "resume")).head, /Ready/);
+    assert.match(verdictBlock(modal(V2_LETTER_JUDGE_DOWN, "cover_letter")).head, /Needs review/);
+    for (const f of [V2_LETTER_FAIL, V2_RESUME_READY_SAME_MODEL]) assert.doesNotMatch(modal(f, "resume"), /\/ 100|of 100|\b(64|86)\b/);
     assert.equal(mi.isFail(V2_LETTER_FAIL), true);
     assert.equal(mi.dispositionOf(V2_LETTER_JUDGE_DOWN), "REVIEW");
   });
 
-  it("should give the verdict's reason in one line", () => {
+  it("should give the first deciding reason in one line, never the stored prose", () => {
     const html = modal(V2_LETTER_FAIL, "cover_letter");
-    assert.match(html, /class="jb-score__badge jb-score__badge--fail"/);
-    assert.match(verdictBlock(html).verdict, /^One sentence claims a result your background doesn(’|&#39;)t support\.$/);
+    assert.equal(verdictBlock(html).verdict, "1 claim needs a source");
+    assert.equal(verdictBlock(html).prov, "Graded by the old checker");
+    assert.doesNotMatch(html, /One sentence claims a result/);
   });
 
-  it("should keep factual blockers apart from writing feedback, with the sentence quoted", () => {
+  it("should keep the deciding claims together, each with its sentence quoted", () => {
     const html = modal(V2_LETTER_FAIL, "cover_letter");
-    const facts = items(html, "blocker");
-    const check = items(html, "check");
-    const writing = items(html, "writing");
-    assert.equal(facts.length, 1);
-    assert.ok(writing.length, "the writing note renders");
-    const blockers = step(html, "blockers");
-    assert.ok(blockers.indexOf('data-group="blocker"') < blockers.indexOf('data-group="writing"'), "blockers come first");
-    /* The blocker quotes the unsupported sentence and says why. */
-    assert.match(facts[0], /Blocker · Fact/);
-    assert.match(facts[0], /<q class="jb-score__quote">At Contoso I cut churn by 40% across the enterprise book\.<\/q>/);
-    assert.match(facts[0], /The 40% churn cut is not in your background\./);
-    assert.doesNotMatch(facts[0], /stock line|usage-based/);
-    /* An uncertain fact is not a blocker, and not a writing note either. */
-    assert.match(check.join(""), /usage-based pricing/);
-    /* The writing note stays in its own group, never among the facts. */
-    assert.match(writing[0], /The close is a stock line; end on something specific to them\./);
-    assert.match(writing[0], /<q class="jb-score__quote">Worth a quick call this week\?<\/q>/);
-    assert.doesNotMatch(writing.join(""), /churn/);
+    const claims = items(html, "sentence");
+    assert.equal(claims.length, 2, "the unsupported claim and the one to confirm");
+    assert.match(claims[0], /Claim needs a source/);
+    assert.match(claims[0], /<q class="jb-score__quote">At Contoso I cut churn by 40% across the enterprise book\.<\/q>/);
+    assert.match(claims[0], /No claim mentions a churn figure\./);
+    assert.match(claims[1], /Claim to confirm/);
+    assert.match(claims[1], /usage-based pricing/);
+    assert.doesNotMatch(step(html, "why"), /stock line/, "a writing note is not a deciding check");
   });
 
-  it("should show the five judge dimensions scored 0–4, each with its reason, and the total out of 100", () => {
-    const html = modal(V2_LETTER_FAIL, "cover_letter");
-    const dims = step(html, "dimensions");
+  it("should show the five Writing dimensions 0–4, each with its reason, and no total", () => {
+    const html = modal({ status: "review", issues: [], qa: V3_LOW_DIMENSION }, "cover_letter");
+    const dims = step(html, "writing");
     const labels = [...dims.matchAll(/class="jb-score__dim-label">([^<]*)</g)].map((m) => m[1]);
     assert.deepEqual(labels, ["Fits this role", "Evidence", "Sounds like you", "Holds together", "No padding"]);
-    assert.match(dims, /Evidence<\/span>[\s\S]*?2 \/ 4[\s\S]*?One result has no source in your background\./);
-    assert.match(dims, /Sounds like you<\/span>[\s\S]*?The close reads like a template line\./);
-    assert.match(verdictBlock(html).head, /64 \/ 100/);
+    assert.match(dims, /Evidence<\/span>[\s\S]*?2 \/ 4/);
+    assert.doesNotMatch(html, /\/ 100|of 100/);
   });
 
   it("should list gaps in the background as information, not as a defect", () => {
@@ -148,64 +141,50 @@ describe("D1 · the score modal reads the K3 record", () => {
     assert.equal(gaps.length, 2);
     assert.match(gaps[0], /managing a team of 10 or more/);
     assert.match(gaps[1], /No marketplace experience on file\./);
-    for (const g of gaps) {
-      assert.match(g, /Background gap/);
-      assert.match(g, /not a problem with the writing/i);
+    for (const g of gaps) assert.match(g, /not a problem with the writing/i);
+    assert.match(step(modal(V2_LETTER_FAIL, "cover_letter"), "why"), /Background gaps/);
+  });
+
+  /* J-FE4, on the v3 reviews: who reviewed it, and when a review didn't
+     run, why, with the two ways out. */
+  const second = (review) => ({ status: "pass", issues: [], qa: { ...V3_SECOND_OUTAGE, reviews: [V3_SECOND_OUTAGE.reviews[0], { ...V3_SECOND_OUTAGE.reviews[1], ...review }] } });
+  const reviews = (html) => step(html, "reviews");
+
+  it("should name who reviewed it, never 'judge'", () => {
+    assert.equal(verdictBlock(modal({ status: "pass", issues: [], qa: V3_SECOND_DISAGREEMENT }, "cover_letter")).prov, "First review: writer-example · Second review: judge-example");
+    for (const html of [modal({ qa: V3_SECOND_DISAGREEMENT }, "cover_letter"), modal(second({}), "resume")]) {
+      assert.doesNotMatch(words(reviews(html)).replace(/judge-example/g, ""), /judge/i);
     }
   });
 
-  /* J-FE4: who graded it, and when nobody did, why, with the two ways out. */
-  const judgeDown = (judge) => ({ ...V2_LETTER_JUDGE_DOWN, qa: { ...V2_LETTER_JUDGE_DOWN.qa, judge: { ...V2_LETTER_JUDGE_DOWN.qa.judge, ...judge } } });
-  const judgeLine = (html) => {
-    const m = /<p class="jb-score__judge"[^>]*>[\s\S]*?<\/p>/.exec(html);
-    return m ? m[0] : "";
-  };
-
-  it("should say which grading model graded it, never 'judge'", () => {
-    assert.match(judgeLine(modal(V2_LETTER_FAIL, "cover_letter")), /data-judge="independent">Graded by grok-judge-1/);
-    const down = modal(V2_LETTER_JUDGE_DOWN, "cover_letter");
-    assert.doesNotMatch(step(down, "dimensions"), /jb-score__dim"/, "no score to show");
-    for (const html of [modal(V2_LETTER_FAIL, "cover_letter"), modal(V2_RESUME_READY_SAME_MODEL, "resume"), down]) {
-      /* The fixture's fictional model id is "grok-judge-1"; only our own words count. */
-      assert.doesNotMatch(words(judgeLine(html)).replace(/grok-judge-1/g, ""), /judge/i);
-    }
+  it("J-FE4a · a timeout says how long it waited, with Try again and Change grading model", () => {
+    const html = reviews(modal(second({ errorCode: "timeout", latencyMs: 240000 }), "cover_letter"));
+    assert.match(html, /Second review didn(’|&#39;|')t run — it timed out after 240 s\./);
+    assert.match(html, /<button[^>]*data-score-rescore[^>]*>Try again<\/button>/);
+    assert.match(html, /<button[^>]*data-action="settings-open-grading"[^>]*>Change grading model<\/button>/);
   });
 
-  it("J-FE4a · a timeout names the model and how long it waited, with Try again and Change", () => {
-    const line = judgeLine(modal(judgeDown({ status: "unavailable", errorCode: "timeout", latencyMs: 240000 }), "cover_letter"));
-    assert.match(line, /data-judge="unavailable"/);
-    assert.match(line, /Grading by grok-judge-1 didn(’|&#39;|')t finish: it timed out after 240 s/);
-    assert.match(line, /<button[^>]*data-score-retry[^>]*>Try again<\/button>/);
-    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*>Change grading model<\/button>/);
+  it("J-FE4b · a rejected key says so", () => {
+    assert.match(reviews(modal(second({ errorCode: "auth" }), "resume")), /the key was rejected/);
+    assert.match(reviews(modal(second({ errorCode: "unconfigured" }), "resume")), /no key is saved for it/);
+    assert.match(reviews(modal(second({ errorCode: "rate_limited" }), "resume")), /the provider was busy/);
   });
 
-  it("J-FE4b · a rejected key says so and links to the grading model settings", () => {
-    const line = judgeLine(modal(judgeDown({ status: "unavailable", errorCode: "auth" }), "resume"));
-    assert.match(line, /the key was rejected/);
-    assert.match(line, /data-action="settings-open-grading"[^>]*>Change grading model</);
-    assert.match(line, /data-score-retry[^>]*>Try again</);
-    assert.match(judgeLine(modal(judgeDown({ status: "unavailable", errorCode: "unconfigured" }), "resume")), /no key is saved for it/);
-    assert.match(judgeLine(modal(judgeDown({ status: "unavailable", errorCode: "rate_limited" }), "resume")), /the provider was busy/);
-  });
-
-  it("J-FE4c · an unusable grade reads differently from an unavailable model", () => {
-    const invalid = judgeLine(modal(judgeDown({ status: "invalid", errorCode: "invalid_judgment" }), "cover_letter"));
-    const unavailable = judgeLine(modal(judgeDown({ status: "unavailable" }), "cover_letter"));
-    assert.match(invalid, /data-judge="invalid"/);
+  it("J-FE4c · an unusable review reads differently from an unavailable model", () => {
+    const invalid = reviews(modal(second({ status: "invalid", errorCode: "invalid_judgment" }), "cover_letter"));
+    const unavailable = reviews(modal(second({ errorCode: "" }), "cover_letter"));
     assert.match(invalid, /it returned a grade we couldn(’|&#39;|')t use/);
-    assert.match(unavailable, /data-judge="unavailable"/);
     assert.match(unavailable, /it didn(’|&#39;|')t answer/);
     assert.notEqual(words(invalid), words(unavailable));
-    /* A pre-BE2 invalid record with no errorCode still reads as unusable. */
-    assert.match(judgeLine(modal(judgeDown({ status: "invalid" }), "cover_letter")), /couldn(’|&#39;|')t use/);
   });
 
-  it("J-FE4d · a self-graded document names the writer and offers a second opinion", () => {
-    const line = judgeLine(modal(V2_RESUME_READY_SAME_MODEL, "resume"));
-    assert.match(line, /data-judge="same"/);
-    assert.match(line, /Graded by your writing model \(gemini-writer-1\)/);
-    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*>Add a second opinion<\/button>/);
-    assert.doesNotMatch(line, /Try again/);
+  it("J-FE4d · a document only the writer reviewed offers a second review", () => {
+    const html = reviews(modal({ status: "pass", issues: [], qa: V3_READY }, "resume"));
+    assert.match(html, /First review: writer-example — Ready/);
+    assert.match(html, /<button[^>]*data-action="settings-open-grading"[^>]*>Add a second review<\/button>/);
+    assert.doesNotMatch(html, /Try again/);
+    const skipped = reviews(modal(second({ status: "skipped", errorCode: undefined, error: undefined }), "resume"));
+    assert.match(skipped, /Second review skipped — it uses the same model as the first review/);
   });
 
   it("should never lose an unsupported sentence or a failed hard gate the issues list left out", () => {
@@ -214,13 +193,13 @@ describe("D1 · the score modal reads the K3 record", () => {
       issues: [],
       gates: [{ id: "metric_mismatch", kind: "hard", pass: false, reason: "The 18% figure differs from your claim (12%).", sentenceIds: [] }],
     };
-    const facts = items(modal({ status: "fail", issues: [], qa }, "cover_letter"), "blocker").join("");
-    assert.match(facts, /At Contoso I cut churn by 40%/);
-    assert.match(facts, /No claim mentions a churn figure\./);
-    assert.match(facts, /The 18% figure differs from your claim \(12%\)\./);
+    const why = step(modal({ status: "fail", issues: [], qa }, "cover_letter"), "why");
+    assert.match(why, /At Contoso I cut churn by 40%/);
+    assert.match(why, /No claim mentions a churn figure\./);
+    assert.match(why, /The 18% figure differs from your claim \(12%\)\./);
   });
 
-  it("Grok P2 · should show every failed hard gate, even when another gate already has its issue", () => {
+  it("Grok P2 · should show every failed hard gate, each once", () => {
     const qa = {
       ...V2_LETTER_FAIL.qa,
       sentences: [],
@@ -230,23 +209,24 @@ describe("D1 · the score modal reads the K3 record", () => {
         { id: "metric_mismatch", kind: "hard", pass: false, reason: "The 18% figure differs from your claim (12%).", sentenceIds: [] },
       ],
     };
-    const facts = items(modal({ status: "fail", issues: [], qa }, "cover_letter"), "blocker").join("");
-    assert.match(facts, /The 18% figure differs from your claim \(12%\)\./, "the second blocker still shows");
+    const facts = items(modal({ status: "fail", issues: [], qa }, "cover_letter"), "gate").join("");
+    assert.match(facts, /The 18% figure differs from your claim \(12%\)\./, "the second gate still shows");
     assert.equal((facts.match(/Invented tools: rust\./g) || []).length, 1, "a gate with its own issue shows once");
   });
 
-  it("Grok P3 · should escape every record field it prints: reason, issue, dimension, gap, judge, instruction, diff", () => {
+  it("Grok P3 · should escape every record field it prints: reason, check, rating, gap, review, instruction, diff", () => {
     const x = "<b>x</b>";
     const qa = {
-      ...V2_LETTER_FAIL.qa,
-      dispositionReason: `why ${x}`,
-      issues: V2_LETTER_FAIL.qa.issues.map((i) => ({ ...i, reason: `issue ${x}` })),
-      quality: { score: 64, ratings: V2_LETTER_FAIL.qa.quality.ratings.map((r) => ({ ...r, reason: `dim ${x}` })) },
+      ...V3_SECOND_DISAGREEMENT,
+      reasons: [{ checkId: "review:disagreement", text: `why ${x}` }],
+      checks: [{ ...V3_UNSUPPORTED.checks[0], detail: `check ${x}` }],
+      issues: V3_UNSUPPORTED.issues.map((i) => ({ ...i, reason: `issue ${x}` })),
+      ratings: V3_READY.ratings.map((r) => ({ ...r, reason: `dim ${x}` })),
       qualificationGaps: [`gap ${x}`],
-      judge: { ...V2_LETTER_FAIL.qa.judge, model: `model ${x}` },
+      reviews: [{ ...V3_SECOND_DISAGREEMENT.reviews[0], model: `model ${x}` }],
     };
-    const html = modal({ status: "fail", issues: [], qa }, "cover_letter");
-    for (const label of ["why", "issue", "dim", "gap", "model"]) {
+    const html = ms.modalHtml(ms.modelOf({ feature: "cover_letter", qualityDoc: { status: "fail", issues: [], qa }, can: CAN }), { open: { why: true, writing: true, reviews: true } });
+    for (const label of ["why", "check", "dim", "gap", "model"]) {
       assert.match(html, new RegExp(`${label} &lt;b&gt;x&lt;/b&gt;`), `${label} is escaped`);
     }
     const panel = mi.repairPanelHtml("cover_letter", { qa }, { instruction: `ins ${x}` });
@@ -274,12 +254,11 @@ describe("D1 · the score modal reads the K3 record", () => {
 });
 
 describe("D2 · old runs still open, read-only", () => {
-  it("should show a v1 rubric record with its rows and a graded-by-the-old-checker note", () => {
+  it("should show a v1 rubric record's verdict and flags, graded by the old checker, with no score", () => {
     const html = modal(V1_RESUME_FAIL, "resume", { ...CAN, fix: false, apply: false, repair: false });
-    assert.match(verdictBlock(html).judge, /Graded by the old checker/);
-    assert.match(verdictBlock(html).head, /50 \/ 100 · old checker/, "6 of 12, scaled to 100");
-    assert.match(verdictBlock(html).verdict, /Resume is missing an experience section\./);
-    assert.match(step(html, "dimensions"), /Job outcomes covered<\/span>[\s\S]*?0 \/ 2/);
+    assert.equal(verdictBlock(html).prov, "Graded by the old checker");
+    assert.match(verdictBlock(html).verdict, /Resume is missing an experience section/);
+    assert.doesNotMatch(html, /\/ 100|of 100|0 \/ 2|6 of 12|\b50\b/);
   });
 
   it("should offer no Repair on an old run: its run has no per-document draft to rewrite from", () => {

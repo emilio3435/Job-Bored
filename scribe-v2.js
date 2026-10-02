@@ -485,15 +485,15 @@
     if (ui) ui.sync();
   }
 
-  /* HOLES SCORE ("Scribe v2 shows no score"): the header carries the
-     open document's grade button, from the host's opts.score. */
+  /* HOLES SCORE + GRADE D7: the header carries the open document's
+     verdict button, from the host's opts.score. */
   function renderScore(ctl) {
     var el = ctl.refs && ctl.refs.grade;
     var score = ctl.opts.score;
     var ms = root.JobBoredMaterialsScore;
     if (!el) return;
     var g = score && typeof score.gradeFor === "function" && ms ? score.gradeFor(ctl.state.doc) : null;
-    el.innerHTML = g ? ms.buttonHtml(g.grade, { feature: ctl.state.doc, scope: "scribe", stale: g.stale }) : "";
+    el.innerHTML = g && g.verdict ? ms.buttonHtml(g.verdict, { feature: ctl.state.doc, scope: "scribe", stale: g.stale }) : "";
   }
 
   /* U12: a save or a Bring back makes a new run; the rows mark this

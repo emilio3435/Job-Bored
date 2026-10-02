@@ -413,6 +413,7 @@
         docxHref: doc.exports && doc.exports.docx ? exportUrl(base, slug, docxName, { download: true, version: fileVersion(download || txt) }) : "",
         linkedin: !!(doc.type === "resume" && doc.exports && doc.exports.linkedin),
         fail: !!o.fail,
+        held: o.held || "",
       });
       if (menu) actions.push(menu);
     } else if (download || html) {
@@ -426,7 +427,7 @@
         + ' download'
         + ' data-action="materials-download"'
         + ' data-filename="' + escapeHtml(file.filename) + '"'
-        + (o.fail ? ' data-gate="fail"' : "")
+        + (o.held ? ' data-gate="held" data-held="' + escapeHtml(o.held) + '"' : (o.fail ? ' data-gate="fail"' : ""))
         + '>' + (download ? "Download PDF" : "Download HTML") + '</a>'
       );
     }
@@ -466,7 +467,7 @@
     var mi = insights();
     var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
       return "brief-materials__btn brief-materials__btn--" + kind;
-    }, { fail: !!(mi && mi.isFail(quality)) });
+    }, { fail: !!(mi && mi.isFail(quality)), held: heldReason(quality) });
 
     var metaParts = [];
     var primaryFormat = formats.filter(function (f) { return f; })[0];
@@ -1227,7 +1228,7 @@
       var actions = status === "ready" || status === "review"
         ? docActionButtons(manifest.slug, doc, base, verdict ? null : issue, function (kind) {
           return "case__doc-btn case__doc-btn--" + kind;
-        }, { menu: true, fail: fail }).concat(extraDocActions(def.type, doc))
+        }, { menu: true, fail: fail, held: heldReason(qualityForRow) }).concat(extraDocActions(def.type, doc))
         : (status === "missing" && def.draftAction
           ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
             + escapeHtml(def.draftAction) + '">Draft</button>']
@@ -1591,8 +1592,10 @@
             return;
           }
           var action = t.getAttribute("data-action");
-          if (action === "materials-download" && t.getAttribute("data-gate") === "fail") {
-            /* U-1: a FAIL draft never downloads silently — ask in the page. */
+          var gate = t.getAttribute("data-gate");
+          if (action === "materials-download" && (gate === "fail" || gate === "held")) {
+            /* U-1: a FAIL draft never downloads silently — ask in the page.
+               GRADE G7: a held version says why it is held. */
             if (typeof e.preventDefault === "function") e.preventDefault();
             closeDownloadMenus(section);
             showFailConfirm(t, { kind: "link", href: t.getAttribute("href") || "", filename: t.getAttribute("data-filename") || "" });
@@ -1624,7 +1627,7 @@
           if (action === "materials-copy-linkedin") {
             if (typeof e.preventDefault === "function") e.preventDefault();
             closeDownloadMenus(section);
-            if (t.getAttribute("data-gate") === "fail") {
+            if (gate === "fail" || gate === "held") {
               showFailConfirm(t, { kind: "linkedin" });
               return;
             }
@@ -1644,6 +1647,11 @@
           if (action === "materials-promote") {
             if (typeof e.preventDefault === "function") e.preventDefault();
             promoteVersion(t, section);
+            return;
+          }
+          if (action === "materials-rescore") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            rescoreVersion(t, section);
             return;
           }
           if (action === "materials-diff") {
@@ -1825,8 +1833,10 @@
     if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
     var holder = document.createElement("div");
     var type = docTypeOf(host);
-    /* D2: an old run is read-only, so its confirm offers Cancel, not Repair. */
-    holder.innerHTML = mi.failConfirmHtml(type, target, { repair: mi.canRepair(qualityDocFor(type)) });
+    /* D2: an old run is read-only, so its confirm offers Cancel, not Repair.
+       GRADE G7: a held version's confirm names why it is held. */
+    var held = trigger.getAttribute("data-held") || "";
+    holder.innerHTML = mi.failConfirmHtml(type, target, { repair: !held && mi.canRepair(qualityDocFor(type)), held: held });
     var box = holder.firstElementChild || holder.firstChild;
     if (!box) return;
     host.appendChild(box);
@@ -1853,7 +1863,7 @@
     a.rel = "noopener";
     a.style.display = "none";
     document.body.appendChild(a);
-    a.click();
+    if (typeof a.click === "function") a.click();
     if (a.parentNode) a.parentNode.removeChild(a);
   }
 
@@ -2120,7 +2130,7 @@
     row.appendChild(panel);
     btn.setAttribute("aria-expanded", "true");
     fetchJson(materialsBase() + "/api/applications/" + encodeURIComponent(slug) + "/runs").then(function (body) {
-      panel.innerHTML = mi.historyHtml(body && body.runs, type);
+      panel.innerHTML = mi.historyHtml(body && body.runs, type, { base: materialsBase(), rescore: true });
     }).catch(function (err) {
       panel.innerHTML = '<p class="mat-hist__empty">' + escapeHtml("Couldn\u2019t load versions: " + ((err && err.message) || "unknown error")) + "</p>";
     });
@@ -2148,6 +2158,24 @@
     promoteRun(slug, runId).catch(function (err) {
       btn.removeAttribute("disabled");
       toast("Couldn\u2019t switch versions: " + ((err && err.message) || "unknown error"), "error");
+    });
+  }
+
+  /* G8: Rescore on a row of the inline list re-runs that version's quality
+     check in place, then reads the list again. */
+  function rescoreVersion(btn, section) {
+    var runId = btn.getAttribute("data-run") || "";
+    var feature = btn.getAttribute("data-feature") || "";
+    var row = docHostOf(btn);
+    var toggle = row ? row.querySelector('[data-action="materials-history"]') : null;
+    if (!runId || !feature) return;
+    btn.setAttribute("disabled", "");
+    rescoreDoc(feature, runId).then(function () {
+      var open = row && row.querySelector(".mat-hist");
+      if (open && toggle) { toggleHistory(toggle, section); toggleHistory(toggle, section); }
+    }, function (err) {
+      btn.removeAttribute("disabled");
+      toast("Rescore didn\u2019t finish: " + ((err && err.message) || "unknown error"), "error");
     });
   }
 
@@ -2354,9 +2382,9 @@
       .then(function () { markRegenerating(false); });
   }
 
-  /* -------------------- HOLES SCORE: the grade button and its modal --------------------
-     Spec §0.3/§2 SCORE: a drafted resume or letter shows one grade button
-     (materials-score.js); what the graders said opens in the score modal.
+  /* -------------------- the quality-check button and its modal --------------------
+     HOLES §0.3 and GRADE D7: a drafted resume or letter shows one verdict
+     button (materials-score.js); what the reviews said opens in its modal.
      role-materials owns the manifest, so it builds what the modal reads and
      takes its actions — for the rows, the Case (role-case.js) and Scribe's
      header (scribe-v2.js). Fix this, Apply and Repair pre-fill the row's
@@ -2371,7 +2399,7 @@
 
   function scoreApi() {
     var ms = root.JobBoredMaterialsScore;
-    return ms && typeof ms.gradeOf === "function" && typeof ms.open === "function" ? ms : null;
+    return ms && typeof ms.verdictView === "function" && typeof ms.open === "function" ? ms : null;
   }
 
   function scoreJobKey() {
@@ -2392,7 +2420,7 @@
   }
 
   /* The role keeps one stored scorecard, and it rates the document it
-     names: a letter's score is never the resume's grade. */
+     names: a letter's line edits are never the resume's. */
   function atsEntryFor(feature) {
     var state = root.JobBoredApp && root.JobBoredApp.materialsState;
     var job = scoreJob();
@@ -2415,10 +2443,6 @@
     return docs.filter(function (d) { return d && d.type === feature; })[0] || null;
   }
 
-  /* U12: a grade is stale once the draft moves on — a Scribe save the
-     manifest hasn't caught up with, or a role-match score older than the
-     text it rated. MATQ's runId (and an equal docHash) decide when the
-     scorecard carries them. */
   /* One document's own version in a manifest: its judge record's run and
      its files' stamps. The package runId moves on whenever EITHER document
      is saved, so it cannot say whether this one's save is in. */
@@ -2439,60 +2463,69 @@
     return docVersionOf(manifest, feature) === saved.before;
   }
 
-  function scoreIsStale(manifest, feature, entry, grade) {
-    if (!manifest) return false;
-    if (savePending(manifest, feature)) return true;
-    if (!entry || grade.source !== "ats") return false;
-    var r = entry.result || {};
-    var qa = (qualityDocOf(manifest, feature) || {}).qa || null;
-    if (r.runId && qa && qa.runId) return r.runId !== qa.runId;
-    if (r.docHash && qa && qa.textHash && r.docHash === qa.textHash) return false;
-    var doc = docOf(manifest, feature);
-    var changed = Date.parse(String((doc && doc.text && doc.text.modifiedAt) || (doc && doc.lastModifiedAt) || ""));
-    var scored = Date.parse(String(entry.storedAt || ""));
-    return Number.isFinite(changed) && Number.isFinite(scored) && changed > scored;
+  /* GRADE: the verdict is the QA record's own, so it is out of date only
+     while a Scribe save of this document is not in the manifest yet (U12).
+     The package runId is not compared: it moves on whenever EITHER
+     document is drafted, so the resume's verdict would read stale after
+     the letter's run. */
+  function scoreIsStale(manifest, feature) {
+    return !!manifest && savePending(manifest, feature);
   }
 
-  /** { grade, stale } for one document of the manifest (default: the open one). */
+  /** { verdict, stale } for one document of the manifest (default: the open one). */
   function gradeFor(feature, manifest) {
     var ms = scoreApi();
     var m = manifest || (currentManifest && currentManifest.manifest) || null;
-    if (!ms || (feature !== "resume" && feature !== "cover_letter" && feature !== "")) return null;
-    var entry = atsEntryFor(feature);
-    var grade = ms.gradeOf(qualityDocOf(m, feature), entry);
-    return { grade: grade, stale: scoreIsStale(m, feature, entry, grade) };
+    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
+    var stale = scoreIsStale(m, feature);
+    return { verdict: ms.verdictView(qualityDocOf(m, feature), { stale: stale }), stale: stale };
   }
 
   function gradeButtonHtml(manifest, feature) {
     var ms = scoreApi();
     var g = ms ? gradeFor(feature, manifest) : null;
-    return g ? ms.buttonHtml(g.grade, { feature: feature, scope: "row", stale: g.stale }) : "";
+    return g ? ms.buttonHtml(g.verdict, { feature: feature, scope: "row", stale: g.stale }) : "";
+  }
+
+  /* G7: a FAIL root is held; its downloads confirm in the page first. */
+  function heldReason(qualityDoc) {
+    var ms = scoreApi();
+    var v = ms ? ms.verdictView(qualityDoc) : null;
+    return v && v.held ? v.held.reason : "";
+  }
+
+  function draftRunning(m) {
+    return !!(m && m.pending && /^(resume|cover_letter|both)$/.test(String(m.pending.feature || ""))
+      && !/^(complete|done|failed)$/i.test(String((m.pending.progress && m.pending.progress.phase) || "queued")));
+  }
+
+  /* The run whose quality check Rescore re-runs: the shown verdict's own. */
+  function scoreRunId(manifest, feature) {
+    var qa = (qualityDocOf(manifest, feature) || {}).qa || {};
+    return String(qa.runId || (manifest && manifest.runId) || "");
   }
 
   function canRescore(manifest, feature) {
-    var ats = root.JobBoredApp && root.JobBoredApp.ats;
-    var doc = docOf(manifest, feature);
-    return !!(ats && typeof ats.startAtsScorecardAnalysis === "function" && doc && doc.text && doc.text.filename && scoreJob());
+    return !!(manifest && manifest.slug && docOf(manifest, feature) && scoreRunId(manifest, feature) && !draftRunning(manifest));
   }
 
   function scoreData(feature, fill) {
     var m = currentManifest && currentManifest.manifest;
     var mi = insights();
     var qd = qualityDocOf(m, feature);
-    var entry = atsEntryFor(feature);
     var g = gradeFor(feature, m);
-    var pendingHere = !!(m && m.pending && /^(resume|cover_letter|both)$/.test(String(m.pending.feature || ""))
-      && !/^(complete|done|failed)$/i.test(String((m.pending.progress && m.pending.progress.phase) || "queued")));
-    var repairable = !!(m && mi && mi.canRepair(qd) && !pendingHere);
+    var repairable = !!(m && mi && mi.canRepair(qd) && !draftRunning(m));
     var doc = docOf(m, feature);
     return {
       feature: feature,
       role: [m && m.title, m && m.company].filter(Boolean).join(" \u00b7 "),
       drafted: doc && doc.lastModifiedAt ? String(doc.lastModifiedAt) : "",
       qualityDoc: qd,
-      ats: entry,
+      /* Only the ATS check's line edits are shown, below GRADE's sections. */
+      ats: atsEntryFor(feature),
       stale: !!(g && g.stale),
-      coverage: coverageOf(m, feature, doc),
+      keywords: coverageOf(m, feature, doc),
+      base: materialsBase(),
       busy: !!rescoring[feature],
       can: {
         fix: !!fill || repairable,
@@ -2531,7 +2564,7 @@
     var mi = insights();
     var qd = qualityDocFor(feature);
     var qa = qd && qd.qa;
-    var reasons = mi && qa && mi.qaVersion(qa) === 2
+    var reasons = mi && qa && mi.qaVersion(qa) >= 2
       ? mi.qaIssues(qa).filter(function (it) { return it.group === "facts"; }).map(function (it) { return it.reason; })
       : [];
     (qd && Array.isArray(qd.issues) ? qd.issues : []).forEach(function (f) { if (f && f.message) reasons.push(String(f.message)); });
@@ -2539,43 +2572,29 @@
     return reasons.length ? "Fix these: " + reasons.join("; ") : "Fix what the grade found.";
   }
 
-  /* Rescore: the role-match check over this package's own text, for this
-     role. It resolves when the scorecard bus says the score landed. */
-  function rescoreDoc(feature) {
+  /* G8: Rescore re-runs the full quality check on one version in place
+     (POST /runs/:runId/rescore; it never makes a version and never runs
+     the ATS scorer), then reads the manifest again. */
+  function rescoreDoc(feature, runId) {
     if (rescoring[feature]) return rescoring[feature];
-    var ats = root.JobBoredApp && root.JobBoredApp.ats;
     var m = currentManifest && currentManifest.manifest;
-    var doc = docOf(m, feature);
-    var job = scoreJob();
-    if (!ats || typeof ats.startAtsScorecardAnalysis !== "function") return Promise.reject(new Error("scoring isn\u2019t available in this session"));
-    if (!m || !doc || !doc.text || !doc.text.filename) return Promise.reject(new Error("this draft has no text version to score"));
-    if (!job) return Promise.reject(new Error("this role isn\u2019t loaded"));
-    var atsFeature = ATS_FEATURE[feature];
-    var run = fetchText(fileUrl(materialsBase(), m.slug, doc.text.filename, { version: fileVersion(doc.text) })).then(function (text) {
-      var body = String(text || "").trim();
-      if (!body) throw new Error("this draft is empty");
-      var cacheKey = ats.computeAtsScorecardCacheKey(body, job, atsFeature);
-      if (!cacheKey) throw new Error("this role is missing a title or company");
-      var payload = ats.buildAtsScorecardRequestPayload(body, job, { feature: atsFeature });
-      return new Promise(function (resolve, reject) {
-        function onState(e) {
-          var d = (e && e.detail) || {};
-          if (d.jobKey !== cacheKey || (d.status !== "success" && d.status !== "error")) return;
-          root.removeEventListener("jb:ats:state", onState);
-          if (d.status === "success") resolve();
-          else reject(new Error(d.error || "the scorer didn\u2019t return a result"));
-        }
-        root.addEventListener("jb:ats:state", onState);
-        try {
-          ats.startAtsScorecardAnalysis(cacheKey, payload, job);
-        } catch (err) {
-          root.removeEventListener("jb:ats:state", onState);
-          reject(err);
-        }
+    var id = runId || scoreRunId(m, feature);
+    if (!m || !m.slug || !docOf(m, feature)) return Promise.reject(new Error("this draft isn\u2019t loaded"));
+    if (!id) return Promise.reject(new Error("this draft has no run to rescore"));
+    if (draftRunning(m)) return Promise.reject(new Error("a draft is running; try again when it finishes"));
+    var base = materialsBase();
+    var slug = m.slug;
+    var run = postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(id) + "/rescore", { feature: feature })
+      .then(function () {
+        dispatch("jb:materials:changed", { slug: slug, reason: "rescored" });
+        return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
+      })
+      .then(function (manifest) {
+        var brief = findMount();
+        if (brief && manifest) commitManifest(brief, manifest, base, currentContext && currentContext.jobKey);
       });
-    });
     rescoring[feature] = run;
-    var done = function () { rescoring[feature] = null; repaintMaterials(m.slug); };
+    var done = function () { rescoring[feature] = null; repaintMaterials(slug); };
     run.then(done, done);
     return run;
   }
@@ -2587,9 +2606,10 @@
    */
   function openScore(feature, opener, hooks) {
     var ms = scoreApi();
-    /* "" (U3): the stored role-match scorecard alone, from the ATS modal's
-       old entry points. */
-    if (!ms || (feature !== "resume" && feature !== "cover_letter" && feature !== "")) return null;
+    /* "" (U3): the ATS modal's old entry points name no document; the
+       resume's quality check opens. */
+    if (feature === "") feature = "resume";
+    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
     var fill = hooks && typeof hooks.fill === "function" ? hooks.fill : null;
     var slug = currentManifest && currentManifest.manifest ? currentManifest.manifest.slug : "";
     var handle = ms.open({
@@ -2600,7 +2620,11 @@
       repair: function () { if (fill) fill(blockerInstruction(feature)); else prefillRepair(feature, null); },
       retry: function () { handleRetry(slug, feature); },
       profile: function (focus) { openProfileSettings(focus); },
-      rescore: function () { return rescoreDoc(feature); },
+      rescore: function (runId) { return rescoreDoc(feature, runId); },
+      download: function (href, filename) {
+        triggerDownload(href);
+        dispatch("jb:role:materials:downloaded", { slug: slug, filename: filename || "", afterFailConfirm: true });
+      },
       loadHistory: function () {
         return fetchJson(materialsBase() + "/api/applications/" + encodeURIComponent(slug) + "/runs").then(function (body) {
           return body && body.runs;

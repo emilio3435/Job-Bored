@@ -317,7 +317,6 @@ function renderDraftHistoryItemHtml(draft, activeDraftId) {
 
 function renderResumeGenerateInsights(bodyText, job) {
   const wrap = document.getElementById("resumeGenerateInsights");
-  const atsCard = document.getElementById("resumeGenerateAtsCard");
   const historyCard = document.getElementById("resumeGenerateHistoryCard");
   const historyCount = document.getElementById("resumeGenerateHistoryCount");
   const historySummary = document.getElementById(
@@ -329,15 +328,9 @@ function renderResumeGenerateInsights(bodyText, job) {
   const text = getResumeGenerateDraftTextForInsights(bodyText);
   if (!text) {
     wrap.hidden = true;
-    if (atsCard) atsCard.hidden = true;
     if (historyCard) historyCard.hidden = true;
     return;
   }
-
-  /* U5 (HOLES SCORE): this only renders. Scoring starts on an explicit
-     action — the modal opening on a finished draft, Retry, or Rescore —
-     never on a keystroke. */
-  if (atsCard) renderResumeGenerateGrade(atsCard, text, job);
 
   const session = lastResumeGenerationSession;
   const historyFeature =
@@ -397,89 +390,6 @@ function startResumeGenerateAts(text, job) {
     ats().startAtsScorecardAnalysis(target.cacheKey, target.payload, job);
   }
   return target;
-}
-
-/* U11 (HOLES SCORE): the old ATS card is one grade button in the header;
-   its scorecard opens in the score modal. A score of other text is shown
-   stale rather than rescored on its own. */
-function renderResumeGenerateGrade(slot, text, job) {
-  const gradeEl = document.getElementById("resumeGenerateAtsGrade");
-  const statusEl = document.getElementById("resumeGenerateAtsStatus");
-  const ms = window.JobBoredMaterialsScore;
-  const target = resumeGenerateAtsTarget(text, job);
-  const st = materialsState().getAtsScorecardState();
-  if (!target || !ms) {
-    slot.hidden = true;
-    return;
-  }
-  const scored = st.status === "success" && st.result;
-  if (gradeEl) {
-    gradeEl.innerHTML = scored
-      ? ms.buttonHtml(ms.gradeOf(undefined, { result: st.result }), {
-        feature: target.feature === "resume_update" ? "resume" : "cover_letter",
-        scope: "draft",
-        stale: st.cacheKey !== target.cacheKey,
-      })
-      : "";
-  }
-  if (statusEl) {
-    if (st.status === "loading") {
-      statusEl.textContent = "Scoring…";
-    } else if (st.status === "error") {
-      statusEl.innerHTML = `Couldn’t score: ${escapeHtml(st.error || "unknown error")} <button type="button" class="btn-modal-secondary doc-insight-card__retry" data-action="retry-ats-scorecard">Retry</button>`;
-    } else {
-      statusEl.textContent = "";
-    }
-  }
-  slot.hidden = !scored && st.status !== "loading" && st.status !== "error";
-}
-
-/* The score modal over the draft: Fix this and Apply land in the Refine
-   box; Rescore scores the editor's current text. */
-function openResumeGenerateScore(opener) {
-  const ms = window.JobBoredMaterialsScore;
-  const session = lastResumeGenerationSession;
-  if (!ms || !session) return null;
-  const feature = session.feature === "resume_update" ? "resume" : "cover_letter";
-  const fill = (instruction) => {
-    const fb = document.getElementById("resumeGenerateFeedback");
-    if (!fb) return;
-    fb.value = String(instruction || "");
-    syncResumeGenerateFooterState();
-    fb.focus();
-  };
-  return ms.open({
-    opener: opener || null,
-    read: () => {
-      const st = materialsState().getAtsScorecardState();
-      return {
-        feature,
-        ats: st.status === "success" && st.result ? { result: st.result } : null,
-        busy: st.status === "loading",
-        can: { fix: true, apply: true, rescore: true },
-      };
-    },
-    fix: (item) => fill(item.instruction),
-    apply: (s) => fill(s.instruction),
-    rescore: () => new Promise((resolve, reject) => {
-      const ta = document.getElementById("resumeGenerateOutput");
-      const text = getResumeGenerateDraftTextForInsights(ta ? ta.value : session.text || "");
-      const target = resumeGenerateAtsTarget(text, session.job);
-      if (!target) {
-        reject(new Error("this role is missing a title or company"));
-        return;
-      }
-      const onState = (e) => {
-        const d = (e && e.detail) || {};
-        if (d.jobKey !== target.cacheKey || (d.status !== "success" && d.status !== "error")) return;
-        window.removeEventListener("jb:ats:state", onState);
-        if (d.status === "success") resolve();
-        else reject(new Error(d.error || "the scorer didn’t return a result"));
-      };
-      window.addEventListener("jb:ats:state", onState);
-      ats().startAtsScorecardAnalysis(target.cacheKey, target.payload, session.job);
-    }),
-  });
 }
 
 function syncResumeGenerateFooterState() {
@@ -1353,32 +1263,6 @@ async function openLatestSavedDraftForJob(dataIndex, feature) {
     if (!btn) return;
     const draftId = btn.getAttribute("data-draft-id");
     if (draftId) void openSavedDraftVersion(draftId);
-    });
-    }
-    const atsCard = document.getElementById("resumeGenerateAtsCard");
-    if (atsCard) {
-    atsCard.addEventListener("click", (e) => {
-    const grade = e.target.closest("[data-score-open]");
-    if (grade) {
-    openResumeGenerateScore(grade);
-    return;
-    }
-    const btn = e.target.closest('[data-action="retry-ats-scorecard"]');
-    if (!btn) return;
-    const session = lastResumeGenerationSession;
-    if (!session || !session.job) return;
-    const draft = getResumeGenerateDraftTextForInsights(session.text || "");
-    if (!draft) return;
-    const feature =
-    session.feature === "resume_update" ? "resume_update" : "cover_letter";
-    const cacheKey = ats().computeAtsScorecardCacheKey(draft, session.job, feature);
-    const payload = ats().buildAtsScorecardRequestPayload(
-    draft,
-    session.job,
-    session,
-    );
-    ats().startAtsScorecardAnalysis(cacheKey, payload);
-    renderResumeGenerateInsights(draft, session.job);
     });
     }
     if (draftNotesModal) {

@@ -87,7 +87,7 @@ describe("buildCaseModel", () => {
     assert.equal(m.stage.terminal, false);
     assert.equal(m.nextAction.daysUntil, 3);
     assert.equal(m.numbers.fit.value, 8);
-    assert.equal(m.numbers.ats.value, 82);
+    assert.equal(m.numbers.ats, undefined, "GRADE D1: the ATS number left the Case");
     assert.deepEqual(m.numbers.keywords, { percentage: 74, found: 12, partial: 4, missing: 1 });
     assert.deepEqual(m.numbers.materials, { ready: 2, total: 4, drafting: 1 });
     assert.equal(m.numbers.reply.value, "No");
@@ -102,13 +102,11 @@ describe("buildCaseModel", () => {
     assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "found"]); // React, Storybook, Design Systems(tag)
     assert.equal(m.theyWant.hasMatchData, true);
   });
-  it("uses the scorecard for YOU HAVE and returns none without one", () => {
-    const with_ = build(baseDeps());
-    assert.equal(with_.youHave.source, "scorecard");
-    assert.equal(with_.youHave.gaps[0].severity, "high");
-    assert.equal(with_.youHave.dimensions.length, 5);
-    const without = build(baseDeps({ scorecard: null }));
-    assert.deepEqual(without.youHave, { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] });
+  /* GRADE D7: "You have" is the package's verdict button (m.score), so the
+     ATS scorecard no longer fills a You-have lane of its own. */
+  it("builds no You-have lane from the scorecard", () => {
+    assert.equal(build(baseDeps()).youHave, undefined);
+    assert.equal(build(baseDeps({ scorecard: null })).youHave, undefined);
   });
   it("builds a dated record with future steps hollow", () => {
     const m = build(baseDeps());
@@ -123,7 +121,7 @@ describe("buildCaseModel", () => {
     assert.equal(m.numbers.keywords, null);
     assert.equal(m.numbers.materials, null);
     assert.equal(m.theyWant.hasMatchData, false);
-    assert.equal(m.youHave.source, "none");
+    assert.equal(m.score, null);
     assert.equal(m.moves.materials, null);
   });
   it("collapses terminal stages", () => {
@@ -365,12 +363,13 @@ describe("requirement marking (P0-0)", () => {
 });
 
 describe("scores that were never scored (P0-0c)", () => {
+  /* GRADE D1: no ATS number reaches the Case at all, scored or not. */
   it("hides the ATS tile rather than reporting 0/100", () => {
     const d = baseDeps();
     d.scorecard = { result: { overallScore: null, topStrengths: [], dimensionScores: { requirementsCoverage: null, experienceRelevance: undefined, impactClarity: "", atsParseability: 90, toneFit: 78 } } };
     const m = build(d);
-    assert.equal(m.numbers.ats, null, "an unscored card must not render ATS 0/100");
-    assert.deepEqual(m.youHave.dimensions.map((x) => x.key), ["atsParseability", "toneFit"], "unscored dimensions must not render as 0% bars");
+    assert.equal(m.numbers.ats, undefined, "an unscored card must not render ATS 0/100");
+    assert.equal(m.youHave, undefined, "unscored dimensions must not render as 0% bars");
   });
 });
 
@@ -410,43 +409,15 @@ describe("the keyword analyzer never becomes a claims lane (P0-7, P0-10)", () =>
     } });
     return d;
   }
-  it("returns source none and no display claims when no scorecard exists", () => {
-    assert.deepEqual(build(fallbackDeps()).youHave, {
-      source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [],
-    });
-  });
-  it("keeps the scorecard's own severity untouched", () => {
-    assert.equal(build(baseDeps()).youHave.gaps[0].severity, "high");
+  it("returns no display claims from the keyword analysis", () => {
+    const m = build(fallbackDeps());
+    assert.equal(m.youHave, undefined);
   });
 });
 
-describe("scorecard claim quality", () => {
-  it("drops the live noun/fragment strengths and collapses prefix-duplicate gaps to the longest claim", () => {
-    const d = baseDeps();
-    d.scorecard.result.topStrengths = [
-      "P&L management)", "CRM", "AI", "API", "APIs", "AI integrations",
-      '[<|"|>AI (Claude',
-      "Led global lifecycle automation",
-      "Built AI routing systems",
-    ];
-    d.scorecard.result.criticalGaps = [
-      { gap: "Proven omni-channel acumen (eCommerce, physical retail, and experient…", whyItMatters: "Long fragment", severity: "high" },
-      { gap: "Proven omni-channel acumen (eCommerce", whyItMatters: "Mid fragment", severity: "medium" },
-      { gap: "experiential)", whyItMatters: "Tail fragment", severity: "low" },
-      { gap: "Limited lifecycle automation", whyItMatters: "Short duplicate", severity: "low" },
-      { gap: "Limited lifecycle automation across global brands", whyItMatters: "Actionable gap", severity: "high" },
-      { gap: "Missing enterprise experimentation evidence", whyItMatters: "Actionable gap", severity: "medium" },
-    ];
-
-    const have = build(d).youHave;
-    assert.deepEqual(have.strengths, ["Led global lifecycle automation", "Built AI routing systems"]);
-    assert.deepEqual(have.gaps.map((item) => item.gap), [
-      "Limited lifecycle automation across global brands",
-      "Missing enterprise experimentation evidence",
-    ]);
-    assert.equal(have.gaps[0].severity, "high", "the longest gap retains its own scorecard metadata");
-  });
-});
+/* GRADE D7 retired the ATS "You have" lane, and with it the scorecard
+   claim filters ("scorecard claim quality"): no scorecard strength or gap
+   is shown in the Case any more. */
 
 describe("sheet talking-point uniqueness", () => {
   const boilerplate = "Lead with AI systems experience — multi-model routing, RAG, GCP deploy";

@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { describe, it } from "node:test";
+import { V3_COVERAGE_MISSES } from "./fixtures/materials-qa-v3.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STAGES = ["new", "researching", "applied", "phone-screen", "interviewing", "offer", "rejected", "passed", "expired"];
@@ -321,21 +322,20 @@ describe("P2 — the copy says what it means", () => {
     }
   });
 
-  /* P2-3: the acronym is never expanded, and crimson is the alarm color. */
-  /* UX01 C13 (TA-13): the tile names the document it rates. This fixture's
-     scorecard records no feature, so it is a "Draft score", never guessed to
-     be the resume. */
-  /* HOLES SCORE (§0.3): the tile's value is the grade button, named for
-     screen readers; only a low grade takes the low tone. */
-  it("the ATS tile names its document, and only a low score is crimson", () => {
-    const good = html({ scorecard: { result: { overallScore: 94, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(good, /data-num="ats"[\s\S]*?Draft score/);
-    assert.match(good, /scored draft · 2026-08-30/);
-    assert.match(good, /data-num="ats"[\s\S]*?<button type="button" class="jb-grade" data-tone="good"[^>]*aria-label="Grade A, 94 of 100 — open score details"/);
-    assert.doesNotMatch(good, /data-num="ats"[\s\S]*?case__num-v--crimson/, "a 94 is not bad news");
-    const bad = html({ scorecard: { result: { overallScore: 41, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(bad, /data-num="ats"[\s\S]*?class="jb-grade" data-tone="low"/);
-    assert.doesNotMatch(bad, /<small>\/100<\/small>/, "the number lives in the modal");
+  /* P2-3: the acronym is never expanded, and crimson is the alarm color.
+     UX01 C13 (TA-13): the tile names the document it rates. GRADE D6: that
+     tile is now the draft's requirement coverage — a button named for
+     screen readers — and no ATS score reaches it, good or bad. */
+  it("the coverage tile names its document and its misses, and no ATS score shows", () => {
+    const withVerdict = (score) => html({
+      scorecard: { result: { overallScore: score, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" },
+      manifest: { documents: [], pending: null, quality: { documents: { resume: { status: "pass", issues: [], qa: { ...V3_COVERAGE_MISSES, document: "resume" } } } } },
+    });
+    const good = withVerdict(94);
+    assert.match(good, /data-num="coverage"[^>]*aria-label="Resume coverage: Covers 1 of 3 requirements; missing: Team mentoring\. Open the quality check\."/);
+    assert.doesNotMatch(good, /data-num="ats"|>[^<]*\b94\b[^<]*<|case__num-v--crimson/);
+    const bad = withVerdict(41);
+    assert.doesNotMatch(bad, /data-num="ats"|>[^<]*\b41\b[^<]*<|<small>\/100<\/small>/);
   });
 
   /* P2-7: the engineering reliability legend, shipped as UI with no key. */

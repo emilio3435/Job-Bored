@@ -447,24 +447,25 @@
 
   function renderDossierAtsModalBodyHtml() {
     if (getAtsScorecardState().status === "loading") {
-      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">...</strong></div><p class="doc-insight-card__summary">Analyzing this draft against the role with structured LLM scoring...</p><p class="doc-insight-card__hint">Scoring the latest text in the editor after generate or refine finishes.</p><div class="doc-insight-card__groups"></div></section>`;
+      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div></div><p class="doc-insight-card__summary">Analyzing this draft against the role with structured LLM scoring...</p><p class="doc-insight-card__hint">Scoring the latest text in the editor after generate or refine finishes.</p><div class="doc-insight-card__groups"></div></section>`;
     }
     if (getAtsScorecardState().status === "error") {
-      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">Could not analyze this draft with ATS scorecard right now.</p><p class="doc-insight-card__hint">${escapeHtml(getAtsScorecardState().error || "Unknown error")}</p><div class="doc-insight-card__groups"></div></section>`;
+      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div></div><p class="doc-insight-card__summary">Could not analyze this draft with ATS scorecard right now.</p><p class="doc-insight-card__hint">${escapeHtml(getAtsScorecardState().error || "Unknown error")}</p><div class="doc-insight-card__groups"></div></section>`;
     }
     if (
       getAtsScorecardState().status === "success" &&
       getAtsScorecardState().result
     ) {
+      /* GRADE (D1): no overall %, no 0–100 dimension numbers and no
+         confidence %: the gaps, strengths and line edits only. */
       const scorecard = getAtsScorecardState().result;
-      const conf = Math.round(Number(scorecard.confidence || 0) * 100);
       const topGap = scorecard.criticalGaps && scorecard.criticalGaps[0];
       const hint = topGap
         ? `Priority fix: ${sanitizeAtsText(topGap.gap)}`
         : "No critical gaps identified for this draft.";
-      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">${escapeHtml(String(scorecard.overallScore || 0))}%</strong></div><p class="doc-insight-card__summary">${escapeHtml(formatAtsDimensionSummary(scorecard))} · confidence ${conf}% · model ${escapeHtml(String(scorecard.model || ""))}</p><p class="doc-insight-card__hint">${escapeHtml(hint)}</p><div class="doc-insight-card__groups">${renderAtsScorecardGroupsHtml(scorecard)}</div></section>`;
+      return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div></div>${scorecard.model ? `<p class="doc-insight-card__summary">Checked by ${escapeHtml(String(scorecard.model))}</p>` : ""}<p class="doc-insight-card__hint">${escapeHtml(hint)}</p><div class="doc-insight-card__groups">${renderAtsScorecardGroupsHtml(scorecard)}</div></section>`;
     }
-    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div><strong class="doc-insight-card__score">--</strong></div><p class="doc-insight-card__summary">No ATS scorecard is cached for this role yet.</p><p class="doc-insight-card__hint">Generate or refine a resume or cover letter first.</p><div class="doc-insight-card__groups"></div></section>`;
+    return `<section class="doc-insight-card"><div class="doc-insight-card__head"><div><p class="doc-insight-card__kicker">ATS match</p><h4 class="doc-insight-card__title">Full scorecard</h4></div></div><p class="doc-insight-card__summary">No ATS scorecard is cached for this role yet.</p><p class="doc-insight-card__hint">Generate or refine a resume or cover letter first.</p><div class="doc-insight-card__groups"></div></section>`;
   }
 
   function getDossierAtsModal() {

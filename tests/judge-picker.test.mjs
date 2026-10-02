@@ -572,3 +572,15 @@ describe("J-FE1 · JobBoredJudgePicker.mount — the shared Grading model field"
     assert.doesNotMatch(host.textContent, /judge/i);
   });
 });
+
+describe("GRADE-F G4 · the grading-model row says what it adds", () => {
+  it("GRADE-F G4: a configured grading model adds a second review — one more model call per document", () => {
+    const { q } = mountField(() => okJson({ ok: true }));
+    const purpose = q("Purpose");
+    assert.ok(purpose, "the field says what a grading model does");
+    assert.match(purpose.textContent, /drafting model gives the first review/i);
+    assert.match(purpose.textContent, /adds a second review/i);
+    assert.match(purpose.textContent, /one more model call per document/i);
+    assert.doesNotMatch(purpose.textContent, /judge/i);
+  });
+});
