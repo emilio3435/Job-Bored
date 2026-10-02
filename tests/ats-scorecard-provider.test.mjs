@@ -214,7 +214,7 @@ describe("analyzeAtsScorecard provider routing", () => {
       assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer or-test-key");
       assert.equal(body.model, "openai/gpt-oss-120b:free");
       assert.equal(body.response_format, undefined);
-      assert.equal(scorecard.overallScore, 78);
+      assert.equal(scorecard.overallScore, 79); // M12: mean of 70/80/75/88/82
       assert.equal(scorecard.model, "openai/gpt-oss-120b:free");
     } finally {
       globalThis.fetch = originalFetch;
@@ -365,7 +365,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
     try {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       assert.equal(calls, 1);
-      assert.equal(scorecard.overallScore, 78);
+      assert.equal(scorecard.overallScore, 79); // M12: mean of 70/80/75/88/82
       assert.equal(scorecard.model, "gemini-test");
       assert.deepEqual(scorecard.topStrengths, ["Strong React fit"]);
     } finally {
@@ -450,7 +450,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
     try {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       assert.equal(calls, 2);
-      assert.equal(scorecard.overallScore, 78);
+      assert.equal(scorecard.overallScore, 79); // M12: mean of 70/80/75/88/82
       assert.equal(scorecard.model, "gemini-test");
       assert.deepEqual(scorecard.topStrengths, ["Strong React fit"]);
     } finally {

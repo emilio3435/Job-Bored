@@ -15,6 +15,7 @@
 import { toolPattern } from "./materials-tool-match.mjs";
 import { profileForLedger } from "./profile-identity.mjs";
 import { maskNonMetrics } from "./materials-numerals.mjs";
+import { spelledMetrics } from "./materials-metric-tag.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { userInfo } from "node:os";
 import { dirname, join, resolve as resolvePath, sep } from "node:path";
@@ -85,8 +86,11 @@ const MAX_CLAIM_TEXT = 2000;
 /* 13: reconcile primary claims when repair adds their cited employer.
  * 14: preserve bounded classification review and combined-header guards.
  * 15: refresh section guards, dated-field candidates and metadata membership.
- * 16: refresh experience boundaries, single-year jobs and audited metadata. */
-export const LEDGER_BUILDER_VERSION = 16;
+ * 16: refresh experience boundaries, single-year jobs and audited metadata.
+ * 17: profile strength evidence is verified only when the résumé carries it
+ * verbatim (M3), and unverified claims add no tool evidence; spelled-out
+ * figures ("forty percent", "$3 million") become metric tokens (M4). */
+export const LEDGER_BUILDER_VERSION = 17;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -171,7 +175,7 @@ export function extractMetrics(text) {
   /** @type {Array<{ token: string, unit?: string }>} */
   const out = [];
   const seen = new Set();
-  for (const match of maskNonMetrics(text).matchAll(METRIC_RE)) {
+  for (const match of maskNonMetrics(spelledMetrics(text)).matchAll(METRIC_RE)) {
     const token = match[1];
     if (!token || seen.has(token)) continue;
     if (YEAR_RE.test(token) || YEAR_RANGE_RE.test(token)) continue;
@@ -237,6 +241,37 @@ export function claimSimilarity(a, b) {
 /** @param {string} s */
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/* M3: case, spacing, dash glyphs and PDF-split figures aside, text compared
+ * against the résumé must be the résumé's own words. */
+/** @param {string} text */
+function quoteKey(text) {
+  return desplitMetricTokens(String(text || "").normalize("NFKC").replace(/­/g, ""))
+    .replace(/[‐‑‒–—―]/g, "-")
+    .replace(/[“”„]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * M3: model-written profile evidence is verified only when the résumé
+ * carries it verbatim, as a whole line or a span of one, on token
+ * boundaries ("$12" is not "$120K").
+ * @param {string} evidence
+ * @param {string} resumeKey quoteKey of the résumé text
+ */
+function foundInResume(evidence, resumeKey) {
+  const span = quoteKey(evidence).replace(/^[-•*·▪●◦‣⁃➢■]\s+/u, "").replace(/[.;,:]+$/, "");
+  if (!span || !resumeKey) return false;
+  for (let at = resumeKey.indexOf(span); at >= 0; at = resumeKey.indexOf(span, at + 1)) {
+    const before = resumeKey[at - 1] || "";
+    const after = resumeKey[at + span.length] || "";
+    if (!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}$%+]/u.test(after)) return true;
+  }
+  return false;
 }
 
 /**
@@ -529,6 +564,7 @@ export function buildLedger({
    * resume claim is dropped so the resume's wording wins. */
   /** @type {LedgerClaim[]} */
   const profileClaims = [];
+  const resumeKey = quoteKey(resume);
   if (isRecord(profile) && Array.isArray(profile.strengths)) {
     for (const raw of profile.strengths) {
       if (!isRecord(raw)) continue;
@@ -545,7 +581,7 @@ export function buildLedger({
         metrics: extractMetrics(evidence),
         tools: matchTools(`${raw.name || ""} ${evidence}`),
         sourceRefs: ["profile"],
-        verified: true,
+        verified: foundInResume(evidence, resumeKey),
       });
     }
   }
@@ -581,6 +617,8 @@ export function buildLedger({
     }
   }
   for (const claim of claims) {
+    /* M3: unverified evidence never vouches for a tool. */
+    if (claim.verified !== true) continue;
     for (const tool of matchTools(claim.text)) {
       if (inventory.has(tool.toLowerCase())) continue;
       inventory.set(tool.toLowerCase(), {

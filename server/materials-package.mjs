@@ -209,7 +209,7 @@ export async function rasterizeLogos(model, rasterize) {
  *   marks for employers the model has none for (attachEmployerMarks)
  * @param {string} [input.header] a header variant the family lists
  * @param {{employers?:Array<{id?:unknown,retired?:unknown,start?:unknown,end?:unknown}>}} [input.ledger]
- * @param {{omittedEmployers?:Array<{employerId?:unknown,reason?:unknown}>}} [input.selection]
+ * @param {{omittedEmployers?:Array<{employerId?:unknown,reason?:unknown,justified?:unknown}>}} [input.selection]
  *   (family.json `headers`); default: the family's `defaultHeader`
  * @returns {Promise<RenderedPackage & { pdf: { resume?: { pages: number, blockedRequests: number }, coverLetter?: { pages: number, blockedRequests: number } } }>}
  */
@@ -288,15 +288,22 @@ export async function renderPackage({ model: input, feature, session = null, pdf
     out.resumeTxt = resumeText(out.fit.resume?.model || model);
     if (ledger) {
       const afterFit = visible(out.fit.resume?.model || model);
-      const selectedReasons = new Map((selection?.omittedEmployers || []).map((entry) => [entry.employerId, entry.reason]));
+      const selected = new Map((selection?.omittedEmployers || []).map((entry) => [entry.employerId, entry]));
       out.omittedEmployers = (ledger.employers || [])
         .filter((employer) => typeof employer.id === "string" && !afterFit.has(employer.id) && !floor.has(employer.id))
-        .map((employer) => ({
-          employerId: /** @type {string} */ (employer.id),
-          reason: /** @type {"page_budget"|"fit_ladder"|"low_relevance"|"user_retired"} */ (
-            employer.retired ? "user_retired" : beforeFit.has(/** @type {string} */ (employer.id)) ? "fit_ladder" : selectedReasons.get(employer.id) === "page_budget" ? "page_budget" : "low_relevance"),
-          justified: true,
-        }));
+        .map((employer) => {
+          const id = /** @type {string} */ (employer.id);
+          const prior = selected.get(id);
+          return {
+            employerId: id,
+            reason: /** @type {"page_budget"|"fit_ladder"|"low_relevance"|"user_retired"} */ (
+              employer.retired ? "user_retired" : beforeFit.has(id) ? "fit_ladder" : prior?.reason === "page_budget" ? "page_budget" : "low_relevance"),
+            /* M5: retirement, the page fit and the selection's own record
+             * justify an omission; an employer the selection featured that
+             * is gone before the fit has no reason on record. */
+            justified: Boolean(employer.retired) || beforeFit.has(id) || (prior ? prior.justified !== false : !selection),
+          };
+        });
     }
   }
   if (wantsLetter(feature) && model.documents.coverLetter) {
