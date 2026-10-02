@@ -125,15 +125,15 @@ The legacy schema does not expose a per-day series for "found / applied / in-loo
 
 ## 5. Re-render strategy
 
-`dawn.js` mounts a `MutationObserver` on three legacy nodes:
+`dawn.js` re-renders on state signals, never on mutations of legacy nodes (B9):
 
-1. `#briefStats` (subtree, characterData) — fires when `renderBriefStats` writes new HTML
-2. `#briefHeadline` (subtree, characterData) — fires when the legacy headline updates
-3. `#kanbanPipeline` (subtree) — fires when cards are added/removed/restaged
+1. `jb:pipeline:rendered` — the pipeline data changed
+2. `jb:write:succeeded` — a v2 write landed (`flowing-writes.js`)
+3. `jb:data:loading` / `jb:data:loaded` / `jb:data:failed` (and the older `jb:data:load-failed`) — the Sheet read's state; a stale generation is ignored
 
 Each trigger schedules an idle re-render (`requestIdleCallback` with `requestAnimationFrame` fallback). The render is **idempotent**: HTML is hashed by string equality, the DOM only updates on diff.
 
-A second `MutationObserver` watches `body.class` so flipping the `jb-v2` flag at runtime activates / clears the region without a reload.
+A `MutationObserver` watches `body.class` so flipping the `jb-v2` flag at runtime activates / clears the region without a reload.
 
 ---
 

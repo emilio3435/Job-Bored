@@ -160,6 +160,12 @@
      empty-leads card only says "no active roles" once the data loaded. */
   var dataState = "unknown";
 
+  /* R5: the per-company cap applies to triage leads only (New and
+     Researching); a later stage is a commitment and always shows. The
+     "+N hidden" note is a Show all / Show fewer toggle. */
+  var CAPPED_LEAD_STAGES = { "new": true, "researching": true };
+  var leadsShowAll = false;
+
   function pipelineSize() {
     var api = root.JobBored;
     if (!api || typeof api.getPipelineJobs !== "function") return null;
@@ -201,15 +207,21 @@
         '</section>',
       ].join("");
     }
-    // Apply per-company cap so the carousel doesn't show 25 Figma roles in a
-    // row. Survivors are top-3 per company by fit; the rest are summarized in
-    // a small affordance under the queue.
+    // Apply the per-company cap to triage leads so the carousel doesn't show
+    // 25 Figma roles in a row. Survivors are top-3 per company by fit; the
+    // rest are summarized in a toggle under the queue.
     var cap = window.JobBoredCompanyCap;
     var displayLeads = leads;
     var hiddenSummary = [];
     if (cap && typeof cap.capCardsByFit === "function") {
-      displayLeads = cap.capCardsByFit(leads);
-      hiddenSummary = cap.summarizeHidden(leads, displayLeads);
+      var triage = leads.filter(function (lead) { return CAPPED_LEAD_STAGES[lead.stage] === true; });
+      var keptTriage = cap.capCardsByFit(triage);
+      hiddenSummary = cap.summarizeHidden(triage, keptTriage);
+      if (!leadsShowAll && hiddenSummary.length) {
+        displayLeads = leads.filter(function (lead) {
+          return CAPPED_LEAD_STAGES[lead.stage] !== true || keptTriage.indexOf(lead) !== -1;
+        });
+      }
     }
     var counterLabel = '1 of ' + displayLeads.length;
     var cards = displayLeads.map(function (lead, idx) {
@@ -223,9 +235,12 @@
     // Show all leads in the queue (active row dims via CSS).
     var queueRows = displayLeads.map(leadQueueRowHtml).join("");
     var hiddenHtml = hiddenSummary.length
-      ? '<p class="brief-leads-hidden" title="Hidden so one company can’t dominate the lead list.">'
-        + hiddenSummary.map(function (h) { return '+' + h.hidden + ' from ' + escapeHtml(h.company); }).join(' · ')
-        + ' hidden</p>'
+      ? '<button type="button" class="brief-leads-hidden" data-leads-show-all aria-expanded="' + (leadsShowAll ? 'true' : 'false') + '"'
+        + ' title="Up to 3 New or Researching roles per company lead here, so one company can’t dominate the lead list.">'
+        + (leadsShowAll
+          ? 'Show fewer'
+          : 'Show all (' + hiddenSummary.map(function (h) { return '+' + h.hidden + ' from ' + escapeHtml(h.company); }).join(' · ') + ' hidden)')
+        + '</button>'
       : '';
 
     return [
@@ -439,6 +454,14 @@
         }
         return;
       }
+      // R5: Show all / Show fewer under the lead queue.
+      var showAllBtn = e.target.closest('[data-leads-show-all]');
+      if (showAllBtn) {
+        e.preventDefault();
+        leadsShowAll = !leadsShowAll;
+        scheduleRender();
+        return;
+      }
       // Stepper chevrons.
       var stepBtn = e.target.closest('[data-leads-step]');
       if (stepBtn) {
@@ -495,6 +518,75 @@
     return !!(document.body && document.body.classList && document.body.classList.contains("jb-v2"));
   }
 
+  /* B7: a rebuild replaces every node, so remember the active lead (by key)
+     and the focused control (by its data attributes) and put both back on
+     their replacements. Same approach as today.js render(). */
+  var FOCUS_ATTRS = ["data-leads-step", "data-brief-empty", "data-leads-show-all"];
+
+  function leadIndexOf(region, key) {
+    if (!key) return -1;
+    var cards = region.querySelectorAll('[data-leads-stepper] [data-lead-key]');
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute('data-lead-key') === key) {
+        var idx = parseInt(cards[i].getAttribute('data-stepper-index'), 10);
+        return Number.isFinite(idx) ? idx : -1;
+      }
+    }
+    return -1;
+  }
+
+  function leadKeyAt(region, idx) {
+    var card = region.querySelector('[data-leads-stepper] [data-stepper-index="' + idx + '"]');
+    return card ? card.getAttribute('data-lead-key') : null;
+  }
+
+  function captureFocus(region) {
+    var active = region.querySelector('[data-leads-stepper] [data-stepper-active="true"]');
+    var keep = { leadKey: active ? active.getAttribute('data-lead-key') : null, focus: null };
+    var ae = document.activeElement;
+    if (!ae || !ae.getAttribute || !region.contains || !region.contains(ae) || ae === region) return keep;
+    if (ae.hasAttribute('data-leads-stepper')) keep.focus = { stepper: true };
+    else if (ae.hasAttribute('data-leads-jump')) keep.focus = { jumpKey: leadKeyAt(region, ae.getAttribute('data-leads-jump')) };
+    else if (ae.hasAttribute('data-lead-action')) keep.focus = { action: ae.getAttribute('data-lead-action'), key: ae.getAttribute('data-key') };
+    else {
+      for (var i = 0; i < FOCUS_ATTRS.length; i++) {
+        if (ae.hasAttribute(FOCUS_ATTRS[i])) {
+          keep.focus = { attr: FOCUS_ATTRS[i], value: ae.getAttribute(FOCUS_ATTRS[i]) };
+          break;
+        }
+      }
+    }
+    return keep;
+  }
+
+  function restoreFocus(region, keep) {
+    var f = keep.focus;
+    if (!f) return;
+    var target = null;
+    if (f.stepper) target = region.querySelector('[data-leads-stepper]');
+    else if (f.jumpKey != null) {
+      var idx = leadIndexOf(region, f.jumpKey);
+      if (idx >= 0) target = region.querySelector('[data-leads-jump="' + idx + '"]');
+    } else if (f.action) {
+      var acts = region.querySelectorAll('[data-lead-action]');
+      for (var i = 0; i < acts.length; i++) {
+        if (acts[i].getAttribute('data-lead-action') === f.action && acts[i].getAttribute('data-key') === f.key) {
+          target = acts[i];
+          break;
+        }
+      }
+    } else if (f.attr) {
+      var cands = region.querySelectorAll('[' + f.attr + ']');
+      for (var j = 0; j < cands.length; j++) {
+        if (cands[j].getAttribute(f.attr) === f.value) {
+          target = cands[j];
+          break;
+        }
+      }
+    }
+    if (target && typeof target.focus === "function") target.focus();
+  }
+
   /** Idempotent render — schedules via rIC, re-uses identical HTML when unchanged. */
   function scheduleRender() {
     if (!shouldRun()) return;
@@ -510,27 +602,32 @@
         if (!dataApi || typeof dataApi.getDawnViewModel !== "function") return;
         var vm = dataApi.getDawnViewModel();
         var html = buildHtml(vm);
+        var keep = null;
         if (region.__dawnHtml !== html) {
+          keep = captureFocus(region);
           region.innerHTML = html;
           region.__dawnHtml = html;
         }
         root.JobBoredDawn._lastVM = vm;
         bindRegionEvents(region);
-        // Sync aria-current on the queue rows to the initial active card.
+        // Sync aria-current on the queue rows to the active card, which is
+        // the lead that was active before the rebuild when it is still here.
         if (region.querySelector('[data-leads-stepper]')) {
-          setStepperIndex(region, activeStepperIndex(region));
+          var keptIdx = keep ? leadIndexOf(region, keep.leadKey) : -1;
+          setStepperIndex(region, keptIdx >= 0 ? keptIdx : activeStepperIndex(region));
         }
+        if (keep) restoreFocus(region, keep);
       } catch (e) {
         if (typeof console !== "undefined" && console.warn) console.warn("[dawn] render failed", e);
       }
     });
   }
 
-  /** Observe legacy renderBrief side-effects so we re-render when stats change. */
+  /** Re-render on the v2 state signals. B9: no MutationObserver on the
+   *  legacy #briefStats / #briefHeadline; a write lands as
+   *  jb:write:succeeded (flowing-writes.js) and a pipeline change as
+   *  jb:pipeline:rendered. */
   function observeLegacy() {
-    var briefStats = document.getElementById("briefStats");
-    var briefHeadline = document.getElementById("briefHeadline");
-
     // TR-20: pipeline changes arrive as jb:pipeline:rendered (pipeline-render.js
     // dispatches it at the end of every render), not as mutations of the
     // hidden legacy #jobCards board. Never observe document.body — this
@@ -540,11 +637,10 @@
       document.addEventListener("jb:pipeline:rendered", root.JobBoredDawn._pipelineListener);
     }
 
-    var mo = new MutationObserver(function () {
-      scheduleRender();
-    });
-    if (briefStats) mo.observe(briefStats, { childList: true, subtree: true, characterData: true });
-    if (briefHeadline) mo.observe(briefHeadline, { childList: true, characterData: true, subtree: true });
+    if (!root.JobBoredDawn._writeListener) {
+      root.JobBoredDawn._writeListener = function () { scheduleRender(); };
+      document.addEventListener("jb:write:succeeded", root.JobBoredDawn._writeListener);
+    }
 
     // Also observe body class changes (jb-v2 flag toggled at runtime).
     var bodyMo = new MutationObserver(function () {
@@ -559,7 +655,7 @@
     });
     bodyMo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
-    root.JobBoredDawn._observers = { mo: mo, bodyMo: bodyMo };
+    root.JobBoredDawn._observers = { bodyMo: bodyMo };
   }
 
   function init() {
@@ -575,16 +671,25 @@
     scheduleRender();
   }
 
-  function setDataState(next) {
+  /* B2: SHEETS' contract (spec §1b.10) carries a generation; an event from
+     a generation older than the newest seen is stale. jb:data:load-failed
+     is today's name for jb:data:failed. */
+  var dataGeneration = null;
+  function onDataEvent(next, e) {
+    var d = (e && e.detail) || {};
+    var gen = typeof d.generation === "number" && isFinite(d.generation) ? d.generation : null;
+    if (gen != null && dataGeneration != null && gen < dataGeneration) return;
+    if (gen != null) dataGeneration = gen;
     dataState = next;
     scheduleRender();
   }
 
   /* Bound once at load: the signal may arrive before body.jb-v2 is set, and
      scheduleRender is a no-op until it is. */
-  document.addEventListener("jb:data:loading", function () { setDataState("loading"); });
-  document.addEventListener("jb:data:loaded", function () { setDataState("loaded"); });
-  document.addEventListener("jb:data:load-failed", function () { setDataState("failed"); });
+  document.addEventListener("jb:data:loading", function (e) { onDataEvent("loading", e); });
+  document.addEventListener("jb:data:loaded", function (e) { onDataEvent("loaded", e); });
+  document.addEventListener("jb:data:failed", function (e) { onDataEvent("failed", e); });
+  document.addEventListener("jb:data:load-failed", function (e) { onDataEvent("failed", e); });
 
   function observeBodyOnly() {
     if (root.JobBoredDawn && root.JobBoredDawn._bodyOnly) return;
