@@ -34,6 +34,10 @@ function draftingFetch() {
     if (call.url.includes("/profile/from-resume")) {
       return { ok: true, json: { ok: true, profile: DRAFT_PROFILE, source: "staged_request" } };
     }
+    // As server/index.mjs answers it: a starter template, never an empty ok.
+    if (call.url.includes("/profile/template/")) {
+      return { ok: true, json: { ok: true, template: { ...DRAFT_PROFILE } } };
+    }
     return { ok: true, json: { ok: true } };
   });
 }

@@ -1003,25 +1003,45 @@
   // The template path (spec §5 B3 fallbacks)
   // ---------------------------------------------------------------
 
+  /**
+   * @returns {Promise<{ok: boolean, profile: object|null}>} A12: a seed that
+   *   didn't load is a failure, never the same answer as "Start blank".
+   */
   async function fetchTemplateSeed(id) {
-    if (id === "blank") return null;
+    if (id === "blank") return { ok: true, profile: null };
     try {
       const res = await apiFetch(profileUrl(`/profile/template/${encodeURIComponent(id)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
       const data = res ? await res.json().catch(() => null) : null;
-      if (!res || !res.ok || !data || data.ok !== true) return null;
-      return data.template || null;
+      if (!res || !res.ok || !data || data.ok !== true) return { ok: false, profile: null };
+      const template = data.template;
+      if (!template || typeof template !== "object") return { ok: false, profile: null };
+      return { ok: true, profile: template };
     } catch (err) {
       console.warn("[JobBored] one-flow B3 template seed:", err);
-      return null;
+      return { ok: false, profile: null };
     }
   }
 
   async function pickTemplate(id, ctx) {
     const context = ctx || lastCtx;
-    const profile = await fetchTemplateSeed(id);
+    const seed = await fetchTemplateSeed(id);
+    if (!seed.ok) {
+      // A12: stay on the grid and say so; the beat used to complete with a
+      // blank profile the user never chose.
+      const template = TEMPLATES.find((t) => t.id === id);
+      repaint(
+        context,
+        `Couldn't load the ${template ? template.name : "starter"} template from JobBored ` +
+          `on this computer. To start it, ${startHint()}, then pick the template again, ` +
+          "or choose Start blank.",
+        "error",
+      );
+      return;
+    }
+    const profile = seed.profile;
     state.failed = false;
     state.mode = "intake";
     state.draft = { profile, source: "template", starterTemplate: id };
