@@ -1,5 +1,6 @@
 import { loadStoredLlmConfig } from "./llm-config.mjs";
 import { GEMINI_API_BASE, geminiHeaders, normalizeProvider, routeDeadlineSignal } from "./ai/provider.mjs";
+import { pickStableGeminiFlash } from "./model-family.mjs";
 import { isProviderUrlBlocked, providerFetch } from "./provider-url-guard.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
@@ -73,7 +74,7 @@ function takeXai(model) {
 function takeOpenRouter(model) {
   const id = string(model.id);
   if (!id.includes("/")) return null;
-  return { id, label: string(model.name) || id, created: 0 };
+  return { id, label: string(model.name) || id, created: createdValue(model.created) };
 }
 
 /** @type {TakeRow} */
@@ -115,7 +116,7 @@ function takeLocal(model) {
  * @property {(apiKey: string) => Record<string, string>} headers
  * @property {TakeRow} take
  * @property {boolean} newestFirst
- * @property {(models: Array<{ id: string }>) => string | null} recommend
+ * @property {(models: Array<{ id: string, created: number }>) => string | null} recommend
  * @property {(url: string, payload: unknown) => string} nextUrl the next page's URL, or "" when done
  */
 
@@ -135,6 +136,17 @@ function ollamaTagsUrl(baseUrl) {
 /** @param {Array<{ id: string }>} models @param {RegExp} cheap @returns {string | null} */
 function recommendCheapOrFirst(models, cheap) {
   return models.find((model) => cheap.test(model.id))?.id || models[0]?.id || null;
+}
+
+/**
+ * The newest model whose id matches: created stamp first, then a
+ * version-aware id, so the pick never depends on the provider's list order.
+ * @param {Array<{ id: string, created: number }>} models @param {RegExp} pattern @returns {string | null}
+ */
+function newestMatching(models, pattern) {
+  return models
+    .filter((model) => pattern.test(model.id))
+    .sort((a, b) => b.created - a.created || b.id.localeCompare(a.id, undefined, { numeric: true }))[0]?.id || null;
 }
 
 /** @type {Record<string, CatalogSpec>} */
@@ -163,9 +175,8 @@ const CATALOGS = {
     },
     take: takeOpenRouter,
     newestFirst: false,
-    recommend: (models) => models.some((model) => model.id === "openai/gpt-4o-mini")
-      ? "openai/gpt-4o-mini"
-      : models[0]?.id || null,
+    // A cheap grader by default: the newest OpenAI mini route (P16).
+    recommend: (models) => newestMatching(models, /^openai\/gpt-[^/:]*-mini$/i) || newestMatching(models, /./),
     nextUrl: () => "",
   },
   openai: {
@@ -210,7 +221,10 @@ const CATALOGS = {
     headers: (apiKey) => geminiHeaders(apiKey),
     take: takeGemini,
     newestFirst: false,
-    recommend: (models) => recommendCheapOrFirst(models, /flash/i),
+    // The newest stable Flash, not whichever flash the API lists first (P16).
+    recommend: (models) => pickStableGeminiFlash(models.map((model) => model.id))
+      || newestMatching(models, /flash/i)
+      || newestMatching(models, /./),
     nextUrl: (url, payload) => {
       const token = string(pageObject(payload)?.nextPageToken);
       if (!token) return "";
