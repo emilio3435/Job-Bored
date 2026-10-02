@@ -108,8 +108,17 @@ describe("M11 echoBans are capped in count and length", () => {
 
   describe("M11-4 a cached extract from before the cap is capped before it reaches the writer", () => {
     let dir;
-    beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "jb-matq-echo-")); });
-    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+    let priorHome;
+    beforeEach(async () => {
+      dir = await mkdtemp(join(tmpdir(), "jb-matq-echo-"));
+      priorHome = process.env.JOBBORED_HOME;
+      process.env.JOBBORED_HOME = join(dir, "home");
+    });
+    afterEach(async () => {
+      if (priorHome === undefined) delete process.env.JOBBORED_HOME;
+      else process.env.JOBBORED_HOME = priorHome;
+      await rm(dir, { recursive: true, force: true });
+    });
 
     it("M11-4 the draft prompt carries at most 6 short bans, fenced as data", async () => {
       const cached = deterministicExtract({ jdText: JD_TEXT, company: "Acme Analytics", title: "Data Platform Engineer", gate: GATE });
