@@ -280,6 +280,47 @@ function savedJudgeKey(provider, env) {
   return string(judge.apiKey);
 }
 
+/**
+ * The provider's error code, type, status and reasons, lower-cased. Read to
+ * classify a failure only; the upstream body never reaches the reply.
+ * @param {unknown} payload @returns {string[]}
+ */
+function upstreamErrorCodes(payload) {
+  const root = pageObject(payload);
+  const error = (root && pageObject(root.error)) || root;
+  if (!error) return [];
+  const details = Array.isArray(error.details) ? error.details : [];
+  return [error.code, error.type, error.status, ...details.map((detail) => pageObject(detail)?.reason)]
+    .map((value) => string(value).toLowerCase())
+    .filter(Boolean);
+}
+
+/** @param {{ json?: () => Promise<unknown> }} upstream */
+async function upstreamPayload(upstream) {
+  try {
+    return typeof upstream.json === "function" ? await upstream.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A first-page failure in plain words (P12): a refused key says so instead
+ * of "try again", and a key with no credit names billing.
+ * @param {CatalogSpec} spec @param {number} status @param {unknown} payload
+ * @returns {{ status: number, error: string }}
+ */
+function catalogFailure(spec, status, payload) {
+  const codes = upstreamErrorCodes(payload);
+  if (status === 401 || status === 403 || (status === 400 && codes.some((code) => code === "api_key_invalid" || code === "invalid_api_key"))) {
+    return { status: 401, error: `That key didn't work: ${spec.keyWords}.` };
+  }
+  if (codes.includes("insufficient_quota")) {
+    return { status: 402, error: `That key has no credit left: check billing on ${spec.label}.` };
+  }
+  return { status: 502, error: `Couldn't load ${spec.label} models: try again.` };
+}
+
 /** POST /api/llm-config/judge-models. Keys are used for the upstream request only. */
 /**
  * @param {import("express").Request} req
@@ -342,13 +383,10 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
       return;
     }
 
-    if (upstream.status === 401 && page === 0) {
-      res.status(401).json({ error: `That key didn't work: ${spec.keyWords}.` });
-      return;
-    }
     if (!upstream.ok) {
       if (page > 0) break;
-      res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
+      const failure = catalogFailure(spec, upstream.status, await upstreamPayload(upstream));
+      res.status(failure.status).json({ error: failure.error });
       return;
     }
 
