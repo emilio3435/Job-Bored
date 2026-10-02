@@ -54,6 +54,7 @@ to start JobBored calls it rather than writing its own sentence.
   Sheets, and read your name and email. JobBored only opens the sheet it
   creates or the one you paste."
 - Where data lives: "JobBored has no server that sees your data."
-- Sign-in storage: "Your sign-in lasts for this tab only; your Client ID and
-  Sheet link are saved in this browser."
+- Sign-in storage: "JobBored keeps your Google access token in this tab only;
+  new tabs sign you in again quietly. Your Client ID and Sheet link are saved
+  in this browser."
 - Hosted page: "JobBored runs on your computer."

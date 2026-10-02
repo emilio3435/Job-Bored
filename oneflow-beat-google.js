@@ -773,8 +773,11 @@
           "p",
           "oneflow-google__privacy",
           {},
-          "Your sign-in lasts for this tab only; your Client ID and Sheet " +
-            "link are saved in this browser.",
+          // A2: new tabs restore silently, so the sign-in itself is not
+          // tab-only; the access token is (sessionStorage).
+          "JobBored keeps your Google access token in this tab only; new " +
+            "tabs sign you in again quietly. Your Client ID and Sheet link " +
+            "are saved in this browser.",
         ),
       );
       body.appendChild(renderDetour(ctx));
