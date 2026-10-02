@@ -1456,6 +1456,67 @@ function settingsFormIsDirty() {
   return false;
 }
 
+/** The writer's fields: the provider plus every provider's model, key and base URL. */
+function settingsWriterFieldIds() {
+  const ids = new Set(["settingsResumeProvider"]);
+  for (const def of Object.values(SETTINGS_PROVIDER_DEFS)) {
+    ids.add(def.modelSelectId);
+    ids.add(def.keyInputId);
+    if (def.baseUrlInputId) ids.add(def.baseUrlInputId);
+  }
+  return ids;
+}
+
+/**
+ * Another tab saved Settings: AUTH re-read the shared store and announced it
+ * as jb:config:changed. An open form takes the saved values into every field
+ * the user has not touched, and the open-time baselines move with them, so
+ * this tab's Save cannot write a stale copy over the other tab's save. A
+ * field the user is editing keeps the edit; a save error stays on screen.
+ */
+function refreshSettingsFormFromSavedConfig() {
+  if (!isSettingsModalOpen() || !settingsFormSnapshot) return;
+  const before = readSettingsFormState();
+  const edited = new Set(
+    Object.keys(before).filter((id) => id in settingsFormSnapshot && before[id] !== settingsFormSnapshot[id]),
+  );
+  const err = document.getElementById("settingsFormError");
+  const shownError = err ? { text: err.textContent, display: err.style.display } : null;
+  populateCommandCenterSettingsForm();
+  for (const id of edited) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (typeof before[id] === "boolean") {
+      el.checked = before[id];
+      continue;
+    }
+    // A model list rebuilt from config may not offer the user's pick.
+    if (el.tagName === "SELECT" && !Array.from(el.options || []).some((o) => o.value === before[id])) {
+      const opt = document.createElement("option");
+      opt.value = before[id];
+      opt.textContent = before[id];
+      el.appendChild(opt);
+    }
+    el.value = before[id];
+  }
+  if (err && shownError) {
+    err.textContent = shownError.text;
+    err.style.display = shownError.display;
+  }
+  updateSettingsProviderPanels();
+  const after = readSettingsFormState();
+  for (const id of Object.keys(after)) {
+    if (!edited.has(id)) settingsFormSnapshot[id] = after[id];
+  }
+  const writerIds = settingsWriterFieldIds();
+  if (![...edited].some((id) => writerIds.has(id))) {
+    settingsWriterSnapshot = readSettingsWriterState();
+    settingsWriterBaselines = Object.fromEntries(
+      Object.keys(SETTINGS_PROVIDER_DEFS).map((provider) => [provider, readSettingsWriterState(provider)]),
+    );
+  }
+}
+
 function requestCloseCommandCenterSettingsModal() {
   if (settingsFormIsDirty()) {
     const ok =
@@ -2002,6 +2063,10 @@ function initCommandCenterSettings() {
   document.getElementById("settingsBtn")?.addEventListener("click", () => {
     void openCommandCenterSettingsModal();
   });
+  // AUTH announces another tab's Settings save; refresh what this form hasn't touched.
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("jb:config:changed", () => refreshSettingsFormFromSavedConfig());
+  }
   document
     .getElementById("setupOpenSettingsBtn")
     ?.addEventListener("click", () => {
