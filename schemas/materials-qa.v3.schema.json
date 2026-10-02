@@ -1,0 +1,711 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "document",
+    "runId",
+    "passId",
+    "textHash",
+    "state",
+    "disposition",
+    "reasons",
+    "checks",
+    "sentences",
+    "issues",
+    "ratings",
+    "coverage",
+    "reviews",
+    "gates",
+    "qualificationGaps",
+    "degraded",
+    "repair",
+    "versions"
+  ],
+  "properties": {
+    "contract": {
+      "const": "materials.qa.v3"
+    },
+    "document": {
+      "enum": [
+        "letter",
+        "resume"
+      ]
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "passId": {
+      "enum": [
+        "pass-1",
+        "pass-2",
+        null
+      ]
+    },
+    "textHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "state": {
+      "enum": [
+        "graded",
+        "carried_over",
+        "not_rescored"
+      ]
+    },
+    "disposition": {
+      "enum": [
+        "READY",
+        "REVIEW",
+        "FAIL",
+        null
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checkId",
+          "text"
+        ],
+        "properties": {
+          "checkId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "sentences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sentence"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "ratings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rating"
+      }
+    },
+    "coverage": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requirements",
+            "covered",
+            "total"
+          ],
+          "properties": {
+            "requirements": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "text",
+                  "status",
+                  "sentenceIds"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "covered",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "sentenceIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "covered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          }
+        }
+      ]
+    },
+    "reviews": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/review"
+      }
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gate"
+      }
+    },
+    "qualificationGaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "degraded": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempted",
+        "parentRunId",
+        "changed",
+        "adopted",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "attempted": {
+          "type": "boolean"
+        },
+        "parentRunId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "changed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "adopted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/verdict"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/verdict"
+            }
+          ]
+        }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "judgePrompt",
+        "pipeline"
+      ],
+      "properties": {
+        "schema": {
+          "const": "materials.qa.v3"
+        },
+        "judgePrompt": {
+          "const": "materials-judge-v3"
+        },
+        "pipeline": {
+          "type": "string"
+        }
+      }
+    },
+    "carriedFrom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "date"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        }
+      }
+    },
+    "rescore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reducedEvidence"
+      ],
+      "properties": {
+        "reducedEvidence": {
+          "type": "boolean"
+        },
+        "why": {
+          "type": "string"
+        }
+      }
+    },
+    "legacy": {
+      "const": "old_checker"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-qa.v3.schema.json",
+  "title": "materials.qa.v3",
+  "$defs": {
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension",
+        "score",
+        "reason",
+        "sentenceIds"
+      ],
+      "properties": {
+        "dimension": {
+          "enum": [
+            "role_relevance",
+            "evidence_quality",
+            "voice",
+            "coherence",
+            "economy"
+          ]
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sentenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "pass",
+        "reason",
+        "sentenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "hard",
+            "advisory",
+            "constraint"
+          ]
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sentenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "quote"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sentence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text",
+        "status",
+        "reason",
+        "citations"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "uncertain",
+            "nonfactual"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "citations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/citation"
+          }
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "code",
+        "kind",
+        "severity",
+        "sentenceIds",
+        "reason",
+        "action",
+        "origin"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^i[1-9][0-9]*$"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^i[1-9][0-9]*$"
+        },
+        "kind": {
+          "enum": [
+            "fact",
+            "scope",
+            "voice",
+            "relevance",
+            "clarity",
+            "format"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "hard",
+            "review",
+            "note"
+          ]
+        },
+        "sentenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "rewrite",
+            "needs_evidence",
+            "none"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "judge",
+            "gate",
+            "constraint"
+          ]
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "label",
+        "detail",
+        "sentenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "gate",
+            "sentence",
+            "dimension",
+            "constraint",
+            "review",
+            "rescore"
+          ]
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "review",
+            "skipped"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "sentenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "disposition",
+        "failedCheckIds"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "READY",
+            "REVIEW",
+            "FAIL",
+            null
+          ]
+        },
+        "failedCheckIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "provider",
+        "model",
+        "promptVersion",
+        "status",
+        "disposition",
+        "flagged"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "first",
+            "second"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "promptVersion": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "unavailable",
+            "invalid",
+            "skipped"
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "READY",
+            "REVIEW",
+            "FAIL",
+            null
+          ]
+        },
+        "flagged": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sentenceId",
+              "status",
+              "reason"
+            ],
+            "properties": {
+              "sentenceId": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "supported",
+                  "unsupported",
+                  "uncertain",
+                  "nonfactual"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "errorCode": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "latencyMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tokensIn": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tokensOut": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "not_rescored"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "disposition": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "disposition": {
+            "enum": [
+              "READY",
+              "REVIEW",
+              "FAIL"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
