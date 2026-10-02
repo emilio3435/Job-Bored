@@ -645,9 +645,9 @@
       card.setAttribute("data-favorite", favorite ? "true" : "false");
     });
     var buttons = region.querySelectorAll(btnSelector);
+    // B11: the name stays put; aria-pressed (and the visual tooltip) flip.
     buttons.forEach(function (btn) {
       btn.setAttribute("aria-pressed", favorite ? "true" : "false");
-      btn.setAttribute("aria-label", label);
       btn.setAttribute("title", label);
       var mark = btn.querySelector(".pipe-sticker__favorite-mark");
       if (mark) mark.textContent = favorite ? "★" : "☆";
@@ -1106,8 +1106,12 @@
     /* AX-13 / TR-23: the article is no longer a role=button wrapping eleven
        buttons. The role title is the real "Open dossier" button; the article
        keeps data-stable-key and its drag + click-anywhere behaviour. */
-    var openLabel = "Open dossier: " + (card.role || "Untitled role") +
-      (card.company ? " at " + card.company : "");
+    var who = (card.role || "Untitled role") + (card.company ? " at " + card.company : "");
+    var openLabel = "Open dossier: " + who;
+    /* B11: every card control names the role it acts on, and the favorite
+       toggle keeps one name while aria-pressed carries its state. */
+    var editLabel = "Edit role details: " + who;
+    var favoriteLabel = "Favorite: " + who;
 
     var appliedAgeHtml = appliedAgeBadgeHtml(job);
     var html = [
@@ -1127,7 +1131,7 @@
       '  </span>',
       '  <button type="button" class="pipe-sticker__edit" data-card-action="edit-open"',
       '          data-key="' + escapeHtml(cardKey) + '"',
-      '          aria-label="Edit role details" title="Edit role details">',
+      '          aria-label="' + escapeHtml(editLabel) + '" title="Edit role details">',
       '    <svg viewBox="0 0 24 24" width="14" height="14" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">',
       '      <path d="M12 20h9"></path>',
       '      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"></path>',
@@ -1135,12 +1139,12 @@
       '  </button>',
       '  <button type="button" class="pipe-sticker__favorite" data-card-action="toggle-favorite"',
       '          data-key="' + escapeHtml(cardKey) + '"',
-      '          aria-label="' + (isFavorite ? "Unfavorite" : "Favorite") + '"',
+      '          aria-label="' + escapeHtml(favoriteLabel) + '"',
       '          aria-pressed="' + (isFavorite ? "true" : "false") + '"',
       '          title="' + (isFavorite ? "Unfavorite" : "Favorite") + '">',
       '    <span class="pipe-sticker__favorite-mark" aria-hidden="true">' + (isFavorite ? "★" : "☆") + '</span>',
       '  </button>',
-      '  <span class="pipe-sticker__fit" aria-label="Fit ' + (fitNum == null ? "unknown" : fitNum + " of 10") + '">',
+      '  <span class="pipe-sticker__fit" role="img" aria-label="Fit ' + (fitNum == null ? "unknown" : fitNum + " of 10") + '">',
       '    <svg viewBox="0 0 36 36" width="36" height="36" focusable="false" aria-hidden="true">',
       '      <circle class="pipe-sticker__fit-track" cx="18" cy="18" r="15.5" pathLength="100"></circle>',
       '      <circle class="pipe-sticker__fit-fill" cx="18" cy="18" r="15.5" pathLength="100"',

@@ -320,3 +320,32 @@ describe("B4 · the Add job by URL modal is a real dialog (JobBoredA11y.dialog)"
     assert.ok(m.document.activeElement === m.opener);
   });
 });
+
+describe("B11 · card controls have names that say which role they act on", () => {
+  const twoRoles = () => mountBoard({ jobs: [job({ title: "Staff Engineer", company: "Acme" }), job({ title: "Designer", company: "Globex" })] });
+
+  it("should name each card's edit button after its role", () => {
+    const board = twoRoles();
+    const names = board.region.querySelectorAll('[data-card-action="edit-open"]').map((b) => b.getAttribute("aria-label"));
+    assert.deepEqual(names, ["Edit role details: Staff Engineer at Acme", "Edit role details: Designer at Globex"]);
+  });
+
+  it("should keep the favorite toggle's name while aria-pressed carries its state", () => {
+    const board = twoRoles();
+    const star = () => board.region.querySelector('[data-card-action="toggle-favorite"][data-key="0"]');
+    assert.equal(star().getAttribute("aria-label"), "Favorite: Staff Engineer at Acme");
+    assert.equal(star().getAttribute("aria-pressed"), "false");
+    star().click();
+    assert.equal(star().getAttribute("aria-pressed"), "true", "pressing flips the state");
+    assert.equal(star().getAttribute("aria-label"), "Favorite: Staff Engineer at Acme", "the name does not flip with it");
+    const names = board.region.querySelectorAll('[data-card-action="toggle-favorite"]').map((b) => b.getAttribute("aria-label"));
+    assert.equal(new Set(names).size, 2, "two cards, two names");
+  });
+
+  it("should expose the fit ring as an image named with its score", () => {
+    const board = mountBoard({ jobs: [job({ fit: 7 })] });
+    const fit = board.region.querySelector(".pipe-sticker__fit");
+    assert.equal(fit.getAttribute("role"), "img", "a bare span's aria-label is ignored; role=img makes it count");
+    assert.equal(fit.getAttribute("aria-label"), "Fit 7 of 10");
+  });
+});
