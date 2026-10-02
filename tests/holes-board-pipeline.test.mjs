@@ -267,3 +267,56 @@ describe("B6 · the v2 boot contract does not rebuild a mounted board", () => {
     assert.ok(card(board, "0") === null, "the contract still unmounts when v2 turns off");
   });
 });
+
+/** The board plus the real jb-a11y.js, with a top-bar opener outside the region. */
+function mountWithA11y() {
+  const env = createBoardEnv({ html: '<header class="page-top"><button type="button" id="topAdd">Add job</button></header><section data-region="pipeline"></section>' });
+  const w = env.window;
+  const jobs = [job()];
+  w.JobBoredDawn = { data: { getPipelineViewModel: () => viewModelFrom(jobs) } };
+  w.JobBored = { getPipelineJobs: () => jobs, ingestJobUrl: () => new Promise(() => {}) };
+  vm.runInNewContext(read("jb-a11y.js"), w, { filename: "jb-a11y.js" });
+  vm.runInNewContext(pipelineJs, w, { filename: "pipeline.js" });
+  env.flush();
+  const region = env.document.querySelector('[data-region="pipeline"]');
+  const opener = env.document.getElementById("topAdd");
+  const modal = region.querySelector("[data-pipeline-url-modal]");
+  const input = region.querySelector("[data-pipeline-url-input]");
+  /** The top bar's Add job clicks the board's button while keeping focus. */
+  function openFromTopBar() {
+    opener.focus();
+    region.querySelector('.pipe-tool__btn[data-action="add-job-url"]').click();
+    env.flush();
+  }
+  return { ...env, region, opener, modal, input, openFromTopBar };
+}
+
+describe("B4 · the Add job by URL modal is a real dialog (JobBoredA11y.dialog)", () => {
+  it("should move focus into the URL field and make the page behind it inert", () => {
+    const m = mountWithA11y();
+    m.openFromTopBar();
+    assert.equal(m.modal.hidden, false);
+    assert.ok(m.document.activeElement === m.input, "focus lands in the URL field");
+    assert.equal(m.opener.closest(".page-top").inert, true, "the top bar behind the dialog is inert");
+    assert.equal(m.region.querySelector(".pipe-board").closest(".pipe-shell").inert, true, "so is the board");
+  });
+
+  it("should close on Escape and hand focus back to the control that opened it", () => {
+    const m = mountWithA11y();
+    m.openFromTopBar();
+    m.fire(m.input, "keydown", { props: { key: "Escape" } });
+    m.flush();
+    assert.equal(m.modal.hidden, true, "Escape closes the modal");
+    assert.ok(m.document.activeElement === m.opener, "focus returns to the opener");
+    assert.equal(m.opener.closest(".page-top").inert, false, "the page is live again");
+  });
+
+  it("should hand focus back after Cancel too", () => {
+    const m = mountWithA11y();
+    m.openFromTopBar();
+    m.region.querySelector("[data-pipeline-url-cancel]").click();
+    m.flush();
+    assert.equal(m.modal.hidden, true);
+    assert.ok(m.document.activeElement === m.opener);
+  });
+});

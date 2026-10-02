@@ -902,9 +902,32 @@
     resetUrlModal(region, prefill);
     els.modal.hidden = false;
     document.body.classList.add("pipe-url-modal-open");
+    /* B4: a real dialog. Focus moves to the URL field, the page behind goes
+       inert, Escape closes it, and focus returns to whatever opened it (often
+       the top bar's Add job, which clicks this board's button). */
+    var A11y = root.JobBoredA11y;
+    if (A11y && A11y.dialog && typeof A11y.dialog.open === "function") {
+      if (!region.__pipeUrlDialog) {
+        region.__pipeUrlDialog = A11y.dialog.open(els.modal, {
+          initialFocus: els.input,
+          onClose: function (reason) {
+            region.__pipeUrlDialog = null;
+            if (reason === "escape") closeJobUrlModal(region);
+          },
+        });
+      }
+      return;
+    }
     setTimeout(function () {
       if (els.input) els.input.focus();
     }, 0);
+  }
+
+  /** Release the URL dialog: lifts the inert background and returns focus. */
+  function releaseUrlDialog(region) {
+    var dialog = region.__pipeUrlDialog;
+    region.__pipeUrlDialog = null;
+    if (dialog) dialog.close();
   }
 
   function closeJobUrlModal(region) {
@@ -916,6 +939,7 @@
     // the whole board and ate every click — including the favorite
     // stars on both Pipeline and Lattice (Lattice shares the layout).
     setUrlModalBusy(region, false);
+    releaseUrlDialog(region);
     els.modal.hidden = true;
     document.body.classList.remove("pipe-url-modal-open");
     setUrlModalError(region, "");
@@ -1738,6 +1762,8 @@
 
     region.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
+      // B4: an open JobBoredA11y dialog owns Escape (and closes only itself).
+      if (region.__pipeUrlDialog) return;
       var els = getUrlModalEls(region);
       if (!els.modal || els.modal.hidden) return;
       e.preventDefault();
@@ -2253,6 +2279,10 @@
   function clearRegion() {
     var region = getRegion();
     if (!region) return;
+    if (region.__pipeUrlDialog) {
+      releaseUrlDialog(region);
+      document.body.classList.remove("pipe-url-modal-open");
+    }
     if (region.__pipeAbort) region.__pipeAbort.abort();
     region.__pipeAbort = null;
     region.innerHTML = "";
