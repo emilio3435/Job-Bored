@@ -58,6 +58,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: pre;
   color: var(--jb-ink-2);
 }
 .jb-grade[data-tone]:hover { box-shadow: var(--jb-shadow-soft); transform: translateY(-1px); }

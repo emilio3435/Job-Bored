@@ -1825,18 +1825,32 @@
     return host.getAttribute("data-doc") || host.getAttribute("data-doc-type") || "";
   }
 
+  /* The version row a Download sits in (GRADE G6), so its confirm opens
+     under that version, not at the foot of the document's row. */
+  function versionRowOf(node, stop) {
+    for (var t = node; t && t !== stop; t = t.parentNode) {
+      if (t.classList && t.classList.contains("jb-ver__run")) return t;
+    }
+    return null;
+  }
+
   function showFailConfirm(trigger, target) {
     var mi = insights();
-    var host = docHostOf(trigger);
-    if (!mi || !host) return;
-    var prior = host.querySelector(".mat-confirm");
+    var row = docHostOf(trigger);
+    if (!mi || !row) return;
+    var version = versionRowOf(trigger, row);
+    var host = version || row;
+    var prior = row.querySelector(".mat-confirm");
     if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
     var holder = document.createElement("div");
-    var type = docTypeOf(host);
-    /* D2: an old run is read-only, so its confirm offers Cancel, not Repair.
+    var type = docTypeOf(row);
+    /* D2: an old run is read-only, so its confirm offers Cancel, not Repair;
+       so does an earlier version in the list, which Repair does not rewrite.
        GRADE G7: a held version's confirm names why it is held. */
-    var held = trigger.getAttribute("data-held") || "";
-    holder.innerHTML = mi.failConfirmHtml(type, target, { repair: !held && mi.canRepair(qualityDocFor(type)), held: held });
+    holder.innerHTML = mi.failConfirmHtml(type, target, {
+      repair: !version && mi.canRepair(qualityDocFor(type)),
+      held: trigger.getAttribute("data-held") || "",
+    });
     var box = holder.firstElementChild || holder.firstChild;
     if (!box) return;
     host.appendChild(box);
