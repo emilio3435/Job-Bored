@@ -5,6 +5,7 @@ integrations/apps-script/.clasp.json
 .DS_Store
 node_modules/
 server/node_modules/
+server/.image-assets/
 server/.env
 .cursor/
 *.png

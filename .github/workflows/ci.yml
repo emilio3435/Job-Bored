@@ -24,6 +24,30 @@ concurrency:
 # pushes, opens a release PR — does not block PR merges).
 
 jobs:
+  # Advisory: hosted server image, auth boundary and materials runtime assets.
+  server-image-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node scripts/stage-server-image-assets.mjs
+      - run: docker build -t jobbored-server server
+      - name: Smoke hosted auth, templates and PDF
+        run: |
+          set -euo pipefail
+          container=$(docker run -d -p 3847:3847 -e JOBBORED_API_TOKEN=ci-smoke-token -e COMMAND_CENTER_ALLOWED_ORIGINS=https://dashboard.example jobbored-server)
+          trap 'docker logs "$container"; docker rm -f "$container"' EXIT
+          curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:3847/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3847/api/materials/templates)" = 401
+          curl --fail -H 'Authorization: Bearer ci-smoke-token' http://127.0.0.1:3847/api/materials/templates > /tmp/templates.json
+          node -e "const t=JSON.parse(require('fs').readFileSync('/tmp/templates.json')); if(!Array.isArray(t.templates)||!t.templates.length)process.exit(1)"
+          curl --fail -H 'Authorization: Bearer ci-smoke-token' 'http://127.0.0.1:3847/health?deep=1' > /tmp/deep.json
+          node -e "const h=JSON.parse(require('fs').readFileSync('/tmp/deep.json')); if(!h.ok||!h.checks.playwright.ok||h.checks.playwright.browser!=='system')process.exit(1)"
+          docker exec "$container" node --input-type=module -e "import {renderPdfIfPossible} from './materials-pdf.mjs'; import {readFileSync} from 'node:fs'; const p='/tmp/smoke.pdf'; const r=await renderPdfIfPossible('<h1>Hosted PDF smoke</h1>',p); if(r.skipped||readFileSync(p).subarray(0,5).toString()!=='%PDF-')process.exit(1)"
   contract-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20

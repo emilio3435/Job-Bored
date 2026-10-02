@@ -1,11 +1,17 @@
-# Optional Blueprint for Render.com — deploy only the job scraper from server/
+# Keep the checkout root: materials reads schemas, templates and fonts beside server/.
 services:
   - type: web
     name: command-center-job-scraper
     runtime: node
-    rootDir: server
-    buildCommand: npm ci --omit=dev
-    startCommand: node index.mjs
+    buildCommand: npm ci --omit=dev --prefix server
+    startCommand: cd server && node index.mjs
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - server/**
+        - schemas/**
+        - templates/materials/**
+        - vendor/fonts/**
     envVars:
       - key: LISTEN_HOST
         value: "0.0.0.0"

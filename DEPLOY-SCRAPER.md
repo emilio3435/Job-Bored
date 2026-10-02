@@ -21,9 +21,9 @@ The hosted server **fails closed** for browser CORS unless an origin is explicit
 ## Option A: Render (Web Service)
 
 1. New **Web Service**, connect this repo.
-2. **Root directory:** `server`
-3. **Build command:** `npm install`
-4. **Start command:** `node index.mjs`
+2. **Root directory:** leave blank so `schemas/`, `templates/materials/` and `vendor/fonts/` remain available. The root engines and `.nvmrc` select Node 24.
+3. **Build command:** `npm ci --omit=dev --prefix server`
+4. **Start command:** `cd server && node index.mjs`
 5. Add environment variable **`LISTEN_HOST`** = `0.0.0.0` (Render sets **`PORT`**).
 6. Add **`COMMAND_CENTER_ALLOWED_ORIGINS`** = your dashboard origin (for example `https://yourname.github.io` or `https://yourname.github.io/command-center`'s origin `https://yourname.github.io`).
 7. Add **`JOBBORED_API_TOKEN`** = a long random secret.
@@ -35,7 +35,8 @@ The hosted server **fails closed** for browser CORS unless an origin is explicit
 From the repo root:
 
 ```bash
-docker build -f server/Dockerfile -t job-scraper ./server
+node scripts/stage-server-image-assets.mjs
+docker build -t job-scraper server
 docker run -p 3847:3847 \
   -e LISTEN_HOST=0.0.0.0 \
   -e PORT=3847 \
@@ -44,15 +45,17 @@ docker run -p 3847:3847 \
   job-scraper
 ```
 
-Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings.
+Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings. The image includes the materials schemas, templates, fonts and system Chromium, runs as the non-root `node` user and checks `/health`. Restage assets before each build. Native Render has no bundled Chromium; use the Docker image for hosted PDF rendering.
 
 ## Option C: Fly.io / Railway / etc.
 
-Same idea: run `node index.mjs` in `server/`, set `LISTEN_HOST=0.0.0.0`, ensure the platform assigns `PORT` and TLS termination.
+Use the Docker image above, or keep a full checkout and run `cd server && node index.mjs`; the directories beside `server/` must remain available. Set `LISTEN_HOST=0.0.0.0` and ensure the platform assigns `PORT` and TLS termination.
 
 ## Health check
 
 `GET /health` returns JSON like `{ "ok": true }` — use it for uptime checks.
+
+`GET /health?deep=1` reports schemas, templates, fonts, the PDF browser and the logo resolver. It returns 503 when required assets are missing; the browser and resolver are optional and have their own verdicts. Hosted callers must send the API token. The server-only Docker image reports the optional logo resolver as unavailable because its Python script is outside that build context.
 
 ## OAuth note
 
