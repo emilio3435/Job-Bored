@@ -467,7 +467,7 @@
     var mi = insights();
     var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
       return "brief-materials__btn brief-materials__btn--" + kind;
-    }, { fail: !!(mi && mi.isFail(quality)), held: heldReason(quality) });
+    }, { fail: !!(mi && mi.isFail(quality)), held: heldReason(manifest, doc.type) });
 
     var metaParts = [];
     var primaryFormat = formats.filter(function (f) { return f; })[0];
@@ -1228,7 +1228,7 @@
       var actions = status === "ready" || status === "review"
         ? docActionButtons(manifest.slug, doc, base, verdict ? null : issue, function (kind) {
           return "case__doc-btn case__doc-btn--" + kind;
-        }, { menu: true, fail: fail, held: heldReason(qualityForRow) }).concat(extraDocActions(def.type, doc))
+        }, { menu: true, fail: fail, held: heldReason(manifest, def.type) }).concat(extraDocActions(def.type, doc))
         : (status === "missing" && def.draftAction
           ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
             + escapeHtml(def.draftAction) + '">Draft</button>']
@@ -2499,11 +2499,20 @@
     return g ? ms.buttonHtml(g.verdict, { feature: feature, scope: "row", stale: g.stale }) : "";
   }
 
-  /* G7: a FAIL root is held; its downloads confirm in the page first. */
-  function heldReason(qualityDoc) {
+  var HELD_DOC_LABEL = { resume: "Resume", cover_letter: "Cover letter" };
+
+  /* G7 (FIX1-F4): one Held rule, the version list's — a run with any FAIL
+     document is held. A root document is held by its own FAIL, or by a FAIL
+     document published from the same run, whose reason it then names. */
+  function heldReason(manifest, feature) {
     var ms = scoreApi();
-    var v = ms ? ms.verdictView(qualityDoc) : null;
-    return v && v.held ? v.held.reason : "";
+    if (!ms) return "";
+    var own = ms.verdictView(qualityDocOf(manifest, feature));
+    if (own.held) return own.held.reason;
+    if (!own.runId) return "";
+    var other = feature === "resume" ? "cover_letter" : "resume";
+    var v = ms.verdictView(qualityDocOf(manifest, other));
+    return v.held && v.runId === own.runId ? HELD_DOC_LABEL[other] + ": " + v.held.reason : "";
   }
 
   function draftRunning(m) {

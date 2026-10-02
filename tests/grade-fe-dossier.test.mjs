@@ -126,13 +126,36 @@ describe("GRADE-F G7 · a held root downloads only after the in-page confirm", (
     const gated = row.querySelectorAll('[data-gate="held"]');
     assert.ok(gated.length >= 3, "PDF, text and Word");
     assert.equal(row.querySelectorAll('[data-gate="fail"]').length, 0);
-    assert.equal(env.rowOf("resume").querySelectorAll("[data-gate]").length, 0, "a Ready document downloads freely");
     const pdf = [...gated].find((a) => /cover-letter\.pdf/.test(a.getAttribute("href") || ""));
     pdf.dispatchEvent(click(pdf));
     const box = row.querySelector(".mat-confirm");
     assert.ok(box, "the in-page confirm opened");
     assert.equal(box.getAttribute("data-gate"), "held");
     assert.equal(text(box.querySelector(".mat-confirm__q")), "This version is held — Tool support. Download anyway?");
+  });
+});
+
+/* FIX1-F4 (Astra F11): one Held rule. A run with any FAIL document is held,
+   so the Ready resume of that same run asks first too — as its row in
+   Versions does — while a resume from another run downloads freely. */
+describe("GRADE-F FIX1-F4 · root downloads follow the run-level Held rule", () => {
+  it("GRADE-F FIX1-F4: a Ready resume of a run whose letter fails is held; one from another run is not", async () => {
+    const env = boot();
+    await env.openRole();
+    const resume = env.rowOf("resume");
+    assert.equal(text(resume.querySelector("[data-score-open]")), "Ready", "its own verdict is still Ready");
+    const gated = resume.querySelectorAll('[data-gate="held"]');
+    assert.ok(gated.length >= 2, "PDF, text and Word ask first");
+    assert.equal(gated[0].getAttribute("data-held"), "Cover letter: Tool support");
+    const pdf = [...gated].find((a) => /resume\.pdf/.test(a.getAttribute("href") || ""));
+    pdf.dispatchEvent(click(pdf));
+    assert.equal(text(resume.querySelector(".mat-confirm__q")), "This version is held — Cover letter: Tool support. Download anyway?");
+
+    const other = manifest();
+    other.quality.documents.resume = qd({ ...V3.V3_READY, document: "resume", runId: "mr_20261001090000_acme_r0" });
+    const env2 = boot({ manifest: other });
+    await env2.openRole();
+    assert.equal(env2.rowOf("resume").querySelectorAll("[data-gate]").length, 0, "a Ready document from another run downloads freely");
   });
 });
 

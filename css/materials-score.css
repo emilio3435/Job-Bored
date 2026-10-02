@@ -429,6 +429,9 @@ html.jb-score-open { overflow: hidden; }
 .jb-ver .jb-ver__btn:hover { border-color: var(--jb-ink-3); }
 .jb-ver .jb-ver__btn:focus-visible { outline: none; box-shadow: var(--jb-shadow-focus); }
 .jb-ver__empty { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-3); }
+.jb-ver .jb-ver__checks { margin: 0; color: var(--jb-ink-2); }
+.jb-ver .jb-ver__checks summary { min-height: 32px; display: flex; align-items: center; cursor: pointer; font-weight: 500; color: var(--jb-action); }
+.jb-ver .jb-ver__checks ul { margin: 0; padding-left: 18px; }
 
 /* ---------- Footer: Repair · Rescore · Close ---------- */
 .jb-score .jb-score__foot {
@@ -506,6 +509,7 @@ html.jb-score-open { overflow: hidden; }
   .jb-score .jb-score__dim { grid-template-columns: minmax(0, 1fr) auto; }
   .jb-score .jb-score__dim .jb-score__meter { grid-column: 1 / -1; grid-row: 2; }
   .jb-ver .jb-ver__btn { min-height: 44px; }
+  .jb-ver .jb-ver__checks summary { min-height: 44px; }
   .jb-grade[data-tone] { min-height: 44px; }
 }
 
