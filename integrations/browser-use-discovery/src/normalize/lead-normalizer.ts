@@ -247,10 +247,11 @@ export async function normalizeLeadWithDiagnostics(
   const detailHaystack = descriptionText.toLowerCase();
   const haystack = [headlineHaystack, detailHaystack].filter(Boolean).join(" ");
 
-  const matchedExcludeKeywords = findMatchedKeywords(
-    haystack,
-    configuredExcludeKeywords,
-  );
+  const excludeScopes = splitExcludeKeywordScopes(configuredExcludeKeywords);
+  const matchedExcludeKeywords = dedupeStrings([
+    ...findMatchedKeywords(headlineHaystack, excludeScopes.headline),
+    ...findMatchedKeywords(detailHaystack, excludeScopes.anywhere),
+  ]);
   if (enforceRelevanceFilters && matchedExcludeKeywords.length > 0) {
     return {
       lead: null,
@@ -550,6 +551,28 @@ function tokenizeKeywords(values: string[]): string[] {
   );
 }
 
+// HOLES R1: an exclude keyword matches the headline (title, company,
+// location, tags); a boilerplate mention in the description is no reason to
+// drop a lead. "anywhere: <keyword>" opts that keyword into the description.
+const ANYWHERE_EXCLUDE_PREFIX = /^anywhere\s*:\s*/i;
+
+export function splitExcludeKeywordScopes(keywords: string[]): {
+  /** Every exclude keyword, prefix removed; each matches the headline. */
+  headline: string[];
+  /** The "anywhere:" keywords, prefix removed; these also match the description. */
+  anywhere: string[];
+} {
+  const headline: string[] = [];
+  const anywhere: string[] = [];
+  for (const keyword of tokenizeKeywords(keywords)) {
+    const bare = keyword.replace(ANYWHERE_EXCLUDE_PREFIX, "").trim();
+    if (!bare) continue;
+    headline.push(bare);
+    if (ANYWHERE_EXCLUDE_PREFIX.test(keyword)) anywhere.push(bare);
+  }
+  return { headline: dedupeStrings(headline), anywhere: dedupeStrings(anywhere) };
+}
+
 export function findMatchedKeywords(haystack: string, keywords: string[]): string[] {
   const normalizedHaystack = normalizeWhitespace(haystack).toLowerCase();
   return tokenizeKeywords(keywords).filter((keyword) =>
@@ -562,7 +585,10 @@ function matchesAnyKeyword(haystack: string, keywords: string[]): boolean {
 }
 
 function keywordMatchesHaystack(haystack: string, keyword: string): boolean {
-  const normalizedKeyword = normalizeWhitespace(keyword).toLowerCase();
+  // An "anywhere:" exclude keyword still matches as itself (R1).
+  const normalizedKeyword = normalizeWhitespace(
+    keyword.replace(ANYWHERE_EXCLUDE_PREFIX, ""),
+  ).toLowerCase();
   if (!normalizedKeyword) return false;
   if (!/[a-z0-9]/.test(normalizedKeyword)) {
     return haystack.includes(normalizedKeyword);

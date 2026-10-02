@@ -118,7 +118,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `remotePolicy`    | string | e.g. remote-first, hybrid, on-site.            |
 | `seniority`       | string | e.g. mid, senior, staff.                       |
 | `keywordsInclude` | string | Comma-separated or free text to bias toward.   |
-| `keywordsExclude` | string | Terms to avoid.                                |
+| `keywordsExclude` | string | Terms to avoid. Each matches the title, company, location and tags; prefix one with `anywhere:` (e.g. `anywhere: security clearance`) to match the description too. |
 | `maxLeadsPerRun`  | string | Suggested cap as decimal string (e.g. `"15"`). |
 | `groundedWebEnabled` | boolean | Optional per-run grounded-web opt-out. `false` is authoritative in effective-source resolution and excludes `grounded_web` even when the source preset would include it. |
 | `profileSnapshot` | object | Optional non-secret metadata proving the current profile/resume/preferences/schedule snapshot used for the run. Raw resume text is not included. |
