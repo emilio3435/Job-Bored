@@ -93,7 +93,8 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     assert.equal(resolve(undefined), "gemini-flash-latest");
     assert.equal(resolve("models/GEMINI-3.7-FLASH"), "gemini-flash-latest");
     assert.equal(resolve("gemini-3.5-flash"), "gemini-3.5-flash");
-    assert.equal(resolve("gemini-flash-lite"), "gemini-flash-lite");
+    // HOLES PROV P3: Flash Lite is a Settings family name like gemini-flash.
+    assert.equal(resolve("gemini-flash-lite"), "gemini-flash-lite-latest");
     assert.equal(resolve("gemini-2.5-pro"), "gemini-2.5-pro");
     assert.equal(resolve("gemini-3.5-flash"), "gemini-3.5-flash");
     assert.equal(resolve("gemini-2.5-pro"), "gemini-2.5-pro");

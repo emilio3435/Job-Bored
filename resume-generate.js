@@ -521,6 +521,12 @@
 
   const GEMINI_FLASH_FAMILY = "gemini-flash";
   const GEMINI_FLASH_PROVIDER_ALIAS = "gemini-flash-latest";
+  /** Settings' Gemini family names; Google serves only the -latest ids. */
+  const GEMINI_FAMILY_ALIASES = new Map([
+    [GEMINI_FLASH_FAMILY, GEMINI_FLASH_PROVIDER_ALIAS],
+    ["gemini-pro", "gemini-pro-latest"],
+    ["gemini-flash-lite", "gemini-flash-lite-latest"],
+  ]);
 
   /** The previous app automatically wrote 3.7 for a Flash family choice.
    *  Its exact id has no provenance, so migrate that one legacy default.
@@ -534,10 +540,11 @@
       : id;
   }
 
-  /** Map the logical family to Google's hot-swapped alias before HTTP. */
+  /** Map a logical family to Google's hot-swapped alias before HTTP. */
   function resolveGeminiFlashAlias(model) {
     const preference = normalizeGeminiFlashPreference(model);
-    return preference === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_PROVIDER_ALIAS : preference;
+    const bare = preference.replace(/^models\//i, "").toLowerCase();
+    return GEMINI_FAMILY_ALIASES.get(bare) || preference;
   }
   /** The Gemini model that last answered — the live check reports this,
    *  not the configured id, so a repaired fallback shows the truth. */
