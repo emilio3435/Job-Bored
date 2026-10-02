@@ -3,16 +3,18 @@
    ------------------------------------------------------------
    Renders the v2 horizontal sticker board into
      <section data-region="pipeline">.
-   Read-only consumer of legacy DOM via
-     window.JobBoredDawn.data.getPipelineViewModel().
+   Reads the loaded rows through
+     window.JobBoredDawn.data.getPipelineViewModel() (dawn-data.js).
 
    Activates only when document.body has class "jb-v2".
    - Does NOT mutate any DOM outside region:pipeline.
-   - Does NOT write to the Sheet directly (droid 2.F handles that).
-   - Stage moves dispatch CustomEvent "jb:pipeline:move" with
-       detail: { jobKey, fromStage, toStage }.
+   - Does NOT write to the Sheet directly: stage moves go through
+       window.JobBoredPipelineTransitionAdapter.move (the CustomEvent
+       "jb:pipeline:move" { jobKey, fromStage, toStage } is the fallback
+       when the adapter is absent).
      Optimistic DOM move; rolls back on "jb:write:failed".
-   - Card click sets location.hash = "#letter=<jobKey>".
+   - Card click opens the role through window.JobBoredFlowing.openRole,
+     which syncs location.hash to "#role=<jobKey>" (flowing-store.js).
    - Drag uses vanilla pointer events with setPointerCapture
      (no third-party DnD libraries).
    ============================================================ */
@@ -2206,8 +2208,7 @@
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline._observers = { bodyMo: bodyMo };
 
-    // Hash listener for navigation away from #letter (no-op here, just wired).
-    // Drop targets / write failures handled inside bindRegion.
+    // Drop targets / write failures are handled inside bindRegion.
   }
 
   function refreshMaterialsIndex(opts) {

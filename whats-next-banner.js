@@ -2,29 +2,29 @@
    COMMAND CENTER v2 — "What's next" dashboard banner
 
    Classic-global IIFE under window.JobBoredApp.whatsNextBanner — NOT an
-   ES module. Loaded AFTER first-run-wizard.js, BEFORE app.js. Owns the
-   dismissible progressive-disclosure banner that surfaces the two
-   OPTIONAL "what's next" steps after the first-run infra wizard is
-   finished (VAL-SIGN-001 / VAL-SIGN-002).
+   ES module. Loaded BEFORE app.js. Owns the dismissible
+   progressive-disclosure banner that surfaces the two OPTIONAL "what's
+   next" steps (discovery, other devices) once setup is finished
+   (VAL-SIGN-001 / VAL-SIGN-002).
 
-   Visibility rule (VAL-SIGN-002): the banner renders ONLY when
-   infraSetupComplete is true AND whatsNextDismissed is false AND
-   UC.isOnboardingComplete() is true. The third gate ensures the banner
-   never competes with the separate profile wizard
-   (onboarding-wizard.js), which takes the full-viewport surface after
-   the infra wizard finishes.
+   Visibility rule (VAL-SIGN-002): the banner renders ONLY when the user
+   is signed in AND infraSetupComplete is true AND whatsNextDismissed is
+   false AND UC.isOnboardingComplete() is true, and no session "Later"
+   snooze is active. The onboarding gate keeps the banner from competing
+   with the one-flow onboarding (onboarding-flow.js), which owns the
+   surface until setup is done.
 
    Completion-awareness (FE-3): the banner reads two more flags —
    discoverySetupComplete and goLiveSetupComplete — and hides the
    matching CTA once its track is done, marking the remaining one as
-   the recommended next step. When BOTH tracks are complete the banner
+   the recommended next step. When BOTH tracks are settled the banner
    hides entirely, so finishing either order surfaces the other path.
 
-   The two CTA buttons share their handlers with the in-wizard terminal
-   #firstRunPanelDone so the destinations stay consistent across
-   surfaces. Dismiss writes the persisted flag and hides the section
-   permanently; the flag survives reloads via user-content-store.js's
-   settings store.
+   The discovery CTA opens the one-flow's discovery beat when it is
+   available and falls back to the discovery setup wizard; the
+   other-devices CTA opens the go-live wizard. Dismiss writes the
+   persisted flag and hides the section permanently; the flag survives
+   reloads via user-content-store.js's settings store.
    ============================================ */
 (() => {
   const root = window.JobBoredApp || (window.JobBoredApp = {});
