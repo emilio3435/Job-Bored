@@ -69,8 +69,8 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read();
-  assert.equal(LEDGER_BUILDER_VERSION, 17);
-  assert.equal(out.builderVersion, 17);
+  assert.equal(LEDGER_BUILDER_VERSION, 18);
+  assert.equal(out.builderVersion, 18);
 });
 it('ASTRA-R3 cached builder 15 output is reread under the new coverage and audit guards', async () => {
   const text = `${source}\n\n\n`;
@@ -223,4 +223,16 @@ it('T-K16-05 resume_too_long has explicit user copy', async () => {
   assert.equal(out.ingest.code, 'resume_too_long');
   assert.match(out.ingest.reason, /60,000|too long/i);
   assert.equal(validateIngestResult(JSON.parse(readFileSync(resultPath, 'utf8'))).ok, true);
+});
+
+it('M3-12 cached builder 17 inventory is reread before it can keep unverified owned tools', async () => {
+  const first = await read();
+  assert.equal(first.ingest.status, 'ready');
+  const prior = structuredClone((await readLedger()).ledger);
+  prior.builderVersion = 17;
+  await writeLedgerAtomic(prior);
+  let calls = 0;
+  const fresh = await read(source, { callStage: async () => { calls++; return reply; } });
+  assert.ok(calls > 0, 'builder 17 tool ownership must be rebuilt from the resume');
+  assert.equal(fresh.ingest.status, 'ready');
 });

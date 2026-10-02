@@ -71,6 +71,7 @@ export function spelledMetrics(text) {
     .replace(/\b(doubled|tripled|quadrupled)\b(?![-\s]+(?:down|as|up|back|over)\b)/gi, (m) => MULTIPLE[m.toLowerCase()])
     .replace(new RegExp(`\\b(${NUMBER})\\s+((?:[\\p{L}-]+\\s+){0,2}?)(?=(?:${COUNT_NOUNS})\\b)`, "giu"), (m, n, gap, offset, whole) => {
       if (/^\d/.test(n) || Number(numberValue(n)) < 2 || NOT_A_COUNT_GAP.test(gap) || /\p{Lu}/u.test(gap)) return m;
+      if (/\b(?:top|bottom|first)[-\s]+$/i.test(whole.slice(0, offset))) return m;
       /* A capitalised number word mid-sentence names something ("Big Four"). */
       if (/^\p{Lu}/u.test(n) && !SENTENCE_START.test(whole.slice(0, offset))) return m;
       return `${numberValue(n)} ${gap}`;
