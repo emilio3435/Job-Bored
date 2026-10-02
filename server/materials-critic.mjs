@@ -148,9 +148,10 @@ function resumeSlotClaimIds(sentence, draft) {
 }
 
 /**
- * SourceRefs take priority. Resume bullet claimIds are the direct fallback;
- * otherwise only claims from the sentence's uniquely named employer may
- * ground a metric.
+ * A resume bullet or earlier line is grounded by its own claim (M4: a
+ * writer sourceRef cannot lend it another claim's number). Otherwise
+ * sourceRefs take priority; then only claims from the sentence's uniquely
+ * named employer may ground a metric.
  * @param {string} sentence
  * @param {Array<{ sentence?: string, claimIds?: string[] }>} sourceRefs
  * @param {{ statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} draft
@@ -160,6 +161,11 @@ function resumeSlotClaimIds(sentence, draft) {
  * @returns {string[]}
  */
 function sourceClaimIdsForSentence(sentence, sourceRefs, draft, ledger, document, directClaimId) {
+  if (document === "resume") {
+    if (typeof directClaimId === "string") return [directClaimId];
+    const slotIds = resumeSlotClaimIds(sentence, draft);
+    if (slotIds?.length) return slotIds;
+  }
   const exactKey = exactSentenceKey(sentence);
   const exactRefs = sourceRefs.filter((ref) => typeof ref.sentence === "string" && exactSentenceKey(String(ref.sentence || "")) === exactKey);
   if (exactRefs.length) return unambiguousRefClaimIds(exactRefs) || [];
@@ -169,7 +175,6 @@ function sourceClaimIdsForSentence(sentence, sourceRefs, draft, ledger, document
     const sourceSentences = new Set(fuzzyRefs.map((ref) => exactSentenceKey(String(ref.sentence || ""))));
     return sourceSentences.size === 1 ? unambiguousRefClaimIds(fuzzyRefs) || [] : [];
   }
-  if (typeof directClaimId === "string") return [directClaimId];
 
   if (document === "resume") {
     const slotIds = resumeSlotClaimIds(sentence, draft);

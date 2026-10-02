@@ -15,6 +15,7 @@
 import { toolPattern } from "./materials-tool-match.mjs";
 import { profileForLedger } from "./profile-identity.mjs";
 import { maskNonMetrics } from "./materials-numerals.mjs";
+import { spelledMetrics } from "./materials-metric-tag.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { userInfo } from "node:os";
 import { dirname, join, resolve as resolvePath, sep } from "node:path";
@@ -87,7 +88,8 @@ const MAX_CLAIM_TEXT = 2000;
  * 15: refresh section guards, dated-field candidates and metadata membership.
  * 16: refresh experience boundaries, single-year jobs and audited metadata.
  * 17: profile strength evidence is verified only when the résumé carries it
- * verbatim (M3), and unverified claims add no tool evidence. */
+ * verbatim (M3), and unverified claims add no tool evidence; spelled-out
+ * figures ("forty percent", "$3 million") become metric tokens (M4). */
 export const LEDGER_BUILDER_VERSION = 17;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
@@ -173,7 +175,7 @@ export function extractMetrics(text) {
   /** @type {Array<{ token: string, unit?: string }>} */
   const out = [];
   const seen = new Set();
-  for (const match of maskNonMetrics(text).matchAll(METRIC_RE)) {
+  for (const match of maskNonMetrics(spelledMetrics(text)).matchAll(METRIC_RE)) {
     const token = match[1];
     if (!token || seen.has(token)) continue;
     if (YEAR_RE.test(token) || YEAR_RANGE_RE.test(token)) continue;
