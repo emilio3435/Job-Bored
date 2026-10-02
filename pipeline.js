@@ -1491,9 +1491,18 @@
     rerender(region, state);
   }
 
+  /* B1: one AbortController per mount. Every listener a mount binds, on the
+     region and on document, rides its signal; clearRegion aborts it. The
+     <section> outlives an unmount, so without this each remount (a
+     body.jb-v2 flip, the v2 boot contract) stacked another full set. */
+  function mountListenerOptions(region) {
+    return region.__pipeAbort ? { signal: region.__pipeAbort.signal } : undefined;
+  }
+
   function ensureShell(region, state) {
     if (region.__pipeMounted) return;
     region.__pipeMounted = true;
+    region.__pipeAbort = typeof root.AbortController === "function" ? new root.AbortController() : null;
     region.innerHTML = buildShell(state);
     applyCollapsedState(region, state);
     applyView(region, state);
@@ -1552,6 +1561,7 @@
   /* ------------------------------ events -------------------------------- */
 
   function bindToolbar(region, state) {
+    var on = mountListenerOptions(region);
     // The favorite star toggles from BOTH the native click and a pointerup
     // fallback. Some environments eat the synthetic click that follows
     // pointerup on these draggable cards — the card-open handler already
@@ -1574,7 +1584,7 @@
       if (e.button !== 0) return;
       var favoriteBtn = e.target.closest('[data-card-action="toggle-favorite"]');
       if (favoriteBtn) toggleFavoriteByKey(favoriteBtn.getAttribute("data-key"));
-    });
+    }, on);
 
     region.addEventListener("click", function (e) {
       var toggle = e.target.closest('.pipe-col__toggle[data-stage-toggle]');
@@ -1652,14 +1662,14 @@
         closeJobUrlModal(region);
         return;
       }
-    });
+    }, on);
 
     region.addEventListener("submit", function (e) {
       var form = e.target && e.target.closest && e.target.closest("[data-pipeline-url-form]");
       if (!form) return;
       e.preventDefault();
       submitJobUrlModal(region);
-    });
+    }, on);
 
     region.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
@@ -1667,7 +1677,7 @@
       if (!els.modal || els.modal.hidden) return;
       e.preventDefault();
       closeJobUrlModal(region);
-    });
+    }, on);
 
     region.addEventListener("input", function (e) {
       var input = e.target && e.target.closest && e.target.closest("[data-pipeline-search]");
@@ -1675,15 +1685,15 @@
       state.search = String(input.value || "").trim();
       rerender(region, state);
       setSearchInputState(region, state);
-    });
+    }, on);
   }
 
   function bindRegion(region, state) {
-    // Idempotent guard. If the region was re-bound (e.g. re-mount after
-    // body.jb-v2 flicker, or after clearRegion()), we replace the
-    // previous handlers rather than stacking them.
+    // Idempotent guard within one mount. clearRegion() aborts the mount's
+    // listeners (B1) before it resets this flag, so a re-mount binds once.
     if (region.__pipeBound) return;
     region.__pipeBound = true;
+    var on = mountListenerOptions(region);
 
     function openRoleAndScroll(key, stageKey) {
       if (!key) return;
@@ -1722,7 +1732,7 @@
       state.filters = normalizePipelineFilters(e && e.detail);
       setFilterChipState(region, state);
       scheduleRender();
-    });
+    }, on);
 
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.focusSearch = focusSearch;
@@ -1773,7 +1783,7 @@
         if (key) openRoleAndScroll(key, stageKey);
         return;
       }
-    });
+    }, on);
 
     // Belt-and-suspenders: some environments (Safari touch, nested scroll
     // containers, browser extensions that swallow click) eat the synthetic
@@ -1796,11 +1806,11 @@
           openRoleAndScroll(key, stageKey);
         }
       }, 60);
-    });
+    }, on);
     region.addEventListener("click", function (e) {
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker) sticker.__pipeTapPending = false;
-    });
+    }, on);
 
     // Keyboard: Enter / Space on a sticker = open role.
     region.addEventListener("keydown", function (e) {
@@ -1812,7 +1822,7 @@
       var key = sticker.getAttribute("data-stable-key");
       var stageKey = sticker.getAttribute("data-stage");
       if (key) openRoleAndScroll(key, stageKey);
-    });
+    }, on);
 
     // Drag and drop via pointer events.
     bindPointerDrag(region, state);
@@ -1828,7 +1838,7 @@
         if (pendingList[i].jobKey === jobKey) pendingList.splice(i, 1);
       }
       scheduleRender();
-    });
+    }, on);
 
     document.addEventListener("jb:write:failed", function (e) {
       var detail = e && e.detail ? e.detail : {};
@@ -1869,7 +1879,7 @@
           retryMove(region, rolledBack);
         },
       });
-    });
+    }, on);
   }
 
   /** Re-issue a failed drag as a fresh move through the same planner. */
@@ -1975,6 +1985,7 @@
 
   function bindPointerDrag(region, _state) {
     var drag = null; // { card, ghost, fromStage, jobKey, pointerId, startX, startY, moved }
+    var on = mountListenerOptions(region);
 
     region.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
@@ -2000,7 +2011,7 @@
         moved: false,
         captured: false,
       };
-    });
+    }, on);
 
     region.addEventListener("pointermove", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2020,7 +2031,7 @@
         drag.ghost.style.transform = "translate(" + (e.clientX - drag.offsetX) + "px," + (e.clientY - drag.offsetY) + "px)";
         highlightDropTarget(region, e.clientX, e.clientY);
       }
-    });
+    }, on);
 
     region.addEventListener("pointerup", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2046,7 +2057,7 @@
       // If !drag.moved, this was a tap — do nothing; the click event will
       // fire naturally and the delegated click handler will navigate.
       drag = null;
-    });
+    }, on);
 
     region.addEventListener("pointercancel", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2059,7 +2070,7 @@
         setTimeout(function () { cancelled.__pipeJustDragged = false; }, 150);
       }
       drag = null;
-    });
+    }, on);
   }
 
   function startGhost(region, drag) {
@@ -2181,6 +2192,8 @@
   function clearRegion() {
     var region = getRegion();
     if (!region) return;
+    if (region.__pipeAbort) region.__pipeAbort.abort();
+    region.__pipeAbort = null;
     region.innerHTML = "";
     region.__pipeMounted = false;
     region.__pipeBound = false;
