@@ -512,6 +512,9 @@ async function requestDiscoverySetup(options = {}) {
 const MAX_POLL_ERRORS = 3;
 const STATUS_POLL_DEBOUNCE_MS = 500;
 
+// D2: the one poll loop this tab runs (see startDiscoveryStatusPolling).
+let activePollLoop = null;
+
 // A /runs/:id answer is either transient (worth another poll) or settled
 // (the endpoint will never report this run). Burning three retries on a 404
 // and then telling the user "the run may still be running" is a false
@@ -772,10 +775,14 @@ async function retryRunWrite(runId, googleAccessToken) {
  * Fetch and process a single status poll for the active run.
  * Returns the parsed status body or null on error.
  * @param {string} webhookUrl
+ * @param {{isCurrent?: () => boolean}} [options]  the calling loop; a loop
+ *   that is no longer current never marks the tracker (D2)
  * @returns {Promise<object|null>}
  */
-async function pollRunStatus(webhookUrl) {
+async function pollRunStatus(webhookUrl, options) {
   const tracker = runTracker();
+  const isCurrent =
+    options && typeof options.isCurrent === "function" ? options.isCurrent : () => true;
   const state = tracker.getState();
   if (!state.runId || !state.statusPath) return null;
 
@@ -791,19 +798,36 @@ async function pollRunStatus(webhookUrl) {
       ? window.JobBoredRelayAuth.fetch
       : fetch;
 
+  // D4: a hung relay must not stall the loop forever. The tracker's poll
+  // session aborts this request after the per-poll timeout, and aborts it
+  // at once when a new run starts.
+  const perPollTimeoutMs =
+    Number(window.JobBoredDiscovery.runTracker.DEFAULT_PER_POLL_TIMEOUT_MS) || 8000;
+  const pollSignal =
+    typeof tracker.createPollSignal === "function"
+      ? tracker.createPollSignal(perPollTimeoutMs)
+      : null;
+
   let response;
   try {
     response = await relayFetch(statusUrl, {
       method: "GET",
       mode: "cors",
       headers: buildDiscoveryStatusPollHeaders(statusUrl),
+      ...(pollSignal ? { signal: pollSignal.signal } : {}),
     });
   } catch (err) {
+    if (!isCurrent()) return null;
     tracker.markPollError(
-      `Network error fetching status: ${err && err.message ? err.message : String(err)}`,
+      err && err.name === "AbortError"
+        ? `Status request timed out after ${Math.round(perPollTimeoutMs / 1000)}s`
+        : `Network error fetching status: ${err && err.message ? err.message : String(err)}`,
     );
     return null;
+  } finally {
+    if (pollSignal && typeof pollSignal.done === "function") pollSignal.done();
   }
+  if (!isCurrent()) return null;
 
   if (!response.ok) {
     if (classifyRunStatusPollResponse(response.status) === "terminal") {
@@ -832,11 +856,11 @@ async function pollRunStatus(webhookUrl) {
   try {
     data = await response.json();
   } catch (_) {
-    tracker.markPollError("Status response was not valid JSON");
+    if (isCurrent()) tracker.markPollError("Status response was not valid JSON");
     return null;
   }
 
-  return data;
+  return isCurrent() ? data : null;
 }
 
 function retryDiscoveryStatusConnection() {
@@ -970,12 +994,32 @@ async function startDiscoveryStatusPolling(webhookUrl) {
   const pollingWebhookUrl = getDiscoveryStatusPollingWebhookUrl(webhookUrl);
 
   // Cancel any in-flight polling session before starting fresh
-  if (tracker._pollTimer) {
-    clearTimeout(tracker._pollTimer);
-    tracker._pollTimer = null;
-  }
+  stopDiscoveryStatusPolling();
+
+  // D2: this loop is live only while it is the tab's newest loop and the
+  // tracker still holds the run it started on. beginTracking bumps the
+  // generation, so a new run retires the old loop at its next await even
+  // when that loop's poll was already in flight.
+  const started = tracker.getState();
+  const loop = {
+    runId: String(started.runId || ""),
+    generation: Number(started.pollGeneration) || 0,
+  };
+  activePollLoop = loop;
+  // A reload re-polls a lost run once; if it is still unreachable the loss
+  // was already shown, so it settles again without a second toast (D6).
+  const resumedSettled = typeof tracker.isSettled === "function" && tracker.isSettled();
+  const isCurrent = () => {
+    if (activePollLoop !== loop) return false;
+    const now = tracker.getState();
+    return (
+      String(now.runId || "") === loop.runId &&
+      (Number(now.pollGeneration) || 0) === loop.generation
+    );
+  };
 
   async function poll() {
+    if (!isCurrent()) return;
     const state = tracker.getState();
 
     // If we've reached terminal or been cleared, stop
@@ -983,7 +1027,8 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    const statusData = await pollRunStatus(pollingWebhookUrl);
+    const statusData = await pollRunStatus(pollingWebhookUrl, { isCurrent });
+    if (!isCurrent()) return;
     if (statusData) {
       tracker.updateFromStatusResponse(statusData);
       surfacePreFilterRejectionsFromStatus(statusData);
@@ -1003,7 +1048,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
         );
-        renderDiscoveryRunStatus();
+        renderDiscoveryRunStatus({ quiet: resumedSettled });
         return;
       }
       // Exponential-ish back-off: 1s, 2s, 4s
@@ -1014,12 +1059,26 @@ async function startDiscoveryStatusPolling(webhookUrl) {
 
     if (tracker.isTerminal()) {
       await refreshPipelineAfterDiscoveryRun(updated);
+      if (!isCurrent()) return;
       renderDiscoveryRunStatus();
       // The user saw the terminal toast live — don't re-toast it on the
       // next reload (resumeDiscoveryStatusPollingIfNeeded checks this).
       if (typeof tracker.acknowledgeTerminalOutcome === "function") {
         tracker.acknowledgeTerminalOutcome();
       }
+      return;
+    }
+
+    // D4: past maxRunDurationMs + grace and the worker has gone quiet —
+    // stop watching and say so. Fresh progress is never cut short (§0.4).
+    const nowMs = Date.now();
+    if (
+      typeof tracker.isPastDeadline === "function" &&
+      tracker.isPastDeadline(nowMs) &&
+      !tracker.hasFreshProgress(nowMs)
+    ) {
+      tracker.markDeadlineExceeded();
+      renderDiscoveryRunStatus();
       return;
     }
 
@@ -1039,8 +1098,19 @@ async function startDiscoveryStatusPolling(webhookUrl) {
   tracker._pollTimer = setTimeout(poll, firstDelay);
 }
 
+/**
+ * D5/D6: the user dismisses a run the browser can no longer watch. The
+ * worker's run is untouched — only this dashboard forgets it.
+ */
+function dismissDiscoveryRun() {
+  stopDiscoveryStatusPolling();
+  runTracker().clear();
+  renderDiscoveryRunStatus();
+}
+
 /** Stop any active polling loop without clearing run state */
 function stopDiscoveryStatusPolling() {
+  activePollLoop = null;
   if (runTracker()._pollTimer) {
     clearTimeout(runTracker()._pollTimer);
     runTracker()._pollTimer = null;
@@ -1133,18 +1203,17 @@ function resumeDiscoveryStatusPollingIfNeeded() {
     surfaceStoredTerminalRunOutcomeOnce(afterResume);
     return;
   }
-  if (!state.statusPath) {
-    if (state.statusUnavailable && runTracker().isActive()) {
-      renderDiscoveryRunStatus();
-    }
-    return;
-  }
+  // D5: a run with no status path was surfaced when it started — a reload
+  // stays quiet (the drawer card still shows it, with Dismiss).
+  if (!state.statusPath) return;
   const next = runTracker().getState();
-  if (!runTracker().isActive()) return;
-  renderDiscoveryRunStatus();
   // A settled status endpoint stays settled across a reload — re-polling it
-  // would only re-earn the same 404/401.
-  if (next.statusEndpointTerminal) return;
+  // would only re-earn the same 404/401. So does a run past its deadline.
+  if (next.statusEndpointTerminal || next.deadlineExceeded) return;
+  if (!["pending", "running", "polling_error"].includes(next.status)) return;
+  // D6: a lost connection is not a settled answer, so the reload tries again
+  // — quietly, because the loss was already shown when it happened.
+  if (runTracker().isActive()) renderDiscoveryRunStatus();
   void startDiscoveryStatusPolling(next.webhookUrl || host().getDiscoveryWebhookUrl());
 }
 
@@ -1196,7 +1265,10 @@ const RUN_STATUS_BUTTON_CLASSES = [
  * Render current run status into the discovery status bar (toast area / status chip).
  * Called after every tracker state change so the user sees live progress.
  */
-function renderDiscoveryRunStatus() {
+function renderDiscoveryRunStatus(options) {
+  // quiet: refresh the button and live view without a toast — the outcome
+  // was already shown (a reload, or another tab told the user).
+  const quiet = !!(options && options.quiet);
   const state = runTracker().getState();
   const openBtn = document.getElementById("discoveryBtn");
 
@@ -1242,7 +1314,9 @@ function renderDiscoveryRunStatus() {
         ? "Discovery can't report this run. " +
           (why ? why + ". " : "") +
           "Open Runs for details."
-        : state.pollErrorCount >= MAX_POLL_ERRORS
+        : state.deadlineExceeded
+          ? "Discovery stopped watching this run: it went past its time limit without reporting an end. Check Runs for the outcome."
+          : state.pollErrorCount >= MAX_POLL_ERRORS
           ? "Discovery started — we stopped getting updates. The search may still be running; new roles may land in your Pipeline. Check Runs in a few minutes."
           : "Reconnecting to the search…";
       statusTone = "warning";
@@ -1297,7 +1371,7 @@ function renderDiscoveryRunStatus() {
   if (openBtn && statusMessage) {
     openBtn.setAttribute("aria-label", statusMessage);
     // Also surface in a toast for non-terminal states
-    if (state.status !== "idle") {
+    if (state.status !== "idle" && !quiet) {
       // Use a transient toast (non-blocking) for live updates
       const retryAction = expiredSearchKey
         ? {
@@ -1308,11 +1382,13 @@ function renderDiscoveryRunStatus() {
           }
         : state.status === "polling_error" &&
             !state.statusEndpointTerminal &&
+            !state.deadlineExceeded &&
             state.statusPath &&
             state.pollErrorCount >= MAX_POLL_ERRORS
           ? { label: "Retry status", onClick: retryDiscoveryStatusConnection }
           : (state.status === "pending" && state.statusUnavailable) ||
-              (state.status === "polling_error" && state.statusEndpointTerminal) ||
+              (state.status === "polling_error" &&
+                (state.statusEndpointTerminal || state.deadlineExceeded)) ||
               state.status === "partial" ||
               state.status === "failed" ||
               state.status === "write_failed"
@@ -1709,6 +1785,7 @@ function resetPostAccessBootstrap() {
     refreshPipelineAfterDiscoveryRun: refreshPipelineAfterDiscoveryRun,
     startDiscoveryStatusPolling: startDiscoveryStatusPolling,
     stopDiscoveryStatusPolling: stopDiscoveryStatusPolling,
+    dismissDiscoveryRun: dismissDiscoveryRun,
     getRemoteDiscoveryWebhookHost: getRemoteDiscoveryWebhookHost,
     surfaceStoredTerminalRunOutcomeOnce: surfaceStoredTerminalRunOutcomeOnce,
     resumeDiscoveryStatusPollingIfNeeded: resumeDiscoveryStatusPollingIfNeeded,

@@ -12,7 +12,14 @@
   const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
   const MAX_POLL_ERRORS = 3;
   const DEFAULT_PER_POLL_TIMEOUT_MS = 8000;
-  const DEFAULT_OVERALL_POLL_DEADLINE_MS = 15 * 60 * 1000;
+  // §0.4/§0.11: the scrape is massive, so the browser watches a run for as
+  // long as the worker may run it — the worker's default maxRunDurationMs —
+  // plus a grace that covers the worker's own safety timer (at most 30 s past
+  // the budget) and a few polls to read the terminal status it writes.
+  const DEFAULT_MAX_RUN_DURATION_MS = 3 * 60 * 60 * 1000;
+  const RUN_DEADLINE_GRACE_MS = 5 * 60 * 1000;
+  const DEFAULT_OVERALL_POLL_DEADLINE_MS =
+    DEFAULT_MAX_RUN_DURATION_MS + RUN_DEADLINE_GRACE_MS;
 
   function createAbortablePollSession() {
     let generation = 0;
@@ -87,7 +94,8 @@
             { once: true },
           );
         }
-        return { signal: controller.signal, generation };
+        // done(): the poll answered — drop its timer so it cannot fire late.
+        return { signal: controller.signal, generation, done: cleanup };
       },
       startOverallDeadline(timeoutMs) {
         if (overallController) {
@@ -191,6 +199,11 @@
 
   function cleanRunProgressCount(value) {
     return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  function positiveMs(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
   }
 
   const FILTER_STATS_MAX_KEYWORDS = 20;
@@ -379,7 +392,9 @@
     if (status === "polling_error") {
       health = s.statusEndpointTerminal
         ? { key: "lost", text: "Discovery can't report this run." }
-        : Number(s.pollErrorCount) >= MAX_POLL_ERRORS
+        : s.deadlineExceeded
+          ? { key: "lost", text: "This run went past its time limit. Check Runs for the outcome." }
+          : Number(s.pollErrorCount) >= MAX_POLL_ERRORS
           ? {
               key: "lost",
               text: "We stopped getting updates. The search may still be running.",
@@ -625,6 +640,8 @@
           progressObservedAt: parsed.progressObservedAt || "",
           progressHeartbeatSeen: !!parsed.progressHeartbeatSeen,
           filterStats: sanitizeFilterStats(parsed.filterStats),
+          maxRunDurationMs: positiveMs(parsed.maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
+          deadlineExceeded: !!parsed.deadlineExceeded,
         };
       } catch (_) {
         return this._idle();
@@ -670,6 +687,8 @@
         progressObservedAt: "",
         progressHeartbeatSeen: false,
         filterStats: null,
+        maxRunDurationMs: DEFAULT_MAX_RUN_DURATION_MS,
+        deadlineExceeded: false,
       };
     }
 
@@ -695,6 +714,7 @@
       variationKey = "",
       requestedAt = "",
       statusUnavailable = false,
+      maxRunDurationMs = DEFAULT_MAX_RUN_DURATION_MS,
     }) {
       if (this._pollSession) this._pollSession.abortAll();
       const pollGeneration = this._pollSession
@@ -729,6 +749,8 @@
         progressObservedAt: "",
         progressHeartbeatSeen: false,
         filterStats: null,
+        maxRunDurationMs: positiveMs(maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
+        deadlineExceeded: false,
       };
       this._persist(this._state);
       return this;
@@ -736,6 +758,17 @@
 
     _now() {
       return Date.now();
+    }
+
+    /**
+     * D4: an AbortSignal for one status poll. It fires after `timeoutMs`, and
+     * at once when beginTracking starts another run (D2).
+     */
+    createPollSignal(timeoutMs) {
+      if (typeof AbortController !== "function" || typeof setTimeout !== "function") {
+        return null;
+      }
+      return this._pollSession.createPollSignal(timeoutMs);
     }
 
     /**
@@ -786,6 +819,7 @@
       this._state.lastPollAt = new Date().toISOString();
       this._state.statusUnavailable = false;
       this._state.statusEndpointTerminal = false;
+      this._state.deadlineExceeded = false;
       const isTerminal = !!statusData.terminal;
       const runStatus = String(statusData.status || "").toLowerCase();
       const request = statusData.request && typeof statusData.request === "object"
@@ -838,8 +872,9 @@
         this._persist(this._state);
         return this;
       }
-      // Non-terminal: ensure we're in running, not stuck in pending
-      if (this._state.status === "pending") {
+      // Non-terminal: ensure we're in running, not stuck in pending — or in
+      // polling_error after the status endpoint answered again (D1).
+      if (this._state.status === "pending" || this._state.status === "polling_error") {
         this._state.status = "running";
       }
       this._state.pollErrorCount = 0; // reset on successful poll
@@ -907,6 +942,7 @@
       this._state.pollErrorCount = 0;
       this._state.statusUnavailable = false;
       this._state.statusEndpointTerminal = false;
+      this._state.deadlineExceeded = false;
       this._persist(this._state);
       return this;
     }
@@ -962,9 +998,62 @@
       return this;
     }
 
-    /** True when there is an in-progress run that should show UI feedback. */
+    /**
+     * D4: the browser stops watching a run once it is past
+     * maxRunDurationMs + grace from its start — unless the worker is still
+     * reporting progress, which is never cut short (§0.4).
+     */
+    isPastDeadline(nowMs) {
+      const s = this._state;
+      const startMs = Date.parse(s.startedAt || s.initiatedAt || "");
+      if (!Number.isFinite(startMs)) return false;
+      const budget = positiveMs(s.maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS);
+      return nowMs > startMs + budget + RUN_DEADLINE_GRACE_MS;
+    }
+
+    hasFreshProgress(nowMs) {
+      const observedMs = Date.parse(this._state.progressObservedAt || "");
+      return Number.isFinite(observedMs) && nowMs - observedMs <= RUN_PROGRESS_STALL_MS;
+    }
+
+    /** D4: the run outlived its budget without reporting an end. */
+    markDeadlineExceeded() {
+      this._state.status = "polling_error";
+      this._state.deadlineExceeded = true;
+      this._state.pollErrorCount = Math.max(this._state.pollErrorCount || 0, MAX_POLL_ERRORS);
+      this._state.lastPollAt = new Date().toISOString();
+      this._state.errorMessage =
+        "This run went past its time limit without reporting an end. Check Runs for the outcome.";
+      this._state.statusUnavailable = true;
+      this._persist(this._state);
+      return this;
+    }
+
+    /**
+     * D5/D6: the browser has stopped watching this run, or never could — no
+     * status path, polling gave up, the endpoint disowned it, or it outlived
+     * its deadline. Its outcome is unknown, it blocks nothing, and the user
+     * may dismiss it.
+     */
+    isSettled() {
+      const s = this._state;
+      if (s.status === "pending") return !!s.statusUnavailable && !s.statusPath;
+      if (s.status === "polling_error") {
+        return !!(
+          s.statusEndpointTerminal ||
+          s.deadlineExceeded ||
+          Number(s.pollErrorCount) >= MAX_POLL_ERRORS
+        );
+      }
+      return false;
+    }
+
+    /** True when there is an in-progress run the browser is still watching. */
     isActive() {
-      return ["pending", "running", "polling_error"].includes(this._state.status);
+      return (
+        ["pending", "running", "polling_error"].includes(this._state.status) &&
+        !this.isSettled()
+      );
     }
 
     /** True when the run has reached a terminal state. */
@@ -1017,6 +1106,8 @@
     MAX_POLL_ERRORS,
     DEFAULT_PER_POLL_TIMEOUT_MS,
     DEFAULT_OVERALL_POLL_DEADLINE_MS,
+    DEFAULT_MAX_RUN_DURATION_MS,
+    RUN_DEADLINE_GRACE_MS,
     DiscoveryRunTracker,
     discoveryRunTracker,
     dispatchDiscoveryRunTrackerEvent,

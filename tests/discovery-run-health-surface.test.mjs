@@ -171,14 +171,17 @@ describe("renderDiscoveryRunStatus — expired-key honest state", () => {
 });
 
 describe("resumeDiscoveryStatusPollingIfNeeded — login gate", () => {
-  // A stale run with statusUnavailable + active would replay a run-status
-  // toast on load. That must NOT happen before the user signs in (the toast
-  // was leaking onto the login screen).
+  // A stored run outcome replays a run-status toast once on load. That must
+  // NOT happen before the user signs in (the toast was leaking onto the
+  // login screen). HOLES DISCO D5: this pair used an untracked pending run,
+  // whose toast on every reload was itself the bug; a stored outcome still
+  // surfaces once after sign-in, so the pair still proves the gate.
   const staleState = {
     runId: "run_f7d9abcd",
     statusPath: "",
-    statusUnavailable: true,
-    status: "pending",
+    status: "failed",
+    errorMessage: "Worker timed out after 300s.",
+    terminalAcknowledged: false,
   };
 
   it("is a no-op when signed out (no pre-login run-status toast)", () => {
