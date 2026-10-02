@@ -69,8 +69,8 @@ it('T-K10-03 builder 10 rebuilds with a model', async () => {
   prior.builderVersion = 10;
   await writeLedgerAtomic(prior);
   const out = await read();
-  assert.equal(LEDGER_BUILDER_VERSION, 16);
-  assert.equal(out.builderVersion, 16);
+  assert.equal(LEDGER_BUILDER_VERSION, 17);
+  assert.equal(out.builderVersion, 17);
 });
 it('ASTRA-R3 cached builder 15 output is reread under the new coverage and audit guards', async () => {
   const text = `${source}\n\n\n`;
