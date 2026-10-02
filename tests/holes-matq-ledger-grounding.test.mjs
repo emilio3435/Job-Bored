@@ -10,6 +10,7 @@ import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { scoreClaims } from "../server/materials-claim-score.mjs";
 import { criticHardChecks } from "../server/materials-critic.mjs";
 import { tagDraftMetrics } from "../server/materials-metric-tag.mjs";
+import { runHardGates } from "../server/materials-rubric.mjs";
 import { validateLedger } from "../server/materials-ledger.mjs";
 
 const RESUME = [
@@ -107,5 +108,32 @@ describe("M3 profile evidence is verified only when the résumé carries it", ()
     const ledger = ledgerWith([{ name: "Data", evidence: "Rebuilt every forecast in Snowflake for Contoso Media." }]);
     assert.equal(strength(ledger, 1).verified, false);
     assert.equal(ledger.toolInventory.find((entry) => entry.tool === "Snowflake"), undefined);
+  });
+});
+
+
+describe("M3 Grok follow-ups keep unverified tools out of proof and ownership", () => {
+  it("M3-9 tool_support rejects unverified-only evidence and keeps verified or legacy claims", () => {
+    const supports = (claims) => runHardGates({ document: "resume", finalText: "Used Snowflake.", ledger: { claims } })
+      .find((gate) => gate.id === "tool_support").pass;
+    assert.equal(supports([{ id: "fake", text: "Used Snowflake.", verified: false }]), false);
+    for (const verified of [true, undefined]) {
+      assert.equal(supports([{ id: "real", text: "Used Snowflake.", verified }, { id: "fake", text: "Used Kafka.", verified: false }]), true);
+    }
+  });
+
+  it("M3-10 unverified strength keywords require their own résumé mention", () => {
+    const ledger = ledgerWith([{ name: "Data", evidence: "Rebuilt every forecast in Snowflake for Contoso Media.", keywords: ["Snowflake", "SQL", "Kafka"] }],
+      `${RESUME}\nUsed sql and NoKafka for partner reports.`);
+    assert.equal(strength(ledger, 1).verified, false);
+    assert.equal(ledger.toolInventory.find((entry) => entry.tool === "Snowflake"), undefined);
+    assert.equal(ledger.toolInventory.find((entry) => entry.tool === "Kafka"), undefined);
+    assert.equal(ledger.toolInventory.find((entry) => entry.tool === "SQL").level, "owned");
+  });
+
+  it("M3-11 verified strengths retain their owned keywords", () => {
+    const ledger = ledgerWith([{ name: "Growth", evidence: "Scaled partner revenue from $2M to $9M across three markets.", keywords: ["Snowflake"] }]);
+    assert.equal(strength(ledger, 1).verified, true);
+    assert.equal(ledger.toolInventory.find((entry) => entry.tool === "Snowflake").level, "owned");
   });
 });

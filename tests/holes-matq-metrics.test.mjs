@@ -106,3 +106,12 @@ describe("M4 spelled figures are read without inventing any (review round)", () 
     assert.ok(Date.now() - started < 500, `took ${Date.now() - started} ms`);
   });
 });
+
+
+it("M4-14 a number word immediately after top, bottom or first is a rank, not a count", () => {
+  for (const text of ["Reached top three markets.", "Prioritized the BOTTOM five accounts.", "Opened the first six locations.", "Reached top twenty-five markets."]) {
+    assert.deepEqual(numerals(text), [], text);
+  }
+  assert.deepEqual(numerals("Managed three markets and five accounts."), ["3", "5"]);
+  assert.deepEqual(numerals("Ranked top-3 with 40 percent growth."), ["top-3", "40%"]);
+});

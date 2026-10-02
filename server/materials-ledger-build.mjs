@@ -89,8 +89,9 @@ const MAX_CLAIM_TEXT = 2000;
  * 16: refresh experience boundaries, single-year jobs and audited metadata.
  * 17: profile strength evidence is verified only when the résumé carries it
  * verbatim (M3), and unverified claims add no tool evidence; spelled-out
- * figures ("forty percent", "$3 million") become metric tokens (M4). */
-export const LEDGER_BUILDER_VERSION = 17;
+ * figures ("forty percent", "$3 million") become metric tokens (M4).
+ * 18: strength keywords require verified evidence or a résumé mention (M3). */
+export const LEDGER_BUILDER_VERSION = 18;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -597,16 +598,18 @@ export function buildLedger({
 
   if (!claims.length) throw ledgerEmptyError();
 
-  /* Tool inventory: profile keywords are user-asserted (owned), resume
+  /* Tool inventory: grounded profile keywords are owned, resume-only
    * mentions are adjacent. First mention wins the evidence ref. */
   /** @type {Map<string, { tool: string, level: string, evidence: string | null, transferFrom: string[] }>} */
   const inventory = new Map();
   if (isRecord(profile) && Array.isArray(profile.strengths)) {
     for (const raw of profile.strengths) {
       if (!isRecord(raw) || !Array.isArray(raw.keywords)) continue;
+      const verified = foundInResume(desplitMetricTokens(clean(raw.evidence, 1200)), resumeKey);
       for (const keyword of raw.keywords) {
         const tool = clean(keyword, 80);
         if (!tool || inventory.has(tool.toLowerCase())) continue;
+        if (!verified && !toolPattern(tool).test(resume)) continue;
         inventory.set(tool.toLowerCase(), {
           tool,
           level: "owned",
