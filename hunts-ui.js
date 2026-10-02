@@ -681,21 +681,43 @@
     }
   }
 
+  // The discovery drawer closes itself on any Escape that reaches the
+  // document, so a dialog stacked on it keeps Escape to itself and closes
+  // only itself.
+  function shieldEscape(el, onEscape) {
+    if (!el || typeof el.addEventListener !== "function") return;
+    el.addEventListener("keydown", function (event) {
+      if (!event || event.key !== "Escape") return;
+      event.stopPropagation();
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      onEscape();
+    });
+  }
+
   function confirmRemove(name) {
     var api = a11y();
     if (api && api.dialog && typeof api.dialog.confirm === "function") {
-      return api.dialog
-        .confirm({
-          title: "Stop saving this hunt?",
-          body:
-            (name ? "“" + name + "” " : "This search ") +
-            "will no longer run on its own. Its past runs stay in the Runs log.",
-          confirmLabel: "Remove hunt",
-          cancelLabel: "Keep it",
-        })
-        .then(function (result) {
-          return Boolean(result && result.confirmed);
-        });
+      var pending = api.dialog.confirm({
+        title: "Stop saving this hunt?",
+        body:
+          (name ? "“" + name + "” " : "This search ") +
+          "will no longer run on its own. Its past runs stay in the Runs log.",
+        confirmLabel: "Remove hunt",
+        cancelLabel: "Keep it",
+      });
+      var doc = root.document;
+      var shown =
+        doc && typeof doc.querySelectorAll === "function"
+          ? doc.querySelectorAll(".jb-a11y-dialog--confirm")
+          : [];
+      var dialogEl = shown.length ? shown[shown.length - 1] : null;
+      shieldEscape(dialogEl, function () {
+        var cancel = dialogEl.querySelector(".jb-a11y-dialog__btn--cancel");
+        if (cancel) cancel.click();
+      });
+      return pending.then(function (result) {
+        return Boolean(result && result.confirmed);
+      });
     }
     return Promise.resolve(
       typeof root.confirm === "function" ? root.confirm("Remove this saved hunt?") : false,
@@ -735,6 +757,9 @@
           },
         });
       }
+      shieldEscape(host, function () {
+        finish(null);
+      });
       host.addEventListener("click", function (event) {
         var target = event.target;
         if (target && target.closest && target.closest("[data-hunts-dialog=cancel]")) finish(null);
@@ -880,6 +905,23 @@
       if (el && typeof el.focus === "function") el.focus();
     }
 
+    // A re-render replaces the row's controls, so put focus back on the
+    // re-created one (attribute values are matched, never put in a selector).
+    function focusControl(actions, attr, value) {
+      var all = panel.querySelectorAll("[data-hunts-action]");
+      for (var i = 0; i < all.length; i += 1) {
+        var el = all[i];
+        if (
+          actions.indexOf(el.getAttribute("data-hunts-action")) !== -1 &&
+          el.getAttribute(attr) === value &&
+          typeof el.focus === "function"
+        ) {
+          el.focus();
+          return;
+        }
+      }
+    }
+
     function onClick(event) {
       var target = event.target;
       var btn = target && target.closest ? target.closest("[data-hunts-action]") : null;
@@ -889,20 +931,28 @@
       if (action === "refresh") {
         refresh();
       } else if (action === "toggle-save") {
-        var cluster = clusterByKey(btn.getAttribute("data-cluster-key") || "");
+        var key = btn.getAttribute("data-cluster-key") || "";
+        var cluster = clusterByKey(key);
+        var refocusSwitch = function () {
+          focusControl(["toggle-save"], "data-cluster-key", key);
+        };
         if (!cluster) return;
         if (cluster.huntId) {
           var saved = huntById(cluster.huntId);
           confirmRemove(saved ? saved.name : cluster.label).then(function (yes) {
-            if (yes) withBusy(cluster.huntId, function () {
+            if (!yes) return refocusSwitch();
+            withBusy(cluster.huntId, function () {
               return store.deleteHunt(cluster.huntId);
-            });
+            }).then(refocusSwitch);
           });
         } else {
           openSavePicker(
             { searchPlan: cluster.searchPlan, fromRunId: cluster.lastRunId, label: cluster.label },
             { store: store, opener: btn },
-          ).then(render);
+          ).then(function () {
+            render();
+            refocusSwitch();
+          });
         }
       } else if (action === "run-search") {
         // Spec §0.5: re-run a productive past search once, unsaved. It goes
@@ -937,21 +987,26 @@
           },
         );
       } else if (action === "run") {
+        var refocusRun = function () {
+          focusControl(["run"], "data-hunt-id", id);
+        };
         withBusy(id, function () {
           return store.runHunt(id);
         }).then(function (res) {
+          refocusRun();
           if (!res.ok) return;
           announce(
             res.kind === "queued"
               ? "Queued: the hunt runs when the current run finishes."
               : "Hunt started. Follow it in the Runs log.",
           );
-          refresh();
+          refresh().then(refocusRun);
         });
       } else if (action === "pause" || action === "resume") {
         withBusy(id, function () {
           return store.updateHunt(id, { status: action === "pause" ? "paused" : "active" });
         }).then(function (res) {
+          focusControl(["pause", "resume"], "data-hunt-id", id);
           if (res.ok) announce(action === "pause" ? "Hunt paused." : "Hunt resumed.");
         });
       } else if (action === "edit") {
@@ -969,7 +1024,12 @@
           withBusy(id, function () {
             return store.deleteHunt(id);
           }).then(function (res) {
-            if (res.ok) announce("Hunt deleted.");
+            if (!res.ok) return focusControl(["delete"], "data-hunt-id", id);
+            announce("Hunt deleted.");
+            var next =
+              panel.querySelector("[data-hunts-saved] [data-hunts-action]") ||
+              panel.querySelector('[data-hunts-action="refresh"]');
+            if (next && typeof next.focus === "function") next.focus();
           });
         });
       }
@@ -1061,6 +1121,7 @@
     scheduleFromValues: scheduleFromValues,
     scheduleLabel: scheduleLabel,
     searchTerms: searchTerms,
+    shieldEscape: shieldEscape,
     shareLabel: shareLabel,
     toggleRunHunt: toggleRunHunt,
   };

@@ -388,3 +388,23 @@ test("HUNT-FE-UI-10: a hitlist row offers Run again, which runs the search once 
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].hunt)), { searchPlanOverride: PLAN });
   assert.equal(btn.disabled, false, "the button comes back after the dispatch settles");
 });
+
+test("HUNT-FE-UI-11: Escape inside a hunts dialog closes only that dialog, never the drawer under it", () => {
+  // discovery-drawer.js closes the whole drawer on any Escape that reaches
+  // document; the picker and the remove-confirm keep Escape to themselves.
+  let handler = null;
+  const el = { addEventListener: (type, fn) => (handler = type === "keydown" ? fn : handler) };
+  let closed = 0;
+  ui.shieldEscape(el, () => (closed += 1));
+  const stopped = [];
+  const press = (key) => {
+    const event = { key, stopPropagation: () => stopped.push(key), preventDefault() {} };
+    handler(event);
+  };
+  press("Tab");
+  assert.equal(closed, 0);
+  assert.deepEqual(stopped, []);
+  press("Escape");
+  assert.equal(closed, 1);
+  assert.deepEqual(stopped, ["Escape"], "Escape never reaches the drawer's document listener");
+});

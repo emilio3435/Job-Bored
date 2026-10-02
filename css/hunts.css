@@ -459,6 +459,7 @@
 @media (max-width: 600px) {
   .hunts-item {
     flex-direction: column;
+    flex-wrap: nowrap;
     align-items: stretch;
   }
 
