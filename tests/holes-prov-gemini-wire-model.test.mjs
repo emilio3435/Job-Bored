@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { resolveGeminiFlashWireModel } from "../server/model-family.mjs";
 import { handleJudgeTest, resolveActivePin } from "../server/llm-config.mjs";
+import { chat } from "../server/ai/provider.mjs";
 const OK = { choices: [{ finish_reason: "stop", message: { content: "{\"grade\":3}" } }] };
 
 function capture(payload = OK) {
@@ -42,6 +43,13 @@ afterEach(async () => {
 });
 
 describe("P3 · Gemini family names resolve to Google's -latest aliases", () => {
+  for (const model of ["gemini-pro-latest", "gemini-flash-lite-latest"]) {
+    it(`chat sends the current Gemini output ceiling for ${model}`, async () => {
+      const { calls, fetchImpl } = capture({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "ok" }] } }] });
+      await chat({ pin: { provider: "gemini", model, apiKey: "fictional-key" }, messages: [{ role: "user", content: "hi" }], fetchImpl });
+      assert.equal(calls[0].body.generationConfig.maxOutputTokens, 65536);
+    });
+  }
   it("maps every family to a valid wire id and leaves exact versions alone", () => {
     assert.equal(resolveGeminiFlashWireModel("gemini-flash"), "gemini-flash-latest");
     assert.equal(resolveGeminiFlashWireModel("gemini-pro"), "gemini-pro-latest");

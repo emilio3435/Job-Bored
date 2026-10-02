@@ -113,6 +113,11 @@ describe("HOLES PROV P3 · every Gemini option reaches Google as a served alias"
         calls.map((call) => call.url),
         [GEMINI_URL(alias), GEMINI_URL(alias)],
       );
+      assert.deepEqual(
+        calls.map((call) => JSON.parse(call.init.body).generationConfig.maxOutputTokens),
+        [8192, 65536],
+        "inline suggestions stay short; drafting uses the current Gemini ceiling",
+      );
     });
   }
 });
