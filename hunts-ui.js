@@ -513,9 +513,10 @@
     if (s.unsupported) {
       return (
         '<div class="hunts-banner hunts-banner--warn">' +
-        '<p class="hunts-banner__title">This worker predates hunts</p>' +
-        '<p class="hunts-banner__body">Update the discovery worker to save and schedule searches.' +
-        " The hitlist below comes from its run history.</p>" +
+        '<p class="hunts-banner__title">Hunts aren’t available on this connection</p>' +
+        '<p class="hunts-banner__body">Update the discovery worker, or connect to it directly or' +
+        " through a tunnel: the Cloudflare relay doesn’t forward hunts yet. The hitlist below" +
+        " comes from your run history.</p>" +
         "</div>"
       );
     }

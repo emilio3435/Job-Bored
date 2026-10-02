@@ -170,10 +170,17 @@
     return (count(c.leadsWritten) / runs) * fitFactor * Math.pow(0.5, days / HALF_LIFE_DAYS);
   }
 
+  function roundTo(value, digits) {
+    var factor = Math.pow(10, digits);
+    return Math.round(value * factor) / factor;
+  }
+
   function compareClusters(a, b) {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.repeating !== b.repeating) return a.repeating ? -1 : 1;
-    return timeMs(b.lastRunAt) - timeMs(a.lastRunAt);
+    return (
+      b.score - a.score ||
+      Number(b.repeating) - Number(a.repeating) ||
+      String(b.lastRunAt).localeCompare(String(a.lastRunAt))
+    );
   }
 
   /**
@@ -191,6 +198,7 @@
       return (
         source.searchPlan &&
         typeof source.searchPlan === "object" &&
+        runTime(source) &&
         HITLIST_STATUSES.indexOf(String(source.status || "")) !== -1
       );
     });
@@ -213,7 +221,10 @@
       });
       var clusters = order.map(function (key) {
         var group = byKey[key].slice().sort(function (a, b) {
-          return timeMs(runTime(b)) - timeMs(runTime(a));
+          return (
+            runTime(b).localeCompare(runTime(a)) ||
+            String(b.runId || "").localeCompare(String(a.runId || ""))
+          );
         });
         var newest = group[0];
         var fits = [];
@@ -245,20 +256,19 @@
           leadsWritten: written,
           leadsUpdated: updated,
           meanFit: fits.length
-            ? Math.round(
-                (fits.reduce(function (sum, n) {
+            ? roundTo(
+                fits.reduce(function (sum, n) {
                   return sum + n;
-                }, 0) /
-                  fits.length) *
-                  10,
-              ) / 10
+                }, 0) / fits.length,
+                2,
+              )
             : null,
           lastRunAt: runTime(newest),
           lastRunId: String(newest.runId || ""),
           trend: trend.slice(0, TREND_LIMIT),
           huntId: saved ? saved.id : null,
         };
-        cluster.score = rankScore(cluster, nowMs);
+        cluster.score = roundTo(rankScore(cluster, nowMs), 4);
         return cluster;
       });
       clusters.sort(compareClusters);

@@ -145,7 +145,8 @@ test("HUNT-FE-UI-3: worker offline shows the banner with the cache age, and ever
   assert.match(cold.status, /Nothing saved on this device yet/);
 
   const old = ui.renderPanelParts({ unsupported: true, loaded: true, clusters: [], hunts: [] }, { now: NOW });
-  assert.match(old.status, /This worker predates hunts/);
+  assert.match(old.status, /Hunts aren’t available on this connection/);
+  assert.match(old.status, /relay doesn’t forward hunts yet/);
 });
 
 test("HUNT-FE-UI-4: the picker offers off, daily, weekdays and every N hours at a time, with exploration at 30%", () => {

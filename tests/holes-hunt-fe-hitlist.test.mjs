@@ -126,7 +126,8 @@ test("HUNT-FE-HIT-3: past runs cluster by search, rank by yield and recency, and
   assert.equal(a.huntId, "hunt_a");
   assert.equal(a.label, "product designer, ux designer · remote, chicago · senior");
   const days = (NOW - Date.parse(a.lastRunAt)) / 86400000;
-  assert.ok(Math.abs(a.score - (12 / 3) * (0.5 + 7 / 10) * 0.5 ** (days / 14)) < 1e-9);
+  const expected = (12 / 3) * (0.5 + 7 / 10) * 0.5 ** (days / 14);
+  assert.equal(a.score, Math.round(expected * 1e4) / 1e4, "score rounds to 4 places, as the worker's");
   assert.equal(b.repeating, false);
   assert.equal(b.huntId, null);
   assert.equal(b.meanFit, null);
