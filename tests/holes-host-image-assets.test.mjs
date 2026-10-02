@@ -32,21 +32,46 @@ test("S2: Docker requires staged assets and Render keeps the checkout root", () 
   assert.match(dockerfile, /mv \.image-assets\/\* \.\./);
   const render = read("render.yaml");
   assert.doesNotMatch(render, /rootDir: server/);
-  assert.match(render, /buildCommand: npm ci --omit=dev --prefix server/);
-  assert.match(render, /startCommand: cd server && node index.mjs/);
+  assert.match(render, /runtime: docker/);
+  assert.match(render, /dockerfilePath: \.\/server\/Dockerfile.render/);
+  assert.match(render, /dockerContext: \./);
+  assert.doesNotMatch(render, /buildCommand:|startCommand:/);
   assert.match(render, /healthCheckPath: \/health/);
   for (const path of ["server/**", "schemas/**", "templates/materials/**", "vendor/fonts/**"]) {
     assert.ok(render.includes(path), path);
   }
 });
 
-test("S11: advisory CI builds the staged image and checks auth, templates and PDF", () => {
+test("S11: blocking CI builds both hosted images and checks auth, templates and PDF", () => {
   const ci = read(".github/workflows/ci.yml");
   const job = ci.match(/^  server-image-smoke:\n([\s\S]*?)(?=^  [\w-]+:\n|$(?![\s\S]))/m)?.[1];
   assert.ok(job, "server-image-smoke job exists");
-  for (const text of ["continue-on-error: true", "node scripts/stage-server-image-assets.mjs", "docker build -t jobbored-server server", "docker run", "/health", "401", "/api/materials/templates", "Authorization: Bearer", "/health?deep=1", "renderPdfIfPossible"]) {
+  assert.doesNotMatch(job, /continue-on-error:/);
+  for (const text of ["node scripts/stage-server-image-assets.mjs", "server/Dockerfile.render", "docker build", "docker run", "/health", "401", "/api/materials/templates", "Authorization: Bearer", "/health?deep=1", "renderPdfIfPossible"]) {
     assert.ok(job.includes(text), text);
   }
+});
+
+test("S9: Render image installs and selects Chromium without native runtime assumptions", () => {
+  assert.ok(existsSync(join(repoRoot, "server/Dockerfile.render")), "Render Dockerfile exists");
+  const dockerfile = read("server/Dockerfile.render");
+  assert.match(dockerfile, /apk add --no-cache python3 chromium/);
+  assert.match(dockerfile, /JOBBORED_CHROMIUM_PATH=\/usr\/bin\/chromium-browser/);
+  assert.match(dockerfile, /USER node/);
+  for (const dir of ["schemas", "templates/materials", "vendor/fonts"]) assert.ok(dockerfile.includes(`COPY ${dir}/`), dir);
+});
+
+test("S11: required test aggregate refuses failed, skipped or cancelled hosted images", () => {
+  const ci = read(".github/workflows/ci.yml");
+  const aggregate = ci.match(/^  test:\n([\s\S]*?)(?=^  [\w-]+:\n)/m)?.[1];
+  assert.ok(aggregate);
+  const script = aggregate.split("run: |\n")[1].split("\n").map((line) => line.replace(/^ {10}/, "")).join("\n");
+  for (const image of ["failure", "skipped", "cancelled", "success"]) {
+    const run = spawnSync("bash", ["-e", "-c", script], { env: { ...process.env, SHARD_RESULT: "success", IMAGE_RESULT: image } });
+    assert.equal(run.status === 0, image === "success", image);
+  }
+  assert.match(aggregate, /needs: \[test-shard, server-image-smoke\]/);
+  assert.match(aggregate, /IMAGE_RESULT: \$\{\{ needs.server-image-smoke.result \}\}/);
 });
 
 test("S2: materials consumers load staged schemas, templates and fonts in isolation", async () => {

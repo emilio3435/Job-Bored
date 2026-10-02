@@ -18,12 +18,12 @@ The hosted server **fails closed** for browser CORS unless an origin is explicit
 | `COMMAND_CENTER_ALLOWED_ORIGINS` | Comma/newline/semicolon-separated dashboard origins allowed by CORS. Required for hosted scraper deployments. |
 | `JOBBORED_API_TOKEN` | Shared token required for every hosted/container non-health endpoint. Send as `Authorization: Bearer <token>` or `x-api-token`. |
 
-## Option A: Render (Web Service)
+## Option A: Render (Docker Web Service)
 
 1. New **Web Service**, connect this repo.
-2. **Root directory:** leave blank so `schemas/`, `templates/materials/` and `vendor/fonts/` remain available. The root engines and `.nvmrc` select Node 24.
-3. **Build command:** `npm ci --omit=dev --prefix server`
-4. **Start command:** `cd server && node index.mjs`
+2. **Runtime:** Docker; leave the root directory blank.
+3. **Dockerfile path:** `./server/Dockerfile.render`; **Docker context:** `.`. This image copies the required schemas, materials templates and fonts directly from the checkout, and installs system Chromium on Node 24.
+4. Keep the image's default start command (`node index.mjs` from `/app/server`). The checked-in `render.yaml` uses these settings.
 5. Add environment variable **`LISTEN_HOST`** = `0.0.0.0` (Render sets **`PORT`**).
 6. Add **`COMMAND_CENTER_ALLOWED_ORIGINS`** = your dashboard origin (for example `https://yourname.github.io` or `https://yourname.github.io/command-center`'s origin `https://yourname.github.io`).
 7. Add **`JOBBORED_API_TOKEN`** = a long random secret.
@@ -45,7 +45,7 @@ docker run -p 3847:3847 \
   job-scraper
 ```
 
-Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings. The image includes the materials schemas, templates, fonts and system Chromium, runs as the non-root `node` user and checks `/health`. Restage assets before each build. Native Render has no bundled Chromium; use the Docker image for hosted PDF rendering.
+Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings. Both Docker variants include the materials schemas, templates, fonts and system Chromium, run as the non-root `node` user and check `/health`. Restage assets before each server-context build. For the Render variant, build from the root with `docker build -f server/Dockerfile.render -t job-scraper .`; no staging command is needed. The root `.dockerignore` restricts that context to the server and required assets and excludes local secrets and dependencies.
 
 ## Option C: Fly.io / Railway / etc.
 

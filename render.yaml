@@ -2,9 +2,9 @@
 services:
   - type: web
     name: command-center-job-scraper
-    runtime: node
-    buildCommand: npm ci --omit=dev --prefix server
-    startCommand: cd server && node index.mjs
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile.render
+    dockerContext: .
     healthCheckPath: /health
     buildFilter:
       paths:

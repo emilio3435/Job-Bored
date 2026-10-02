@@ -38,8 +38,10 @@ describe("E5/E6 hosted deploy contract", () => {
     assert.match(render, /sync: false/);
   });
 
-  it("E6: render.yaml builds reproducibly from the lockfile", () => {
+  it("E6: Render builds the Chromium-equipped Docker image reproducibly", () => {
     const render = read("render.yaml");
-    assert.match(render, /buildCommand: npm ci --omit=dev/);
+    assert.match(render, /runtime: docker/);
+    assert.match(render, /dockerfilePath: \.\/server\/Dockerfile.render/);
+    assert.match(read("server/Dockerfile.render"), /RUN npm ci --omit=dev/);
   });
 });
