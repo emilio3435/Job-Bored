@@ -971,26 +971,109 @@
       });
   }
 
+  /* HOLES A10: plain words for the failures Beat 1 cannot fix by asking
+     the owner for access. */
+  const SHEET_CHECK_MESSAGES = Object.freeze({
+    session_expired:
+      "Your Google sign-in ended during the check. Sign in again, then connect the sheet.",
+    rate_limited:
+      "Google is limiting requests right now. Wait a minute, then try again.",
+    google_unavailable:
+      "Google Sheets didn't answer. Try again in a moment.",
+    read_only:
+      "This account can open that sheet but can't edit it. Ask the owner for edit access, then try again.",
+  });
+
+  /** A failed read: 401/429/5xx get their own reason, anything else `fallback`. */
+  function sheetCheckFailure(status, fallback) {
+    const code = Number(status) || 0;
+    let reason = fallback;
+    if (code === 401) reason = "session_expired";
+    else if (code === 429) reason = "rate_limited";
+    else if (code >= 500) reason = "google_unavailable";
+    const out = { ok: false, reason, status: status };
+    if (SHEET_CHECK_MESSAGES[reason]) out.message = SHEET_CHECK_MESSAGES[reason];
+    return out;
+  }
+
+  /* Row 1 is checked the way the discovery worker's checkPipelineHeader
+     (integrations/browser-use-discovery/src/sheets/sheets-client.ts) does,
+     so Beat 1 never connects a sheet discovery would refuse: A..Q must
+     carry their labels; later columns may be blank (a legacy sheet the
+     worker upgrades) but never another label; Search Match and Work Mode
+     accept anything. */
+  const REQUIRED_HEADER_COUNT = 17;
+  const ANY_LABEL_HEADERS = ["Search Match", "Work Mode"];
+
+  function checkHeaderRow(row, starter) {
+    for (let i = 0; i < starter.length; i++) {
+      const expected = String(starter[i]);
+      const found = row[i] == null ? "" : String(row[i]).trim();
+      if (found === expected || ANY_LABEL_HEADERS.indexOf(expected) !== -1) continue;
+      if (i >= REQUIRED_HEADER_COUNT && found === "") continue;
+      const column = String.fromCharCode(65 + i);
+      return {
+        ok: false,
+        reason: "headers_mismatch",
+        column,
+        expected,
+        found,
+        message:
+          `Row 1 of the Pipeline tab doesn't match JobBored's columns: column ${column} ` +
+          `${found ? `says "${found}"` : "is empty"} but should say "${expected}". ` +
+          "Fix that header, or start a new sheet.",
+      };
+    }
+    return null;
+  }
+
+  function starterHeaderList(explicit) {
+    if (Array.isArray(explicit)) return explicit;
+    try {
+      const list = host().getStarterPipelineHeaders();
+      return Array.isArray(list) ? list : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function readJson(res) {
+    if (!res || typeof res.json !== "function") return {};
+    try {
+      return (await res.json()) || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   /**
-   * Can this session actually READ the pasted sheet? Two round trips: the
-   * spreadsheet metadata (does the token reach it at all) and the Pipeline
-   * header row (is it the sheet we can work with). Moved here from the
-   * retired first-run wizard (spec §7) because Beat 1's paste path is the
-   * one caller that survived it.
+   * Can this session READ and WRITE the pasted sheet, and is it a JobBored
+   * Pipeline? Three round trips: the spreadsheet metadata (does the token
+   * reach it at all), the Pipeline header row (is it the sheet we can work
+   * with), and a no-op write (re-setting the title to itself) that only an
+   * editor may make. Moved here from the retired first-run wizard (spec §7)
+   * because Beat 1's paste path is the one caller that survived it.
    *
    * Contract (FE-B1's B1-N4 copy keys off `reason`; keep these stable):
-   *   headers_ok          ok:true — the token reads the Pipeline header row
+   *   headers_ok          ok:true — readable, JobBored header, writable
    *   access_denied       the spreadsheet metadata was refused (+ status)
    *   headers_unreadable  the sheet opened but Pipeline!A1:Z1 did not (+ status)
    *   no_token            no Google access token yet
    *   invalid_id          empty sheet id
    *   fetch_unavailable   no fetch in this runtime
    *   fetch_failed        the request threw (+ message)
+   * HOLES A10 adds, each with `message` (one plain sentence):
+   *   session_expired     401 even after one silent refresh (+ status)
+   *   rate_limited        429 (+ status)
+   *   google_unavailable  5xx (+ status)
+   *   headers_mismatch    row 1 is not the JobBored header (+ column, expected, found)
+   *   read_only           the account can view but not edit (+ status)
    */
   async function verifyExistingSheetAccess({
     sheetId,
     fetchImpl,
     accessToken,
+    starterHeaders,
   } = {}) {
     const id = String(sheetId || "").trim();
     if (!id) return { ok: false, reason: "invalid_id" };
@@ -1000,36 +1083,76 @@
         : typeof fetch === "function"
           ? fetch
           : null;
-    const token = String(accessToken || "").trim();
+    let token = String(accessToken || "").trim();
     if (typeof doFetch !== "function") {
       return { ok: false, reason: "fetch_unavailable" };
     }
     if (!token) return { ok: false, reason: "no_token" };
-    const headers = { Authorization: `Bearer ${token}` };
-    try {
-      const metaUrl =
-        "https://sheets.googleapis.com/v4/spreadsheets/" +
-        encodeURIComponent(id) +
-        "?fields=spreadsheetId,sheets.properties.title";
-      const metaRes = await doFetch(metaUrl, { headers });
-      if (!metaRes || !metaRes.ok) {
-        return {
-          ok: false,
-          reason: "access_denied",
-          status: metaRes && metaRes.status,
-        };
+    const base =
+      "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(id);
+    let refreshed = false;
+
+    // A 401 gets one silent refresh (AUTH's shared refresh) and a retry.
+    async function call(url, init) {
+      const send = () =>
+        doFetch(url, {
+          ...(init || {}),
+          headers: { ...((init && init.headers) || {}), Authorization: `Bearer ${token}` },
+        });
+      let res = await send();
+      if (res && res.status === 401 && !refreshed) {
+        refreshed = true;
+        const h = host();
+        const ok =
+          h && typeof h.refreshAccessTokenSilently === "function"
+            ? await h.refreshAccessTokenSilently()
+            : false;
+        const next = ok && typeof h.getAccessToken === "function" ? h.getAccessToken() : "";
+        if (next) {
+          token = String(next);
+          res = await send();
+        }
       }
-      const valuesUrl =
-        "https://sheets.googleapis.com/v4/spreadsheets/" +
-        encodeURIComponent(id) +
-        "/values/Pipeline!A1:Z1";
-      const valuesRes = await doFetch(valuesUrl, { headers });
+      return res;
+    }
+
+    try {
+      const metaRes = await call(
+        `${base}?fields=spreadsheetId,properties.title,sheets.properties.title`,
+      );
+      if (!metaRes || !metaRes.ok) {
+        return sheetCheckFailure(metaRes && metaRes.status, "access_denied");
+      }
+      const valuesRes = await call(`${base}/values/Pipeline!A1:Z1`);
       if (!valuesRes || !valuesRes.ok) {
-        return {
-          ok: false,
-          reason: "headers_unreadable",
-          status: valuesRes && valuesRes.status,
-        };
+        return sheetCheckFailure(valuesRes && valuesRes.status, "headers_unreadable");
+      }
+      const headerValues = (await readJson(valuesRes)).values;
+      const mismatch = checkHeaderRow(
+        (Array.isArray(headerValues) && headerValues[0]) || [],
+        starterHeaderList(starterHeaders),
+      );
+      if (mismatch) return mismatch;
+
+      // Without the current title there is no safe no-op to send.
+      const meta = await readJson(metaRes);
+      const title = meta && meta.properties && meta.properties.title;
+      if (typeof title === "string" && title) {
+        const probe = await call(`${base}:batchUpdate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requests: [
+              { updateSpreadsheetProperties: { properties: { title }, fields: "title" } },
+            ],
+          }),
+        });
+        if (!probe || !probe.ok) {
+          const status = probe && probe.status;
+          return Number(status) === 403
+            ? { ok: false, reason: "read_only", status, message: SHEET_CHECK_MESSAGES.read_only }
+            : sheetCheckFailure(status, "read_only");
+        }
       }
       return { ok: true, reason: "headers_ok" };
     } catch (err) {

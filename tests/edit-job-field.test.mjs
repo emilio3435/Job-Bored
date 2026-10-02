@@ -97,6 +97,8 @@ function makeHarness({ jobs, accessToken = "test-token", writeOk = true } = {}) 
     "getSheetRow",
     "updateMultipleCells",
     "console",
+    "writeTarget",
+    "liveJob",
     `${editFieldBlock}\nreturn editJobField;`,
   );
 
@@ -108,6 +110,10 @@ function makeHarness({ jobs, accessToken = "test-token", writeOk = true } = {}) 
       return writeOk;
     },
     { error() {}, warn() {}, log() {} },
+    // HOLES A15: the job a write is for, found again after the await. No
+    // reload happens here, so the live job is the one the call started with.
+    (idx) => ({ job: jobs[idx] }),
+    (target) => target.job,
   );
 
   return { editJobField, jobs, updateCalls, renderCalls, toasts, gateCalls };

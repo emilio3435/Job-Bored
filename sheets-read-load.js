@@ -33,8 +33,10 @@
        lastSyncedAt  epoch ms of the last good read (0 = never)
        lastFailure   { status, kind } of the last failed read, or null
      Events (window AND document; lane C gates its empty copy on them):
-       jb:data:loaded       { rows, count, first, lastSyncedAt }
-       jb:data:load-failed  { status, kind, lastSyncedAt, hasLastGood }
+       jb:data:loading      { generation }                      (HOLES B2)
+       jb:data:loaded       { generation, rowCount, rows, count, first, lastSyncedAt }
+       jb:data:failed       { generation, status, message }     (HOLES B2)
+       jb:data:load-failed  { status, kind, lastSyncedAt, hasLastGood }  (legacy)
      ------------------------------------------------------------------ */
   const loadState = {
     dataLoaded: false,
@@ -45,6 +47,16 @@
   let lastReadFailure = null;
   let syncTicker = null;
   let connectivityWired = false;
+
+  /* HOLES A15 / B8: one load at a time. Overlapping callers share the
+     in-flight promise; each real load gets the next generation, and a load
+     a Sheet switch superseded never paints (its callers get the newest
+     answer instead). */
+  let loadGeneration = 0;
+  let inFlightLoad = null; // { generation, sheetId, promise }
+  // The generation that emitted jb:data:loading and has no outcome yet.
+  let openGeneration = null;
+  let lastLoadResult = false;
 
   function emitDataEvent(type, detail) {
     try {
@@ -135,6 +147,7 @@
       lastSyncedAt: loadState.lastSyncedAt,
       lastFailure: loadState.lastFailure ? { ...loadState.lastFailure } : null,
       loading: loadState.loading,
+      generation: loadGeneration,
     };
   }
 
@@ -174,9 +187,19 @@
     refresh.addEventListener("click", () => {
       void loadAllData();
     });
+    // HOLES R13: the way into the Blacklist ("Dismissed & blocked").
+    const blocked = makeEl("button", "jb-sync__btn", "Blocked");
+    blocked.setAttribute("type", "button");
+    blocked.setAttribute("id", "jbSyncBlockedBtn");
+    blocked.setAttribute("aria-label", "Blocked roles");
+    blocked.addEventListener("click", () => {
+      void openBlockedRoles(blocked);
+    });
     row.appendChild(label);
+    row.appendChild(blocked);
     row.appendChild(refresh);
     bar.appendChild(row);
+    addBlockedManagerStyles();
 
     const banner = makeEl("div", "jb-sync__banner");
     banner.setAttribute("id", "jbSyncBanner");
@@ -194,6 +217,54 @@
       document.body.appendChild(bar);
     }
     return bar;
+  }
+
+  /* HOLES R13: the Dismissed & blocked manager. Its stylesheet comes with
+     the sync bar (it also places the bar's Blocked button); the script
+     loads on first use, once. */
+  let blockedManagerLoad = null;
+  let blockedStylesAdded = false;
+
+  function addBlockedManagerStyles() {
+    if (blockedStylesAdded || !document.head) return;
+    blockedStylesAdded = true;
+    const css = document.createElement("link");
+    css.setAttribute("rel", "stylesheet");
+    css.setAttribute("href", "css/blacklist-manager.css");
+    document.head.appendChild(css);
+  }
+
+  function loadBlockedManager() {
+    if (window.JobBoredBlacklistManager) return Promise.resolve();
+    if (!blockedManagerLoad) {
+      blockedManagerLoad = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.setAttribute("src", "blacklist-manager.js");
+        script.onload = () => resolve();
+        script.onerror = () => {
+          blockedManagerLoad = null;
+          reject(new Error("blacklist-manager.js did not load"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return blockedManagerLoad;
+  }
+
+  function openBlockedRoles(opener) {
+    return loadBlockedManager().then(
+      () => {
+        const manager = window.JobBoredBlacklistManager;
+        if (manager && typeof manager.open === "function") manager.open(opener);
+      },
+      (err) => {
+        console.warn("[JobBored]", err && err.message ? err.message : err);
+        const h = host();
+        if (typeof h.showToast === "function") {
+          h.showToast("Couldn’t open blocked roles — reload and try again", "error");
+        }
+      },
+    );
   }
 
   function renderSyncLabel() {
@@ -305,7 +376,7 @@
     });
   }
 
-  function recordLoadSuccess(pipelineData) {
+  function recordLoadSuccess(pipelineData, generation) {
     const first = !loadState.dataLoaded;
     loadState.dataLoaded = true;
     loadState.lastSyncedAt = Date.now();
@@ -323,18 +394,28 @@
     renderSyncLabel();
     startSyncTicker();
     wireConnectivity();
+    const count = Array.isArray(pipelineData) ? pipelineData.length : 0;
+    if (openGeneration === generation) openGeneration = null;
     emitDataEvent("jb:data:loaded", {
+      generation,
+      rowCount: count,
       rows: pipelineData,
-      count: Array.isArray(pipelineData) ? pipelineData.length : 0,
+      count,
       first,
       lastSyncedAt: loadState.lastSyncedAt,
     });
   }
 
-  function recordLoadFailure() {
+  function recordLoadFailure(generation) {
     const failure = lastReadFailure ||
       (isOnline() ? { status: 0, kind: "unknown" } : { status: 0, kind: "offline" });
     loadState.lastFailure = failure;
+    if (openGeneration === generation) openGeneration = null;
+    emitDataEvent("jb:data:failed", {
+      generation,
+      status: Number(failure.status) || 0,
+      message: describeLoadFailure(failure).title,
+    });
     emitDataEvent("jb:data:load-failed", {
       status: failure.status,
       kind: failure.kind,
@@ -842,8 +923,38 @@
     return results;
   }
 
-  async function loadAllData() {
+  /** Resolves true when the board now shows this Sheet's rows. A
+   *  superseded generation emits no outcome event: listeners key on the
+   *  latest generation they saw in jb:data:loading. */
+  function loadAllData() {
+    const sheetId = normalizeActiveSheetId(host().getActiveSheetId());
+    if (inFlightLoad && inFlightLoad.sheetId === sheetId) return inFlightLoad.promise;
+    const entry = { generation: ++loadGeneration, sheetId, promise: null };
+    const settle = () => {
+      if (inFlightLoad === entry) inFlightLoad = null;
+    };
+    entry.promise = runLoad(entry.generation).then(
+      (ok) => {
+        settle();
+        if (entry.generation !== loadGeneration) {
+          // A Sheet switch superseded this load: answer with the newest one.
+          return inFlightLoad ? inFlightLoad.promise : lastLoadResult;
+        }
+        lastLoadResult = ok;
+        return ok;
+      },
+      (err) => {
+        settle();
+        throw err;
+      },
+    );
+    inFlightLoad = entry;
+    return entry.promise;
+  }
+
+  async function runLoad(generation) {
     const h = host();
+    const superseded = () => generation !== loadGeneration;
     lastReadFailure = null;
     startupLog("sheets-read:load:start", {
       hasOAuthClientId: !!h.getOAuthClientId(),
@@ -862,11 +973,15 @@
       h.setDashboardDataHydrated(false);
       h.showSheetAccessGate("signin");
       hideSyncBar();
+      clearLoadBusy();
+      closeOpenGeneration(401, "signed_out", "Signed out of Google");
       return false;
     }
 
     if (!normalizeActiveSheetId(h.getActiveSheetId())) {
       hideSyncBar();
+      clearLoadBusy();
+      closeOpenGeneration(0, "no_sheet", "No Sheet connected");
       startupLog("sheets-read:load:missing-sheet-id", {
         hasAccessToken: !!h.getAccessToken(),
         hasOAuthClientId: !!h.getOAuthClientId(),
@@ -891,16 +1006,19 @@
     if (refreshBtn) refreshBtn.classList.add("loading");
     loadState.loading = true;
     setSyncBusy(true);
+    openGeneration = generation;
+    emitDataEvent("jb:data:loading", { generation });
 
     try {
       const pipelineRows = await fetchSheetCSV("Pipeline");
+      if (superseded()) return false;
 
       if (!pipelineRows) {
         startupLog("sheets-read:load:fetch-failed", {
           initialAccessResolved: !!h.getInitialSheetAccessResolved(),
           hasAccessToken: !!h.getAccessToken(),
         }, "error");
-        const failure = recordLoadFailure();
+        const failure = recordLoadFailure(generation);
         if (!h.getInitialSheetAccessResolved()) {
           if (!h.getAccessToken() && h.getOAuthClientId()) {
             h.showSheetAccessGate("signin");
@@ -949,7 +1067,7 @@
         h.revealDashboardShell();
         h.runPostAccessBootstrapOnce();
       }
-      recordLoadSuccess(pipelineData);
+      recordLoadSuccess(pipelineData, generation);
       startupLog("sheets-read:load:complete", {
         jobCount: pipelineData.length,
         dashboardHydrated: true,
@@ -962,7 +1080,8 @@
         { message: err && err.message ? err.message : String(err) },
         "error",
       );
-      const failure = recordLoadFailure();
+      if (superseded()) return false;
+      const failure = recordLoadFailure(generation);
       if (!h.getInitialSheetAccessResolved()) {
         h.showSheetAccessGate(
           !h.getAccessToken() && h.getOAuthClientId() ? "signin" : "error",
@@ -974,10 +1093,33 @@
       h.setDataLoadFailed(true);
       return false;
     } finally {
-      if (refreshBtn) refreshBtn.classList.remove("loading");
-      loadState.loading = false;
-      setSyncBusy(false);
+      if (!superseded()) clearLoadBusy();
     }
+  }
+
+  /** An early return (signed out, no Sheet id) is not a load and emits no
+   *  loading event, but a load it superseded did: end that generation with
+   *  jb:data:failed (and the legacy event) so no listener waits on it. */
+  function closeOpenGeneration(status, kind, message) {
+    if (openGeneration == null) return;
+    const generation = openGeneration;
+    openGeneration = null;
+    emitDataEvent("jb:data:failed", { generation, status, message });
+    emitDataEvent("jb:data:load-failed", {
+      status,
+      kind,
+      lastSyncedAt: loadState.lastSyncedAt,
+      hasLastGood: loadState.dataLoaded,
+    });
+  }
+
+  /** A superseded load leaves the busy state to the newest load, so every
+   *  path of that load, early returns included, has to clear it. */
+  function clearLoadBusy() {
+    const refreshBtn = document.getElementById("refreshBtn");
+    if (refreshBtn) refreshBtn.classList.remove("loading");
+    loadState.loading = false;
+    setSyncBusy(false);
   }
 
   function showErrorState() {
@@ -1043,6 +1185,7 @@
     showErrorState,
     hideErrorState,
     applyFavoriteCache,
+    openBlockedRoles,
     favoriteCacheKeyForJob,
     setPendingFavorite,
     clearPendingFavorite,

@@ -1,0 +1,65 @@
+/* HOLES R13 — the "Dismissed & blocked" list (blacklist-manager.js), inside
+   the shared .jb-a11y-dialog surface. Tokens only (tokens-v2.css). Loaded
+   with the sync bar by sheets-read-load.js. */
+
+/* The sync bar's Blocked button sits with Refresh, at every width (the
+   bar's phone layout spreads its row with space-between). */
+.jb-sync #jbSyncBlockedBtn {
+  margin-inline-start: auto;
+}
+
+.jb-blocked .jb-blocked__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jb-space-2);
+  margin: 0 0 var(--jb-space-3);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+}
+
+.jb-blocked .jb-blocked__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jb-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jb-blocked .jb-blocked__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jb-space-3);
+  padding: var(--jb-space-2) var(--jb-space-3);
+  background: var(--jb-paper-2);
+  border-radius: var(--jb-radius-sm);
+}
+
+.jb-blocked .jb-blocked__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jb-space-1);
+  min-width: 0;
+}
+
+.jb-blocked .jb-blocked__title {
+  color: var(--jb-ink);
+  font-size: var(--jb-text-base);
+  overflow-wrap: anywhere;
+}
+
+.jb-blocked .jb-blocked__meta {
+  color: var(--jb-ink-3);
+  font-size: var(--jb-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.jb-blocked .jb-blocked__meta a {
+  color: inherit;
+}
+
+.jb-blocked .jb-blocked__restore {
+  flex: none;
+}
