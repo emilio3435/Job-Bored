@@ -1002,6 +1002,12 @@
     K7_TIMELINE_STEPS: K7_TIMELINE_STEPS,
     RUBRIC_LABELS: RUBRIC_LABELS,
     JUDGE_DIMENSIONS: JUDGE_DIMENSIONS,
+    /* HOLES SCORE: the score modal (materials-score.js) reads the judge's
+       record through these. */
+    qaIssues: qaIssues,
+    kindWord: kindWord,
+    rubricLabel: rubricLabel,
+    shortDate: shortDate,
     qaVersion: qaVersion,
     canRepair: canRepair,
     repairTargets: repairTargets,
