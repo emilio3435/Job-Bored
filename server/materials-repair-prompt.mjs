@@ -7,9 +7,9 @@ function fencedJson(value) {
 }
 
 /**
- * @param {{ feature: "cover_letter" | "resume", instruction?: string, issues?: Record<string, unknown>[], sourceText: string }} input
+ * @param {{ feature: "cover_letter" | "resume", instruction?: string, issues?: Record<string, unknown>[], sourceText: string, preserveSentenceIds?: string[] }} input
  */
-export function buildRepairPrompt({ feature, instruction = "", issues = [], sourceText }) {
+export function buildRepairPrompt({ feature, instruction = "", issues = [], sourceText, preserveSentenceIds = [] }) {
   if (feature !== "cover_letter" && feature !== "resume") {
     throw new TypeError("feature must be cover_letter or resume");
   }
@@ -51,6 +51,12 @@ export function buildRepairPrompt({ feature, instruction = "", issues = [], sour
     "<review_issues>",
     fencedJson(selectedIssues),
     "</review_issues>",
+    "Goal: repair flagged sentences while retaining the unflagged evidence.",
+    "Success means: address every supplied target and preserve the sentence ids listed below, along with their verified facts and attribution.",
+    "Stop when: return the complete repaired document with its unchanged unflagged sentences.",
+    "<preserve_sentence_ids>",
+    fencedJson(preserveSentenceIds),
+    "</preserve_sentence_ids>",
     "<source_document>",
     fencedJson(String(sourceText || "")),
     "</source_document>",

@@ -61,6 +61,12 @@ try {
     stages: [{ stage: "publish", status: "ok" }],
   };
   check(validateRun(run), "legacy materials.run.v1 remains valid");
+  const validateQa = ajv.compile(schema("materials-qa.v3"));
+  const v3 = JSON.parse(readFileSync(new URL("../examples/materials-qa.v3.json", import.meta.url), "utf8"));
+  check(validateQa(v3), "v3 verdict example follows materials.qa.v3");
+  const pass = { ...run, kind: "pass", parentRunId: "sample-v1", label: "Original draft", held: { reason: "Missing evidence" }, repair: { before: { runId: "sample-v1", disposition: "FAIL", failedCheckIds: ["sentence:L1"] } } };
+  check(validateRun(pass), "run pass, held and repair-before additions validate");
+  check(!validateRun({ ...pass, kind: "unknown" }), "unknown run kind is rejected");
   for (const source of ["edit", "manual", "restore"]) {
     const record = structuredClone(run);
     record.template.source = source;
