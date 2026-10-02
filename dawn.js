@@ -364,12 +364,9 @@
           detail: { action: "resume-cover", jobKey: key },
         }));
       } catch (_) {}
-      var letter = document.querySelector('[data-region="letter"]');
-      if (letter && letter.scrollIntoView) {
-        var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        try { letter.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
-        catch (_) { letter.scrollIntoView(); }
-      }
+      /* The cover letter is drafted inside the dossier; the old
+         [data-region="letter"] workshop is gone from index.html. */
+      scrollToRoleRegion();
       return;
     }
     if (action === "mark-expired") {
