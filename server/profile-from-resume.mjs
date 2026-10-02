@@ -49,6 +49,7 @@ import { experiencesFromStructure } from "./materials-resume-structure.mjs";
 import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
 import { detectGarbledResume, readCanonicalResume, resumeGarbledError } from "./materials-resume-source.mjs";
 import { buildResumeRead, resumeTextSha256, saveResumeRead } from "./resume-read.mjs";
+import { redactSecrets } from "./security-boundaries.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
 // (./profile-draft-shared.js), consumed here AND by the browser for B3's
@@ -1343,6 +1344,7 @@ export function createProfileFromResumeHandler(deps = {}) {
     } catch (err) {
       const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
       const code = error && error.code ? String(error.code) : "";
+      console.warn("[profile-from-resume] provider analysis failed:", redactSecrets(err instanceof Error ? err.stack || err.message : messageOf(err, "profile provider failed")));
       // A provider with no key is the CLIENT's configuration state, not a
       // server fault: 409, so the dashboard can route the user to the AI step
       // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
@@ -1350,7 +1352,7 @@ export function createProfileFromResumeHandler(deps = {}) {
         return res.status(409).json({
           ok: false,
           reason: "gemini_not_configured",
-          message: messageOf(err, "profile provider failed"),
+          message: "Configure an AI provider in Settings → AI.",
         });
       }
       if (code === "profile_provider_not_configured") {
@@ -1358,7 +1360,7 @@ export function createProfileFromResumeHandler(deps = {}) {
           ok: false,
           reason: "profile_provider_not_configured",
           provider: error && typeof error.provider === "string" ? error.provider : undefined,
-          message: messageOf(err, "profile provider failed"),
+          message: "Configure an AI provider in Settings → AI.",
         });
       }
       const provider = error && typeof error.provider === "string" ? error.provider : "";
@@ -1367,7 +1369,7 @@ export function createProfileFromResumeHandler(deps = {}) {
         ok: false,
         reason: isGeminiError ? "gemini_error" : "profile_provider_error",
         provider: provider || undefined,
-        message: messageOf(err, "profile provider failed"),
+        message: "The AI provider could not read the resume. Try again or check Settings → AI.",
       });
     }
   };

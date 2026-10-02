@@ -7,7 +7,6 @@
  * (provider, upstreamStatus, errorClass, providerCode) are kept.
  */
 import { providerDisplayName } from "./ai/provider.mjs";
-import { redactSecrets } from "./security-boundaries.mjs";
 
 const SETTINGS = "Settings → AI";
 
@@ -100,8 +99,8 @@ export function atsFailureResponse(error) {
       body: { error: "The model returned malformed JSON twice.", code: "provider_malformed_output", nextStep: `Retry, or try a different model in ${SETTINGS}.`, retryable: true },
     };
   }
-  if (/required|invalid|must be/i.test(message)) {
-    return { status: 400, body: { error: redactSecrets(message), code: "invalid_request", retryable: false } };
+  if (message === 'Invalid event. Expected "command-center.ats-scorecard".') {
+    return { status: 400, body: { error: message, code: "invalid_request", retryable: false } };
   }
   return { status: 500, body: { error: "ATS scoring failed.", code: "internal_error" } };
 }

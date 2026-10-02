@@ -608,6 +608,8 @@ export function createMaterialsDrafter(deps = {}) {
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
   const queue = [];
+  // Reservations cover enqueue's asynchronous reads and filesystem setup.
+  let pendingAdmissions = 0;
   /** @type {Map<string, { pendingPath: string, record: PendingRecord }>} */
   const inFlight = new Map();
   /** @type {Array<() => void>} */
@@ -1087,10 +1089,6 @@ export function createMaterialsDrafter(deps = {}) {
   async function enqueue(payload, options = {}) {
     const requestedResume = normalizeDraftResume(payload && payload.resume);
     if (!requestedResume) throw resumeRequiredError();
-    /* The draft uses the user's current resume: never garbled text, never
-     * an older copy one browser still holds when a newer one is saved. */
-    const saved = await readSavedResume().catch(() => null);
-    const { resume: resumeSource, choice: resumeChoice } = chooseResumeSource({ requested: requestedResume, saved });
     /* An unknown template is a 400 before anything is queued. */
     resolveRunFamily({ template: payload.template, preferredTemplate: payload.preferredTemplate });
     /* A missing pin no longer rejects: the run degrades to a deterministic
@@ -1115,7 +1113,7 @@ export function createMaterialsDrafter(deps = {}) {
      * browser can retry; the letter a finished "Draft both" resume queues is
      * part of a request already admitted. */
     const maxQueued = typeof deps.maxQueued === "number" && deps.maxQueued > 0 ? deps.maxQueued : MAX_QUEUED_DRAFTS;
-    if (!options.followUp && queue.length >= maxQueued) {
+    if (!options.followUp && queue.length + pendingAdmissions >= maxQueued) {
       const full = /** @type {Error & { statusCode: number, code: string, retryable: boolean }} */ (
         new Error(`The drafting queue is full (${queue.length} waiting). Try again in a few minutes.`)
       );
@@ -1138,10 +1136,7 @@ export function createMaterialsDrafter(deps = {}) {
       source: "jobbored-dossier",
       /* U-5 "Draft both": the document queued after this one. */
       ...(payload.then ? { next: payload.then } : {}),
-      /* The choice rides along only when the server had to choose. */
-      resume: resumeChoice.message
-        ? { ...resumeProvenance(resumeSource), choice: { used: resumeChoice.used, reason: resumeChoice.reason, message: resumeChoice.message } }
-        : resumeProvenance(resumeSource),
+      resume: resumeProvenance(requestedResume),
       progress: {
         phase: "queued",
         message: defaultProgressMessage("queued", payload.feature),
@@ -1152,8 +1147,15 @@ export function createMaterialsDrafter(deps = {}) {
       },
     };
     inFlight.set(slug, { pendingPath, record });
+    pendingAdmissions += 1;
 
     try {
+      /* Reserve before any await: concurrent reads cannot oversubscribe. */
+      const saved = await readSavedResume().catch(() => null);
+      const { resume: resumeSource, choice: resumeChoice } = chooseResumeSource({ requested: requestedResume, saved });
+      record.resume = resumeChoice.message
+        ? { ...resumeProvenance(resumeSource), choice: { used: resumeChoice.used, reason: resumeChoice.reason, message: resumeChoice.message } }
+        : resumeProvenance(resumeSource);
       await mkdir(dir, { recursive: true });
       await writePending(pendingPath, record);
       queue.push({
@@ -1175,6 +1177,8 @@ export function createMaterialsDrafter(deps = {}) {
     } catch (err) {
       inFlight.delete(slug);
       throw err;
+    } finally {
+      pendingAdmissions -= 1;
     }
   }
 
@@ -1188,7 +1192,7 @@ export function createMaterialsDrafter(deps = {}) {
       await enqueue({ ...rest, feature: then, ...(Array.isArray(thenExtras) && thenExtras.length ? { extras: [...thenExtras] } : {}) }, { followUp: true });
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error(`[materials] slug=${job.payload.slug} follow-up ${then} not queued:`, err);
+      console.error(`[materials] slug=${job.payload.slug} follow-up ${then} not queued:`, redactSecrets(err instanceof Error ? err.stack || err.message : String(/** @type {{ message?: unknown } | null | undefined} */ (err)?.message ?? err)));
     }
   }
 

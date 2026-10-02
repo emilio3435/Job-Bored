@@ -458,7 +458,19 @@ app.post("/api/ats-scorecard", async (req, res) => {
         requestId,
       });
     }
-    const payload = normalizeAtsRequestPayload(req.body);
+    /** @type {ReturnType<typeof normalizeAtsRequestPayload>} */
+    let payload;
+    try {
+      payload = normalizeAtsRequestPayload(req.body);
+    } catch {
+      // Only contract validation is a client error; downstream failures are not.
+      return res.status(400).json({
+        error: "The ATS request does not match the scorecard contract.",
+        code: "invalid_request",
+        retryable: false,
+        requestId,
+      });
+    }
     // E11: a closed tab aborts the provider call instead of running to its timeout.
     const scorecard = await analyzeAtsScorecard(payload, { signal: routeDeadlineSignal(req, res) });
     res.json(scorecard);

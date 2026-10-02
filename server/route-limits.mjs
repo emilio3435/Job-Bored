@@ -14,6 +14,7 @@ const LIMITED_ROUTES = [
   ["POST", /^\/api\/leads\/chat$/],
   ["POST", /^\/profile\/from-resume$/],
   ["POST", /^\/api\/llm-config\/judge-test$/],
+  ["POST", /^\/api\/llm-config\/judge-models$/],
   [
     "POST",
     /^\/api\/applications\/[^/]+\/(?:request|repair|regenerate|scrape-job-description|edits|edits\/manual|edits\/[^/]+\/accept|versions\/[^/]+\/restore)$/,
@@ -71,9 +72,19 @@ export function createRouteLimiter({ perMinute, concurrency, now = Date.now }) {
       released = true;
       inFlight -= 1;
     };
-    // `close` also fires when the client leaves before the response ends.
+    // A disconnected client does not finish the work the handler started.
     res.once("finish", release);
-    res.once("close", release);
+    // If it disconnected, finish will not fire when the handler finally answers.
+    const end = res.end;
+    if (typeof end === "function") {
+      res.end = function (/** @type {any[]} */ ...args) {
+        try {
+          return Reflect.apply(end, this, args);
+        } finally {
+          if (this.destroyed) release();
+        }
+      };
+    }
     next();
   };
 }
