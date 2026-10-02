@@ -290,13 +290,13 @@ function pinIsConfigured(pin) {
 
 /**
  * IndexedDB writing samples stay in the browser; a server bridge is follow-up.
- * On-disk `~/.jobbored` profile extras (if present) plus payload.notes are
- * the cheap voice signal available to the writer in this wave.
+ * On-disk `~/.jobbored` profile extras (if present) are the cheap voice
+ * signal available to the writer in this wave. payload.notes are not a
+ * voice sample: the pipeline sends them as editor instructions (M13).
  *
- * @param {MaterialsRequestPayload} payload
  * @returns {Promise<string[]>}
  */
-async function collectVoiceSamples(payload) {
+async function collectVoiceSamples() {
   /** @type {string[]} */
   const samples = [];
   try {
@@ -312,8 +312,6 @@ async function collectVoiceSamples(payload) {
   } catch {
     // no on-disk profile
   }
-  const notes = typeof payload.notes === "string" ? payload.notes.trim() : "";
-  if (notes) samples.push(notes);
   return samples;
 }
 
@@ -968,7 +966,7 @@ export function createMaterialsDrafter(deps = {}) {
         code: "repair_source_missing",
       });
     }
-    const voiceSamples = await collectVoiceSamples(payload.repair ? { ...payload, notes: "" } : payload);
+    const voiceSamples = await collectVoiceSamples();
 
     /* RESJ Q3: confidence from what the posting offers (role sections,
      * duty lines, requirements, company facts), not its length. */

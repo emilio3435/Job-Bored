@@ -194,6 +194,28 @@
     }
   }
 
+  /* HOLES A15: the job a move is for, by stable key, read before any await,
+     so a load that reorders rows mid-move or before Undo never redirects
+     the write or the local sync onto another job. */
+  function sheetsWrite() {
+    var app = root.JobBoredApp;
+    return (app && app.sheetsWrite) || null;
+  }
+
+  function jobRefOf(jobKey) {
+    var sw = sheetsWrite();
+    if (!sw || typeof sw.jobRefAt !== "function") return null;
+    try { return sw.jobRefAt(Number(jobKey)) || null; } catch (_) { return null; }
+  }
+
+  /** Where the job sits now: null when it is gone; the caller's key without a ref. */
+  function currentKey(ref, jobKey) {
+    var sw = sheetsWrite();
+    if (!ref || !sw || typeof sw.indexOfJobRef !== "function") return jobKey;
+    var idx = sw.indexOfJobRef(ref);
+    return idx === -1 ? null : idx;
+  }
+
   /** Apply written cells to pipelineData so every surface reads the truth. */
   function syncLocal(jobKey, patches) {
     var host = hostOf();
@@ -212,17 +234,26 @@
     }
   }
 
+  /** B12: through window.JobBoredFlowing.toast (flowing-writes.js), the
+   *  board's one entry point, so the Undo and Retry actions always show. */
   function toast(message, type, action) {
+    var opts = action ? { action: action } : {};
+    var flowing = root.JobBoredFlowing;
+    if (flowing && typeof flowing.toast === "function") return flowing.toast(message, type || "success", opts);
+    // flowing-writes.js absent (unit harnesses): the shared primitive directly.
     var a11y = root.JobBoredA11y;
-    if (a11y && typeof a11y.toast === "function") {
-      return a11y.toast(message, type || "success", action ? { action: action } : {});
-    }
+    if (a11y && typeof a11y.toast === "function") return a11y.toast(message, type || "success", opts);
     return null;
   }
 
   function undo(payload, planned) {
     var writer = root.JobBoredPipelineTransitions;
     var patchApi = resolvePatchApi(payload, hostOf());
+    var ref = planned && planned.jobRef;
+    if (ref && patchApi && typeof patchApi.applyCells === "function") {
+      var basePatchApi = patchApi;
+      patchApi = { applyCells: function (patches) { return basePatchApi.applyCells(patches, { jobRef: ref }); } };
+    }
     if (!writer || typeof writer.applyUndo !== "function" || !planned || !planned.rollback) {
       return Promise.resolve({ ok: false, code: "no_rollback" });
     }
@@ -230,16 +261,17 @@
       .then(function () { return writer.applyUndo(planned.rollback, patchApi); })
       .then(function (res) {
         if (res && res.ok) {
-          syncLocal(payload.jobKey, planned.rollback.patches);
+          var key = currentKey(ref, payload.jobKey);
+          if (key != null) syncLocal(key, planned.rollback.patches);
           dispatch(SUCCEEDED_EVENT, {
-            jobKey: payload.jobKey,
+            jobKey: key == null ? payload.jobKey : key,
             kind: MOVE_KIND,
             fromStage: payload.toStage,
             toStage: payload.fromStage,
             undo: true,
           });
           if (payload.announce !== false || payload.announceUndo) {
-            toast("Undone. " + (describeJob(payload.jobKey) || "The role") + " is back in " + stageLabelFor(payload.fromStage) + ".", "info");
+            toast("Undone. " + (describeJob(key == null ? payload.jobKey : key) || "The role") + " is back in " + stageLabelFor(payload.fromStage) + ".", "info");
           }
           return res;
         }
@@ -252,10 +284,12 @@
       });
   }
 
-  function settleSuccess(payload, planned) {
-    syncLocal(payload.jobKey, planned.patches || []);
+  function settleSuccess(payload, planned, ref) {
+    planned.jobRef = ref || null;
+    var key = currentKey(planned.jobRef, payload.jobKey);
+    if (key != null) syncLocal(key, planned.patches || []);
     dispatch(SUCCEEDED_EVENT, {
-      jobKey: payload.jobKey,
+      jobKey: key == null ? payload.jobKey : key,
       kind: MOVE_KIND,
       fromStage: payload.fromStage,
       toStage: payload.toStage,
@@ -264,7 +298,7 @@
     });
     planned.undo = function () { return undo(payload, planned); };
     if (payload.announce !== false && payload.fromStage && payload.fromStage !== payload.toStage) {
-      var who = describeJob(payload.jobKey);
+      var who = describeJob(key == null ? payload.jobKey : key);
       toast(
         "Moved " + (who || "the role") + " to " + stageLabelFor(payload.toStage) + ".",
         "success",
@@ -315,6 +349,7 @@
     var host = hostOf();
     var row = resolveRow(payload, host);
     var patchApi = resolvePatchApi(payload, host);
+    var ref = jobRefOf(payload.jobKey);
 
     return Promise.resolve()
       .then(function () {
@@ -327,7 +362,7 @@
         }
         if (result.ok) {
           result.handled = true;
-          return settleSuccess(payload, result);
+          return settleSuccess(payload, result, ref);
         }
         var code = result.code || "transition_failed";
         if (

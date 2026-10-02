@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "overallScore": 78,
+  "overallScoreSource": "dimensions",
   "dimensionScores": {
     "requirementsCoverage": 80,
     "experienceRelevance": 82,
@@ -45,5 +46,7 @@
     }
   ],
   "confidence": 0.86,
-  "model": "openai/gpt-oss-120b:free"
+  "model": "openai/gpt-oss-120b:free",
+  "docHash": "sha256:9f2b6c1d8e4a7b3c5d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e",
+  "runId": "ats-mg8k2c1q-9f3a1c2e"
 }

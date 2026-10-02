@@ -7,7 +7,7 @@ import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs"
 import { PIPELINE_PROMPT_VERSION, findCachedPackage, pipelineCacheKey } from "./materials-cache.mjs";
 import { scoreClaims } from "./materials-claim-score.mjs";
 import { delint, loadVoicePack } from "./materials-delint.mjs";
-import { displayCompany, draftSlots } from "./materials-draft.mjs";
+import { displayCompany, draftSlots, editorInstructionsText } from "./materials-draft.mjs";
 import { buildIntelPack, companyDomain, intelFacts, intelKey, readCachedIntel } from "./materials-intel.mjs";
 import { generateOutreach, outreachQa, outreachRecord, outreachText } from "./materials-outreach.mjs";
 import { positioningFor, positioningHeadline } from "./materials-positioning.mjs";
@@ -15,7 +15,7 @@ import { claimById } from "./materials-ledger.mjs";
 import { loadVoiceProfile, withVoiceClaims } from "./materials-voice-profile.mjs";
 import { runStageWithExecutor } from "./materials-executor.mjs";
 import { formatProvenanceLine, runResumeBlock } from "./materials-resume-source.mjs";
-import { extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
+import { boundEchoBans, extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
@@ -294,11 +294,14 @@ async function runPipelineBody(input, assertBase) {
   const groundingLedger = withVoiceClaims(ledger, profileVoice);
   const extras = payload.extras;
   const wantOutreach = payload.feature !== "resume" && Array.isArray(extras) && extras.includes("outreach");
+  /* M13: a repair carries its own instruction; a fresh draft carries the notes. */
+  const editorInstructions = repair ? "" : editorInstructionsText(payload.notes);
   const cacheKey = pipelineCacheKey({
     jdHash, ledgerHash: typeof ledger.ledgerHash === "string" ? ledger.ledgerHash : "sha256:0",
     templateFamily: family.id, templateVersion: family.version,
     feature: `${payload.feature}${wantOutreach ? "+outreach" : ""}`,
     model: `${pinSegment(pin)}${profileVoice ? `+voice:${hashJd(profileVoice.guideText + profileVoice.facts.join("\n"))}` : ""}`,
+    notesHash: editorInstructions ? hashJd(editorInstructions) : "",
   });
   if (!repair) {
     const cached = await findCachedPackage({ dir, cacheKey, feature: payload.feature });
@@ -331,7 +334,8 @@ async function runPipelineBody(input, assertBase) {
   const extracted = cachedExtract
     ? { extract: cachedExtract, degraded: Boolean(cachedExtract.degraded), call: undefined }
     : await withExecutor("jd.extract", () => (services.extractJd || extractJd)({ jdText, company: payload.company, title: payload.title, gate, pin, fetchImpl, source: jdSource }));
-  const extract = extracted.extract;
+  /* M11: an extract cached before the echo-ban cap is capped here too. */
+  const extract = { ...extracted.extract, echoBans: boundEchoBans(extracted.extract.echoBans) };
   const extractFailure = extracted.degraded ? extracted.call?.degradedReason || (pin ? "model fill unavailable" : "no model configured") : "";
   if (extracted.degraded) degraded.push(`jd.extract: deterministic half (${extractFailure})`);
   await writeJson(join(runDir, "jd-extract.json"), {
@@ -454,7 +458,7 @@ async function runPipelineBody(input, assertBase) {
         echoBans: Array.isArray(extract.echoBans) ? extract.echoBans : [], letterWords: [...band],
         enrichment: payload.enrichment || null, jdText, pin, fetchImpl, intelFacts: research,
         signal: input.signal,
-        rankedClaimIds: shortlist.map((entry) => entry.claimId), repairPrompt,
+        rankedClaimIds: shortlist.map((entry) => entry.claimId), repairPrompt, editorInstructions,
       };
       let written = await withExecutor("write", () => draftWriter(writeInput));
       if (feature === "resume" && llmAvailable && !written.degraded && Array.isArray(written.missingEmployerIds)) {

@@ -186,9 +186,11 @@ describe("Dawn lead-story carousel (ATS-scored)", () => {
       dawnRendererSrc.includes("resume-cover"),
       "Draft cover letter should dispatch jb:role:action resume-cover",
     );
-    assert.ok(
-      dawnRendererSrc.includes('data-region="letter"'),
-      "Draft cover letter should scroll to the letter region",
+    const draftCover = dawnRendererSrc.slice(dawnRendererSrc.indexOf('if (action === "draft-cover")'));
+    assert.match(
+      draftCover.slice(0, draftCover.indexOf("return;")),
+      /scrollToRoleRegion\(\)/,
+      "Draft cover letter should scroll to the dossier, where the letter is drafted",
     );
   });
 });

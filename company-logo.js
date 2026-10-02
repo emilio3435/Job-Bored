@@ -3,7 +3,20 @@
    Extracted from app.js (company-logo cut).
 
    Classic-global IIFE under window.JobBoredApp.companyLogo — NOT an ES module.
-   Loaded BEFORE app.js. Clearbit/logo cache, async lookup, and logo HTML.
+   Loaded BEFORE app.js.
+
+   HOLES B14: logos come from the local JobBored API, never a third-party
+   logo host. renderLogoHtml draws job.logoUrl (http(s) only) when the Sheet
+   has one; else the company's mark from GET <API base>/api/brand-logos/company
+   (server/company-logo-route.mjs: the brand-logos cache, else one bounded
+   resolver run), drawn only as a raster data:image URL; else initials, which
+   are swapped for the mark in place when it arrives. One lookup per company
+   key (company-cap.js companyKey) for the page's life: a render while it is
+   in flight reuses it, and a miss is remembered as "" and not asked again.
+
+   resolveCompanyLogoUrl gives the Sheet's Logo URL column a portable http(s)
+   URL with no network call: the Google s2 favicon for <company key>.com
+   ("Stripe, Inc." → stripe.com).
    ============================================ */
 (() => {
   const root = window.JobBoredApp || (window.JobBoredApp = {});
@@ -13,85 +26,105 @@
     return window.JobBoredApp.core.host;
   }
 
-  const _LOGO_CACHE = new Map();
-  const _LOGO_PENDING = new Set();
+  // A server mark is drawn only as a raster image data: URL — never a script
+  // URL, an SVG or a remote host.
+  const MARK_SRC = /^data:image\/(?:png|jpeg|gif|webp);base64,/;
 
-  function _fetchCompanyLogo(name) {
-    if (_LOGO_CACHE.has(name) || _LOGO_PENDING.has(name)) return;
-    _LOGO_PENDING.add(name);
-    fetch(
-      "https://autocomplete.clearbit.com/v1/companies/suggest?query=" +
-        encodeURIComponent(name),
-    )
+  // company key -> a MARK_SRC-checked src, or "" for a miss (no mark, an
+  // error, an unreachable API).
+  const _MARK_CACHE = new Map();
+  // company keys with a lookup in flight.
+  const _MARK_PENDING = new Set();
+
+  // Local fallback — the same R18 normalization as company-cap.js.
+  const LEGAL_SUFFIX = /\s+(?:inc|incorporated|llc|llp|lp|ltd|limited|corp|corporation|co|company|gmbh|plc|ag|sa|bv|nv|pty|pte)$/;
+
+  // One employer, one key: "Stripe, Inc." and "Stripe" share a lookup and a mark.
+  function _companyKey(name) {
+    const cap = window.JobBoredCompanyCap;
+    if (cap && typeof cap.companyKey === "function") {
+      return cap.companyKey({ company: name });
+    }
+    const base = String(name || "")
+      .toLowerCase()
+      .replace(/[.,]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    let key = base;
+    while (LEGAL_SUFFIX.test(key)) key = key.replace(LEGAL_SUFFIX, "");
+    return key || base;
+  }
+
+  // The JobBored API base (no trailing slash), found the way pipeline.js
+  // finds it; "" when there is none, and the board keeps initials.
+  // dev-server.mjs does not proxy /api/brand-logos, so a page-relative URL
+  // would miss the API.
+  function _apiBaseUrl() {
+    const helper = window.getJobPostingScrapeUrl;
+    if (typeof helper === "function") {
+      try {
+        const url = helper();
+        if (url) return String(url).replace(/\/+$/, "");
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    const raw = cfg && cfg.jobPostingScrapeUrl;
+    if (raw) return String(raw).trim().replace(/\/+$/, "");
+    const h = window.location && window.location.hostname;
+    if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") {
+      return "http://127.0.0.1:3847";
+    }
+    return "";
+  }
+
+  // E4: the JobBored API transport. Attaches the hosted token when
+  // hosted-api-auth.js is loaded; plain fetch otherwise.
+  function apiFetch(url, init) {
+    const auth = window.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
+  function _fetchCompanyMark(companyName, key) {
+    if (_MARK_CACHE.has(key) || _MARK_PENDING.has(key)) return;
+    const base = _apiBaseUrl();
+    if (!base) return;
+    _MARK_PENDING.add(key);
+    const url =
+      base + "/api/brand-logos/company?name=" + encodeURIComponent(companyName);
+    // Inside the executor, a transport that throws becomes a miss.
+    new Promise(function (resolve) {
+      resolve(apiFetch(url, { credentials: "omit" }));
+    })
       .then(function (r) {
-        return r.ok ? r.json() : [];
+        return r && r.ok ? r.json() : null;
       })
-      .then(function (results) {
-        var url = "";
-        if (Array.isArray(results) && results.length) {
-          var hit = results[0];
-          if (hit && hit.logo) {
-            url = hit.logo;
-          } else if (hit && hit.domain) {
-            url =
-              "https://www.google.com/s2/favicons?domain=" +
-              encodeURIComponent(hit.domain) +
-              "&sz=128";
-          }
-        }
-        _LOGO_CACHE.set(name, url);
-        _LOGO_PENDING.delete(name);
-        if (url) _upgradePlaceholders(name, url);
+      .then(function (body) {
+        var src = body && body.ok === true && body.mark ? body.mark.src : "";
+        return typeof src === "string" && MARK_SRC.test(src) ? src : "";
       })
       .catch(function () {
-        _LOGO_CACHE.set(name, "");
-        _LOGO_PENDING.delete(name);
+        return "";
+      })
+      .then(function (src) {
+        _MARK_CACHE.set(key, src);
+        _MARK_PENDING.delete(key);
+        if (src) _upgradePlaceholders(key, src);
       });
   }
 
-  // Promise-returning version of the Clearbit/Google-favicon lookup used by
-  // the auto-enrich path. Resolves to a usable logo URL or empty string.
-  // Never rejects — worst case returns a Google-favicon fallback built from
-  // the company's slug, which renders as a generic "?" icon if the domain
-  // doesn't exist (harmless).
+  // The Sheet's Logo URL for a company: a portable http(s) URL computed with
+  // no network call — the Google s2 favicon for <company key>.com, which
+  // renders as a generic globe when the guess is not a real domain
+  // (harmless). "" for an empty name. Async because callers await it.
   async function resolveCompanyLogoUrl(companyName) {
-    const name = String(companyName || "").trim();
-    if (!name) return "";
-    // Fast path: already cached from earlier render.
-    const cached = _LOGO_CACHE.get(name);
-    if (cached !== undefined) return cached || "";
-    // Piggyback on the existing fetcher so the in-memory cache + DOM upgrade
-    // both fire as a side-effect. We still do our own fetch because we need
-    // a Promise-shaped return for the auto-enrich caller.
-    _fetchCompanyLogo(name);
-    try {
-      const resp = await fetch(
-        "https://autocomplete.clearbit.com/v1/companies/suggest?query=" +
-          encodeURIComponent(name),
-        { method: "GET" },
-      );
-      if (resp.ok) {
-        const results = await resp.json();
-        if (Array.isArray(results) && results.length) {
-          const hit = results[0];
-          if (hit && hit.logo) return String(hit.logo);
-          if (hit && hit.domain) {
-            return (
-              "https://www.google.com/s2/favicons?domain=" +
-              encodeURIComponent(hit.domain) +
-              "&sz=128"
-            );
-          }
-        }
-      }
-    } catch (_) {
-      /* network failure → fall through to slug fallback */
-    }
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
-    if (!slug) return "";
+    const domain = _companyKey(companyName).replace(/[^a-z0-9]+/g, "");
+    if (!domain) return "";
     return (
       "https://www.google.com/s2/favicons?domain=" +
-      encodeURIComponent(slug + ".com") +
+      encodeURIComponent(domain + ".com") +
       "&sz=128"
     );
   }
@@ -109,12 +142,13 @@
     return aggrMatch.test(v);
   }
 
-  function _upgradePlaceholders(companyName, logoUrl) {
+  // Swap the initials for the mark in every placeholder of this company,
+  // whichever spelling of its name the placeholder carries.
+  function _upgradePlaceholders(key, logoUrl) {
     document
-      .querySelectorAll(
-        '.co-logo-wrap[data-company="' + CSS.escape(companyName) + '"]',
-      )
+      .querySelectorAll(".co-logo-wrap[data-company]")
       .forEach(function (wrap) {
+        if (_companyKey(wrap.getAttribute("data-company")) !== key) return;
         var fallback = wrap.querySelector(".co-logo--fallback");
         if (!fallback) return;
         var img = document.createElement("img");
@@ -134,9 +168,10 @@
   }
 
   /**
-   * Render a logo wrapper. Shows initials immediately. If a Clearbit result
-   * is cached it renders an <img> directly; otherwise kicks off the async
-   * lookup and upgrades the placeholder when it resolves.
+   * Render a logo wrapper. job.logoUrl (http(s) only) or the company's
+   * cached server mark renders an <img> directly; otherwise it shows
+   * initials and starts the company's lookup, which upgrades the
+   * placeholder when the mark arrives.
    */
   function renderLogoHtml(job, variant) {
     var companyName = (job.company || "").trim();
@@ -147,9 +182,10 @@
         : variant === "kanban"
           ? "co-logo--sm"
           : "co-logo--md";
+    var key = companyName ? _companyKey(companyName) : "";
     var cachedUrl =
       host().safeHref(job.logoUrl) ||
-      host().safeHref(_LOGO_CACHE.get(companyName)) ||
+      (key && _MARK_CACHE.get(key)) ||
       "";
     var inner;
 
@@ -167,7 +203,7 @@
         '" aria-hidden="true">' +
         host().escapeHtml(initial) +
         "</span>";
-      if (companyName) _fetchCompanyLogo(companyName);
+      if (key) _fetchCompanyMark(companyName, key);
     }
 
     return (

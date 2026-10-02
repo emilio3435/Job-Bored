@@ -83,6 +83,20 @@ export type WorkerRuntimeConfig = {
   // structured JobPosting data without extraction. When empty, the lane
   // skips gracefully. See https://serpapi.com/.
   serpApiKey: string;
+  // HOLES HUNT: the in-worker hunt scheduler and the default exploration
+  // share. Optional so hand-built configs (tests, per-request copies) keep
+  // compiling; loadRuntimeConfig always sets it.
+  hunts?: WorkerHuntsConfig;
+};
+
+/** docs/INTERFACE-HUNTS.md §4.1, §6. */
+export type WorkerHuntsConfig = {
+  /** BROWSER_USE_DISCOVERY_HUNT_SCHEDULER (default on). */
+  schedulerEnabled: boolean;
+  /** BROWSER_USE_DISCOVERY_HUNT_TICK_MS (default 60 000). */
+  tickMs: number;
+  /** BROWSER_USE_DISCOVERY_EXPLORATION_SHARE: 0–1 (default 0.3, §0.10). */
+  explorationShare: number;
 };
 
 export type ResolvedRunSettings = EffectiveDiscoveryConfig & {
@@ -481,6 +495,26 @@ export function loadRuntimeConfig(
       "DISCOVERY_SERPAPI_API_KEY",
       "SERPAPI_API_KEY",
     ]),
+    hunts: resolveHuntsConfig(runtimeEnv),
+  };
+}
+
+function resolveHuntsConfig(env: RuntimeEnv): WorkerHuntsConfig {
+  const share = Number.parseFloat(
+    readFirst(env, ["BROWSER_USE_DISCOVERY_EXPLORATION_SHARE"]),
+  );
+  return {
+    schedulerEnabled: parseBoolean(
+      readFirst(env, ["BROWSER_USE_DISCOVERY_HUNT_SCHEDULER"]),
+      true,
+    ),
+    tickMs: parsePositiveInt(
+      readFirst(env, ["BROWSER_USE_DISCOVERY_HUNT_TICK_MS"]),
+      60_000,
+    ),
+    // Out of range falls back rather than clamps: "30" meant 30%, not 100%.
+    explorationShare:
+      Number.isFinite(share) && share >= 0 && share <= 1 ? share : 0.3,
   };
 }
 

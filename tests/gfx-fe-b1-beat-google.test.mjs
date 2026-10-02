@@ -121,7 +121,7 @@ describe("B1-N1 · G15 · G22 · honest permission copy", () => {
     const text = renderedText((await openGoogle()).mount());
     assert.ok(
       text.includes(
-        "Your sign-in lasts for this tab only; your Client ID and Sheet link are saved in this browser.",
+        "JobBored keeps your Google access token in this tab only; new tabs sign you in again quietly. Your Client ID and Sheet link are saved in this browser.",
       ),
     );
   });

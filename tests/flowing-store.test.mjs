@@ -58,6 +58,7 @@ function loadFlowing({
   const ls = localStorageOption === null ? undefined : localStorageOption || makeLocalStorage();
   const winListeners = new Map();
   const events = [];
+  const pushCalls = [];
   const replaceCalls = [];
   const win = {
     location: { pathname: "/flow", search, hash },
@@ -89,11 +90,42 @@ function loadFlowing({
   };
   if (ls) win.localStorage = ls;
   if (withHistory) {
+    // Session history: pushState/replaceState apply at once. back() traverses
+    // at once too (a browser does it a moment later; the HOLES B15 suite in
+    // holes-board-role-history.test.mjs models that) and fires popstate, then
+    // hashchange when the fragment moved.
+    const entries = [{ hash, state: null }];
+    let index = 0;
+    const hashOf = (url) => {
+      const i = String(url).indexOf("#");
+      return i === -1 ? "" : String(url).slice(i);
+    };
+    const fire = (type, ev) => {
+      for (const fn of [...(winListeners.get(type) || [])]) fn(ev);
+    };
     win.history = {
-      replaceState(_state, _title, url) {
+      get state() {
+        return entries[index].state;
+      },
+      pushState(state, _title, url) {
+        pushCalls.push(String(url));
+        entries.splice(index + 1);
+        entries.push({ hash: hashOf(url), state });
+        index = entries.length - 1;
+        win.location.hash = hashOf(url);
+      },
+      replaceState(state, _title, url) {
         replaceCalls.push(String(url));
-        const i = String(url).indexOf("#");
-        win.location.hash = i === -1 ? "" : String(url).slice(i);
+        entries[index] = { hash: hashOf(url), state };
+        win.location.hash = hashOf(url);
+      },
+      back() {
+        if (index === 0) return;
+        const before = win.location.hash;
+        index -= 1;
+        win.location.hash = entries[index].hash;
+        fire("popstate", { type: "popstate", state: entries[index].state });
+        if (win.location.hash !== before) fire("hashchange", { type: "hashchange" });
       },
     };
   }
@@ -125,6 +157,7 @@ function loadFlowing({
     events,
     docEvents,
     selectors,
+    pushCalls,
     replaceCalls,
     ls,
     openRole: win.JobBoredFlowing.openRole,
@@ -201,10 +234,11 @@ describe("flowing-store — openRole open/close contract", () => {
 });
 
 describe("flowing-store — URL hash sync (deep-linkable, no history spam)", () => {
-  it("set() syncs #role=<key> through history.replaceState (URL stays shareable without pushing a history entry per card click)", () => {
+  it("set() from no open role pushes ONE #role=<key> history entry so Back closes it (HOLES B15; switching roles replaces it — see holes-board-role-history)", () => {
     const env = loadFlowing({ search: "?greenfield=1" });
     env.openRole.set("job-1");
-    assert.deepEqual(env.replaceCalls, ["/flow?greenfield=1#role=job-1"], "pathname + search must survive the rewrite");
+    assert.deepEqual(env.pushCalls, ["/flow?greenfield=1#role=job-1"], "pathname + search must survive the rewrite");
+    assert.deepEqual(env.replaceCalls, [], "the open adds an entry instead of rewriting the page's own");
     assert.equal(env.win.location.hash, "#role=job-1");
   });
 

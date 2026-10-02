@@ -24,11 +24,13 @@ describe("kanban card edit affordance (pencil -> dossier)", () => {
       /data-card-action="edit-open"[\s\S]{0,120}data-key="' \+ escapeHtml\(cardKey\)/,
       "the pencil must carry the card's stable key so the handler knows which role to open",
     );
+    // HOLES B11: the label names the role ("Edit role details: <role> at <co>").
     assert.match(
       pipelineJs,
-      /data-card-action="edit-open"[\s\S]{0,200}aria-label="Edit role details"/,
+      /data-card-action="edit-open"[\s\S]{0,200}aria-label="' \+ escapeHtml\(editLabel\)/,
       "the pencil needs an accessible label",
     );
+    assert.match(pipelineJs, /var editLabel = "Edit role details: " \+ who;/);
   });
 
   it("is a real <button> so the drag/click guard treats it as interactive", () => {

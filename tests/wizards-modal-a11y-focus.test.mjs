@@ -10,13 +10,15 @@
 // hand screenshot at /tmp/qsweep2/focus-trap-after.png) covers the behavior.
 //
 // Mutation check: every describe block has a deliberately tight phrase that
-// breaks if someone removes the wiring (e.g. drops the settings modal's inert
-// cache, or strips the aria-label off the OAuth inputs).
+// breaks if someone removes the wiring (e.g. drops the settings modal's dialog
+// handle, or strips the aria-label off the OAuth inputs).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { stripComments } from "./fixtures/jb-a11y-dom.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const settingsJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
@@ -41,51 +43,78 @@ const resumeGenerationModalsHtml = readFileSync(
 // tests/discovery-wizard-shell.test.mjs.
 
 describe("settings modal — focus + inert + Escape", () => {
-  it("declares opener cache, inert cache, and Escape holder at module scope", () => {
+  // HOLES BOARD B5: inert, focus-in and focus restore moved to the shared
+  // primitive (JobBoredA11y.dialog); tests/holes-board-modal-dialogs.test.mjs
+  // proves the behaviour. These pins keep the wiring from regrowing a private
+  // trap. Settings still owns Escape: jb-a11y.js's Escape cannot be vetoed and
+  // would skip the unsaved-changes question.
+  const settingsCode = stripComments(settingsJs);
+  const functionSource = (name) => {
+    const start = settingsJs.indexOf(`function ${name}(`);
+    assert.notEqual(start, -1, `${name} must exist`);
+    return settingsJs.slice(start, settingsJs.indexOf("\n}\n", start) + 2);
+  };
+
+  it("declares opener cache, dialog handle, and Escape holder at module scope", () => {
     assert.match(settingsJs, /let settingsLastOpener = null/);
-    assert.match(settingsJs, /let settingsInertedSiblings = \[\]/);
+    assert.match(settingsJs, /let settingsDialogHandle = null/);
     assert.match(settingsJs, /let settingsEscapeHandler = null/);
   });
 
-  it("saves the opener, applies inert, registers Escape, and focuses the close button on open", () => {
-    assert.match(
-      settingsJs,
-      /settingsLastOpener = document\.activeElement/,
-      "openCommandCenterSettingsModal must capture document.activeElement BEFORE closeAuthUserMenu",
+  it("saves the opener, opens through JobBoredA11y.dialog onto the close button, and registers Escape on open", () => {
+    // Comment-stripped: the comment above the capture names closeAuthUserMenu().
+    const open = stripComments(functionSource("openCommandCenterSettingsModal"));
+    const capture = open.indexOf("settingsLastOpener = document.activeElement");
+    assert.notEqual(capture, -1, "openCommandCenterSettingsModal must capture document.activeElement");
+    assert.ok(
+      capture < open.indexOf("closeAuthUserMenu()"),
+      "the opener must be captured BEFORE closeAuthUserMenu moves focus to <body>",
     );
     assert.match(
       settingsJs,
-      /applySettingsInertBackground\(modal\)/,
-      "openCommandCenterSettingsModal must inert background siblings",
+      /window\.JobBoredA11y/,
+      "Settings must read the shared primitive's global at call time (feature-detected)",
     );
     assert.match(
       settingsJs,
-      /settingsEscapeHandler = \(e\) => \{[\s\S]*?e\.key === "Escape"/,
-      "openCommandCenterSettingsModal must install an Escape keydown handler",
+      /settingsDialogHandle = [\w.]+\.dialog\.open\(modal, \{\s*opener: settingsLastOpener,\s*initialFocus: "#settingsModalClose",?\s*\}\)/,
+      "Settings must hand the visible modal, its opener and #settingsModalClose to JobBoredA11y.dialog.open",
     );
     assert.match(
       settingsJs,
-      /document\.getElementById\("settingsModalClose"\)/,
-      "openCommandCenterSettingsModal must target #settingsModalClose for auto-focus",
+      /settingsEscapeHandler = \(e\) => \{[\s\S]*?e\.key === "Escape"[\s\S]*?e\.stopImmediatePropagation\(\)/,
+      "openCommandCenterSettingsModal must install an Escape handler that stops the press",
+    );
+    assert.match(
+      settingsJs,
+      /document\.addEventListener\("keydown", settingsEscapeHandler, true\)/,
+      "the Escape handler must run in the capture phase, ahead of jb-a11y.js and materials-feature.js",
     );
   });
 
-  it("releases inert, removes the Escape listener, and restores focus on close", () => {
+  it("closes through the handle and removes the Escape listener, with no private inert or focus restore", () => {
+    const close = functionSource("closeCommandCenterSettingsModal");
     assert.match(
-      settingsJs,
-      /releaseSettingsInertBackground\(\)/,
-      "closeCommandCenterSettingsModal must release the inert mark",
+      close,
+      /settingsDialogHandle = null;[\s\S]*?\.close\(\)/,
+      "closeCommandCenterSettingsModal must close through the dialog handle — that releases inert and restores focus",
     );
     assert.match(
-      settingsJs,
-      /document\.removeEventListener\("keydown", settingsEscapeHandler\)/,
-      "closeCommandCenterSettingsModal must remove the Escape keydown listener",
+      close,
+      /document\.removeEventListener\("keydown", settingsEscapeHandler, true\)/,
+      "closeCommandCenterSettingsModal must remove the capture-phase Escape listener",
     );
-    assert.match(
-      settingsJs,
-      /settingsLastOpener\.focus\(\{ preventScroll: true \}\)/,
-      "closeCommandCenterSettingsModal must restore focus to the opener",
-    );
+    for (const gone of [
+      /applySettingsInertBackground|releaseSettingsInertBackground|settingsInertedSiblings/,
+      /\.inert\s*=/,
+      /settingsLastOpener\.focus\(/,
+    ]) {
+      assert.equal(
+        gone.test(settingsCode),
+        false,
+        `settings-modal.js must not regrow its private trap (${gone})`,
+      );
+    }
   });
 });
 

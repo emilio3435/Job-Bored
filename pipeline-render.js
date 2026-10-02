@@ -59,6 +59,14 @@
     return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map((p) => p[1]);
   })();
 
+  /* R5: only the triage lanes are capped per company; a later stage is a
+     commitment and always shows every role. */
+  const LEGACY_CAPPED_LANES = new Set((() => {
+    const reg = stageRegistry();
+    if (reg) return [reg.LABELS.new, reg.LABELS.researching];
+    return STAGE_FALLBACK.filter((p) => p[0] === "new" || p[0] === "researching").map((p) => p[1]);
+  })());
+
   const STAGE_ARCHIVE = new Set((() => {
     const reg = stageRegistry();
     if (reg) return reg.ARCHIVE_KEYS.map((k) => reg.LABELS[k]);
@@ -334,9 +342,11 @@ function kanbanCardModel(job, index) {
 }
 
 /* DS-08: the cards the legacy board would draw, in its order (search, sort,
-   the dismissed and favorites filters, stage lanes, the per-company cap), as
-   data. Under body.jb-v2 renderPipeline builds no #jobCards DOM, and this is
-   what the v2 surfaces read instead. */
+   the dismissed and favorites filters, stage lanes), as data. Under
+   body.jb-v2 renderPipeline builds no #jobCards DOM, and this is what the v2
+   surfaces read instead. R5: no per-company cap here; each surface applies
+   its own (the board caps New and Researching with a Show all toggle), and
+   counts read from these models are the real ones. */
 function getBoardCardModels() {
   const data = filterAndSortJobs(
     core().getPipelineData() || [],
@@ -346,8 +356,7 @@ function getBoardCardModels() {
   const byStage = groupByStage(data);
   const out = [];
   STAGE_ORDER.forEach((stage) => {
-    const { visible } = applyLegacyKanbanCap(byStage.get(stage) || []);
-    visible.forEach((job, i) => out.push(kanbanCardModel(job, i)));
+    (byStage.get(stage) || []).forEach((job, i) => out.push(kanbanCardModel(job, i)));
   });
   return out;
 }
@@ -429,20 +438,31 @@ function applyLegacyKanbanCap(jobs) {
   return { visible: kept, hidden: hidden };
 }
 
-function renderLegacyKanbanHiddenAffordance(hidden) {
+/* R5: lanes the user expanded past the company cap ("Show all"), by stage
+   label. Session-only, like pipeline.js's per-column showAll. */
+const legacyShowAllLanes = new Set();
+
+/* R5: "+N hidden" is a Show all / Show fewer button (aria-expanded), the
+   same control as pipeline.js hiddenToggle. */
+function renderLegacyKanbanHiddenAffordance(hidden, stage, expanded) {
   if (!Array.isArray(hidden) || hidden.length === 0) return "";
   const label = hidden
     .map((entry) => `+${entry.hidden} from ${host().escapeHtml(entry.company)}`)
     .join(" · ");
-  return `<p class="stage-lane__hidden" title="${host().escapeHtml(label)} — hidden so one company can’t dominate this column. Star a role to keep it pinned.">${label} hidden</p>`;
+  const text = expanded ? "Show fewer" : `Show all (${label} hidden)`;
+  return `<button type="button" class="stage-lane__hidden" data-action="toggle-show-all" data-stage="${host().escapeHtml(stage || "")}" aria-expanded="${expanded ? "true" : "false"}" title="Up to 3 roles per company show here, so one company can’t dominate this column. Star a role to keep it pinned.">${text}</button>`;
 }
 
 function renderStageLane(stage, jobs) {
   const isExpanded = core().getExpandedStages().has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
-  const { visible: visibleJobs, hidden } = applyLegacyKanbanCap(jobs);
-  const hiddenHtml = renderLegacyKanbanHiddenAffordance(hidden);
+  const showAll = legacyShowAllLanes.has(stage);
+  const capped = LEGACY_CAPPED_LANES.has(stage)
+    ? applyLegacyKanbanCap(jobs)
+    : { visible: jobs, hidden: [] };
+  const visibleJobs = showAll ? jobs : capped.visible;
+  const hiddenHtml = renderLegacyKanbanHiddenAffordance(capped.hidden, stage, showAll);
 
   return `
     <section class="stage-lane${isArchive ? " stage-lane--archive" : ""}${isExpanded ? " stage-lane--expanded" : ""}" data-stage="${host().escapeHtml(stage)}">
@@ -987,6 +1007,21 @@ function updateNavVisibility(track) {
 }
 
 function attachBoardListeners() {
+  // R5: Show all / Show fewer under a capped lane. The board is rebuilt, so
+  // focus moves to the new toggle for the same lane.
+  document.querySelectorAll('[data-action="toggle-show-all"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const stage = btn.dataset.stage;
+      if (legacyShowAllLanes.has(stage)) legacyShowAllLanes.delete(stage);
+      else legacyShowAllLanes.add(stage);
+      renderPipeline();
+      const next = Array.from(
+        document.querySelectorAll('[data-action="toggle-show-all"]'),
+      ).find((el) => el.dataset.stage === stage);
+      if (next) next.focus();
+    });
+  });
+
   // Stage collapse toggle + indicator init on expand
   document.querySelectorAll('[data-action="toggle-stage"]').forEach((btn) => {
     btn.addEventListener("click", () => {

@@ -126,21 +126,105 @@
     return null;
   }
 
+  /* B12: the one toast entry point for the v2 board, published as
+     window.JobBoredFlowing.toast. pipeline.js, pipeline-transition-adapter.js
+     and this bridge all call it, so a message reads the same everywhere and
+     an action (Undo, Retry) is never dropped:
+       1. JobBoredA11y.toast when the app's renderer is bridged
+          (JobBoredApp.core.host.showToast): it announces, then paints;
+       2. else window.showToast (auth-session.js), which paints and announces;
+       3. else a toast painted here, so an Undo still shows.
+     A non-error toast with an action stays up ACTION_TOAST_MS instead of the
+     renderer's 3 s, long enough to reach its button from the keyboard. */
+  var ACTION_TOAST_MS = 8000;
+
+  function noopDismiss() {}
+
+  function paintFallbackToast(message, kind, opts) {
+    var container = document.getElementById("toastContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "toast-container";
+      container.id = "toastContainer";
+      (document.body || document.documentElement).appendChild(container);
+    }
+    var el = document.createElement("div");
+    el.className = "toast toast-" + kind;
+    el.setAttribute("role", kind === "error" ? "alert" : "status");
+    var text = document.createElement("span");
+    text.className = "toast-message";
+    text.textContent = message;
+    el.appendChild(text);
+    var dismiss = function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    };
+    if (opts.action) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toast-action-btn";
+      btn.textContent = opts.action.label;
+      btn.addEventListener("click", function () {
+        opts.action.onClick();
+        dismiss();
+      });
+      el.appendChild(btn);
+    }
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "\u00d7";
+    close.addEventListener("click", dismiss);
+    el.appendChild(close);
+    container.appendChild(el);
+    if (!opts.persistent && kind !== "error") setTimeout(dismiss, 3000);
+    return dismiss;
+  }
+
+  function paintToast(message, kind, opts) {
+    var app = window.JobBoredApp;
+    var host = app && app.core && app.core.host;
+    var a11y = window.JobBoredA11y;
+    try {
+      if (host && typeof host.showToast === "function" && a11y && typeof a11y.toast === "function") {
+        return a11y.toast(message, kind, opts) || noopDismiss;
+      }
+      if (typeof window.showToast === "function") {
+        return window.showToast(message, kind, opts.persistent === true, opts.action) || noopDismiss;
+      }
+    } catch (err) {
+      try { console.warn("[JobBoredFlowing.toast] renderer failed; painting here", err); } catch (_) { /* */ }
+    }
+    if (typeof document === "undefined" || !document.createElement) return noopDismiss;
+    return paintFallbackToast(message, kind, opts);
+  }
+
   /**
-   * Reuse the same toast surface app.js uses, when available. Silently no-ops
-   * outside the browser dashboard runtime.
+   * @param {string} message
+   * @param {string} [type] success | error | info | warning
+   * @param {{persistent?: boolean, action?: {label: string, onClick: Function}}} [opts]
+   * @returns {Function} dismiss
+   */
+  function toast(message, type, opts) {
+    var o = opts || {};
+    var kind = String(type || "info");
+    var action = o.action && o.action.label && typeof o.action.onClick === "function" ? o.action : null;
+    var lingers = !!action && kind !== "error" && o.persistent !== true;
+    var dismiss = paintToast(String(message), kind, {
+      persistent: lingers || o.persistent === true,
+      action: action || undefined,
+    });
+    if (lingers) setTimeout(dismiss, ACTION_TOAST_MS);
+    return dismiss;
+  }
+
+  /**
+   * A write that failed, told to the person through the entry point.
    * @param {string} message
    * @param {string} type
    */
   function safeToast(message, type) {
-    try {
-      if (typeof window.showToast === "function") {
-        window.showToast(message, type || "error");
-        return;
-      }
-    } catch (_) { /* swallow */ }
-    // app.js's showToast is module-private; fall back to console.
-    try { console.warn("[JobBoredFlowing.writes]", message); } catch (_) { /* */ }
+    toast(message, type || "error");
   }
 
   /**
@@ -636,6 +720,8 @@
   // ---------------------------------------------------------------------------
   // Public surface
   // ---------------------------------------------------------------------------
+
+  ns.toast = toast;
 
   ns.writes = {
     __installed: true,

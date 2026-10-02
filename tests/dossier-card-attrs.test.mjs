@@ -371,7 +371,7 @@ function sliceParsePipelineCSV() {
   const sheetsReadJs = readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8");
   const start = sheetsReadJs.indexOf("function isDiscoveryAutomationNotesString");
   assert.ok(start >= 0, "isDiscoveryAutomationNotesString must exist");
-  const end = sheetsReadJs.indexOf("async function loadAllData", start);
+  const end = sheetsReadJs.indexOf("function loadAllData", start);
   assert.ok(end > start, "loadAllData must follow parsePipelineCSV in source order");
   return sheetsReadJs.slice(start, end);
 }

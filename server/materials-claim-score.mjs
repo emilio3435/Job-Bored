@@ -113,9 +113,16 @@ export function termMatches(term, index) {
   return false;
 }
 
+/* M6: tools and acronyms shorter than a word floor are still terms. "go"
+ * and "r" stay out: lowercased, they are English words. */
+export const SHORT_TERMS = new Set([
+  "ai", "ml", "bi", "ux", "ui", "qa", "hr", "pr", "c#",
+  "sql", "aws", "gcp", "dbt", "ga4", "rag", "seo", "sem", "dsp", "ott", "ctv", "iab", "crm", "api", "etl", "kpi",
+]);
+
 /** @param {string} text */
 function tokens(text) {
-  return stemmedWords(text).filter((t) => t.length >= 3 && !SCORE_STOP.has(t));
+  return stemmedWords(text).filter((t) => (t.length >= 3 || SHORT_TERMS.has(t)) && !SCORE_STOP.has(t));
 }
 
 const SCORE_STOP = new Set(

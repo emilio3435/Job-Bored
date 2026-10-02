@@ -25,6 +25,10 @@
       "minimum": 0,
       "maximum": 100
     },
+    "overallScoreSource": {
+      "description": "How overallScore was computed. dimensions: the rounded mean of the five dimensionScores. model: no dimension scores came back, so overallScore is the provider's own number.",
+      "enum": ["dimensions", "model"]
+    },
     "dimensionScores": {
       "type": "object",
       "additionalProperties": false,
@@ -125,6 +129,18 @@
     "model": {
       "type": "string",
       "maxLength": 120
+    },
+    "docHash": {
+      "description": "sha256 of the request's docText (UTF-8 bytes, exactly as sent), as sha256:<64 hex>. A different hash for the current document means it changed since it was scored.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "runId": {
+      "description": "Identifies this scoring run.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Za-z0-9_-]+$"
     }
   }
 }

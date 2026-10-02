@@ -313,7 +313,7 @@ body.jb-v2 [data-region="today"] .today-empty__hint {
 
 /* --- Narrow screens ----------------------------------------- */
 
-@media (max-width: 640px) {
+@media (max-width: 600px) { /* --jb-bp-sm */
   body.jb-v2 [data-region="today"] .today-item { flex-direction: column; align-items: stretch; }
   body.jb-v2 [data-region="today"] .today-item__aside { align-items: stretch; }
   body.jb-v2 [data-region="today"] .today-item__acts,

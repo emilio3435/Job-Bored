@@ -191,9 +191,10 @@ Google's Make a copy duplicates every row in the template, so delete any rows be
 ### 3. Finish setup in the dashboard
 
 Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
-Paste your Client ID when it asks. Your sign-in lasts for this tab only; your
-Client ID and Sheet link are saved in this browser, so the normal setup path
-needs no manual `config.js` edits.
+Paste your Client ID when it asks. JobBored keeps your Google access token in
+this tab only; new tabs sign you in again quietly. Your Client ID and Sheet
+link are saved in this browser, so the normal setup path needs no manual
+`config.js` edits.
 
 Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into the dashboard — the app extracts the ID automatically.
 
@@ -595,7 +596,7 @@ When a draft is generated or refined, the dashboard can POST:
 }
 ```
 
-Return JSON matching `schemas/ats-scorecard-response.v1.schema.json` (includes `overallScore`, dimensions, strengths, gaps, evidence, rewrites, confidence, and model). Full schemas and fixtures are in `schemas/` and `examples/`.
+Return JSON matching `schemas/ats-scorecard-response.v1.schema.json` (includes `overallScore`, dimensions, strengths, gaps, evidence, rewrites, confidence, and model). The local server sets `overallScore` to the rounded mean of the five dimensions (`overallScoreSource: "dimensions"`), keeps only evidence whose snippet is in `docText`, and adds the optional `docHash` and `runId`. Full schemas and fixtures are in `schemas/` and `examples/`.
 
 ---
 
