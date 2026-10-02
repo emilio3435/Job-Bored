@@ -1,4 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
+import { delint, loadVoicePack } from "./materials-delint.mjs";
+import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -310,4 +313,61 @@ export async function readJudgeContext(dir, document, fallback) {
     }
   } catch { /* older run lacks context */ }
   return { sources: fallback, constraints: [], reducedEvidence: true };
+}
+
+/** @param {unknown} text */
+const advisoryText = text => String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** @param {string} field */
+function fieldDocument(field) {
+  return field === "letter" || field.startsWith("letter.") ? "letter" : "resume";
+}
+
+/** @param {Array<{ id: string, text: string }>} sentences @param {string} needle */
+function matchingSentenceIds(sentences, needle) {
+  const match = advisoryText(needle);
+  return match ? sentences.filter((sentence) => advisoryText(sentence.text).includes(match)).map((sentence) => sentence.id) : [];
+}
+
+/** @param {string} field @param {any} draft */
+function draftFieldText(field, draft) {
+  if (field === "statement") return draft.statement || "";
+  if (field.startsWith("letter.")) return draft.letter?.[field.slice(7)] || "";
+  if (field.startsWith("earlier:")) return draft.earlier.find((/** @type {any} */ line) => `earlier:${line.claimId}` === field)?.text || "";
+  if (field.startsWith("bullet:")) return draft.bullets.find((/** @type {any} */ bullet) => `bullet:${bullet.claimId}` === field)?.text || "";
+  if (field.startsWith("bullets.")) return draft.bullets.find((/** @type {any} */ bullet) => `bullets.${bullet.claimId}` === field)?.text || "";
+  return "";
+}
+
+/** @param {"letter" | "resume"} document @param {Array<{ id: string, text: string }>} sentences @param {any} draft @param {any} delintResult @param {any} tagged @param {any} ledger */
+export function documentAdvisory(document, sentences, draft, delintResult, tagged, ledger) {
+  const claimTexts = (ledger.claims || []).map((/** @type {any} */ claim) => String(claim.text || ""));
+  const advisory = sentences.flatMap((sentence) => {
+    const upgrades = scopeUpgrades(sentence.text, claimTexts);
+    return upgrades.length ? [{ id: `scope:${sentence.id}`, kind: "scope", sentenceIds: [sentence.id], detail: describeUpgrades(upgrades) }] : [];
+  });
+  for (const [index, span] of delintResult.spans.entries()) {
+    if (fieldDocument(String(span.field || "")) !== document) continue;
+    let sentenceIds = matchingSentenceIds(sentences, span.text);
+    if (!sentenceIds.length) {
+      const fieldText = draftFieldText(String(span.field || ""), draft);
+      if (fieldText) sentenceIds = sentences.filter((sentence) => advisoryText(fieldText).includes(advisoryText(sentence.text))).map((sentence) => sentence.id);
+    }
+    if (!sentenceIds.length && span.field === "letter") sentenceIds = sentences.map((sentence) => sentence.id);
+    if (sentenceIds.length) advisory.push({ id: `voice:${index + 1}`, kind: "voice", sentenceIds, detail: `${span.code}: ${String(span.text || "").replace(/\s+/gu, " ").trim()}` });
+  }
+  for (const [index, issue] of tagged.issues.entries()) {
+    if (fieldDocument(String(issue.field || "")) !== document) continue;
+    const sentenceIds = matchingSentenceIds(sentences, issue.token);
+    if (sentenceIds.length) advisory.push({ id: `metric:${index + 1}`, kind: "metric", sentenceIds, detail: issue.message });
+  }
+  return advisory;
+}
+
+/** Recompute the pipeline's sentence advisories for a delivered edited body.
+ * @param {{document:"letter"|"resume",body:string,ledger:any,posting:string}} input */
+export async function refreshedDocumentAdvisory({ document, body, ledger, posting }) {
+  const draft = { statement: document === "resume" ? body : "", bullets: [], earlier: [], letter: document === "letter" ? { hook: body } : {} };
+  const delinted = delint({ fields: document === "letter" ? { "letter.hook": body } : { statement: body }, letter: document === "letter" ? draft.letter : null, letterText: document === "letter" ? body : "", jdText: posting, pack: await loadVoicePack() });
+  return documentAdvisory(document, splitSentences(body, document), draft, delinted, tagDraftMetrics({ draft, ledger, postingText: posting }), ledger);
 }

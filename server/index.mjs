@@ -1317,6 +1317,7 @@ app.get("/api/applications/:slug/runs/:runId/files/:filename", async (req, res) 
     res.setHeader("X-Content-Type-Options", "nosniff");
     if (meta.contentType.startsWith("text/html")) res.setHeader("Content-Security-Policy", MATERIALS_HTML_CSP);
     if (String(req.query.download || "") === "1") res.setHeader("Content-Disposition", `attachment; filename="${req.params.filename.replace(/"/g, "")}"`);
+    if (meta.body !== undefined) { res.end(meta.body); return; }
     const stream = createReadStream(meta.absolutePath);
     stream.on("error", error => { if (!res.headersSent) sendAppError(res, error); else res.end(); });
     stream.pipe(res);
@@ -1423,6 +1424,7 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
         `attachment; filename="${req.params.filename.replace(/"/g, "")}"`,
       );
     }
+    if (meta.body !== undefined) { res.end(meta.body); return; }
     const stream = createReadStream(meta.absolutePath);
     stream.on("error", (err) => {
       if (!res.headersSent) sendAppError(res, err);

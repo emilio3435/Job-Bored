@@ -16,12 +16,13 @@ import { resolveRunDir } from "./materials-history.mjs";
  * are copied once when the new root is missing or empty.
  */
 
-import { readFile, readdir, stat, realpath, rename, writeFile, mkdir, cp, rm } from "node:fs/promises";
+import { readFile, readdir, stat, lstat, realpath, rename, writeFile, mkdir, cp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
 import { auditApplicationMaterials } from "./materials-quality.mjs";
+import { readQaVerdict, combinedStatus, formatDocumentQaReport } from "./materials-qa.mjs";
 import { isUsableJobDescription } from "./materials-jd-gate.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -1066,9 +1067,10 @@ export async function resolveFile(slug, filename, { root } = {}) {
   if (!st.isFile()) {
     throw httpError("Not a file", 404);
   }
+  const body = await servedQaFile(dir, filename);
   return {
     absolutePath: realPath,
-    size: st.size,
+    size: body === undefined ? st.size : Buffer.byteLength(body), ...(body === undefined ? {} : { body }),
     contentType: contentTypeFor(filename),
     modifiedAt: st.mtime.toUTCString(),
   };
@@ -1085,7 +1087,47 @@ export async function resolveRunFile(slug, runId, filename, { root } = {}) {
   if (!file.startsWith(dir + sep)) throw httpError("Path escape detected", 400);
   const st = await stat(file);
   if (!st.isFile()) throw httpError("Not a file", 404);
-  return { absolutePath: file, size: st.size, contentType: contentTypeFor(filename), modifiedAt: st.mtime.toUTCString() };
+  const body = await servedQaFile(dir, filename);
+  return { absolutePath: file, size: body === undefined ? st.size : Buffer.byteLength(body), ...(body === undefined ? {} : { body }), contentType: contentTypeFor(filename), modifiedAt: st.mtime.toUTCString() };
+}
+
+/** Per-file containment for reads and writes, including absent write targets.
+ * @param {string} dir @param {string} filename @param {{optional?:boolean}} [options] */
+export async function resolveContainedFile(dir, filename, { optional = false } = {}) {
+  if (basename(filename) !== filename || filename === "." || filename === "..") throw httpError("Path escape detected", 400);
+  const base = await realpath(dir), path = join(base, filename);
+  try { await lstat(path); } catch (error) {
+    if (optional && /** @type {any} */ (error).code === "ENOENT") return path;
+    throw httpError("File not found", 404);
+  }
+  let file;
+  try { file = await realpath(path); } catch { throw httpError("Invalid file target", 400); }
+  if (!file.startsWith(base + sep)) throw httpError("Path escape detected", 400);
+  if (!(await stat(file)).isFile()) throw httpError("Not a file", 400);
+  return file;
+}
+
+/** Adapt QA exports on read; the stored legacy artifacts stay byte-identical.
+ * @param {string} dir @param {string} filename @returns {Promise<string|undefined>} */
+async function servedQaFile(dir, filename) {
+  if (!["qa.json", "qa.letter.json", "qa.resume.json", "qa-report.md"].includes(filename)) return undefined;
+  /** @param {string} name */
+  const load = async name => {
+    const file = await resolveContainedFile(dir, name, { optional: true });
+    try { return JSON.parse(await readFile(file, "utf8")); } catch (error) {
+      if (/** @type {any} */ (error).code === "ENOENT") return null;
+      throw httpError("QA record is unreadable", 409);
+    }
+  };
+  if (filename === "qa.letter.json" || filename === "qa.resume.json") return JSON.stringify(readQaVerdict(await load(filename)), null, 2) + "\n";
+  const records = (await Promise.all([load("qa.letter.json"), load("qa.resume.json")])).map(readQaVerdict).filter(Boolean);
+  const old = await load("qa.json");
+  const disposition = records.length ? combinedStatus(records) === "fail" ? "FAIL" : combinedStatus(records) === "review" ? "REVIEW" : "READY" : ["FAIL", "REVIEW", "READY"].includes(old?.disposition) ? old.disposition : "REVIEW";
+  if (filename === "qa-report.md") return records.length ? formatDocumentQaReport({ records }) : `# QA report\n\nStatus: ${disposition}\nGraded by the old checker\n`;
+  return JSON.stringify({ contract: "materials.qa.v3", runId: old?.runId || records[0]?.runId || "legacy", disposition,
+    textHashes: records.length ? Object.fromEntries(records.map(r => [r.document, r.textHash])) : old?.textHashes || {},
+    documents: records.length ? Object.fromEntries(records.map(r => [r.document, r.disposition])) : Object.fromEntries(Object.entries(old?.documents || {}).map(([doc, status]) => [doc, ["FAIL", "REVIEW", "READY"].includes(String(status)) ? status : "REVIEW"])),
+  }, null, 2) + "\n";
 }
 
 /**

@@ -1,4 +1,4 @@
-import { buildJudgePacket } from "./materials-judge.mjs";
+import { buildJudgePacket, documentAdvisory } from "./materials-judge.mjs";
 /** One materials funnel: prepare, write, validate, render, judge, save. */
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -24,7 +24,6 @@ import { renderPackage, writePackageRecords } from "./materials-package.mjs";
 import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { buildQaRecord, repairInstructionsFromQa, readQaVerdict, passesOrStrictlyBetter, verdictSnapshot, formatDocumentQaReport } from "./materials-qa.mjs";
 import { selectRankedClaims } from "./materials-select.mjs";
-import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
 import { runsToText } from "./materials-render.mjs";
 import { letterWordBand, resolveRunFamily } from "./materials-templates.mjs";
 
@@ -152,52 +151,6 @@ function materiallyChanged(a, b) {
 /** @param {unknown} text */
 function comparableText(text) {
   return String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-/** @param {string} field */
-function fieldDocument(field) {
-  return field === "letter" || field.startsWith("letter.") ? "letter" : "resume";
-}
-
-/** @param {Array<{ id: string, text: string }>} sentences @param {string} needle */
-function matchingSentenceIds(sentences, needle) {
-  const match = comparableText(needle);
-  return match ? sentences.filter((sentence) => comparableText(sentence.text).includes(match)).map((sentence) => sentence.id) : [];
-}
-
-/** @param {string} field @param {any} draft */
-function draftFieldText(field, draft) {
-  if (field === "statement") return draft.statement || "";
-  if (field.startsWith("letter.")) return draft.letter?.[field.slice(7)] || "";
-  if (field.startsWith("earlier:")) return draft.earlier.find((/** @type {any} */ line) => `earlier:${line.claimId}` === field)?.text || "";
-  if (field.startsWith("bullet:")) return draft.bullets.find((/** @type {any} */ bullet) => `bullet:${bullet.claimId}` === field)?.text || "";
-  if (field.startsWith("bullets.")) return draft.bullets.find((/** @type {any} */ bullet) => `bullets.${bullet.claimId}` === field)?.text || "";
-  return "";
-}
-
-/** @param {"letter" | "resume"} document @param {Array<{ id: string, text: string }>} sentences @param {any} draft @param {any} delintResult @param {any} tagged @param {any} ledger */
-function documentAdvisory(document, sentences, draft, delintResult, tagged, ledger) {
-  const claimTexts = (ledger.claims || []).map((/** @type {any} */ claim) => String(claim.text || ""));
-  const advisory = sentences.flatMap((sentence) => {
-    const upgrades = scopeUpgrades(sentence.text, claimTexts);
-    return upgrades.length ? [{ id: `scope:${sentence.id}`, kind: "scope", sentenceIds: [sentence.id], detail: describeUpgrades(upgrades) }] : [];
-  });
-  for (const [index, span] of delintResult.spans.entries()) {
-    if (fieldDocument(String(span.field || "")) !== document) continue;
-    let sentenceIds = matchingSentenceIds(sentences, span.text);
-    if (!sentenceIds.length) {
-      const fieldText = draftFieldText(String(span.field || ""), draft);
-      if (fieldText) sentenceIds = sentences.filter((sentence) => comparableText(fieldText).includes(comparableText(sentence.text))).map((sentence) => sentence.id);
-    }
-    if (!sentenceIds.length && span.field === "letter") sentenceIds = sentences.map((sentence) => sentence.id);
-    if (sentenceIds.length) advisory.push({ id: `voice:${index + 1}`, kind: "voice", sentenceIds, detail: `${span.code}: ${String(span.text || "").replace(/\s+/gu, " ").trim()}` });
-  }
-  for (const [index, issue] of tagged.issues.entries()) {
-    if (fieldDocument(String(issue.field || "")) !== document) continue;
-    const sentenceIds = matchingSentenceIds(sentences, issue.token);
-    if (sentenceIds.length) advisory.push({ id: `metric:${index + 1}`, kind: "metric", sentenceIds, detail: issue.message });
-  }
-  return advisory;
 }
 
 /** @param {unknown} value */

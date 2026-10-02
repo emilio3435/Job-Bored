@@ -15,7 +15,7 @@ const FACTS = {
   title: "Director, Digital Sales",
   jobUrl: "https://jobs.example.com/northwind/director",
   docs: { resume: true, coverLetter: true },
-  verdicts: { resume: { disposition: "READY", score: 11, max: 12 }, letter: { disposition: "REVIEW", score: 9, max: 12 } },
+  verdicts: { resume: { disposition: "READY" }, letter: { disposition: "REVIEW" } },
   outreachText: "",
   bars: [],
   contact: "",
@@ -32,18 +32,18 @@ describe("buildChecklistItems · from package states", () => {
     assert.ok(items.every((i) => i.done === false && i.doneAt === null));
     const resume = items[0];
     assert.equal(resume.label, "Download your tailored resume (PDF)");
-    assert.match(resume.detail, /Passed its quality check \(11 \/ 12\)/);
+    assert.equal(resume.detail, "Passed its quality check.");
     assert.deepEqual(resume.action, { kind: "download", doc: "resume", filename: "resume.pdf", gate: false, label: "Download" });
     assert.equal(items.find((i) => i.id === "submit").action.href, FACTS.jobUrl);
     assert.match(items.find((i) => i.id === "submit").label, /NorthwindMedia's site/);
   });
 
   it("should warn and gate the download when the resume failed QA", () => {
-    const items = buildChecklistItems({ ...FACTS, verdicts: { resume: { disposition: "FAIL", score: 6, max: 12 } } });
+    const items = buildChecklistItems({ ...FACTS, verdicts: { resume: { disposition: "FAIL" } } });
     const resume = items.find((i) => i.id === "resume");
     assert.equal(resume.tone, "warn");
     assert.equal(resume.action.gate, true);
-    assert.match(resume.detail, /failed its quality check \(6 \/ 12\)/);
+    assert.equal(resume.detail, "It failed its quality check. Repair it or read it closely first.");
   });
 
   it("should offer Draft when nothing is drafted yet", () => {

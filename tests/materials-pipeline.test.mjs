@@ -519,6 +519,19 @@ describe("GRADE backend pass persistence and adoption", () => {
   let dir;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "grade-passes-")); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  for (const newCheck of [false, true]) it(`GRADE-B FIX1-B10: ${newCheck ? "rejects a smaller failure set with a new check" : "chooses and publishes a still-FAIL strict improvement"}`, async () => {
+    const gates = ids => ids.map(id => ({ id, kind: "hard", pass: false, reason: id, sentenceIds: [] }));
+    await runPipeline(base(dir, testServices({ hardGate: () => gates(["a", "b", "c"]) }).services, "cover_letter", "held-root"));
+    let call = 0;
+    const { services } = testServices({ rewriteClose: true, hardGate: () => gates(++call === 1 ? ["a", "b", "c"] : newCheck ? ["a", "z"] : ["a"]) });
+    const request = base(dir, services, "cover_letter", "candidate"); request.payload.notes = "new attempt";
+    const result = await runPipeline(request);
+    assert.equal(result.adopted, !newCheck);
+    assert.equal((await json(dir, "run.json")).runId, newCheck ? "held-root" : "candidate");
+    const candidate = await json(join(dir, "runs", "candidate"), "run.json");
+    assert.equal(candidate.label, newCheck ? "Original draft" : "Repaired");
+    assert.ok(candidate.held);
+  });
   it("GRADE-B G5: every FAIL triggers repair even without a hard rewrite issue", async () => {
     const { services, calls } = testServices({ hardGate: () => [{ id: "artifact_usable", kind: "hard", pass: false, reason: "Check artifact.", sentenceIds: [] }] });
     await runPipeline(base(dir, services, "cover_letter", "failed-artifact"));
