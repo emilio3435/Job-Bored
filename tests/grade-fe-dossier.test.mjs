@@ -370,4 +370,22 @@ describe("GRADE-F FIX3-W2 · no green Ready beside an adverse verdict", () => {
     assert.ok(card.querySelector("[data-score-open]"), "the card carries the verdict button");
     assert.equal(text(card.querySelector(".brief-materials__card-status")), "Drafted");
   });
+
+  /* FIX4-R4-3 (Fable R4): role.css painted every card status green except
+     needs_review and pending, so the word was right but the tone was not. */
+  it("GRADE-F FIX4-R4-3: the legacy card's Drafted status is painted neutral, not green", () => {
+    const env = boot();
+    const host = env.doc.createElement("div");
+    env.doc.body.appendChild(host);
+    env.win.JobBoredRoleMaterials.renderManifest(host, manifest(), "http://127.0.0.1:3847");
+    const status = host.querySelector('[data-doc-type="cover_letter"] .brief-materials__card-status');
+    assert.equal(status.getAttribute("data-status"), "drafted");
+    const css = read("role.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = /\.brief-materials__card-status\[data-status="drafted"\]\s*\{([^}]*)\}/.exec(css);
+    assert.ok(rule, "role.css has a rule for the drafted status");
+    assert.match(rule[1], /color:\s*var\(--jb-ink-2\)/, "neutral ink");
+    assert.match(rule[1], /background:\s*var\(--jb-paper-2\)/, "neutral fill");
+    assert.match(rule[1], /border-color:\s*var\(--jb-line\)/, "neutral edge");
+    assert.doesNotMatch(rule[1], /mint|rgba?\(|#[0-9a-f]{3,8}\b/i, "no green, no colour literal");
+  });
 });
