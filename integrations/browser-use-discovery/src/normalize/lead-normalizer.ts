@@ -3,6 +3,7 @@ import { normalizeCompanyKey } from "../discovery/company-keys.ts";
 
 // B18: re-exported from the single home so existing importers keep working.
 export { normalizeCompanyKey };
+export { inferRemoteBucket, normalizeLocationText } from "../../../../server/shared/listing-prefilter.mjs";
 
 import {
   DEFAULT_STATUS,
@@ -15,6 +16,15 @@ import {
   sanitizeCompensationText,
   toPlainText,
 } from "../browser/selectors/shared.ts";
+// HOLES R2: remote inference lives in the pre-filter module the server's
+// rescore imports too, so both paths read a job's work mode the same way.
+import {
+  HYBRID_LOCATION_PATTERN,
+  inferRemoteBucket,
+  normalizeLocationText,
+  ONSITE_LOCATION_PATTERN,
+  REMOTE_LOCATION_PATTERN,
+} from "../../../../server/shared/listing-prefilter.mjs";
 import {
   computeProfileAwareFitScore,
   buildProfileFitAssessment,
@@ -571,21 +581,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const REMOTE_LOCATION_PATTERN =
-  /\b(remote|remote-first|distributed|work from home|wfh|anywhere)\b/i;
-const HYBRID_LOCATION_PATTERN = /\bhybrid\b/i;
-const ONSITE_LOCATION_PATTERN =
-  /\b(on[\s-]?site|in[\s-]?office|office-based)\b/i;
-
-export function normalizeLocationText(input: string): string {
-  return normalizeWhitespace(input)
-    .toLowerCase()
-    .replace(/\bu\.?s\.?a?\b/g, "united states")
-    .replace(/\bu\.?k\.?\b/g, "united kingdom")
-    .replace(/\bnyc\b/g, "new york")
-    .replace(/[|/]+/g, " ");
-}
-
 export function normalizeSemanticIdentityText(input: string): string {
   return normalizeWhitespace(toPlainText(input))
     .normalize("NFKD")
@@ -595,35 +590,6 @@ export function normalizeSemanticIdentityText(input: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-export function inferRemoteBucket(input: {
-  remoteBucket?: RemoteBucket | string;
-  location?: string;
-  descriptionText?: string;
-  fitAssessment?: string;
-  title?: string;
-}): RemoteBucket {
-  const explicit = normalizeRemoteBucket(input.remoteBucket);
-  if (explicit !== "unknown") return explicit;
-
-  const haystack = normalizeLocationText(
-    [
-      input.location,
-      input.descriptionText,
-      input.fitAssessment,
-      input.title,
-    ]
-      .map((value) => toPlainText(value || ""))
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  if (!haystack) return "unknown";
-  if (REMOTE_LOCATION_PATTERN.test(haystack)) return "remote";
-  if (HYBRID_LOCATION_PATTERN.test(haystack)) return "hybrid";
-  if (ONSITE_LOCATION_PATTERN.test(haystack)) return "onsite";
-  return "unknown";
 }
 
 export function buildLeadSemanticKey(input: LeadFingerprintInput): string {
@@ -984,16 +950,6 @@ function normalizeExternalJobId(input: string): string {
   return normalizeWhitespace(toPlainText(input))
     .toLowerCase()
     .replace(/\s+/g, "");
-}
-
-function normalizeRemoteBucket(input: RemoteBucket | string | undefined): RemoteBucket {
-  const normalized = normalizeWhitespace(String(input || "")).toLowerCase();
-  if (normalized === "remote") return "remote";
-  if (normalized === "hybrid") return "hybrid";
-  if (normalized === "onsite" || normalized === "on-site" || normalized === "on site") {
-    return "onsite";
-  }
-  return "unknown";
 }
 
 function buildDescriptionFragment(input: string): string {

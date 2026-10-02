@@ -32,6 +32,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import { parseSalaryMax, runPreFilter } from "./shared/listing-prefilter.mjs";
 import {
   loadLlmConfig,
   migrateLlmConfigFromEnv,
@@ -46,8 +47,8 @@ const __dirname = dirname(__filename);
 
 const PIPELINE_SHEET_NAME = "Pipeline";
 const HEADER_ROW_COUNT = 1;
-// Read range covers every Pipeline column we know about (24 columns through X).
-const READ_RANGE = `${PIPELINE_SHEET_NAME}!A2:X`;
+// Read range covers the columns rescore reads, through Z (Work Mode).
+const READ_RANGE = `${PIPELINE_SHEET_NAME}!A2:Z`;
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
@@ -288,116 +289,11 @@ const COL = {
   FIT_SCORE: 7, // H
   FIT_ASSESSMENT: 10, // K
   TALKING_POINTS: 16, // Q
+  WORK_MODE: 25, // Z
 };
 
-const SPONSORSHIP_DENY_PHRASES = [
-  "no sponsorship",
-  "us citizens only",
-  "must be authorized to work in the us without sponsorship",
-  "no visa sponsorship",
-];
-
-/**
- * Parse the maximum published salary from common annual compensation strings.
- * @param {string} text
- * @returns {number | null}
- */
-function parseSalaryMax(text) {
-  const cleaned = String(text || "").replace(/\$/g, "").toLowerCase();
-  if (!cleaned.trim()) return null;
-  const matches = cleaned.match(/[\d][\d,]*\.?\d*\s*k?/g);
-  if (!matches || matches.length === 0) return null;
-  const values = [];
-  for (const raw of matches) {
-    const hasK = /k$/.test(raw.trim());
-    const numeric = raw.replace(/k$/, "").replace(/,/g, "").trim();
-    if (!numeric) continue;
-    const parsed = Number.parseFloat(numeric);
-    if (!Number.isFinite(parsed) || parsed <= 0) continue;
-    const dollars = hasK ? parsed * 1000 : parsed;
-    if (!hasK && dollars < 1000) continue;
-    values.push(dollars);
-  }
-  return values.length ? Math.max(...values) : null;
-}
-
-/**
- * Server-rescore mirror of the discovery worker's deterministic hard filter.
- * Order and reason strings intentionally match profile-aware-scorer.ts.
- * @param {RawListing} rawListing
- * @param {UserProfile} profile
- */
-function runPreFilter(rawListing, profile) {
-  const hc = profile.hardConstraints || {};
-  const titleLower = String(rawListing.title || "").toLowerCase();
-  for (const phrase of hc.skipTitles || []) {
-    const needle = String(phrase || "").trim().toLowerCase();
-    if (needle && titleLower.includes(needle)) {
-      return {
-        pass: false,
-        reason: "skip_title_match",
-        detail: `Title contains skip phrase "${phrase}".`,
-      };
-    }
-  }
-
-  if (hc.workMode === "remote_only" && rawListing.remoteBucket !== "remote") {
-    return {
-      pass: false,
-      reason: "work_mode_mismatch",
-      detail: `Profile requires remote_only; listing remoteBucket=${rawListing.remoteBucket || "unknown"}.`,
-    };
-  }
-
-  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
-    const acceptable = (hc.acceptableLocations || [])
-      .map((entry) => String(entry || "").trim().toLowerCase())
-      .filter(Boolean);
-    if (acceptable.length > 0) {
-      const locationLower = String(rawListing.location || "").toLowerCase();
-      const matches = acceptable.some((loc) => locationLower.includes(loc));
-      if (!matches) {
-        return {
-          pass: false,
-          reason: "location_outside_acceptable",
-          detail: `Location "${rawListing.location || ""}" outside acceptableLocations [${acceptable.join(", ")}].`,
-        };
-      }
-    }
-  }
-
-  if (hc.workAuth === "needs_sponsorship") {
-    const descLower = String(rawListing.descriptionText || "").toLowerCase();
-    for (const phrase of SPONSORSHIP_DENY_PHRASES) {
-      if (descLower.includes(phrase)) {
-        return {
-          pass: false,
-          reason: "work_auth_mismatch",
-          detail: `Listing description signals "${phrase}".`,
-        };
-      }
-    }
-  }
-
-  const parsedMax = parseSalaryMax(rawListing.compensationText || "");
-  if (parsedMax === null) {
-    if (hc.salaryRequired) {
-      return {
-        pass: false,
-        reason: "salary_missing_but_required",
-        detail: "Profile requires published salary; listing has none.",
-      };
-    }
-  } else if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
-    return {
-      pass: false,
-      reason: "salary_below_floor",
-      detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
-    };
-  }
-
-  return { pass: true };
-}
+// HOLES R2/R9/R10: runPreFilter and parseSalaryMax come from
+// shared/listing-prefilter.mjs, the same gate discovery runs.
 
 const SHEET_COLUMN_LETTER = {
   FIT_SCORE: "H",
@@ -1269,20 +1165,17 @@ async function scoreOneWithProvider({ profile, rawListing, providerConfig, signa
  * @returns {RawListing}
  */
 function buildRawListingFromRow(row) {
-  const location = String(row[COL.LOCATION] || "").trim();
-  const locationLower = location.toLowerCase();
   return {
     sourceId: "rescore",
     sourceLabel: "Rescore",
     title: String(row[COL.TITLE] || "").trim(),
     company: String(row[COL.COMPANY] || "").trim(),
-    location,
+    location: String(row[COL.LOCATION] || "").trim(),
     url: String(row[COL.LINK] || "").trim(),
-    remoteBucket: locationLower.includes("remote")
-      ? "remote"
-      : locationLower.includes("hybrid")
-        ? "hybrid"
-        : "onsite",
+    // Work Mode (Z) is discovery's own reading of the job, or the user's;
+    // blank leaves the shared pre-filter to infer it from the same text
+    // discovery reads (location, title, description).
+    remoteBucket: String(row[COL.WORK_MODE] || "").trim(),
     compensationText: String(row[COL.SALARY] || "").trim(),
     descriptionText: "",
   };
@@ -1665,6 +1558,7 @@ export async function rescoreAllPipelineRows({
 export const _internal = {
   scoreOneWithChatCompletions,
   classifyRowForRescore,
+  buildRawListingFromRow,
   runPreFilter,
   parseSalaryMax,
   buildSystemPrompt,

@@ -69,15 +69,18 @@ function runPreFilter(rawListing: RawListing, profile: UserProfile): PreFilterRe
 
 Rules (apply in this order, first failure wins):
 
-1. **`skipTitles`** — case-insensitive substring match on `rawListing.title`. Hit → reject `skip_title_match`.
+The gate lives in `server/shared/listing-prefilter.mjs`; discovery and the server's rescore both call it.
+
+1. **`skipTitles`** — case-insensitive whole-word match on `rawListing.title`; a phrase also covers its plural and "-ship" form (`intern` skips "Interns" and "Internship", never "International"). Hit → reject `skip_title_match`.
 2. **`workMode`** —
    - `remote_only`: listing's resolved `remoteBucket` must be `remote`. Else reject `work_mode_mismatch`.
    - `hybrid_ok`: `remote` or `hybrid` accepted; `onsite` requires `acceptableLocations` match (next rule).
    - `onsite_ok`: all modes accepted; onsite still requires location match.
    - `any`: no work-mode check.
-3. **`acceptableLocations`** — when listing is onsite/hybrid AND `acceptableLocations` is non-empty, listing location must substring-match at least one entry. Else reject `location_outside_acceptable`. (`remote_only` skips this entirely.)
+3. **`acceptableLocations`** — when listing is onsite/hybrid AND `acceptableLocations` is non-empty, listing location must contain at least one entry as whole words (`NY` matches "New York, NY", not "Germany"; `NYC` reads as "new york"). Else reject `location_outside_acceptable`. (`remote_only` skips this entirely.)
 4. **`workAuth`** — if profile is `needs_sponsorship` and the listing's description mentions "no sponsorship" / "US citizens only" / "must be authorized to work in the US without sponsorship", reject `work_auth_mismatch`. Otherwise pass.
 5. **`salaryRequired` + `salaryFloor`** —
+   - Pay is read as annual dollars: hourly, daily, weekly and monthly rates are annualized (`$45/hr` → 93,600), and a 401(k) or 403(b) is not pay.
    - `salaryRequired=true` AND listing has no parseable salary → reject `salary_missing_but_required`.
    - `salaryFloor` set AND listing's published max < floor → reject `salary_below_floor`. (Use parsed max, not min, to avoid rejecting wide bands.)
 

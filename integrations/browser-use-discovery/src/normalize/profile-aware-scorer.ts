@@ -34,147 +34,33 @@ import {
   USER_PROFILE_SCHEMA_VERSION,
 } from "../contracts/user-profile.ts";
 import type { ListingScoreCache } from "../state/listing-score-cache.ts";
-import { inferRemoteBucket } from "./lead-normalizer.ts";
+import {
+  parseSalaryMax as sharedParseSalaryMax,
+  runPreFilter as sharedRunPreFilter,
+} from "../../../../server/shared/listing-prefilter.mjs";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NEW: Pre-filter (deterministic, no LLM cost)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SPONSORSHIP_DENY_PHRASES = [
-  "no sponsorship",
-  "us citizens only",
-  "must be authorized to work in the us without sponsorship",
-  "no visa sponsorship",
-];
-
 /**
- * Apply hardConstraints to a raw listing. Order matters: cheapest checks
- * first. Returns the first violation; never aggregates.
+ * Apply hardConstraints to a raw listing, cheapest checks first; returns the
+ * first violation. HOLES R2/R9/R10: the gate lives in
+ * server/shared/listing-prefilter.mjs so rescore makes the same decision.
  */
 export function runPreFilter(
   rawListing: RawListing,
   profile: UserProfile,
 ): PreFilterResult {
-  const hc = profile.hardConstraints;
-
-  // 1. skipTitles
-  const titleLower = String(rawListing.title || "").toLowerCase();
-  const skipTitles = hc.skipTitles || [];
-  for (const phrase of skipTitles) {
-    const needle = String(phrase || "").trim().toLowerCase();
-    if (needle && titleLower.includes(needle)) {
-      return {
-        pass: false,
-        reason: "skip_title_match",
-        detail: `Title contains skip phrase "${phrase}".`,
-        matchedPhrase: String(phrase).trim(),
-      };
-    }
-  }
-
-  // 2. workMode = remote_only AND (inferred) remoteBucket !== "remote"
-  // Use inference to avoid hard-rejecting ATS listings that omit remote flags
-  // when the location/title/description clearly indicate remote.
-  const effectiveRemoteBucket =
-    hc.workMode === "remote_only"
-      ? inferRemoteBucket({
-          remoteBucket: rawListing.remoteBucket,
-          location: rawListing.location,
-          title: rawListing.title,
-          descriptionText: rawListing.descriptionText,
-        })
-      : rawListing.remoteBucket || "unknown";
-  if (hc.workMode === "remote_only" && effectiveRemoteBucket !== "remote") {
-    return {
-      pass: false,
-      reason: "work_mode_mismatch",
-      detail: `Profile requires remote_only; listing remoteBucket=${effectiveRemoteBucket || "unknown"}.`,
-      remoteBucket: effectiveRemoteBucket || "unknown",
-    };
-  }
-
-  // 3. workMode hybrid/onsite AND acceptableLocations set AND no match.
-  //    `any` and `remote_only` never apply a location hard constraint.
-  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
-    const acceptable = (hc.acceptableLocations || [])
-      .map((entry) => String(entry || "").trim().toLowerCase())
-      .filter(Boolean);
-    if (acceptable.length > 0) {
-      const locationLower = String(rawListing.location || "").toLowerCase();
-      const matches = acceptable.some((loc) => locationLower.includes(loc));
-      if (!matches) {
-        return {
-          pass: false,
-          reason: "location_outside_acceptable",
-          detail: `Location "${rawListing.location || ""}" outside acceptableLocations [${acceptable.join(", ")}].`,
-        };
-      }
-    }
-  }
-
-  // 4. workAuth = needs_sponsorship AND description signals "no sponsorship"
-  if (hc.workAuth === "needs_sponsorship") {
-    const descLower = String(rawListing.descriptionText || "").toLowerCase();
-    for (const phrase of SPONSORSHIP_DENY_PHRASES) {
-      if (descLower.includes(phrase)) {
-        return {
-          pass: false,
-          reason: "work_auth_mismatch",
-          detail: `Listing description signals "${phrase}".`,
-        };
-      }
-    }
-  }
-
-  // 5. salaryRequired owns only the missing-salary rejection. A published
-  //    salary below salaryFloor rejects independently of that checkbox.
-  const parsedMax = parseSalaryMax(rawListing.compensationText || "");
-  if (parsedMax === null) {
-    if (hc.salaryRequired) {
-      return {
-        pass: false,
-        reason: "salary_missing_but_required",
-        detail: "Profile requires published salary; listing has none.",
-      };
-    }
-  } else if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
-    return {
-      pass: false,
-      reason: "salary_below_floor",
-      detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
-    };
-  }
-
-  return { pass: true };
+  return sharedRunPreFilter(rawListing, profile);
 }
 
 /**
- * Parse the max published salary out of a comp string. Handles formats like
- * "$150k", "$150,000", "$150K - $180K", "150-180k", "150000".
- * Returns raw dollars (e.g. 150000), or null when nothing recognizable.
+ * The highest published pay as annual dollars ("$150k", "150-180k",
+ * "$45/hr"), or null. A 401(k) is not pay.
  */
 export function parseSalaryMax(text: string): number | null {
-  const cleaned = String(text || "").replace(/\$/g, "").toLowerCase();
-  if (!cleaned.trim()) return null;
-  // Match numeric chunks, optionally with comma separators and a trailing k.
-  const matches = cleaned.match(/[\d][\d,]*\.?\d*\s*k?/g);
-  if (!matches || matches.length === 0) return null;
-
-  const values: number[] = [];
-  for (const raw of matches) {
-    const hasK = /k$/.test(raw.trim());
-    const numeric = raw.replace(/k$/, "").replace(/,/g, "").trim();
-    if (!numeric) continue;
-    const parsed = Number.parseFloat(numeric);
-    if (!Number.isFinite(parsed) || parsed <= 0) continue;
-    const dollars = hasK ? parsed * 1000 : parsed;
-    // Reject obviously-not-salary numbers (hours, years, etc.) by requiring
-    // a plausible salary range. Keep small numbers when they have a k suffix.
-    if (!hasK && dollars < 1000) continue;
-    values.push(dollars);
-  }
-  if (values.length === 0) return null;
-  return Math.max(...values);
+  return sharedParseSalaryMax(text);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

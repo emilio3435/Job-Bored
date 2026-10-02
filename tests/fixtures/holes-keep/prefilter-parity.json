@@ -1,0 +1,48 @@
+{
+  "remoteBucket": [
+    { "location": "Remote", "title": "Senior Engineer", "description": "", "expected": "remote" },
+    { "location": "Anywhere", "title": "Senior Engineer", "description": "", "expected": "remote" },
+    { "location": "Distributed", "title": "Senior Engineer", "description": "", "expected": "remote" },
+    { "location": "Work from home", "title": "Senior Engineer", "description": "", "expected": "remote" },
+    { "location": "United States", "title": "Director, Revenue Operations (Remote)", "description": "", "expected": "remote" },
+    { "location": "US", "title": "Senior Engineer", "description": "We are a remote-first company.", "expected": "remote" },
+    { "location": "Hybrid - NYC", "title": "Senior Engineer", "description": "", "expected": "hybrid" },
+    { "location": "On-site Austin", "title": "Senior Engineer", "description": "", "expected": "onsite" },
+    { "location": "Austin, TX", "title": "Senior Engineer", "description": "", "expected": "unknown" },
+    { "location": "", "title": "Senior Engineer", "description": "", "expected": "unknown" },
+    { "location": "Austin, TX", "title": "Senior Engineer", "description": "", "workMode": "remote", "expected": "remote" },
+    { "location": "Remote", "title": "Senior Engineer", "description": "", "workMode": "onsite", "expected": "onsite" }
+  ],
+  "salaryMax": [
+    { "text": "401k matching", "expected": null },
+    { "text": "Competitive pay + 401(k)", "expected": null },
+    { "text": "$45/hr", "expected": 93600 },
+    { "text": "$45 - $60 per hour", "expected": 124800 },
+    { "text": "$18.50/hr", "expected": 38480 },
+    { "text": "$2,500/week", "expected": 130000 },
+    { "text": "$12,000/month", "expected": 144000 },
+    { "text": "Up to $300 per day", "expected": 78000 },
+    { "text": "$60/hour (~$125k/yr)", "expected": 125000 },
+    { "text": "$90k-$110k", "expected": 110000 },
+    { "text": "150-180k", "expected": 180000 },
+    { "text": "$150,000 - $180,000 a year", "expected": 180000 },
+    { "text": "Competitive pay, 40 hours per week", "expected": null }
+  ],
+  "skipTitles": [
+    { "skip": ["intern"], "title": "International Sales Manager", "expected": "pass" },
+    { "skip": ["intern"], "title": "Internal Tools Engineer", "expected": "pass" },
+    { "skip": ["intern"], "title": "Software Engineering Intern", "expected": "skip_title_match" },
+    { "skip": ["intern"], "title": "Summer Internship 2027", "expected": "skip_title_match" },
+    { "skip": ["pa"], "title": "Principal Engineer", "expected": "pass" },
+    { "skip": ["junior"], "title": "Junior Backend Engineer", "expected": "skip_title_match" },
+    { "skip": ["sales manager"], "title": "Regional Sales  Manager", "expected": "skip_title_match" }
+  ],
+  "acceptableLocations": [
+    { "acceptable": ["NY"], "location": "Berlin, Germany", "expected": "location_outside_acceptable" },
+    { "acceptable": ["NY"], "location": "New York, NY", "expected": "pass" },
+    { "acceptable": ["IN"], "location": "Austin, TX", "expected": "location_outside_acceptable" },
+    { "acceptable": ["New York"], "location": "NYC", "expected": "pass" },
+    { "acceptable": ["Austin"], "location": "Hybrid - Austin, TX", "expected": "pass" },
+    { "acceptable": ["Denver"], "location": "Boise, ID", "expected": "location_outside_acceptable" }
+  ]
+}
