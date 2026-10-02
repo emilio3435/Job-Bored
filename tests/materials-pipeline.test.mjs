@@ -10,7 +10,7 @@ import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { buildOutline, summarizeRenderedResumeSelection } from "../server/materials-outline.mjs";
 import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
-import { runPipeline } from "../server/materials-pipeline.mjs";
+import { runPipeline, renderedBodyText } from "../server/materials-pipeline.mjs";
 import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
 const RESUME = [
@@ -255,6 +255,8 @@ describe("MREV B1 pipeline", () => {
     assert.equal((await json(dir, "run.json")).textHash, hash);
     const txt = await readFile(join(dir, "resume.txt"), "utf8");
     for (const line of judged.text.split("\n").filter(Boolean)) assert.ok(txt.replace(/\s+/g, " ").includes(line.replace(/\s+/g, " ").slice(0, 25)));
+    const saved = await json(dir, "render-model.json");
+    assert.equal(`sha256:${createHash("sha256").update(renderedBodyText(saved, "resume")).digest("hex")}`, qa.textHash, "stored model is the delivered fitted body for Rescore");
   });
 
   it("RESD R4 records selected claims removed by final one-page fitting", async () => {
@@ -521,6 +523,16 @@ describe("GRADE backend pass persistence and adoption", () => {
     const { services, calls } = testServices({ hardGate: () => [{ id: "artifact_usable", kind: "hard", pass: false, reason: "Check artifact.", sentenceIds: [] }] });
     await runPipeline(base(dir, services, "cover_letter", "failed-artifact"));
     assert.equal(calls.write.length, 2);
+  });
+  it("GRADE-B G5: manual repair forwards failed-check targets and preserved sentences", async () => {
+    const { services } = testServices();
+    const prompts = [];
+    services.buildRepairPrompt = async input => { prompts.push(input); return "Repair the failed claim."; };
+    const request = base(dir, services, "cover_letter", "manual-targets");
+    request.repair = { feature: "cover_letter", parentRunId: "original", instruction: "Fix the unsupported claim", sourceText: "Original text.", issues: [], targets: [{ id: "sentence:L1", kind: "fact", reason: "Needs a source", sentenceIds: ["L1"] }], preserveSentenceIds: ["L2"] };
+    await runPipeline(request);
+    assert.deepEqual(prompts[0].issues[0].sentenceIds, ["L1"]);
+    assert.deepEqual(prompts[0].preserveSentenceIds, ["L2"]);
   });
   it("GRADE-B G6: both passes keep draft, verdict, HTML, text and model in sibling runs", async () => {
     const { services } = testServices({ rewriteClose: true, qaIssue: (_args, n) => n === 1 ? { id: "i1", kind: "fact", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] } : null });

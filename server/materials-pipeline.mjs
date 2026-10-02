@@ -216,12 +216,6 @@ function repairIssueIds(repair) {
   return Array.isArray(issues) ? issues.map((issue) => String(issue.id || issue.code || "")).filter(Boolean) : [];
 }
 
-/** @param {unknown} qa */
-function rewriteIssues(qa) {
-  const issues = readObject(qa).issues;
-  return Array.isArray(issues) ? issues.filter((issue) => issue.severity === "hard" && issue.action === "rewrite") : [];
-}
-
 /** @param {any} issue @param {"letter" | "resume"} document */
 function issueBelongsToDocument(issue, document) {
   const ids = Array.isArray(issue?.sentenceIds) ? issue.sentenceIds : [];
@@ -402,7 +396,7 @@ async function runPipelineBody(input, assertBase) {
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
-  const manualIssues = Array.isArray(repair?.issues) ? [...repair.issues] : [];
+  const manualIssues = [...(Array.isArray(repair?.issues) ? repair.issues : []), ...(Array.isArray(repair?.targets) ? repair.targets : [])];
   const originalInstruction = String(repair?.instruction || "");
 
   for (let passIndex = 0; passIndex < 2; passIndex += 1) {
@@ -631,7 +625,7 @@ async function runPipelineBody(input, assertBase) {
       const packet = buildJudgePacket({
         writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }], sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
       });
-      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints, ledger: groundingLedger });
+      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints, ledger: groundingLedger, requirePdf });
       const judge = llmAvailable ? await deps.judgeMaterials(packet) : { status: "unavailable", meta: { provider: "", model: "", promptVersion: "", latencyMs: 0 } };
       /* Previous packet assembly is centralized above. */
 
@@ -647,7 +641,11 @@ async function runPipelineBody(input, assertBase) {
       out: qaRecords.map((qa) => `qa.${qa.document}.json`),
       detail: qaRecords.map((qa) => `${qa.document} ${qa.disposition}`).join("; "),
     });
-    passes.push({ draft, drafts, sourceRefs, model, rendered, qaRecords, texts, hashes, passDir });
+    const deliveredModel = { ...model, documents: { ...model.documents,
+      ...(rendered.fit.resume?.model?.documents.resume ? { resume: rendered.fit.resume.model.documents.resume } : {}),
+      ...(rendered.fit.coverLetter?.model?.documents.coverLetter ? { coverLetter: rendered.fit.coverLetter.model.documents.coverLetter } : {}),
+    } };
+    passes.push({ draft, drafts, sourceRefs, model: deliveredModel, rendered, qaRecords, texts, hashes, passDir });
   }
 
   let chosen = passes[passes.length - 1];
@@ -699,10 +697,9 @@ async function runPipelineBody(input, assertBase) {
     await writeJson(join(runDir, `draft.${feature}.json`), chosen.drafts[feature]);
     const qa = chosen.qaRecords.find((/** @type {any} */ item) => item.document === document);
     await copyFile(join(chosen.passDir, `judge-context.${document}.json`), join(runDir, `judge-context.${document}.json`));
-    if (qa) await writeJson(join(runDir, `qa.${document}.json`), {
-      ...qa, repair: { ...(qa.repair || {}), attempted: passes.length === 2 || Boolean(repair),
-        parentRunId: repair?.parentRunId || null, changed, adopted, before, after: verdictSnapshot(qa) },
-    });
+    if (qa) qa.repair = { ...(qa.repair || {}), attempted: passes.length === 2 || Boolean(repair),
+        parentRunId: repair?.parentRunId || null, changed, adopted, before, after: verdictSnapshot(qa) };
+    if (qa) await writeJson(join(runDir, `qa.${document}.json`), qa);
   }
   /* The legacy draft stays a combined view; per-document files are the repair sources. */
   const previousCombined = readObject(await readJson(join(dir, "draft.json")));
