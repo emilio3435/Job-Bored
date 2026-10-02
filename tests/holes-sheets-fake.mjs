@@ -497,7 +497,7 @@ export function loadReader(options = {}) {
   vm.runInContext(readFileSync(join(repoRoot, "sheets-read-load.js"), "utf8"), context, {
     filename: "sheets-read-load.js",
   });
-  return { sr: windowTarget.JobBoredApp.sheetsRead, host, state, calls, events, doc };
+  return { sr: windowTarget.JobBoredApp.sheetsRead, host, state, calls, events, doc, win: windowTarget };
 }
 
 /** A promise plus its resolve, for holding a fetch open. */

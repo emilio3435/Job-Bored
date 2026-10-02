@@ -418,6 +418,44 @@ function normalizeLeadUrlClient(raw) {
   return u.toString();
 }
 
+/* R13: a block is keyed by its URL and, where the URL names one, the job
+   board's own posting id, so a Link the worker later re-canonicalizes
+   (boards.greenhouse.io → job-boards.greenhouse.io, a new tracking param)
+   still finds its block. Same shape as the worker's provider keys
+   (listing-fingerprint.ts): provider:<board>:<tenant>:<id>, for the boards
+   whose URLs carry a stable posting id. */
+const PROVIDER_KEY_RULES = [
+  { provider: "greenhouse", host: /(^|\.)greenhouse\.io$/i, query: "gh_jid", path: /\/jobs\/([^/?#]+)/i },
+  { provider: "lever", host: /(^|\.)lever\.co$/i, path: /^\/[^/]+\/([^/?#]+)/i },
+  { provider: "ashby", host: /(^|\.)ashbyhq\.com$/i, path: /^\/[^/]+\/([^/?#]+)/i },
+  { provider: "smartrecruiters", host: /(^|\.)smartrecruiters\.com$/i, path: /^\/[^/]+\/([^/?#]+)/i },
+  { provider: "workable", host: /(^|\.)workable\.com$/i, path: /\/j\/([^/?#]+)/i },
+];
+
+function providerIdPart(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function providerKeyForUrl(raw) {
+  let u;
+  try {
+    u = new URL(String(raw || "").trim());
+  } catch {
+    return "";
+  }
+  const rule = PROVIDER_KEY_RULES.find((r) => r.host.test(u.hostname));
+  if (!rule) return "";
+  const match = rule.path.exec(u.pathname);
+  const id = providerIdPart((rule.query && u.searchParams.get(rule.query)) || (match && match[1]));
+  const tenant = providerIdPart(u.pathname.split("/").filter(Boolean)[0]);
+  if (!id || !tenant || id === tenant) return "";
+  return `provider:${rule.provider}:${tenant}:${id}`;
+}
+
 async function sheetsBatchUpdate(body, isRetry) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}:batchUpdate`;
   const resp = await fetch(url, {
@@ -536,8 +574,8 @@ async function ensureBlacklistTab() {
   await sheetsBatchUpdate({
     requests: [{ addSheet: { properties: { title: "Blacklist" } } }],
   });
-  await sheetsValuesUpdate("Blacklist!A1:E1", [
-    ["URL", "Dismissed At", "Title", "Company", "Reason"],
+  await sheetsValuesUpdate("Blacklist!A1:F1", [
+    ["URL", "Dismissed At", "Title", "Company", "Reason", "Provider ID"],
   ]);
 }
 
@@ -550,30 +588,39 @@ async function appendBlacklistRow({ url, dismissedAt, title, company }) {
     title || "",
     company || "",
     "",
+    providerKeyForUrl(normalized),
   ];
   try {
-    await sheetsValuesAppend("Blacklist!A:E", [row]);
+    await sheetsValuesAppend("Blacklist!A:F", [row]);
     return;
   } catch (err) {
     const msg = String(err?.message || "");
     if (/Unable to parse range/i.test(msg)) {
       await ensureBlacklistTab();
-      await sheetsValuesAppend("Blacklist!A:E", [row]);
+      await sheetsValuesAppend("Blacklist!A:F", [row]);
       return;
     }
     throw err;
   }
 }
 
-/** Remove EVERY Blacklist row for this URL: a dismiss → restore → dismiss
- *  cycle leaves duplicates, and one survivor keeps the role blocked. */
-async function deleteBlacklistRowByUrl(url) {
+/** The provider key a Blacklist row is for: column F, else its URL's. */
+function blacklistRowProviderKey(cells) {
+  return String((cells && cells[5]) || "").trim() || providerKeyForUrl((cells && cells[0]) || "");
+}
+
+/** Remove EVERY Blacklist row matching one of `urls` (normalized) or
+ *  `providerKeys`: a dismiss → restore → dismiss cycle leaves duplicates, a
+ *  re-canonicalized Link leaves its old URL behind, and one survivor keeps
+ *  the role blocked. Resolves whether anything was removed. */
+async function deleteBlacklistRows(urls, providerKeys) {
   if (!host().getAccessToken()) throw new Error("Not signed in");
-  const normalized = normalizeLeadUrlClient(url || "");
-  if (!normalized) return false;
+  const wantUrls = (urls || []).map((u) => normalizeLeadUrlClient(u || "")).filter(Boolean);
+  const wantKeys = (providerKeys || []).filter(Boolean);
+  if (!wantUrls.length && !wantKeys.length) return false;
   let data;
   try {
-    data = await sheetsValuesGet("Blacklist!A:A");
+    data = await sheetsValuesGet("Blacklist!A:F");
   } catch (err) {
     const msg = String(err?.message || "");
     if (/Unable to parse range/i.test(msg)) return false;
@@ -582,8 +629,10 @@ async function deleteBlacklistRowByUrl(url) {
   const values = data.values || [];
   const rows = []; // 0-based sheet rows; row 0 is the header
   for (let i = 1; i < values.length; i++) {
-    const cell = (values[i] && values[i][0]) || "";
-    if (normalizeLeadUrlClient(cell) === normalized) rows.push(i);
+    const cells = values[i] || [];
+    const url = normalizeLeadUrlClient(cells[0] || "");
+    const key = blacklistRowProviderKey(cells);
+    if ((url && wantUrls.includes(url)) || (key && wantKeys.includes(key))) rows.push(i);
   }
   if (!rows.length) return false;
   // Look up the sheetId for "Blacklist"
@@ -611,6 +660,53 @@ async function deleteBlacklistRowByUrl(url) {
     })),
   });
   return true;
+}
+
+async function deleteBlacklistRowByUrl(url) {
+  const normalized = normalizeLeadUrlClient(url || "");
+  if (!normalized) return false;
+  return deleteBlacklistRows([normalized], [providerKeyForUrl(normalized)]);
+}
+
+/** R13: the Blacklist tab as one entry per role (by provider key, else
+ *  URL), newest first. A Sheet without the tab has nothing blocked. */
+async function listBlockedRoles() {
+  let data;
+  try {
+    data = await sheetsValuesGet("Blacklist!A2:F");
+  } catch (err) {
+    if (/Unable to parse range/i.test(String(err?.message || ""))) return [];
+    throw err;
+  }
+  const byKey = new Map();
+  for (const cells of data.values || []) {
+    const url = normalizeLeadUrlClient((cells && cells[0]) || "");
+    const providerKey = blacklistRowProviderKey(cells);
+    const key = providerKey || url;
+    if (!key) continue;
+    const dismissedAt = String(cells[1] || "");
+    const entry = byKey.get(key);
+    if (!entry) {
+      byKey.set(key, {
+        key,
+        url,
+        providerKey,
+        title: String(cells[2] || ""),
+        company: String(cells[3] || ""),
+        dismissedAt,
+        count: 1,
+      });
+    } else {
+      entry.count += 1;
+      if (dismissedAt > entry.dismissedAt) {
+        entry.dismissedAt = dismissedAt;
+        if (url) entry.url = url;
+      }
+    }
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.dismissedAt < b.dismissedAt ? 1 : a.dismissedAt > b.dismissedAt ? -1 : 0,
+  );
 }
 
 /** Write every pending favorite whose Sheet cell disagrees with the
@@ -740,11 +836,15 @@ async function persistDismiss(target, at, prevW) {
   }
 }
 
-async function persistRestore(target, prevW) {
+async function persistRestore(target, prevW, also) {
   const w = { range: `Pipeline!W${target.row}`, value: "" };
   if (!(await updateMultipleCells([w], false, { guard: true }))) return false;
+  const link = normalizeLeadUrlClient(target.job.link || "");
   try {
-    await deleteBlacklistRowByUrl(target.job.link || "");
+    await deleteBlacklistRows(
+      [link].concat((also && also.urls) || []),
+      [providerKeyForUrl(link)].concat((also && also.providerKeys) || []),
+    );
     return true;
   } catch (err) {
     console.error("[JobBored] restore: Blacklist delete failed; putting W back", err);
@@ -828,6 +928,37 @@ async function restoreJob(stableKey) {
   }
   setDismissedAt(target, prev);
   host().showToast("Couldn't restore — reverted", "error");
+  return false;
+}
+
+/** R13: lift a block from the Dismissed & blocked manager. When the role
+ *  is still a dismissed Pipeline row, it is un-dismissed too, with the same
+ *  two halves and rollback as restoreJob. Resolves true or false. */
+async function restoreBlockedRole(entry) {
+  if (!entry || !host().getAccessToken()) return false;
+  const urls = entry.url ? [entry.url] : [];
+  const providerKeys = entry.providerKey ? [entry.providerKey] : [];
+  const data = host().getPipelineData() || [];
+  const idx = data.findIndex((job) => {
+    if (!job || !job.dismissedAt) return false;
+    const link = normalizeLeadUrlClient(job.link || "");
+    const key = providerKeyForUrl(link);
+    return (!!link && urls.includes(link)) || (!!key && providerKeys.includes(key));
+  });
+  const target = idx === -1 ? null : writeTarget(idx);
+  if (!target) {
+    try {
+      await deleteBlacklistRows(urls, providerKeys);
+      return true;
+    } catch (err) {
+      console.error("[JobBored] lifting a block failed", err);
+      return false;
+    }
+  }
+  const prev = target.job.dismissedAt;
+  setDismissedAt(target, null);
+  if (await persistRestore(target, prev, { urls, providerKeys })) return true;
+  setDismissedAt(target, prev);
   return false;
 }
 
@@ -1284,6 +1415,9 @@ async function updateJobResponseFlag(dataIndex, value) {
     ensureBlacklistTab,
     appendBlacklistRow,
     deleteBlacklistRowByUrl,
+    providerKeyForUrl,
+    listBlockedRoles,
+    restoreBlockedRole,
     toggleFavorite,
     flushPendingFavorites,
     dismissJob,

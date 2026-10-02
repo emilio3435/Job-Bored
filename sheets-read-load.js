@@ -185,9 +185,19 @@
     refresh.addEventListener("click", () => {
       void loadAllData();
     });
+    // HOLES R13: the way into the Blacklist ("Dismissed & blocked").
+    const blocked = makeEl("button", "jb-sync__btn", "Blocked");
+    blocked.setAttribute("type", "button");
+    blocked.setAttribute("id", "jbSyncBlockedBtn");
+    blocked.setAttribute("aria-label", "Blocked roles");
+    blocked.addEventListener("click", () => {
+      void openBlockedRoles(blocked);
+    });
     row.appendChild(label);
+    row.appendChild(blocked);
     row.appendChild(refresh);
     bar.appendChild(row);
+    addBlockedManagerStyles();
 
     const banner = makeEl("div", "jb-sync__banner");
     banner.setAttribute("id", "jbSyncBanner");
@@ -205,6 +215,54 @@
       document.body.appendChild(bar);
     }
     return bar;
+  }
+
+  /* HOLES R13: the Dismissed & blocked manager. Its stylesheet comes with
+     the sync bar (it also places the bar's Blocked button); the script
+     loads on first use, once. */
+  let blockedManagerLoad = null;
+  let blockedStylesAdded = false;
+
+  function addBlockedManagerStyles() {
+    if (blockedStylesAdded || !document.head) return;
+    blockedStylesAdded = true;
+    const css = document.createElement("link");
+    css.setAttribute("rel", "stylesheet");
+    css.setAttribute("href", "css/blacklist-manager.css");
+    document.head.appendChild(css);
+  }
+
+  function loadBlockedManager() {
+    if (window.JobBoredBlacklistManager) return Promise.resolve();
+    if (!blockedManagerLoad) {
+      blockedManagerLoad = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.setAttribute("src", "blacklist-manager.js");
+        script.onload = () => resolve();
+        script.onerror = () => {
+          blockedManagerLoad = null;
+          reject(new Error("blacklist-manager.js did not load"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return blockedManagerLoad;
+  }
+
+  function openBlockedRoles(opener) {
+    return loadBlockedManager().then(
+      () => {
+        const manager = window.JobBoredBlacklistManager;
+        if (manager && typeof manager.open === "function") manager.open(opener);
+      },
+      (err) => {
+        console.warn("[JobBored]", err && err.message ? err.message : err);
+        const h = host();
+        if (typeof h.showToast === "function") {
+          h.showToast("Couldn’t open blocked roles — reload and try again", "error");
+        }
+      },
+    );
   }
 
   function renderSyncLabel() {
@@ -1097,6 +1155,7 @@
     showErrorState,
     hideErrorState,
     applyFavoriteCache,
+    openBlockedRoles,
     favoriteCacheKeyForJob,
     setPendingFavorite,
     clearPendingFavorite,
