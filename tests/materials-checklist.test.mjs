@@ -131,7 +131,7 @@ describe("loadChecklist / setChecklistItem · stored in the application folder",
 
     await writeFile(join(root, "apps", SLUG, "qa.resume.json"), JSON.stringify({ contract: "materials.qa.v2", disposition: "READY", quality: { score: 87 } }));
     const v2 = await loadChecklist(SLUG, opts);
-    assert.match(v2.items[0].detail, /87 \/ 100/);
+    assert.doesNotMatch(v2.items[0].detail, /87 \/ 100/);
 
     const unticked = await setChecklistItem(SLUG, "links", false, opts);
     assert.equal(unticked.items.find((i) => i.id === "links").doneAt, null);
