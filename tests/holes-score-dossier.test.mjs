@@ -1,9 +1,10 @@
 /* holes-score-dossier.test.mjs — HOLES lane SCORE in the dossier's
    Materials rows (role-materials.js), spec §0.3 and §2 SCORE.
 
-   The resume and cover-letter rows show one grade button where the inline
-   scorecard was; the score modal holds the rest and hands Fix this, Apply
-   and Repair back to the row's Repair form. Plus the row-level U items:
+   The resume and cover-letter rows show one verdict button where the inline
+   scorecard was (GRADE D7: "<word> · <first reason>", never a letter); the
+   modal holds the rest and hands Fix this, Apply and Repair back to the
+   row's Repair form. Plus the row-level U items:
      U9   the drafting card never puts its ticking clock in a live region
      U12  a grade the draft moved on from is marked stale until it is fresh
      U14  Change template ignores a second click while the first is running
@@ -141,9 +142,9 @@ describe("Dossier rows · the grade button is the only score (§0.3)", () => {
     const resume = env.rowOf("resume");
     const lbtn = letter.querySelector("[data-score-open]");
     const rbtn = resume.querySelector("[data-score-open]");
-    assert.ok(lbtn && rbtn, "each row has a grade button");
-    assert.equal(lbtn.getAttribute("aria-label"), "Grade D, 64 of 100 — open score details");
-    assert.equal(rbtn.getAttribute("aria-label"), "Grade B, 86 of 100 — open score details");
+    assert.ok(lbtn && rbtn, "each row has a verdict button");
+    assert.equal(lbtn.getAttribute("aria-label"), "Cover letter: Fails — 1 claim needs a source. Open the quality check.");
+    assert.equal(rbtn.getAttribute("aria-label"), "Resume: Ready. Open the quality check.");
     for (const row of [letter, resume]) {
       for (const sel of [".mat-score", ".mat-rubric", ".mat-dims", ".mat-issues", ".mat-gaps", ".mat-verdict", ".mat-kw", ".mat-pill"]) {
         assert.ok(row.querySelector(sel) === null, `no ${sel} inline`);
@@ -176,7 +177,7 @@ describe("Dossier rows · the grade button is the only score (§0.3)", () => {
     btn.dispatchEvent(click(btn));
     const m = env.modal();
     assert.ok(m, "the modal opened");
-    assert.match(text(m.querySelector(".jb-score__title")), /Cover letter grade 64 \/ 100/);
+    assert.equal(text(m.querySelector(".jb-score__title")), "Cover letter Fails");
     assert.equal(m.getAttribute("role"), "dialog");
   });
 
@@ -186,7 +187,7 @@ describe("Dossier rows · the grade button is the only score (§0.3)", () => {
     assert.doesNotMatch(text(env.rowOf("cover_letter")), /more/);
     const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
     btn.dispatchEvent(click(btn));
-    const blockers = text(env.modal().querySelector('[data-step="blockers"]'));
+    const blockers = text(env.modal().querySelector('[data-step="why"]'));
     for (const f of LETTER_FLAGS) assert.ok(blockers.includes(f.message), `"${f.message}" is listed`);
   });
 });
@@ -203,7 +204,7 @@ describe("Dossier · the modal's actions land on the row (U6)", () => {
     const form = env.rowOf("cover_letter").querySelector(".mat-repair");
     assert.ok(form, "the Repair form opened under the row");
     const box = form.querySelector("[data-repair-instruction]");
-    assert.match(text(box), /40% churn cut/);
+    assert.match(text(box), /cut churn by 40%/);
     assert.ok(env.doc.activeElement === box, "focus is in the instruction");
     const ticked = form.querySelectorAll("[data-repair-issue]").filter((b) => b.hasAttribute("checked")).map((b) => b.getAttribute("value"));
     assert.deepEqual(ticked, ["i1"], "only the blocker it came from is ticked");
@@ -244,40 +245,35 @@ describe("Dossier · the modal's actions land on the row (U6)", () => {
     assert.equal(env.doc.activeElement, env.rowOf("cover_letter").querySelector("[data-score-open]"), "focus is back on the grade button");
   });
 
-  it("should score the package's own text for this role on Rescore, once", async () => {
+  /* GRADE G8: Rescore re-runs the quality check on the shown run in place;
+     it never runs the ATS scorer. */
+  it("should rescore the shown run's quality check on Rescore, once", async () => {
     const env = boot();
     await env.openRole();
     const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
     btn.dispatchEvent(click(btn));
-    const rescore = () => env.modal().querySelector("[data-score-rescore]");
+    const rescore = () => env.modal().querySelector("footer [data-score-rescore]");
+    rescore().dispatchEvent(click(rescore()));
     rescore().dispatchEvent(click(rescore()));
     await settle(10);
-    rescore().dispatchEvent(click(rescore()));
-    await settle(10);
-    assert.ok(env.calls.some(([m, u]) => m === "GET" && /\/files\/cover-letter\.txt/.test(u)), "it read the letter's text from the package");
-    assert.equal(env.analyses.length, 1, "one analysis, however many clicks");
-    const a = env.analyses[0];
-    assert.equal(a.payload.feature, "cover_letter");
-    assert.equal(a.job, env.rawJob, "the score is stored for this role, not the last generated one");
-    env.state.ats = ATS_LETTER;
-    env.win.dispatchEvent(new env.win.CustomEvent("jb:ats:state", { detail: { jobKey: a.cacheKey, status: "success" } }));
-    await settle(10);
+    const posts = env.calls.filter(([m, u]) => m === "POST" && /\/rescore$/.test(u));
+    assert.equal(posts.length, 1, "one rescore, however many clicks");
+    assert.match(posts[0][1], new RegExp(`/api/applications/${SLUG}/runs/${V2_LETTER_FAIL.qa.runId}/rescore$`));
+    assert.equal(env.analyses.length, 0, "the ATS scorer never ran");
     assert.equal(rescore().getAttribute("aria-busy"), "false");
-    assert.ok(env.modal().querySelector('[data-score-apply="0"]'), "the new suggestions are in the modal");
-    assert.ok(env.said.includes("Rescored: grade D, 64 of 100."), "the score that landed was announced");
+    assert.ok(env.said.includes("Rescored: Fails — 1 claim needs a source."), "the verdict that landed was announced in words");
   });
 });
 
-describe("U3 · the ATS modal's entry points open the score modal", () => {
-  it("should open an ATS-only modal for \"\": the role-match score, whichever document it rated", async () => {
+describe("U3 · the ATS modal's entry points open the quality check", () => {
+  it("should open the resume's quality check for \"\", the role-match entry point", async () => {
     const env = boot({ ats: ATS_LETTER });
     await env.openRole();
     const handle = env.win.JobBoredRoleMaterials.openScore("", null);
     assert.ok(handle, "it opened");
     const m = env.modal();
-    assert.match(text(m.querySelector(".jb-score__head")), /71 \/ 100/);
-    assert.match(text(m.querySelector('[data-step="rewrites"]')), /pricing tier/);
-    assert.equal(m.querySelector("[data-score-rescore]"), null, "nothing to rescore without a document");
+    assert.equal(m.getAttribute("data-feature"), "resume");
+    assert.doesNotMatch(text(m), /71|\/ 100|of 100/);
   });
 });
 
@@ -290,7 +286,7 @@ describe("U12 · a grade the draft moved on from is stale until it is fresh", ()
     env.win.dispatchEvent(new env.win.CustomEvent("jb:scribe:saved", { detail: { slug: SLUG, doc: "cover_letter", runId: "mr_r4" } }));
     const stale = env.rowOf("cover_letter").querySelector("[data-score-open]");
     assert.equal(stale.getAttribute("data-stale"), "true", "stale the moment the save lands");
-    assert.match(stale.getAttribute("aria-label"), /out of date/);
+    assert.match(stale.getAttribute("aria-label"), /Out of date/);
     await settle();
     assert.ok(env.calls.filter(([, u]) => /\/manifest$/.test(u)).length > before, "the manifest was fetched again");
     const fresh = env.rowOf("cover_letter").querySelector("[data-score-open]");
@@ -328,15 +324,17 @@ describe("U12 · a grade the draft moved on from is stale until it is fresh", ()
     assert.equal(staleOf("cover_letter"), null);
   });
 
-  it("should mark a role-match grade stale when the text changed after it was scored", async () => {
+  /* GRADE D1: the role-match scorecard never grades a document, so it can
+     never make one stale either. */
+  it("should leave a document with no verdict Not graded, whatever the role-match scorecard says", async () => {
     const m = manifest();
     m.quality.documents.cover_letter = { status: "pass", issues: [] };
     m.documents[1].text = FILE("cover-letter.txt", "2026-09-28T11:00:00.000Z");
     const env = boot({ manifest: m, ats: ATS_LETTER });
     await env.openRole();
     const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
-    assert.equal(btn.getAttribute("data-grade"), "C-", "the role-match score grades it");
-    assert.equal(btn.getAttribute("data-stale"), "true", "scored 10:00, text changed 11:00");
+    assert.equal(text(btn), "Not graded");
+    assert.equal(btn.getAttribute("data-stale"), null);
   });
 });
 

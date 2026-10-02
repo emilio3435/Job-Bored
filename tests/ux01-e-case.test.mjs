@@ -92,18 +92,17 @@ describe("C13 · a QA flag is a review state, not ready", () => {
     assert.match(m.verdict.gap, /2 flags to check/);
   });
 
-  it("should name the document and date the score rates", () => {
-    const m = model({ scorecard: { result: { overallScore: 81 }, feature: "cover_letter", storedAt: "2026-08-30T00:00:00Z", version: 3 } });
-    const html = renderHtml(m);
-    assert.match(html, /Cover letter draft score/);
-    assert.match(html, /scored cover letter v3 · 2026-08-30/);
+  /* C13 (TA-13) named the document an ATS score rated; GRADE D1 removed the
+     score itself, so a stored scorecard — typed or not — shows no number
+     and no "draft score" tile in the Case. */
+  it("should show no ATS score for a typed scorecard", () => {
+    const html = renderHtml(model({ scorecard: { result: { overallScore: 81 }, feature: "cover_letter", storedAt: "2026-08-30T00:00:00Z", version: 3 } }));
+    assert.doesNotMatch(html, /draft score|data-num="ats"|>[^<]*\b81\b[^<]*</i);
   });
 
-  it("should label an untyped legacy score as the draft it rated, not the resume", () => {
-    const m = model({ scorecard: { result: { overallScore: 81 }, storedAt: "2026-08-30T00:00:00Z" } });
-    const html = renderHtml(m);
-    assert.match(html, /Draft score/);
-    assert.doesNotMatch(html, /Resume score/);
+  it("should show no ATS score for an untyped legacy scorecard", () => {
+    const html = renderHtml(model({ scorecard: { result: { overallScore: 81 }, storedAt: "2026-08-30T00:00:00Z" } }));
+    assert.doesNotMatch(html, /draft score|Resume score|data-num="ats"|>[^<]*\b81\b[^<]*</i);
   });
 });
 

@@ -13,10 +13,6 @@
     { type: "manual_apply_checklist", label: "Manual-apply checklist", draftAction: "" },
     { type: "qa_report", label: "QA report", draftAction: "" },
   ];
-  var DIMENSIONS = [
-    ["requirementsCoverage", "Requirements"], ["experienceRelevance", "Relevance"],
-    ["impactClarity", "Impact clarity"], ["atsParseability", "ATS parse"], ["toneFit", "Tone fit"],
-  ];
   /* Display casing the provider id cannot supply on its own. Never a default:
      an unlisted id title-cases, an unset provider yields "". No vendor name is
      ever hardcoded as the label of record (spec D7, ground rule 9). */
@@ -174,50 +170,6 @@
     return exact.filter(function (item) { return !item.drop; }).map(function (item) {
       return { text: item.text, status: item.status };
     });
-  }
-  function significantTokenCount(text) {
-    var api = root.JobBoredApp && root.JobBoredApp.keywordMatch;
-    if (api && typeof api.getSignificantKeywordTokens === "function") {
-      return api.getSignificantKeywordTokens(text).length;
-    }
-    var stop = {
-      a: 1, an: 1, and: 1, are: 1, as: 1, at: 1, be: 1, by: 1,
-      for: 1, from: 1, in: 1, into: 1, of: 1, on: 1, or: 1, the: 1,
-      to: 1, with: 1, using: 1, your: 1, our: 1, their: 1, you: 1, we: 1,
-      will: 1, have: 1, has: 1, had: 1, this: 1, that: 1, these: 1,
-      those: 1, years: 1, year: 1, plus: 1,
-      strong: 1, ability: 1, abilities: 1, experience: 1, experienced: 1,
-      knowledge: 1, understanding: 1, background: 1, preferred: 1,
-      required: 1, requirement: 1, requirements: 1,
-    };
-    return normTerm(text).split(" ").filter(function (token) {
-      return token && (token.length > 1 || /\d/.test(token)) && !stop[token];
-    }).length;
-  }
-  function claimIsFragment(text) {
-    return !!(T() && typeof T().isFragment === "function" && T().isFragment(text));
-  }
-  function collapsePrefixGaps(list) {
-    var seen = Object.create(null), unique = [];
-    list.forEach(function (item) {
-      var key = normTerm(item.gap);
-      if (!key || seen[key]) return;
-      seen[key] = true;
-      unique.push({ item: item, key: key });
-    });
-    return unique.filter(function (entry) {
-      return !unique.some(function (other) {
-        return other.key.length > entry.key.length && other.key.indexOf(entry.key + " ") === 0;
-      });
-    }).map(function (entry) { return entry.item; });
-  }
-  /* `Number(null) === 0`, so an unscored card used to render ATS 0/100 and
-     five 0% bars — "not scored" made indistinguishable from "scored zero"
-     (P0-0c). Nothing but a real number is a score. */
-  function scoreOf(v) {
-    if (v == null || (typeof v === "string" && !v.trim())) return null;
-    var n = Number(v);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
   }
   function fmtDate(ms) { return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : ""; }
 
@@ -473,56 +425,23 @@
     return v;
   }
 
-  /* C13 (TA-13): the score names the document it rates, its version when the
-     store recorded one, and the day it was scored. A score stored before the
-     feature was recorded is a "draft" score — it is never guessed to be the
-     resume. */
-  var SCORE_DOC = { resume: "resume", resume_update: "resume", cover_letter: "cover letter" };
-  function atsNumber(scorecard) {
-    var feature = String(scorecard.feature || "").trim();
-    var doc = SCORE_DOC[feature] || "draft";
-    var version = Number(scorecard.version);
-    return {
-      value: scoreOf(scorecard.result.overallScore),
-      doc: doc,
-      version: Number.isFinite(version) && version > 0 ? Math.floor(version) : null,
-      scoredAt: String(scorecard.storedAt || "").slice(0, 10),
-    };
-  }
-
-  function buildYouHave(scorecard) {
-    var r = scorecard && scorecard.result;
-    if (r) {
-      return {
-        source: "scorecard", storedAt: scorecard.storedAt || "",
-        strengths: items(r.topStrengths).filter(function (text) {
-          return !claimIsFragment(text) && significantTokenCount(text) >= 3;
-        }),
-        evidence: (Array.isArray(r.evidence) ? r.evidence : []).map(function (e) { return { claim: inline(e && e.claim), sourceSnippet: inline(e && e.sourceSnippet), sourceType: inline(e && e.sourceType) }; }).filter(function (e) { return e.claim || e.sourceSnippet; }).slice(0, 3),
-        gaps: collapsePrefixGaps((Array.isArray(r.criticalGaps) ? r.criticalGaps : []).map(function (g) {
-          return { gap: inline(g && g.gap), whyItMatters: inline(g && g.whyItMatters), severity: /^(high|medium|low)$/.test(String(g && g.severity)) ? g.severity : "medium" };
-        }).filter(function (g) { return g.gap && !claimIsFragment(g.gap); })).slice(0, 5),
-        dimensions: DIMENSIONS.map(function (d) { return { key: d[0], label: d[1], score: scoreOf(r.dimensionScores && r.dimensionScores[d[0]]) }; }).filter(function (d) { return d.score != null; }),
-      };
-    }
-    return { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] };
-  }
-
-  /* HOLES SCORE (§0.3, §0.8): the ATS tile and "You have" show one grade
-     button. It grades the document the stored scorecard rated, else the
-     package's resume, else its letter; materials-score.js does the math. */
-  var SCORE_FEATURE = { resume: "resume", resume_update: "resume", cover_letter: "cover_letter" };
+  /* GRADE (D6, D7): the Case shows the package resume's verdict (else the
+     letter's) and that draft's requirement coverage, from the run its
+     quality check graded. The ATS scorecard's number is never shown. */
   function buildScore(deps) {
     var ms = deps.gradeApi || root.JobBoredMaterialsScore;
-    if (!ms || typeof ms.gradeOf !== "function") return null;
+    if (!ms || typeof ms.verdictView !== "function") return null;
     var docs = (deps.manifest && deps.manifest.quality && deps.manifest.quality.documents) || {};
-    var sc = deps.scorecard && deps.scorecard.result ? deps.scorecard : null;
-    var feature = sc ? (SCORE_FEATURE[String(sc.feature || "").trim()] || "")
-      : (docs.resume ? "resume" : (docs.cover_letter ? "cover_letter" : null));
+    var feature = docs.resume ? "resume" : (docs.cover_letter ? "cover_letter" : null);
     if (feature === null) return null;
     var stale = false;
     try { stale = typeof deps.scoreStale === "function" && !!deps.scoreStale(feature); } catch (e) { stale = false; }
-    return { feature: feature, grade: ms.gradeOf(feature ? docs[feature] : undefined, sc), stale: stale };
+    var verdict = ms.verdictView(docs[feature], { stale: stale });
+    var cov = verdict.coverage;
+    return {
+      feature: feature, verdict: verdict, stale: stale,
+      coverage: cov ? { covered: cov.covered, total: cov.total, missing: cov.missing.slice(), runId: verdict.runId, stale: stale } : null,
+    };
   }
 
   function buildRecord(job, enr, materials, deps) {
@@ -811,7 +730,6 @@
       health: deps.health || { state: "unknown", label: "", detail: "", checkedAt: "" },
       numbers: {
         fit: fit,
-        ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? atsNumber(deps.scorecard) : null,
         keywords: keywordNumbers,
         reply: { value: job.replied || "Unknown" },
         materials: materials ? { ready: ready, total: CASE_DOC_TYPES.length, drafting: drafting } : null,
@@ -838,7 +756,6 @@
       fitAssessment: fitAssessment,
       oneLine: inline(enr.roleInOneLine),
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
-      youHave: buildYouHave(deps.scorecard),
       score: buildScore(deps),
       moves: {
         talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : sheetPoints.slice(0, 6),

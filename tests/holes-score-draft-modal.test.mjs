@@ -4,14 +4,13 @@
        a finished draft is the one automatic start.
    U10: the modal opens and closes through JobBoredA11y.dialog — focus
        moves in, the page behind goes inert, Esc closes, focus returns.
-   U11: the ATS card is one grade button in the header; its scorecard opens
-       in the score modal, whose Fix this fills Refine, and whose Esc closes
-       only itself. */
+   U11 is retired by GRADE: the draft modal has no quality check, so it
+       shows no grade at all. */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { click, keydown, load, makeScoreEnv, text } from "./fixtures/holes-score-dom.mjs";
+import { keydown, load, makeScoreEnv, text } from "./fixtures/holes-score-dom.mjs";
 
 const JOB = { title: "Senior PM", company: "Meridian Labs" };
 const LETTER = "Dear Meridian Labs team,\nSix years turning pricing data into roadmaps.";
@@ -31,9 +30,6 @@ function boot() {
   modal.style.display = "none";
   const head = el("header", {}, modal);
   el("h3", { id: "resumeGenerateTitle" }, head);
-  const slot = el("p", { id: "resumeGenerateAtsCard", hidden: "" }, head);
-  el("span", { id: "resumeGenerateAtsGrade" }, slot);
-  el("span", { id: "resumeGenerateAtsStatus" }, slot);
   el("button", { id: "resumeGenerateClose" }, head);
   const output = el("textarea", { id: "resumeGenerateOutput" }, modal);
   const insights = el("div", { id: "resumeGenerateInsights", hidden: "" }, modal);
@@ -74,7 +70,7 @@ function boot() {
     atsState = { ...atsState, status: "success", result, error: "" };
     rg.renderResumeGenerateInsights(output.value, JOB);
   };
-  return { win, doc, rg, modal, page, opener, output, slot, starts, land, state: () => atsState };
+  return { win, doc, rg, modal, page, opener, output, starts, land, state: () => atsState };
 }
 
 async function openDraft(env) {
@@ -122,58 +118,17 @@ describe("U10 · the draft modal is a real dialog", () => {
   });
 });
 
-describe("U11 · the ATS card is a grade button in the header", () => {
-  it("should show only the grade button once the score lands, and Scoring… before", async () => {
+/* GRADE (SPEC-GRADE A2, D1): this modal has no pipeline quality check, so
+   HOLES' U11 grade slot ("Role match" + an ATS-only grade button) is gone.
+   The scorecard U5 starts is still stored for the role; nothing here shows
+   its number. */
+describe("GRADE · the draft modal shows no grade", () => {
+  it("should render no grade button and no score once a scorecard lands", async () => {
     const env = boot();
     await openDraft(env);
-    assert.equal(env.slot.hidden, false);
-    assert.match(text(env.slot), /Scoring…/);
     env.land({ overallScore: 88, criticalGaps: [{ gap: "No pricing work named", whyItMatters: "The role is pricing.", severity: "high" }] });
-    const btn = env.slot.querySelector("[data-score-open]");
-    assert.ok(btn, "the header holds the grade button");
-    assert.equal(btn.getAttribute("aria-label"), "Grade B+, 88 of 100 — open score details");
-    assert.doesNotMatch(text(env.slot), /No pricing work named|Priority fix|confidence/);
-  });
-
-  it("should mark the grade stale, not rescore, once the text moves on", async () => {
-    const env = boot();
-    await openDraft(env);
-    env.land({ overallScore: 88 });
-    env.output.value = LETTER + " More.";
-    env.rg.renderResumeGenerateInsights(env.output.value, JOB);
-    assert.equal(env.slot.querySelector("[data-score-open]").getAttribute("data-stale"), "true");
-    assert.equal(env.starts.length, 1);
-  });
-
-  it("should open the score modal, and Fix this fills Refine", async () => {
-    const env = boot();
-    await openDraft(env);
-    env.land({ overallScore: 70, criticalGaps: [{ gap: "No pricing work named", whyItMatters: "The role is pricing.", severity: "high" }] });
-    const btn = env.slot.querySelector("[data-score-open]");
-    btn.dispatchEvent(click(btn));
-    const score = env.doc.querySelector(".jb-score");
-    assert.ok(score, "the score modal opened");
-    const fix = score.querySelector("[data-score-fix]");
-    assert.ok(fix, "the gap offers Fix this");
-    fix.dispatchEvent(click(fix));
-    const fb = env.doc.getElementById("resumeGenerateFeedback");
-    assert.match(fb.value, /pricing/);
-    assert.equal(env.doc.activeElement, fb, "focus lands in Refine");
-    assert.equal(env.modal.style.display, "flex", "the draft modal stays open");
-  });
-
-  it("should let Esc in the score modal close only the score modal", async () => {
-    const env = boot();
-    await openDraft(env);
-    /* materials-feature.js's page-wide Esc closes the draft modal. */
-    env.doc.addEventListener("keydown", (e) => { if (e.key === "Escape") env.rg.closeResumeGenerateModal(); });
-    env.land({ overallScore: 70 });
-    const btn = env.slot.querySelector("[data-score-open]");
-    btn.dispatchEvent(click(btn));
-    const score = env.doc.querySelector(".jb-score");
-    const inside = env.doc.activeElement && score.contains(env.doc.activeElement) ? env.doc.activeElement : score;
-    inside.dispatchEvent(keydown(inside, "Escape"));
-    assert.equal(env.doc.querySelector(".jb-score"), null, "the score modal closed");
-    assert.equal(env.modal.style.display, "flex", "the draft modal stayed open");
+    assert.equal(env.modal.querySelector("[data-score-open]"), null);
+    assert.doesNotMatch(text(env.modal), /88|Role match|Scoring…|No pricing work named/);
+    assert.equal(env.starts.length, 1, "the open is still the one automatic start");
   });
 });

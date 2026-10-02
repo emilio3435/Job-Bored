@@ -1,15 +1,17 @@
 /* HOLES lane SCORE · Scribe v2 ("Scribe v2 shows no score", U12).
 
-   The desk's header carries the open document's grade button. It follows
+   The desk's header carries the open document's verdict button (GRADE
+   D7: "<word> · <first reason>", never a letter). It follows
    the document tabs and the manifest, opens the score modal with a fill
    hook that lands Fix this / Apply / Repair in the composer, and Esc
    inside that modal closes the modal, never the desk. A save tells the
-   rows (jb:scribe:saved) so the grade goes stale until the fresh one. */
+   rows (jb:scribe:saved) so the verdict goes stale until the fresh one. */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { click, keydown, load, makeScoreEnv } from "./fixtures/holes-score-dom.mjs";
+import { V3_READY, V3_UNSUPPORTED } from "./fixtures/materials-qa-v3.mjs";
+import { click, keydown, load, makeScoreEnv, text } from "./fixtures/holes-score-dom.mjs";
 
 const VERSIONS = {
   resume: { currentRunId: "r1", versions: [{ runId: "r1", n: 1, createdAt: "2026-09-27T16:00:00.000Z", source: "draft", label: "Drafted", pinned: true, starred: false, pages: 1, words: 380, family: "signal" }] },
@@ -26,16 +28,17 @@ function boot() {
   const opener = doc.createElement("button");
   doc.body.appendChild(opener);
   const ms = win.JobBoredMaterialsScore;
+  const view = (qa) => ms.verdictView({ status: "pass", issues: [], qa });
   const grades = {
-    resume: { grade: ms.gradeOf(undefined, { result: { overallScore: 88 } }), stale: false },
-    cover_letter: { grade: ms.gradeOf(undefined, { result: { overallScore: 62 } }), stale: false },
+    resume: { verdict: view(V3_READY), stale: false },
+    cover_letter: { verdict: view(V3_UNSUPPORTED), stale: false },
   };
   const opened = [];
   const score = {
     gradeFor: (d) => grades[d] || null,
     open: (d, btn, hooks) => {
       opened.push({ d, btn, hooks });
-      return ms.open({ opener: btn, read: () => ({ feature: d, ats: { result: { overallScore: 88 } }, can: { fix: true, apply: true, repair: true } }), repair: () => hooks.fill("Fix these: the opener") });
+      return ms.open({ opener: btn, read: () => ({ feature: d, qualityDoc: { status: "pass", issues: [], qa: V3_READY }, can: { fix: true, apply: true, repair: true } }), repair: () => hooks.fill("Fix these: the opener") });
     },
   };
   const saved = [];
@@ -52,17 +55,17 @@ function boot() {
   const ctl = win.JB_SCRIBE_V2.open({ slug: "acme-pm", doc: "resume", opener, api, title: "PM", company: "Acme", score });
   const host = () => doc.querySelector("jb-scribe");
   const gradeBtn = () => host() && host().querySelector('[data-scribe="grade"] [data-score-open]');
-  return { win, doc, ctl, host, gradeBtn, grades, opened, saved, ms };
+  return { win, doc, ctl, host, gradeBtn, grades, opened, saved, ms, view };
 }
 
-describe("Scribe v2 shows the grade", () => {
-  it("should put the open document's grade button in the header, named with grade and score", async () => {
+describe("Scribe v2 shows the verdict", () => {
+  it("should put the open document's verdict button in the header, named with its verdict", async () => {
     const env = boot();
     await settle();
     const btn = env.gradeBtn();
-    assert.ok(btn, "the header has a grade button");
+    assert.ok(btn, "the header has a verdict button");
     assert.equal(btn.getAttribute("data-feature"), "resume");
-    assert.equal(btn.getAttribute("aria-label"), "Grade B+, 88 of 100 — open score details");
+    assert.equal(btn.getAttribute("aria-label"), "Resume: Ready. Open the quality check.");
   });
 
   it("should follow the document tab and the manifest", async () => {
@@ -71,10 +74,10 @@ describe("Scribe v2 shows the grade", () => {
     env.ctl.setDoc("cover_letter");
     await settle();
     assert.equal(env.gradeBtn().getAttribute("data-feature"), "cover_letter");
-    assert.equal(env.gradeBtn().getAttribute("data-grade"), "D-");
-    env.grades.cover_letter = { grade: env.ms.gradeOf(undefined, { result: { overallScore: 91 } }), stale: true };
+    assert.equal(text(env.gradeBtn()), "Fails · 1 claim needs a source");
+    env.grades.cover_letter = { verdict: env.view(V3_READY), stale: true };
     env.win.dispatchEvent(new env.win.CustomEvent("jb:materials:manifest", { detail: {} }));
-    assert.equal(env.gradeBtn().getAttribute("data-grade"), "A-");
+    assert.equal(text(env.gradeBtn()), "Ready");
     assert.equal(env.gradeBtn().getAttribute("data-stale"), "true");
   });
 
