@@ -94,6 +94,12 @@ it("PIPE-04 writes M+N+P once through sheets-writeback side effects", async () =
     encodeURIComponent,
     fetch: async (url, options = {}) => {
       fetchCalls.push({ url, options });
+      // HOLES A4: the guarded write re-reads row 7 first; it still holds
+      // this (link-less) job, so the write proceeds.
+      if (!options.method || options.method === "GET") {
+        const cells = ["", "Infrastructure Engineer"];
+        return { ok: true, status: 200, json: async () => ({ valueRanges: [{ values: [cells] }] }) };
+      }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     },
     setTimeout(callback) {
@@ -118,10 +124,11 @@ it("PIPE-04 writes M+N+P once through sheets-writeback side effects", async () =
   });
 
   assert.equal(result.confirmed, true);
-  assert.equal(fetchCalls.length, 1, "confirmed Applied must use one request");
-  assert.equal(fetchCalls[0].options.method, "POST");
-  assert.match(fetchCalls[0].url, /\/values:batchUpdate$/);
-  const body = JSON.parse(fetchCalls[0].options.body);
+  const writes = fetchCalls.filter((call) => call.options.method && call.options.method !== "GET");
+  assert.equal(writes.length, 1, "confirmed Applied must use one write request");
+  assert.equal(writes[0].options.method, "POST");
+  assert.match(writes[0].url, /\/values:batchUpdate$/);
+  const body = JSON.parse(writes[0].options.body);
   // D11: the same single batch now also carries the "Applied via …" audit
   // note in O — the evidence the dialog collected must reach the Sheet.
   assert.deepEqual(

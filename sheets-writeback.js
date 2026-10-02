@@ -20,10 +20,245 @@
     return (h.getActiveSheetId && h.getActiveSheetId()) || h.getSheetId() || "";
   }
 
-async function updateSheetCell(range, value, isRetry) {
+// ============================================
+// Row identity guard (HOLES A4, A9, A15)
+// ============================================
+// A job's Sheet row is mapped once, at load (_rawIndex). The person can sort
+// the Sheet or delete rows after that, so a write passes { guard: true } and
+// the writer re-reads each target row right before writing: its Link must
+// still match (Title + Company for a link-less row). A row that moved is
+// found again by that key; a row that is gone, or a key that now sits on two
+// rows, is refused with a visible error, never guessed. Mirrors the worker's
+// resolveRowsByLink (integrations/browser-use-discovery/src/sheets/sheets-client.ts).
+
+const PIPELINE_ROW_RANGE = /^Pipeline!([A-Z]+)(\d+)$/;
+const PIPELINE_LAST_COLUMN = "Z";
+const IDENTITY_COL = { title: 1, company: 2, link: 4, notes: 14 };
+const NOTES_COLUMN = "O";
+
+function identityText(value) {
+  return String(value == null ? "" : value).trim().toLowerCase();
+}
+
+/** The key a job is found by after any await (A15): its Link, else Title + Company. */
+function jobKeyOf(job) {
+  if (!job) return "";
+  const link = normalizeLeadUrlClient(job.link || "");
+  if (link) return `link::${link}`;
+  const title = identityText(job.title);
+  const company = identityText(job.company);
+  return title || company ? `synthetic::${company}::${title}` : "";
+}
+
+function targetForJob(job) {
+  if (!job || job._rawIndex == null) return null;
+  return {
+    job,
+    key: jobKeyOf(job),
+    row: job._rawIndex + 2,
+    link: normalizeLeadUrlClient(job.link || ""),
+    title: identityText(job.title),
+    company: identityText(job.company),
+    notesBase: job._rawNotes == null ? "" : String(job._rawNotes),
+  };
+}
+
+/** Capture, at call time, the job a write is for. */
+function writeTarget(dataIndex) {
+  return targetForJob((host().getPipelineData() || [])[dataIndex]);
+}
+
+/** The live copy of a target's job after an await: same object, else same key. */
+function liveJob(target) {
+  if (!target) return null;
+  const data = host().getPipelineData() || [];
+  if (data.indexOf(target.job) !== -1) return target.job;
+  if (!target.key) return null;
+  return data.find((job) => jobKeyOf(job) === target.key) || null;
+}
+
+function liveIndex(target) {
+  const job = liveJob(target);
+  return job ? (host().getPipelineData() || []).indexOf(job) : -1;
+}
+
+/** Which job each Pipeline row in `updates` is for, read before any await. */
+function targetsForUpdates(updates) {
+  const data = host().getPipelineData() || [];
+  const rows = [];
+  for (const u of updates) {
+    const m = PIPELINE_ROW_RANGE.exec((u && u.range) || "");
+    if (m && rows.indexOf(Number(m[2])) === -1) rows.push(Number(m[2]));
+  }
+  return rows.map((row) => {
+    const job = data.find((j) => j && j._rawIndex != null && j._rawIndex + 2 === row);
+    return targetForJob(job) || { job: null, key: "", row };
+  });
+}
+
+function rowMatchesTarget(cells, target) {
+  if (!target.job) return false;
+  const row = cells || [];
+  const link = normalizeLeadUrlClient(row[IDENTITY_COL.link] || "");
+  if (target.link) return link === target.link;
+  return (
+    !link &&
+    identityText(row[IDENTITY_COL.title]) === target.title &&
+    identityText(row[IDENTITY_COL.company]) === target.company
+  );
+}
+
+/** found {row, cells} | missing | ambiguous {rows}, one per target. */
+async function resolveTargets(targets) {
+  const fresh = await sheetsValuesBatchGet(
+    targets.map((t) => `Pipeline!A${t.row}:${PIPELINE_LAST_COLUMN}${t.row}`),
+  );
+  const results = targets.map((t, i) => {
+    const cells = (fresh[i] && fresh[i][0]) || [];
+    return rowMatchesTarget(cells, t) ? { status: "found", row: t.row, cells } : null;
+  });
+  const moved = [];
+  results.forEach((r, i) => {
+    if (!r) moved.push(i);
+  });
+  if (!moved.length) return results;
+
+  // Title..Link for every row; the identity columns, read once.
+  const scan = (await sheetsValuesGet("Pipeline!B2:E")).values || [];
+  const refetch = [];
+  for (const i of moved) {
+    const candidates = [];
+    scan.forEach((cells, offset) => {
+      if (rowMatchesTarget([""].concat(cells || []), targets[i])) candidates.push(offset + 2);
+    });
+    if (!candidates.length) results[i] = { status: "missing" };
+    else if (candidates.length > 1) results[i] = { status: "ambiguous", rows: candidates };
+    else refetch.push({ i, row: candidates[0] });
+  }
+  if (refetch.length) {
+    const again = await sheetsValuesBatchGet(
+      refetch.map((r) => `Pipeline!A${r.row}:${PIPELINE_LAST_COLUMN}${r.row}`),
+    );
+    refetch.forEach((r, k) => {
+      const cells = (again[k] && again[k][0]) || [];
+      results[r.i] = rowMatchesTarget(cells, targets[r.i])
+        ? { status: "found", row: r.row, cells }
+        : { status: "missing" };
+    });
+  }
+  return results;
+}
+
+/* A9: notes merge, never overwrite from a stale copy. `base` is the cell as
+   loaded, `mine` what this write wants, `theirs` the cell now. When nobody
+   else touched it, `mine` is written as is; otherwise each line someone
+   added since the load is kept: on top when they prepended (the dated,
+   newest-first entries), else at the end. */
+function mergeNotes(base, mine, theirs) {
+  const b = base == null ? "" : String(base);
+  const m = mine == null ? "" : String(mine);
+  const t = theirs == null ? "" : String(theirs);
+  if (t === b || t === m) return m;
+  const known = new Set(b.split("\n").concat(m.split("\n")).map((line) => line.trim()));
+  const theirLines = t.split("\n");
+  const added = theirLines.filter((line) => line.trim() && !known.has(line.trim()));
+  if (!added.length) return m;
+  if (!m.trim()) return added.join("\n");
+  return theirLines[0].trim() === added[0].trim()
+    ? `${added.join("\n")}\n${m}`
+    : `${m}\n${added.join("\n")}`;
+}
+
+function refreshFromSheet() {
+  const read = sheetsRead();
+  if (read && typeof read.loadAllData === "function") void read.loadAllData();
+}
+
+function sessionEnded() {
+  host().clearSessionAuthState();
+  host().renderPipeline();
+  host().showToast("Your Google session ended — sign in again", "error", true, {
+    label: "Sign in",
+    onClick: () => host().showSheetAccessGate("signin"),
+  });
+}
+
+/**
+ * Re-point each guarded update at the row its job holds NOW and merge notes.
+ * Rewrites update.range / update.value in place, so the caller's local copy
+ * matches what the Sheet receives. Resolves the notes cells it will write
+ * ([{ target, value }]), or null after telling the person why nothing was.
+ */
+async function guardUpdates(updates, targets, silent) {
+  if (!targets.length) return [];
+  let resolved;
+  try {
+    resolved = await resolveTargets(targets);
+  } catch (err) {
+    if (err && err.status === 401) {
+      sessionEnded();
+    } else if (!silent) {
+      host().showToast(
+        err && err.status
+          ? `Update failed: ${err.message}`
+          : "Update failed — check your connection",
+        "error",
+      );
+    }
+    return null;
+  }
+  const refused = resolved.find((r) => r.status !== "found");
+  if (refused) {
+    console.warn("[JobBored] Sheet write refused: target row", refused.status);
+    if (!silent) {
+      host().showToast(
+        refused.status === "ambiguous"
+          ? "Couldn’t save — that role now appears more than once in your Sheet. Refresh, then try again."
+          : "Couldn’t save — that role moved or was removed in your Sheet. Refresh, then try again.",
+        "error",
+        true,
+        { label: "Refresh", onClick: refreshFromSheet },
+      );
+    }
+    return null;
+  }
+  const byRow = new Map(targets.map((t, i) => [t.row, { target: t, found: resolved[i] }]));
+  const notes = [];
+  for (const u of updates) {
+    const m = PIPELINE_ROW_RANGE.exec((u && u.range) || "");
+    const hit = m && byRow.get(Number(m[2]));
+    if (!hit) continue;
+    u.range = `Pipeline!${m[1]}${hit.found.row}`;
+    if (m[1] === NOTES_COLUMN) {
+      u.value = mergeNotes(hit.target.notesBase, u.value, hit.found.cells[IDENTITY_COL.notes]);
+      notes.push({ target: hit.target, value: u.value });
+    }
+  }
+  return notes;
+}
+
+/** After a guarded write lands, the Notes it wrote are the new merge base. */
+function recordNotesWritten(notes) {
+  for (const n of notes || []) {
+    const job = liveJob(n.target);
+    if (job) job._rawNotes = n.value;
+  }
+}
+
+async function updateSheetCell(range, value, isRetry, opts) {
   if (!host().getAccessToken()) {
     host().showSheetAccessGate("signin");
     return false;
+  }
+
+  if (opts && opts.guard && !isRetry) {
+    const update = { range, value };
+    const targets = targetsForUpdates([update]);
+    const notes = await guardUpdates([update], targets, false);
+    if (!notes) return false;
+    const ok = await updateSheetCell(update.range, update.value, false);
+    if (ok) recordNotesWritten(notes);
+    return ok;
   }
 
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
@@ -79,6 +314,17 @@ async function updateMultipleCells(updates, isRetry, opts) {
   if (!host().getAccessToken()) {
     host().showSheetAccessGate("signin");
     return false;
+  }
+
+  // opts.guard (A4): which job each row is for is read HERE, before any
+  // await — a caller may edit the job optimistically right after this call.
+  if (opts && opts.guard && !isRetry) {
+    const targets = targetsForUpdates(updates);
+    const notes = await guardUpdates(updates, targets, silent);
+    if (!notes) return false;
+    const ok = await updateMultipleCells(updates, false, { silent });
+    if (ok) recordNotesWritten(notes);
+    return ok;
   }
 
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values:batchUpdate`;
@@ -240,6 +486,27 @@ async function sheetsValuesGet(range, isRetry) {
   return resp.json();
 }
 
+/** values:batchGet — one `values` array per range, in order. */
+async function sheetsValuesBatchGet(ranges, isRetry) {
+  const query = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join("&");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values:batchGet?${query}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${host().getAccessToken()}` },
+  });
+  if (resp.status === 401 && !isRetry) {
+    const ok = await host().refreshAccessTokenSilently();
+    if (ok) return sheetsValuesBatchGet(ranges, true);
+  }
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const e = new Error(err.error?.message || `HTTP ${resp.status}`);
+    e.status = resp.status;
+    throw e;
+  }
+  const data = await resp.json();
+  return (data.valueRanges || []).map((vr) => (vr && vr.values) || []);
+}
+
 async function sheetsValuesUpdate(range, values, isRetry) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(
     range,
@@ -298,6 +565,8 @@ async function appendBlacklistRow({ url, dismissedAt, title, company }) {
   }
 }
 
+/** Remove EVERY Blacklist row for this URL: a dismiss → restore → dismiss
+ *  cycle leaves duplicates, and one survivor keeps the role blocked. */
 async function deleteBlacklistRowByUrl(url) {
   if (!host().getAccessToken()) throw new Error("Not signed in");
   const normalized = normalizeLeadUrlClient(url || "");
@@ -311,37 +580,35 @@ async function deleteBlacklistRowByUrl(url) {
     throw err;
   }
   const values = data.values || [];
-  let rowIndex = -1; // 0-based sheet row
-  for (let i = 0; i < values.length; i++) {
+  const rows = []; // 0-based sheet rows; row 0 is the header
+  for (let i = 1; i < values.length; i++) {
     const cell = (values[i] && values[i][0]) || "";
-    if (normalizeLeadUrlClient(cell) === normalized) {
-      rowIndex = i;
-      break;
-    }
+    if (normalizeLeadUrlClient(cell) === normalized) rows.push(i);
   }
-  if (rowIndex < 1) return false; // skip header row (0) or missing
+  if (!rows.length) return false;
   // Look up the sheetId for "Blacklist"
-  const meta = await fetch(
+  const metaResp = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}?fields=sheets.properties`,
     { headers: { Authorization: `Bearer ${host().getAccessToken()}` } },
-  ).then((r) => r.json());
+  );
+  if (!metaResp.ok) throw new Error(`Blacklist lookup failed (HTTP ${metaResp.status})`);
+  const meta = await metaResp.json();
   const sheet = (meta.sheets || []).find(
     (s) => s.properties && s.properties.title === "Blacklist",
   );
   if (!sheet) return false;
+  // Bottom-up, so each delete leaves the earlier row indexes in place.
   await sheetsBatchUpdate({
-    requests: [
-      {
-        deleteDimension: {
-          range: {
-            sheetId: sheet.properties.sheetId,
-            dimension: "ROWS",
-            startIndex: rowIndex,
-            endIndex: rowIndex + 1,
-          },
+    requests: rows.reverse().map((rowIndex) => ({
+      deleteDimension: {
+        range: {
+          sheetId: sheet.properties.sheetId,
+          dimension: "ROWS",
+          startIndex: rowIndex,
+          endIndex: rowIndex + 1,
         },
       },
-    ],
+    })),
   });
   return true;
 }
@@ -372,7 +639,7 @@ async function flushPendingFavorites() {
     flushed.push(key);
   });
   if (!updates.length) return 0;
-  const ok = await updateMultipleCells(updates, false, { silent: true });
+  const ok = await updateMultipleCells(updates, false, { silent: true, guard: true });
   if (!ok) return 0;
   for (const key of flushed) read.clearPendingFavorite(key);
   host().showToast(
@@ -411,7 +678,7 @@ async function toggleFavorite(stableKey) {
   const ok = await updateMultipleCells(
     [{ range: `Pipeline!V${sheetRow}`, value: next ? "★" : "" }],
     false,
-    { silent: true },
+    { silent: true, guard: true },
   );
   if (ok) {
     // Sheet now matches local intent — drop the cache entry.
@@ -439,86 +706,129 @@ async function toggleFavorite(stableKey) {
   return true;
 }
 
+/* A8 / R12: a dismiss is two writes — Pipeline!W and the Blacklist row that
+   keeps discovery from re-adding the role. They land together or not at
+   all: W goes first, and if the Blacklist half then fails, W is put back.
+   Restore runs the same halves in reverse. Both resolve true or false. */
+async function putBack(range, value) {
+  if (await updateMultipleCells([{ range, value }], false, { silent: true })) return;
+  console.error("[JobBored] rollback failed; the Sheet may hold half a change at", range);
+  host().showToast(
+    "Couldn’t undo the half that saved — refresh to check your Sheet",
+    "error",
+    true,
+    { label: "Refresh", onClick: refreshFromSheet },
+  );
+}
+
+async function persistDismiss(target, at, prevW) {
+  const w = { range: `Pipeline!W${target.row}`, value: at };
+  if (!(await updateMultipleCells([w], false, { guard: true }))) return false;
+  if (!target.link) return true; // nothing to key a block on
+  try {
+    await appendBlacklistRow({
+      url: target.job.link || "",
+      dismissedAt: at,
+      title: target.job.title || "",
+      company: target.job.company || "",
+    });
+    return true;
+  } catch (err) {
+    console.error("[JobBored] dismiss: Blacklist write failed; putting W back", err);
+    await putBack(w.range, prevW || "");
+    return false;
+  }
+}
+
+async function persistRestore(target, prevW) {
+  const w = { range: `Pipeline!W${target.row}`, value: "" };
+  if (!(await updateMultipleCells([w], false, { guard: true }))) return false;
+  try {
+    await deleteBlacklistRowByUrl(target.job.link || "");
+    return true;
+  } catch (err) {
+    console.error("[JobBored] restore: Blacklist delete failed; putting W back", err);
+    await putBack(w.range, prevW || "");
+    return false;
+  }
+}
+
+/** Set dismissedAt on the job as it is now (a reload may have replaced it). */
+function setDismissedAt(target, value) {
+  const job = liveJob(target) || target.job;
+  if ((job.dismissedAt || null) === (value || null)) return;
+  job.dismissedAt = value;
+  host().renderPipeline();
+}
+
 async function dismissJob(stableKey) {
   const job = host().getPipelineData()[stableKey];
-  if (!job) return;
+  if (!job) return false;
   if (!host().getAccessToken()) {
     host().showSheetAccessGate("signin");
-    return;
+    return false;
   }
-  const sheetRow = getSheetRow(stableKey);
-  if (!sheetRow) return;
+  const target = writeTarget(stableKey);
+  if (!target) return false;
+  const prev = job.dismissedAt || null;
   const now = new Date().toISOString();
   job.dismissedAt = now;
   host().renderPipeline();
 
-  let undone = false;
-  const dismissToast = host().showToast(
+  // Written now, not after a 10 s window: Undo reverses what already landed.
+  const persisted = persistDismiss(target, now, prev);
+  const closeToast = host().showToast(
     `Dismissed "${job.title || "role"}"`,
     "info",
     true,
     {
       label: "Undo",
       onClick: () => {
-        undone = true;
-        job.dismissedAt = null;
-        host().renderPipeline();
+        void persisted.then((ok) => (ok ? undoDismiss(target, now) : false));
       },
     },
   );
-
-  await new Promise((r) => setTimeout(r, 10_000));
-  if (typeof dismissToast === "function") dismissToast();
-  if (undone) return;
-
-  try {
-    await Promise.all([
-      (async () => {
-        const ok = await updateMultipleCells([
-          { range: `Pipeline!W${sheetRow}`, value: now },
-        ]);
-        if (!ok) throw new Error("Pipeline W write failed");
-      })(),
-      appendBlacklistRow({
-        url: job.link || "",
-        dismissedAt: now,
-        title: job.title || "",
-        company: job.company || "",
-      }),
-    ]);
-  } catch (err) {
-    console.error("[JobBored] dismiss persist failed", err);
-    job.dismissedAt = null;
-    host().renderPipeline();
-    host().showToast("Couldn't save dismiss — reverted", "error");
+  if (await persisted) {
+    setDismissedAt(target, now);
+    return true;
   }
+  if (typeof closeToast === "function") closeToast();
+  setDismissedAt(target, prev);
+  host().showToast("Couldn't save dismiss — reverted", "error");
+  return false;
+}
+
+async function undoDismiss(target, dismissedAt) {
+  setDismissedAt(target, null);
+  if (await persistRestore(target, dismissedAt)) {
+    host().showToast("Restored", "success");
+    return true;
+  }
+  setDismissedAt(target, dismissedAt);
+  host().showToast("Couldn't undo — the role is still dismissed", "error");
+  return false;
 }
 
 async function restoreJob(stableKey) {
   const job = host().getPipelineData()[stableKey];
-  if (!job) return;
+  if (!job) return false;
   if (!host().getAccessToken()) {
     host().showSheetAccessGate("signin");
-    return;
+    return false;
   }
-  const sheetRow = getSheetRow(stableKey);
-  if (!sheetRow) return;
+  const target = writeTarget(stableKey);
+  if (!target) return false;
   const prev = job.dismissedAt;
   job.dismissedAt = null;
   host().renderPipeline();
-  try {
-    const ok = await updateMultipleCells([
-      { range: `Pipeline!W${sheetRow}`, value: "" },
-    ]);
-    if (!ok) throw new Error("Pipeline W clear failed");
-    await deleteBlacklistRowByUrl(job.link || "");
+  if (await persistRestore(target, prev)) {
+    setDismissedAt(target, null);
     host().showToast("Restored", "success");
-  } catch (err) {
-    console.error("[JobBored] restore failed", err);
-    job.dismissedAt = prev;
-    host().renderPipeline();
-    host().showToast("Couldn't restore — reverted", "error");
+    return true;
   }
+  setDismissedAt(target, prev);
+  host().showToast("Couldn't restore — reverted", "error");
+  return false;
 }
 
 /**
@@ -533,21 +843,24 @@ async function markStatusExpired(stableKey) {
     host().showSheetAccessGate("signin");
     return;
   }
-  const sheetRow = getSheetRow(stableKey);
-  if (!sheetRow) return;
+  const target = writeTarget(stableKey);
+  if (!target) return;
+  const sheetRow = target.row;
   const prevStatus = job.status;
   if ((prevStatus || "").toLowerCase() === "expired") return;
   job.status = "Expired";
   host().renderPipeline();
   try {
-    const ok = await updateMultipleCells([
-      { range: `Pipeline!M${sheetRow}`, value: "Expired" },
-    ]);
+    const ok = await updateMultipleCells(
+      [{ range: `Pipeline!M${sheetRow}`, value: "Expired" }],
+      false,
+      { guard: true },
+    );
     if (!ok) throw new Error(`Pipeline M${sheetRow} write failed`);
     host().showToast("Marked Expired", "info");
   } catch (err) {
     console.error("[JobBored] markStatusExpired failed", err);
-    job.status = prevStatus;
+    (liveJob(target) || job).status = prevStatus;
     host().renderPipeline();
     host().showToast("Couldn't mark expired — reverted", "error");
   }
@@ -593,14 +906,21 @@ async function editJobField(stableKey, field, value) {
   const prevValue = job[field];
   const prevLock = job._editLock || "";
   const nextLock = unionLock(prevLock, field);
+  // The guard reads which job this row is for as the call starts (A4), so
+  // the write starts before the optimistic edit renames a link-less job.
+  const write = updateMultipleCells(
+    [
+      { range: `Pipeline!${col}${sheetRow}`, value: next },
+      { range: `Pipeline!${EDIT_LOCK_COLUMN}${sheetRow}`, value: nextLock },
+    ],
+    false,
+    { guard: true },
+  );
   job[field] = next;
   job._editLock = nextLock;
   host().renderPipeline();
   try {
-    const ok = await updateMultipleCells([
-      { range: `Pipeline!${col}${sheetRow}`, value: next },
-      { range: `Pipeline!${EDIT_LOCK_COLUMN}${sheetRow}`, value: nextLock },
-    ]);
+    const ok = await write;
     if (!ok) throw new Error(`Pipeline ${col}${sheetRow} write failed`);
     host().showToast("Saved", "info");
   } catch (err) {
@@ -797,12 +1117,12 @@ function emitPipelineMoveSucceeded(jobKey, fromStage, toStage) {
    it overrides the default dates and appends the "Applied via …" note;
    other statuses ignore it. Optional — existing 3-arg callers are unchanged. */
 async function updateJobStatus(dataIndex, newStatus, prevStatusOverride, evidence) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) {
+  const target = writeTarget(dataIndex);
+  if (!target) {
     return false;
   }
-
-  const job = host().getPipelineData()[dataIndex];
+  const sheetRow = target.row;
+  const job = target.job;
   // Callers that optimistically mutate job.status before invoking this
   // function (e.g. the Lattice board's drag/keyboard move) must pass the
   // real previous status through prevStatusOverride. Otherwise job.status
@@ -822,15 +1142,24 @@ async function updateJobStatus(dataIndex, newStatus, prevStatusOverride, evidenc
     newStatus === "Applied" ? evidence : undefined,
   );
 
-  const success = await updateMultipleCells(updates);
+  const success = await updateMultipleCells(updates, false, { guard: true });
 
   if (success) {
-    // Apply all local updates
-    Object.assign(host().getPipelineData()[dataIndex], localUpdates);
+    // The Applied note may have been merged with newer Sheet text (A9).
+    const notesCell = updates.find((u) => /^Pipeline!O\d+$/.test(u.range));
+    if (notesCell && "notes" in localUpdates) {
+      localUpdates.notes = notesCell.value;
+      localUpdates._rawNotes = notesCell.value;
+    }
+    // Apply all local updates to the job as it is NOW: a reload during the
+    // await replaced the array, so the old index may hold another job (A15).
+    const live = liveJob(target);
+    if (live) Object.assign(live, localUpdates);
     host().renderPipeline();
     host().renderStats();
     host().renderBrief();
-    emitPipelineMoveSucceeded(dataIndex, prevStatus, newStatus);
+    dataIndex = liveIndex(target); // where the job sits in the array now
+    if (dataIndex >= 0) emitPipelineMoveSucceeded(dataIndex, prevStatus, newStatus);
 
     // Build a descriptive toast
     const extras = [];
@@ -849,32 +1178,43 @@ async function updateJobStatus(dataIndex, newStatus, prevStatusOverride, evidenc
 }
 
 async function updateJobNotes(dataIndex, notes) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) return;
+  const target = writeTarget(dataIndex);
+  if (!target) return false;
 
-  const range = `Pipeline!O${sheetRow}`;
-  const success = await updateSheetCell(range, notes);
+  // The guard re-reads the cell and merges, so text added in the Sheet since
+  // the load survives this save (A9); update.value is what was written.
+  const update = { range: `Pipeline!O${target.row}`, value: notes };
+  const success = await updateMultipleCells([update], false, { guard: true });
 
   if (success) {
-    host().getPipelineData()[dataIndex].notes = notes;
-    host().getPipelineData()[dataIndex]._rawNotes = notes;
-    host().refreshDrawerIfOpen(dataIndex);
+    const job = liveJob(target);
+    if (job) {
+      job.notes = update.value;
+      job._rawNotes = update.value;
+    }
+    const idx = liveIndex(target);
+    if (idx >= 0) host().refreshDrawerIfOpen(idx);
     host().renderExpiredReviewButton();
     host().renderBrief();
-    host().showToast("Notes saved");
+    host().showToast(
+      update.value === notes ? "Notes saved" : "Notes saved, with newer lines from your Sheet",
+    );
   }
+  return success;
 }
 
 async function updateFollowUpDate(dataIndex, date) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) return;
+  const target = writeTarget(dataIndex);
+  if (!target) return;
 
-  const range = `Pipeline!P${sheetRow}`;
-  const success = await updateSheetCell(range, date);
+  const range = `Pipeline!P${target.row}`;
+  const success = await updateSheetCell(range, date, false, { guard: true });
 
   if (success) {
-    host().getPipelineData()[dataIndex].followUpDate = date || null;
-    host().refreshDrawerIfOpen(dataIndex);
+    const job = liveJob(target);
+    if (job) job.followUpDate = date || null;
+    const idx = liveIndex(target);
+    if (idx >= 0) host().refreshDrawerIfOpen(idx);
     host().renderPipeline();
     host().renderBrief();
     host().showToast(date ? `Follow-up set: ${date}` : "Follow-up cleared");
@@ -882,30 +1222,34 @@ async function updateFollowUpDate(dataIndex, date) {
 }
 
 async function updateLastHeardFrom(dataIndex, value) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) return;
+  const target = writeTarget(dataIndex);
+  if (!target) return;
 
-  const range = `Pipeline!R${sheetRow}`;
-  const success = await updateSheetCell(range, value);
+  const range = `Pipeline!R${target.row}`;
+  const success = await updateSheetCell(range, value, false, { guard: true });
 
   if (success) {
-    host().getPipelineData()[dataIndex].lastHeardFrom = value.trim() ? value.trim() : null;
-    host().refreshDrawerIfOpen(dataIndex);
+    const job = liveJob(target);
+    if (job) job.lastHeardFrom = value.trim() ? value.trim() : null;
+    const idx = liveIndex(target);
+    if (idx >= 0) host().refreshDrawerIfOpen(idx);
     host().renderBrief();
     host().showToast("Last contact saved");
   }
 }
 
 async function updateJobResponseFlag(dataIndex, value) {
-  const sheetRow = getSheetRow(dataIndex);
-  if (!sheetRow) return;
+  const target = writeTarget(dataIndex);
+  if (!target) return;
 
-  const range = `Pipeline!S${sheetRow}`;
-  const success = await updateSheetCell(range, value);
+  const range = `Pipeline!S${target.row}`;
+  const success = await updateSheetCell(range, value, false, { guard: true });
 
   if (success) {
-    host().getPipelineData()[dataIndex].responseFlag = value.trim() ? value.trim() : null;
-    host().refreshDrawerIfOpen(dataIndex);
+    const job = liveJob(target);
+    if (job) job.responseFlag = value.trim() ? value.trim() : null;
+    const idx = liveIndex(target);
+    if (idx >= 0) host().refreshDrawerIfOpen(idx);
     host().renderBrief();
     host().renderStats();
     host().showToast("Reply status saved");
@@ -917,10 +1261,15 @@ async function updateJobResponseFlag(dataIndex, value) {
    *  or planner cells that already carry `range`. */
   async function applyCells(patches) {
     if (!Array.isArray(patches) || patches.length === 0) return true;
-    return updateMultipleCells(patches.map((p) => ({
+    const updates = patches.map((p) => ({
       range: p.range || ("Pipeline!" + p.column + p.sheetRow),
       value: p.value,
-    })));
+    }));
+    const ok = await updateMultipleCells(updates, false, { guard: true });
+    // A merged Notes cell (A9) is what the Sheet now holds: hand it back so
+    // the caller's local sync shows the same text.
+    if (ok) updates.forEach((u, i) => { patches[i].value = u.value; });
+    return ok;
   }
 
   Object.assign(sheetsWrite, {
