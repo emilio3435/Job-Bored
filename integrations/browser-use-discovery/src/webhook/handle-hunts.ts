@@ -1,15 +1,22 @@
 /**
- * handle-hunts.ts — HOLES HUNT: the dispatcher that sends a saved hunt's run
- * through the same in-process handler as POST /webhook. Contract:
- * docs/INTERFACE-HUNTS.md §4.3.
+ * handle-hunts.ts — HOLES HUNT: the hitlist (past searches ranked by yield)
+ * and the dispatcher that sends a saved hunt's run through the same
+ * in-process handler as POST /webhook. Contract: docs/INTERFACE-HUNTS.md.
  */
 
 import {
   DISCOVERY_WEBHOOK_EVENT,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+  type DiscoverySearchPlan,
 } from "../contracts.ts";
 import type { HuntDispatcher } from "../scheduler/hunt-scheduler.ts";
-import { applyHuntTweaks } from "../state/hunt-store.ts";
+import type { DiscoveryRunListSummary } from "../state/run-status-store.ts";
+import {
+  applyHuntTweaks,
+  buildSearchKey,
+  buildSearchLabel,
+  type HuntRecord,
+} from "../state/hunt-store.ts";
 import {
   deriveIdempotentRunId,
   type WebhookRequestLike,
@@ -98,6 +105,118 @@ export function createHuntRunDispatcher(dependencies: HuntRunDispatcherDependenc
       ...(parsed ? { body: parsed } : {}),
     };
   };
+}
+
+/** Finished runs whose yield is known; a failed run measured nothing. */
+const HITLIST_RUN_STATUSES = new Set<string>(["completed", "partial", "empty", "write_failed"]);
+const HITLIST_TREND_POINTS = 10;
+const RECENCY_HALF_LIFE_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface HitlistTrendPoint {
+  runId: string;
+  at: string;
+  written: number;
+  updated: number;
+  fitAvg?: number;
+}
+
+export interface HitlistCluster {
+  key: string;
+  label: string;
+  searchPlan: DiscoverySearchPlan;
+  runCount: number;
+  repeating: boolean;
+  leadsWritten: number;
+  leadsUpdated: number;
+  meanFit: number | null;
+  lastRunAt: string;
+  lastRunId: string;
+  score: number;
+  trend: HitlistTrendPoint[];
+  huntId: string | null;
+}
+
+/**
+ * docs/INTERFACE-HUNTS.md §3.3, §7: clusters finished runs by search key and
+ * ranks them by leads per run, scaled by mean fit, decayed by a 14-day
+ * half-life since the cluster last ran. Ties favour repeating searches,
+ * then the newest.
+ */
+export function buildHitlist(input: {
+  runs: readonly DiscoveryRunListSummary[];
+  hunts: readonly Pick<HuntRecord, "id" | "searchPlan" | "tweaks">[];
+  now: Date;
+  limit: number;
+}): { runsConsidered: number; clusters: HitlistCluster[] } {
+  const huntIdByKey = new Map<string, string>();
+  for (const hunt of input.hunts) {
+    const key = buildSearchKey(applyHuntTweaks(hunt.searchPlan, hunt.tweaks));
+    if (!huntIdByKey.has(key)) huntIdByKey.set(key, hunt.id);
+  }
+  const groups = new Map<string, Array<{ run: DiscoveryRunListSummary; plan: DiscoverySearchPlan; at: string }>>();
+  let runsConsidered = 0;
+  for (const run of input.runs) {
+    const at = run.completedAt || run.startedAt || "";
+    if (!run.searchPlan || !at || !HITLIST_RUN_STATUSES.has(run.status)) continue;
+    const key = run.searchKey || buildSearchKey(run.searchPlan);
+    runsConsidered += 1;
+    const group = groups.get(key) ?? [];
+    group.push({ run, plan: run.searchPlan, at });
+    groups.set(key, group);
+  }
+  const clusters: HitlistCluster[] = [];
+  for (const [key, entries] of groups) {
+    entries.sort((left, right) => right.at.localeCompare(left.at) || right.run.runId.localeCompare(left.run.runId));
+    const newest = entries[0];
+    const fits = entries
+      .map((entry) => entry.run.headline.fitAvg)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    const leadsWritten = sum(entries.map((entry) => entry.run.headline.written ?? 0));
+    const meanFit = fits.length ? roundTo(sum(fits) / fits.length, 2) : null;
+    const daysSinceLastRun = Math.max(0, (input.now.getTime() - Date.parse(newest.at)) / DAY_MS);
+    const fitFactor = meanFit === null ? 1 : 0.5 + meanFit / 10;
+    clusters.push({
+      key,
+      label: buildSearchLabel(newest.plan),
+      searchPlan: newest.plan,
+      runCount: entries.length,
+      repeating: entries.length >= 2,
+      leadsWritten,
+      leadsUpdated: sum(entries.map((entry) => entry.run.headline.updated ?? 0)),
+      meanFit,
+      lastRunAt: newest.at,
+      lastRunId: newest.run.runId,
+      score: roundTo(
+        (leadsWritten / entries.length) * fitFactor * 0.5 ** (daysSinceLastRun / RECENCY_HALF_LIFE_DAYS),
+        4,
+      ),
+      trend: entries.slice(0, HITLIST_TREND_POINTS).map(({ run, at }) => ({
+        runId: run.runId,
+        at,
+        written: run.headline.written ?? 0,
+        updated: run.headline.updated ?? 0,
+        ...(run.headline.fitAvg !== undefined ? { fitAvg: run.headline.fitAvg } : {}),
+      })),
+      huntId: huntIdByKey.get(key) ?? null,
+    });
+  }
+  clusters.sort(
+    (left, right) =>
+      right.score - left.score ||
+      Number(right.repeating) - Number(left.repeating) ||
+      right.lastRunAt.localeCompare(left.lastRunAt),
+  );
+  return { runsConsidered, clusters: clusters.slice(0, input.limit) };
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
