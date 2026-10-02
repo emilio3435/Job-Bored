@@ -114,6 +114,32 @@ describe("B14 · GET /api/brand-logos/company", () => {
     assert.deepEqual(stub.calls, ["Northwind Media Labs"], "no parenthetical reaches the domain hint");
   });
 
+  /* A trailing domain is a domain hint too (companyDomainHint reads "Acme —
+     acme.io", "Acme | acme.io" and "Acme acme.io"), so a scraped company name
+     must not reach the lookup with one: it would choose the host the
+     server's resolver fetches. */
+  const TRAILING = [
+    ["Acme metadata.google.internal", "Acme"],
+    ["Acme — intranet.example.corp", "Acme"],
+    ["Acme | acme.io", "Acme"],
+    ["Acme - acme.io", "Acme"],
+    ["Acme foo.example.io bar.example.io", "Acme"],
+  ];
+  for (const [raw, clean] of TRAILING) {
+    it(`should look up ${JSON.stringify(raw)} as ${JSON.stringify(clean)}, with no domain hint left`, async () => {
+      const stub = stubLoader(null);
+      const res = await request(stub.loadMark, { name: raw });
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(stub.calls, [clean]);
+    });
+  }
+
+  it("should keep a name that is itself a domain-like brand", async () => {
+    const stub = stubLoader(null);
+    await request(stub.loadMark, { name: "Booking.com" });
+    assert.deepEqual(stub.calls, ["Booking.com"], "no separator, so no hint and nothing to strip");
+  });
+
   it("should export the same cleaning for direct use", () => {
     assert.equal(cleanCompanyName("Stripe, Inc. (stripe.com)"), "Stripe, Inc.");
     assert.equal(cleanCompanyName("Acme\n  Corp"), "Acme Corp");
