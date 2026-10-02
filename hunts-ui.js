@@ -605,15 +605,22 @@
   }
 
   /** The "Save as hunt" switch for one run row; "" when the row cannot save. */
-  function runToggleHtml(run, store) {
+  function runToggleHtml(run, store, opts) {
     var r = asObject(run);
+    var o = asObject(opts);
     var runId = clean(r.runId);
+    var searchKey = clean(r.searchKey);
+    var describedBy = clean(o.describedBy);
     var s = store || defaultStore();
     if (!runId || !s || typeof s.huntForRun !== "function") return "";
-    var saved = Boolean(s.huntForRun(runId));
+    // INTERFACE-HUNTS §8: saved when a hunt came from this run or shares its key.
+    var saved = Boolean(s.huntForRun(runId, searchKey));
     return (
       ' <button type="button" class="hunts-switch hunts-switch--row" role="switch"' +
-      ' aria-checked="' + (saved ? "true" : "false") + '" data-runs-save-hunt="' + esc(runId) + '">' +
+      ' aria-checked="' + (saved ? "true" : "false") + '" data-runs-save-hunt="' + esc(runId) + '"' +
+      (searchKey ? ' data-search-key="' + esc(searchKey) + '"' : "") +
+      (describedBy ? ' aria-describedby="' + esc(describedBy) + '"' : "") +
+      ">" +
       '<span class="hunts-switch__track" aria-hidden="true"><span class="hunts-switch__thumb"></span></span>' +
       '<span class="hunts-switch__label">Save as hunt</span>' +
       "</button>"
@@ -624,6 +631,35 @@
 
   function a11y() {
     return (root && root.JobBoredA11y) || null;
+  }
+
+  // §3.7: follow a run-now the way triggerDiscoveryRun follows its dispatch.
+  function trackStartedRun(res) {
+    var discovery = root && root.JobBoredDiscovery;
+    var tracker = discovery && discovery.runTracker && discovery.runTracker.discoveryRunTracker;
+    var status = discovery && discovery.status;
+    if (!res.runId || !status || !tracker || typeof tracker.beginTracking !== "function") return;
+    var host = status.host;
+    var webhookUrl =
+      host && typeof host.getDiscoveryWebhookUrl === "function"
+        ? clean(host.getDiscoveryWebhookUrl())
+        : "";
+    var statusPath =
+      typeof status.resolveAcceptedRunStatusPath === "function"
+        ? status.resolveAcceptedRunStatusPath(res, webhookUrl)
+        : res.statusPath;
+    tracker.beginTracking({
+      runId: res.runId,
+      statusPath: statusPath,
+      pollAfterMs: Number.isFinite(res.pollAfterMs) ? res.pollAfterMs : 2000,
+      webhookUrl: webhookUrl,
+      trigger: "hunt",
+      statusUnavailable: !statusPath,
+    });
+    if (typeof status.renderDiscoveryRunStatus === "function") status.renderDiscoveryRunStatus();
+    if (statusPath && typeof status.startDiscoveryStatusPolling === "function") {
+      void status.startDiscoveryStatusPolling(webhookUrl);
+    }
   }
 
   function appHost() {
@@ -822,7 +858,11 @@
   }
 
   function toggleLoadedRunHunt(store, id, button, o) {
-    var hunt = store.huntForRun(id);
+    var searchKey =
+      button && typeof button.getAttribute === "function"
+        ? clean(button.getAttribute("data-search-key"))
+        : "";
+    var hunt = store.huntForRun(id, searchKey);
     var setChecked = function (on) {
       if (button && typeof button.setAttribute === "function") {
         button.setAttribute("aria-checked", on ? "true" : "false");
@@ -987,6 +1027,10 @@
         ).then(
           function (res) {
             btn.disabled = false;
+            if (res && res.reason === "run_active") {
+              announce("A run is already active. Try again when it finishes.");
+              return;
+            }
             announce(
               res && res.ok === false
                 ? "The search didn’t start. Check the Runs log."
@@ -1006,6 +1050,7 @@
         withBusy(id, function () {
           return store.runHunt(id);
         }).then(function (res) {
+          if (res.ok && res.kind === "accepted_async") trackStartedRun(res);
           refocusRun();
           if (!res.ok) return;
           announce(

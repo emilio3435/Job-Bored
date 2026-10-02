@@ -434,3 +434,115 @@ test("HUNT-FE-UI-12: the Runs-row switch loads the saved list before it decides 
   }
   assert.deepEqual(deleted, [HUNT.id]);
 });
+
+// ---- Grok verdict follow-ups (VERDICT-HUNT-FE-grok.md) ----
+
+function clickPanel(h, attrs) {
+  const btn = {
+    disabled: false,
+    attrs,
+    getAttribute(name) {
+      return this.attrs[name] || null;
+    },
+  };
+  btn.closest = (sel) => (sel === "[data-hunts-action]" ? btn : null);
+  h.panel.handlers.click({ target: btn });
+  return btn;
+}
+
+const settle = async () => {
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test("HUNT-FE-UI-13 (verdict 1): Run now on accepted_async starts tracking and polling the run (§3.7)", async () => {
+  const h = mountHarness();
+  h.panel.querySelectorAll = () => [];
+  const tracked = [];
+  const polled = [];
+  let rendered = 0;
+  h.context.JobBoredDiscovery = {
+    runTracker: { discoveryRunTracker: { beginTracking: (state) => tracked.push(state) } },
+    status: {
+      host: { getDiscoveryWebhookUrl: () => "https://worker.example.com/webhook" },
+      resolveAcceptedRunStatusPath: (res) => res.statusPath,
+      renderDiscoveryRunStatus: () => (rendered += 1),
+      startDiscoveryStatusPolling: (url) => polled.push(url),
+    },
+  };
+  h.store.runHunt = async () => ({
+    ok: true,
+    kind: "accepted_async",
+    runId: "run_now_1",
+    statusPath: "/runs/run_now_1",
+    pollAfterMs: 1500,
+  });
+  h.context.JobBoredHuntsUI.mount(h.panel, { store: h.store, drawer: h.drawer });
+  clickPanel(h, { "data-hunts-action": "run", "data-hunt-id": HUNT.id });
+  await settle();
+  assert.equal(tracked.length, 1, "the run is tracked");
+  assert.equal(tracked[0].runId, "run_now_1");
+  assert.equal(tracked[0].statusPath, "/runs/run_now_1");
+  assert.equal(tracked[0].pollAfterMs, 1500);
+  assert.equal(tracked[0].trigger, "hunt");
+  assert.equal(tracked[0].webhookUrl, "https://worker.example.com/webhook");
+  assert.deepEqual(polled, ["https://worker.example.com/webhook"], "status polling starts");
+  assert.equal(rendered, 1);
+
+  // A queued run has no run id yet: nothing to track.
+  h.store.runHunt = async () => ({ ok: true, kind: "queued", queuedAt: "2026-10-02T12:00:00.000Z" });
+  clickPanel(h, { "data-hunts-action": "run", "data-hunt-id": HUNT.id });
+  await settle();
+  assert.equal(tracked.length, 1);
+});
+
+test("HUNT-FE-UI-14 (verdict 2): Run again answered run_active says a run is already active", async () => {
+  const h = mountHarness();
+  const said = [];
+  h.context.JobBoredA11y = { live: { announce: (message) => said.push(message) } };
+  h.context.JobBoredApp = {
+    core: { host: { triggerDiscoveryRun: async () => ({ ok: false, reason: "run_active" }) } },
+  };
+  h.context.JobBoredHuntsUI.mount(h.panel, { store: h.store, drawer: h.drawer });
+  clickPanel(h, { "data-hunts-action": "run-search", "data-cluster-key": REPEATING.key });
+  await settle();
+  assert.equal(said.length, 1);
+  assert.match(said[0], /a run is already active/i);
+});
+
+test("HUNT-FE-UI-15 (verdict 3): a later run of a saved search shows its switch on, and the switch removes that hunt", async () => {
+  const store = {
+    huntForRun: (id, key) => (key === HUNT.searchKey ? HUNT : null),
+  };
+  const later = { runId: "run_later", searchKey: HUNT.searchKey };
+  const html = ui.runToggleHtml(later, store);
+  assert.match(html, /aria-checked="true"/);
+  assert.match(html, new RegExp(`data-search-key="${HUNT.searchKey}"`));
+
+  const deleted = [];
+  const toggleStore = {
+    loadHunts: async () => true,
+    huntForRun: store.huntForRun,
+    deleteHunt: async (id) => {
+      deleted.push(id);
+      return { ok: true };
+    },
+  };
+  const button = {
+    getAttribute: (name) => (name === "data-search-key" ? HUNT.searchKey : null),
+    setAttribute() {},
+  };
+  const previousConfirm = globalThis.confirm;
+  globalThis.confirm = () => true;
+  try {
+    assert.equal(await ui.toggleRunHunt("run_later", button, { store: toggleStore }), true);
+  } finally {
+    globalThis.confirm = previousConfirm;
+  }
+  assert.deepEqual(deleted, [HUNT.id]);
+});
+
+test("HUNT-FE-UI-16 (verdict 5): a Runs-row switch is described by its row's run time", () => {
+  const store = { huntForRun: () => null };
+  const html = ui.runToggleHtml({ runId: "run_7f3a" }, store, { describedBy: "runs-detail-3-toggle" });
+  assert.match(html, /role="switch"[^>]*aria-describedby="runs-detail-3-toggle"/);
+});

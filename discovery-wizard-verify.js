@@ -190,6 +190,9 @@
     if (text(src.suggestedUrl)) {
       result.suggestedUrl = text(src.suggestedUrl);
     }
+    if (text(src.reason) === "run_active") {
+      result.reason = "run_active";
+    }
     if (text(src.runId)) {
       result.runId = text(src.runId);
     }
@@ -559,6 +562,25 @@
         });
       }
 
+      // HOLES HUNT-FE: shared admission answers 409 run_active while another
+      // run is admitted. The worker is reachable and busy, not misrouted.
+      if (
+        Number(status) === 409 &&
+        data &&
+        typeof data === "object" &&
+        text(data.reason) === "run_active"
+      ) {
+        return createVerificationResult({
+          ok: false,
+          kind: "invalid_endpoint",
+          engineState: "unverified",
+          httpStatus: 409,
+          reason: "run_active",
+          message: "A run is already active.",
+          detail: "Try again when the current run finishes.",
+          layer: "upstream",
+        });
+      }
       if (data && typeof data === "object" && data.ok === false) {
         const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
         const responseMessage =

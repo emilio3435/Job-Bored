@@ -708,10 +708,10 @@
 
   // HOLES HUNT-FE: the "Save as hunt" switch; hunts-ui.js renders it from the
   // saved hunts and omits it for rows without a worker run id.
-  function saveHuntToggleHtml(run) {
+  function saveHuntToggleHtml(run, detailId) {
     var huntsUi = window.JobBoredHuntsUI;
     return huntsUi && typeof huntsUi.runToggleHtml === "function"
-      ? huntsUi.runToggleHtml(run)
+      ? huntsUi.runToggleHtml(run, null, { describedBy: detailId + "-toggle" })
       : "";
   }
 
@@ -788,7 +788,7 @@
             runAtToggleHtml(r.runAt, detailId, { open: open, key: key }) +
             "<td>" + statusBadge(r.status) + "</td>" +
             newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
-            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r) + saveHuntToggleHtml(r)) +
+            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r) + saveHuntToggleHtml(r, detailId)) +
           "</tr>" +
           filterHintRowHtml(filterHintText(r.filterStats)) +
           detailRowHtml(detailId, details[key] || renderCoarseDetailHtml(r), open)
@@ -960,6 +960,7 @@
       // DISCAT D9: the summary's filterStats (absent on runs from before
       // DISCAT) drive the filter hint under the run's row.
       filterStats: s.filterStats && typeof s.filterStats === "object" ? s.filterStats : null,
+      searchKey: String(s.searchKey || ""), // HOLES HUNT-FE: INTERFACE-HUNTS §8
     };
   }
 
@@ -1002,6 +1003,7 @@
         statusPath: w.statusPath,
         workerStatus: w.workerStatus,
         filterStats: w.filterStats,
+        searchKey: w.searchKey,
         origin: "both",
       });
       if (w.runAt) merged.runAt = w.runAt;
