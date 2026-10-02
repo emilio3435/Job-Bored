@@ -400,11 +400,12 @@ export async function scoreListingWithLlm(
 // NEW: Orchestrator — pre-filter → cache → LLM
 // ═══════════════════════════════════════════════════════════════════════════
 
-function buildCacheKey(canonicalUrl: string, profile: UserProfile): string {
+function buildCacheKey(canonicalUrl: string, profile: UserProfile, model: string): string {
   const seed = [
     canonicalUrl,
     profile.updatedAt || "",
     String(USER_PROFILE_SCHEMA_VERSION),
+    model,
   ].join("|");
   return createHash("sha256").update(seed).digest("hex");
 }
@@ -424,11 +425,13 @@ export async function scoreListingForProfile(
   }
 
   const canonicalUrl = rawListing.canonicalUrl || rawListing.url || "";
-  const cacheKey = buildCacheKey(canonicalUrl, profile);
+  const chatProvider = resolveWorkerChatProvider(opts.runtimeConfig);
   const modelId =
-    resolveWorkerChatProvider(opts.runtimeConfig)?.model ||
+    chatProvider?.model ||
     opts.runtimeConfig.geminiModel ||
     "unconfigured-chat-provider";
+  // A score is only reusable by the model that produced it.
+  const cacheKey = buildCacheKey(canonicalUrl, profile, `${chatProvider?.provider || ""}:${modelId}`);
 
   if (opts.cache) {
     const hit = opts.cache.get(cacheKey);
