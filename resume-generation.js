@@ -40,6 +40,7 @@
   let lastResumeGenerationSession = null;
   let pendingDraftNotesRequest = null;
   let resumeGenerateAtsRefreshTimer = null;
+  let resumeGenerateDialog = null;
 
   function getLastResumeGenerationSession() {
     return lastResumeGenerationSession;
@@ -317,10 +318,6 @@ function renderDraftHistoryItemHtml(draft, activeDraftId) {
 function renderResumeGenerateInsights(bodyText, job) {
   const wrap = document.getElementById("resumeGenerateInsights");
   const atsCard = document.getElementById("resumeGenerateAtsCard");
-  const atsScore = document.getElementById("resumeGenerateAtsScore");
-  const atsSummary = document.getElementById("resumeGenerateAtsSummary");
-  const atsHint = document.getElementById("resumeGenerateAtsHint");
-  const atsGroups = document.getElementById("resumeGenerateAtsGroups");
   const historyCard = document.getElementById("resumeGenerateHistoryCard");
   const historyCount = document.getElementById("resumeGenerateHistoryCount");
   const historySummary = document.getElementById(
@@ -337,80 +334,12 @@ function renderResumeGenerateInsights(bodyText, job) {
     return;
   }
 
-  const session = lastResumeGenerationSession;
-  const feature =
-    session && session.feature === "resume_update"
-      ? "resume_update"
-      : "cover_letter";
-  const cacheKey = ats().computeAtsScorecardCacheKey(text, job, feature);
-  const atsPayload = cacheKey
-    ? ats().buildAtsScorecardRequestPayload(text, job, session)
-    : null;
-  if (atsCard) {
-    if (
-      !cacheKey ||
-      !atsPayload ||
-      !atsPayload.job.title ||
-      !atsPayload.job.company
-    ) {
-      atsCard.hidden = true;
-    } else {
-      if (materialsState().getAtsScorecardState().cacheKey !== cacheKey) {
-        ats().startAtsScorecardAnalysis(cacheKey, atsPayload);
-      }
-      if (materialsState().getAtsScorecardState().status === "loading") {
-        if (atsScore) atsScore.textContent = "…";
-        if (atsSummary) {
-          atsSummary.textContent =
-            "Analyzing this draft against the role with structured LLM scoring…";
-        }
-        if (atsHint) {
-          atsHint.hidden = false;
-          atsHint.textContent =
-            "Scoring the latest text in the editor after generate or refine finishes.";
-        }
-        if (atsGroups) atsGroups.innerHTML = "";
-      } else if (
-        materialsState().getAtsScorecardState().status === "success" &&
-        materialsState().getAtsScorecardState().result
-      ) {
-        const scorecard = materialsState().getAtsScorecardState().result;
-        if (atsScore) atsScore.textContent = `${scorecard.overallScore}%`;
-        if (atsSummary) {
-          const conf = Math.round(Number(scorecard.confidence || 0) * 100);
-          atsSummary.textContent = `${ats().formatAtsDimensionSummary(
-            scorecard,
-          )} · confidence ${conf}% · model ${scorecard.model}`;
-        }
-        if (atsHint) {
-          const topGap = scorecard.criticalGaps && scorecard.criticalGaps[0];
-          atsHint.textContent = topGap
-            ? `Priority fix: ${ats().sanitizeAtsText(topGap.gap)}`
-            : "No critical gaps identified for this draft.";
-          atsHint.hidden = false;
-        }
-        if (atsGroups) {
-          atsGroups.innerHTML = ats().renderAtsScorecardGroupsHtml(scorecard);
-        }
-      } else if (materialsState().getAtsScorecardState().status === "error") {
-        if (atsScore) atsScore.textContent = "—";
-        if (atsSummary) {
-          atsSummary.textContent =
-            "Could not analyze this draft with ATS scorecard right now.";
-        }
-        if (atsHint) {
-          atsHint.hidden = false;
-          atsHint.textContent = materialsState().getAtsScorecardState().error || "Unknown error";
-        }
-        if (atsGroups) {
-          atsGroups.innerHTML =
-            '<button type="button" class="btn-modal-secondary doc-insight-card__retry" data-action="retry-ats-scorecard">Retry analysis</button>';
-        }
-      }
-      atsCard.hidden = false;
-    }
-  }
+  /* U5 (HOLES SCORE): this only renders. Scoring starts on an explicit
+     action — the modal opening on a finished draft, Retry, or Rescore —
+     never on a keystroke. */
+  if (atsCard) renderResumeGenerateGrade(atsCard, text, job);
 
+  const session = lastResumeGenerationSession;
   const historyFeature =
     session && session.feature ? session.feature : "cover_letter";
   const historyDrafts = job ? materialsState().getDraftsForJob(job, historyFeature) : [];
@@ -440,10 +369,117 @@ function renderResumeGenerateInsights(bodyText, job) {
     }
   }
 
-  wrap.hidden = !!(
-    (!atsCard || atsCard.hidden) &&
-    (!historyCard || historyCard.hidden)
-  );
+  wrap.hidden = !!(!historyCard || historyCard.hidden);
+}
+
+/* The cache key and payload this draft would be scored under, or null when
+   the role is missing a title or company. */
+function resumeGenerateAtsTarget(text, job) {
+  const session = lastResumeGenerationSession;
+  const feature =
+    session && session.feature === "resume_update"
+      ? "resume_update"
+      : "cover_letter";
+  const cacheKey = text ? ats().computeAtsScorecardCacheKey(text, job, feature) : "";
+  const payload = cacheKey
+    ? ats().buildAtsScorecardRequestPayload(text, job, session)
+    : null;
+  if (!cacheKey || !payload || !payload.job.title || !payload.job.company) return null;
+  return { cacheKey, payload, feature };
+}
+
+/* Start the role-match score for this draft unless it is already scored or
+   scoring. Returns the target, or null. */
+function startResumeGenerateAts(text, job) {
+  const target = resumeGenerateAtsTarget(text, job);
+  if (!target) return null;
+  if (materialsState().getAtsScorecardState().cacheKey !== target.cacheKey) {
+    ats().startAtsScorecardAnalysis(target.cacheKey, target.payload, job);
+  }
+  return target;
+}
+
+/* U11 (HOLES SCORE): the old ATS card is one grade button in the header;
+   its scorecard opens in the score modal. A score of other text is shown
+   stale rather than rescored on its own. */
+function renderResumeGenerateGrade(slot, text, job) {
+  const gradeEl = document.getElementById("resumeGenerateAtsGrade");
+  const statusEl = document.getElementById("resumeGenerateAtsStatus");
+  const ms = window.JobBoredMaterialsScore;
+  const target = resumeGenerateAtsTarget(text, job);
+  const st = materialsState().getAtsScorecardState();
+  if (!target || !ms) {
+    slot.hidden = true;
+    return;
+  }
+  const scored = st.status === "success" && st.result;
+  if (gradeEl) {
+    gradeEl.innerHTML = scored
+      ? ms.buttonHtml(ms.gradeOf(undefined, { result: st.result }), {
+        feature: target.feature === "resume_update" ? "resume" : "cover_letter",
+        scope: "draft",
+        stale: st.cacheKey !== target.cacheKey,
+      })
+      : "";
+  }
+  if (statusEl) {
+    if (st.status === "loading") {
+      statusEl.textContent = "Scoring…";
+    } else if (st.status === "error") {
+      statusEl.innerHTML = `Couldn’t score: ${escapeHtml(st.error || "unknown error")} <button type="button" class="btn-modal-secondary doc-insight-card__retry" data-action="retry-ats-scorecard">Retry</button>`;
+    } else {
+      statusEl.textContent = "";
+    }
+  }
+  slot.hidden = !scored && st.status !== "loading" && st.status !== "error";
+}
+
+/* The score modal over the draft: Fix this and Apply land in the Refine
+   box; Rescore scores the editor's current text. */
+function openResumeGenerateScore(opener) {
+  const ms = window.JobBoredMaterialsScore;
+  const session = lastResumeGenerationSession;
+  if (!ms || !session) return null;
+  const feature = session.feature === "resume_update" ? "resume" : "cover_letter";
+  const fill = (instruction) => {
+    const fb = document.getElementById("resumeGenerateFeedback");
+    if (!fb) return;
+    fb.value = String(instruction || "");
+    syncResumeGenerateFooterState();
+    fb.focus();
+  };
+  return ms.open({
+    opener: opener || null,
+    read: () => {
+      const st = materialsState().getAtsScorecardState();
+      return {
+        feature,
+        ats: st.status === "success" && st.result ? { result: st.result } : null,
+        busy: st.status === "loading",
+        can: { fix: true, apply: true, rescore: true },
+      };
+    },
+    fix: (item) => fill(item.instruction),
+    apply: (s) => fill(s.instruction),
+    rescore: () => new Promise((resolve, reject) => {
+      const ta = document.getElementById("resumeGenerateOutput");
+      const text = getResumeGenerateDraftTextForInsights(ta ? ta.value : session.text || "");
+      const target = resumeGenerateAtsTarget(text, session.job);
+      if (!target) {
+        reject(new Error("this role is missing a title or company"));
+        return;
+      }
+      const onState = (e) => {
+        const d = (e && e.detail) || {};
+        if (d.jobKey !== target.cacheKey || (d.status !== "success" && d.status !== "error")) return;
+        window.removeEventListener("jb:ats:state", onState);
+        if (d.status === "success") resolve();
+        else reject(new Error(d.error || "the scorer didn’t return a result"));
+      };
+      window.addEventListener("jb:ats:state", onState);
+      ats().startAtsScorecardAnalysis(target.cacheKey, target.payload, session.job);
+    }),
+  });
 }
 
 function syncResumeGenerateFooterState() {
@@ -785,23 +821,42 @@ async function openResumeGenerateModal(
         preview.innerHTML = "";
       }
     }
-    renderResumeGenerateInsights(
-      bodyText,
+    const analysisJob =
       jobForAnalysis ||
-        (lastResumeGenerationSession ? lastResumeGenerationSession.job : null),
-    );
+      (lastResumeGenerationSession ? lastResumeGenerationSession.job : null);
+    /* U5: the one automatic score — a finished draft, once, on open. */
+    startResumeGenerateAts(getResumeGenerateDraftTextForInsights(bodyText), analysisJob);
+    renderResumeGenerateInsights(bodyText, analysisJob);
   }
 
   modal.style.display = "flex";
   syncResumeGenerateFooterState();
+  /* U10: a real modal — focus trap, Esc, inert background, focus return. */
+  const a11y = window.JobBoredA11y;
+  if (!resumeGenerateDialog && a11y && a11y.dialog && typeof a11y.dialog.open === "function") {
+    resumeGenerateDialog = a11y.dialog.open(modal, {
+      onClose: () => {
+        resumeGenerateDialog = null;
+        hideResumeGenerateModal();
+      },
+    });
+  }
 }
 
-function closeResumeGenerateModal() {
+function hideResumeGenerateModal() {
   const modal = document.getElementById("resumeGenerateModal");
   if (modal) {
     modal.style.display = "none";
     modal.setAttribute("aria-busy", "false");
   }
+}
+
+function closeResumeGenerateModal() {
+  if (resumeGenerateDialog) {
+    resumeGenerateDialog.close("programmatic");
+    return;
+  }
+  hideResumeGenerateModal();
 }
 
 async function runResumeGeneration(dataIndex, feature, options) {
@@ -1300,9 +1355,14 @@ async function openLatestSavedDraftForJob(dataIndex, feature) {
     if (draftId) void openSavedDraftVersion(draftId);
     });
     }
-    const atsGroups = document.getElementById("resumeGenerateAtsGroups");
-    if (atsGroups) {
-    atsGroups.addEventListener("click", (e) => {
+    const atsCard = document.getElementById("resumeGenerateAtsCard");
+    if (atsCard) {
+    atsCard.addEventListener("click", (e) => {
+    const grade = e.target.closest("[data-score-open]");
+    if (grade) {
+    openResumeGenerateScore(grade);
+    return;
+    }
     const btn = e.target.closest('[data-action="retry-ats-scorecard"]');
     if (!btn) return;
     const session = lastResumeGenerationSession;

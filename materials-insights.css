@@ -1,27 +1,38 @@
 /* ============================================================
    materials-insights.css — Materials Wave 2 (L5) surfaces
    ------------------------------------------------------------
-   The quality scorecard (U-1), stage timeline (U-4), Download menu and
-   FAIL confirm (U-3), role-term coverage (U-7), version history (U-6)
-   and "Draft both" (U-5). Every rule is scoped under the materials
+   The row's grade slot (HOLES SCORE: the scorecard itself is in the score
+   modal, css/materials-score.css), stage timeline (U-4), Download menu and
+   FAIL confirm (U-3), version history (U-6) and "Draft both" (U-5). Every rule is scoped under the materials
    section inside the role region: `body.jb-v2 h3/p` carry (0,1,1), so a
    bare class would lose (DESIGN.md, the jb-v2 cascade trap). Values come
    from tokens-v2.css only.
    ============================================================ */
 
-/* The row gains a quality band between its meta line and its actions. */
+/* The row gains a band between its meta line and its actions (the
+   checklist), and a drafted resume or letter its grade beside the pill. */
 body.jb-v2 [data-region="role"] .case .brief-materials .case__doc {
   grid-template-areas: "name state" "meta meta" "qa qa" "acts acts";
+}
+body.jb-v2 [data-region="role"] .case .brief-materials .case__doc.case__doc--graded {
+  grid-template-columns: minmax(8rem, 1fr) auto auto;
+  grid-template-areas: "name grade state" "meta meta meta" "qa qa qa" "acts acts acts";
 }
 @container ledger (inline-size < 15rem) {
   body.jb-v2 [data-region="role"] .case .brief-materials .case__doc {
     grid-template-areas: "name" "state" "meta" "qa" "acts";
   }
+  body.jb-v2 [data-region="role"] .case .brief-materials .case__doc.case__doc--graded {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name grade" "state state" "meta meta" "qa qa" "acts acts";
+  }
 }
+body.jb-v2 [data-region="role"] .brief-materials .case__doc-grade { grid-area: grade; align-self: start; display: inline-flex; }
+body.jb-v2 [data-region="role"] .brief-materials .brief-materials__card-grade { margin: var(--jb-space-2) 0 0; }
 body.jb-v2 [data-region="role"] .brief-materials .case__doc-qa { grid-area: qa; min-width: 0; display: grid; gap: var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .case__doc--qafail { border-color: var(--jb-err); }
 
-/* Verdict pills: the row's state pill and the history list share them. */
+/* Verdict pills: the row's state pill and the outreach note share them. */
 body.jb-v2 [data-region="role"] .brief-materials .case__docst--qa-fail,
 body.jb-v2 [data-region="role"] .brief-materials .mat-pill--fail { background: var(--jb-err-bg); color: var(--jb-err); }
 body.jb-v2 [data-region="role"] .brief-materials .case__docst--qa-review,
@@ -32,37 +43,6 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-pill {
   display: inline-flex; align-items: center; justify-self: start; padding: 2px var(--jb-space-2); border-radius: var(--jb-radius-xs);
   font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap;
 }
-/* In a row the state pill already carries the verdict. */
-body.jb-v2 [data-region="role"] .brief-materials .case__doc .mat-score > .mat-pill { display: none; }
-
-/* ---------------- U-1 scorecard ---------------- */
-body.jb-v2 [data-region="role"] .brief-materials .mat-score { display: grid; gap: var(--jb-space-2); min-width: 0; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner {
-  padding: var(--jb-space-2) var(--jb-space-3); border-radius: var(--jb-radius-sm); border-left: 3px solid var(--jb-warn);
-  background: var(--jb-warn-tint); color: var(--jb-ink); font-family: var(--jb-font-body); font-size: var(--jb-type-small); line-height: 1.45;
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner--fail { border-left-color: var(--jb-err); background: var(--jb-err-tint); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner p { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner .mat-banner__head { font-weight: 600; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner .mat-banner__why { margin-top: var(--jb-space-1); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner .mat-banner__sub { margin-top: var(--jb-space-1); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner__list { margin: var(--jb-space-1) 0 0; padding-left: var(--jb-space-5); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-banner__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); margin-top: var(--jb-space-2); }
-
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric { font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric > summary { cursor: pointer; min-height: 24px; color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__rows { list-style: none; margin: var(--jb-space-1) 0 0; padding: 0; display: grid; gap: var(--jb-space-1); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto 3.2em; align-items: center; column-gap: var(--jb-space-2);
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__label { min-width: 0; color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__n { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); text-align: right; color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__note { grid-column: 1 / -1; color: var(--jb-ink-3); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-pips { display: inline-flex; gap: 3px; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-pip { display: block; width: 18px; height: 6px; border-radius: 2px; background: var(--jb-line-soft); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-pip--on { background: var(--jb-accent-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-rubric__row--below .mat-pip--on { background: var(--jb-warn); }
-
 /* ---------------- U-4 timeline ---------------- */
 body.jb-v2 [data-region="role"] .brief-materials .mat-tl {
   list-style: none; margin: var(--jb-space-2) 0 0; padding: 0; display: grid; gap: 2px;
@@ -115,15 +95,6 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-copy .mat-copy__hint { mar
 body.jb-v2 [data-region="role"] .brief-materials .mat-copy__text {
   display: block; width: 100%; box-sizing: border-box; padding: var(--jb-space-2); border: 1px solid var(--jb-line);
   border-radius: var(--jb-radius-sm); background: var(--jb-paper); color: var(--jb-ink); font-family: var(--jb-font-mono); font-size: var(--jb-type-data);
-}
-
-/* ---------------- U-7 coverage ---------------- */
-body.jb-v2 [data-region="role"] .brief-materials .mat-kw { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--jb-space-1) var(--jb-space-3); font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-kw__n b { font-family: var(--jb-font-mono); color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-kw__miss > summary { cursor: pointer; color: var(--jb-warn); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-kw__chips { display: flex; flex-wrap: wrap; gap: var(--jb-space-1); margin-top: var(--jb-space-1); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-kw__chip {
-  padding: 1px var(--jb-space-2); border: 1px dashed var(--jb-line); border-radius: var(--jb-radius-pill); color: var(--jb-ink-2); font-size: var(--jb-type-small);
 }
 
 /* ---------------- U-6 versions ---------------- */
@@ -331,62 +302,6 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-intel__fact { display: gri
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__meta { font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__text { overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .brief-materials .mat-intel__src { justify-self: start; color: var(--jb-action); font-size: var(--jb-type-small); overflow-wrap: anywhere; }
-
-/* ---------------- MREV D1 · the judge's scorecard (materials.qa.v2) ---------------- */
-body.jb-v2 [data-region="role"] .brief-materials .mat-score .mat-score__old { margin: 0; font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-3); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict {
-  padding: var(--jb-space-2) var(--jb-space-3); border-radius: var(--jb-radius-sm); border-left: 3px solid var(--jb-accent-ink);
-  background: var(--jb-paper-2); font-family: var(--jb-font-body); font-size: var(--jb-type-small); line-height: 1.45;
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--review { border-left-color: var(--jb-warn); background: var(--jb-warn-tint); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict--fail { border-left-color: var(--jb-err); background: var(--jb-err-tint); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__why { margin: 0; font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="unavailable"],
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge[data-judge="invalid"] { color: var(--jb-warn); font-weight: 600; }
-/* JUDGEUX FE4: Try again · Change grading model · Add a second opinion. */
-body.jb-v2 [data-region="role"] .brief-materials .mat-verdict .mat-verdict__judge-acts { display: inline-flex; flex-wrap: wrap; gap: var(--jb-space-2); margin-left: var(--jb-space-1); font-weight: 400; }
-
-/* Blockers, facts to confirm and writing feedback: three boxes, never one list. */
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues {
-  min-width: 0; padding: var(--jb-space-2) var(--jb-space-3); border: 1px solid var(--jb-line-soft); border-radius: var(--jb-radius-sm);
-  background: var(--jb-paper); font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink);
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues--facts { border-color: var(--jb-err); border-left-width: 3px; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues--check { border-color: var(--jb-warn); border-left-width: 3px; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues .mat-issues__head {
-  margin: 0; font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-2);
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues--facts .mat-issues__head { color: var(--jb-err); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues .mat-issues__sub { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issues__list { list-style: none; margin: var(--jb-space-2) 0 0; padding: 0; display: grid; gap: var(--jb-space-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issue { display: grid; gap: 2px; min-width: 0; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issue__kind { font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issue__quote {
-  display: block; padding-left: var(--jb-space-2); border-left: 2px solid var(--jb-line); font-family: var(--jb-font-serif); font-style: italic;
-  color: var(--jb-ink); overflow-wrap: anywhere; quotes: "\201C" "\201D";
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-issue--hard .mat-issue__quote { border-left-color: var(--jb-err); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-issue__why { color: var(--jb-ink-2); overflow-wrap: anywhere; }
-
-body.jb-v2 [data-region="role"] .brief-materials .mat-dims,
-body.jb-v2 [data-region="role"] .brief-materials .mat-gaps { font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-/* The 44px touch floor the case's buttons already meet. */
-body.jb-v2 [data-region="role"] .brief-materials .mat-dims > summary,
-body.jb-v2 [data-region="role"] .brief-materials .mat-gaps > summary {
-  cursor: pointer; min-height: 2.75rem; box-sizing: border-box; padding-block: var(--jb-space-2); color: var(--jb-ink-2);
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-dims__rows { list-style: none; margin: var(--jb-space-1) 0 0; padding: 0; display: grid; gap: var(--jb-space-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-dim {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--jb-space-2); row-gap: 2px;
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-dim__label { min-width: 0; color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-dim__n { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); text-align: right; white-space: nowrap; color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-dim__why { grid-column: 1 / -1; color: var(--jb-ink-3); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-dim--low .mat-pip--on { background: var(--jb-warn); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-gaps .mat-gaps__hint { margin: var(--jb-space-1) 0 0; font-size: var(--jb-type-small); color: var(--jb-ink-2); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-gaps__list { margin: var(--jb-space-1) 0 0; padding-left: var(--jb-space-5); color: var(--jb-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-score__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); }
 
 /* ---------------- MREV D3 · the Repair dialog ---------------- */
 body.jb-v2 [data-region="role"] .brief-materials .mat-repair,

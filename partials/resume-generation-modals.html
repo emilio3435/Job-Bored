@@ -38,6 +38,17 @@
               hidden
             ></div>
           </div>
+          <!-- HOLES SCORE (U11): the role-match score is one grade button;
+               its scorecard opens in the score modal. -->
+          <p class="doc-output-grade" id="resumeGenerateAtsCard" hidden>
+            <span class="doc-output-grade__k">Role match</span>
+            <span id="resumeGenerateAtsGrade"></span>
+            <span
+              class="doc-output-grade__status"
+              id="resumeGenerateAtsStatus"
+              role="status"
+            ></span>
+          </p>
           <button
             type="button"
             class="doc-output-header__close"
@@ -93,35 +104,6 @@
             hidden
             aria-live="polite"
           >
-            <section class="doc-insight-card" id="resumeGenerateAtsCard" hidden>
-              <div class="doc-insight-card__head">
-                <div>
-                  <p class="doc-insight-card__kicker">ATS match</p>
-                  <h4 class="doc-insight-card__title">
-                    LLM alignment scorecard
-                  </h4>
-                </div>
-                <div
-                  class="doc-insight-card__score"
-                  id="resumeGenerateAtsScore"
-                >
-                  0%
-                </div>
-              </div>
-              <p
-                class="doc-insight-card__summary"
-                id="resumeGenerateAtsSummary"
-              ></p>
-              <p
-                class="doc-insight-card__hint"
-                id="resumeGenerateAtsHint"
-                hidden
-              ></p>
-              <div
-                class="doc-insight-card__groups"
-                id="resumeGenerateAtsGroups"
-              ></div>
-            </section>
             <section
               class="doc-insight-card"
               id="resumeGenerateHistoryCard"

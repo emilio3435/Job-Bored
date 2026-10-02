@@ -321,6 +321,21 @@ function expectHermetic(fence, seen, testInfo) {
   testInfo.annotations.push({ type: "hermetic", description: "materials + profile routes stubbed" });
 }
 
+/* HOLES SCORE (§0.3): the row carries one grade button; the scorecard and
+   its Repair live in the score modal. */
+async function openScore(row) {
+  await row.locator("[data-score-open]").click();
+  const modal = row.page().locator(".jb-score");
+  await expect(modal).toBeVisible();
+  return modal;
+}
+
+async function openRepair(row) {
+  const modal = await openScore(row);
+  await modal.locator("[data-score-repair]").click();
+  await expect(modal).toHaveCount(0);
+}
+
 async function setResume(page) {
   await page.evaluate(() => globalThis.CommandCenterUserContent.setPrimaryResume({
     source: "paste",
@@ -334,36 +349,33 @@ for (const width of [1440, 375]) {
     test("D1 · the scorecard says why: blockers apart from writing feedback, five dimensions, gaps, the judge", async ({ page }, testInfo) => {
       const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() }, { width, height: width === 375 ? 1600 : 1100 });
       const letter = section.locator('[data-doc="cover_letter"]');
-      await expect(letter.locator(".case__docst")).toHaveText(/fail · 64 \/ 100/i);
-      await expect(letter.locator(".mat-verdict__why")).toHaveText("One sentence claims a result your background doesn't support.");
-      await expect(letter.locator(".mat-verdict__judge")).toHaveText("Graded by grok-judge-1");
+      await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
+      /* A failed hard check caps the grade at D, whatever the 64. */
+      const grade = letter.locator("[data-score-open]");
+      await expect(grade).toHaveAttribute("aria-label", /^Grade D, 64 of 100(, capped by a failed check)? — open score details$/);
+      await expect(letter.locator(".mat-verdict__why, .mat-dims, .mat-gaps, [data-group]")).toHaveCount(0);
 
-      const blockers = letter.locator('[data-group="facts"]');
-      const writing = letter.locator('[data-group="writing"]');
-      await expect(blockers).toContainText("Factual blockers");
-      await expect(blockers.locator(".mat-issue__quote")).toHaveText("At Contoso I cut churn by 40% across the enterprise book.");
-      await expect(writing).toContainText("The close is a stock line; end on something specific to them.");
-      await expect(writing).not.toContainText("churn");
-      const [b, w] = [await blockers.boundingBox(), await writing.boundingBox()];
+      const modal = await openScore(letter);
+      await expect(modal.locator(".jb-score__verdict")).toHaveText("One sentence claims a result your background doesn't support.");
+      await expect(modal.locator(".jb-score__judge")).toContainText("grok-judge-1");
+      const blockers = modal.locator('[data-step="blockers"] [data-group="blocker"]');
+      const writing = modal.locator('[data-step="blockers"] [data-group="writing"]');
+      await expect(blockers.locator(".jb-score__quote")).toHaveText("At Contoso I cut churn by 40% across the enterprise book.");
+      await expect(writing.first()).toContainText("The close is a stock line; end on something specific to them.");
+      await expect(writing.first()).not.toContainText("churn");
+      const [b, w] = [await blockers.first().boundingBox(), await writing.first().boundingBox()];
       expect(b.y + b.height, "blockers sit above writing feedback, apart").toBeLessThanOrEqual(w.y);
-
-      await expect(letter.locator(".mat-dim")).toHaveCount(5);
-      /* "3 / 4" stays on one line at every width. */
-      const nHeights = await letter.locator(".mat-dim__n").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
-      const lineHeight = await letter.locator(".mat-dim__n").first().evaluate((el) => parseFloat(globalThis.getComputedStyle(el).lineHeight) || 20);
-      expect(Math.max(...nHeights), "each dimension score sits on one line").toBeLessThan(lineHeight * 1.6);
-      await expect(letter.locator(".mat-dims > summary")).toHaveText("Writing quality · 64 / 100");
-      await expect(letter.locator('.mat-dim[data-dimension="evidence_quality"]')).toContainText("One result has no source in your background.");
-      await letter.locator(".mat-gaps > summary").click();
-      await expect(letter.locator(".mat-gaps")).toContainText("This is information for you, not a problem with the writing.");
+      await modal.locator('[data-score-step="dimensions"]').click();
+      await expect(modal.locator('[data-step="dimensions"] .jb-score__dim')).toHaveCount(5);
+      await expect(modal.locator('[data-step="dimensions"]')).toContainText("One result has no source in your background.");
+      await shoot(modal.locator(".jb-score__card"), testInfo, `mrev-score-modal-${width}`);
+      await modal.locator(".jb-score__foot [data-score-close]").click();
+      await expect(modal).toHaveCount(0);
+      await expect(grade).toBeFocused();
 
       const resume = section.locator('[data-doc="resume"]');
-      await expect(resume.locator(".case__docst")).toHaveText(/ready · 86 \/ 100/i);
-      await expect(resume.locator(".mat-verdict__judge")).toContainText("Graded by your writing model");
-
-      /* The component's own type, not `body.jb-v2 p` (the cascade trap). */
-      const weight = await letter.locator(".mat-verdict__why").evaluate((el) => globalThis.getComputedStyle(el).fontWeight);
-      expect(weight).toBe("600");
+      await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(resume.locator("[data-score-open]")).toHaveAttribute("aria-label", /^Grade B, 86 of 100 — open score details$/);
       await expectNoSidewaysScroll(page, width);
       await shoot(letter, testInfo, `mrev-scorecard-${width}`);
       expectHermetic(fence, seen, testInfo);
@@ -380,7 +392,7 @@ for (const width of [1440, 375]) {
       const { fence, seen, section } = await openCase(page, state, { width, height: width === 375 ? 1600 : 1100 });
       await setResume(page);
       const letter = section.locator('[data-doc="cover_letter"]');
-      await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+      await openRepair(letter);
 
       const form = letter.locator("form.mat-repair");
       await expect(form).toBeVisible();
@@ -446,7 +458,7 @@ test("D4 · a repair that changed nothing says No material change", async ({ pag
   };
   const { fence, seen, section } = await openCase(page, state);
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   await letter.getByLabel("What should change?").fill("Shorter.");
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   await expect.poll(() => seen.repairs.length).toBe(1);
@@ -469,7 +481,7 @@ test("D4 · a rewrite that added a factual problem keeps the previous version, a
   };
   const { fence, seen, section } = await openCase(page, state);
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   await expect.poll(() => seen.repairs.length).toBe(1);
   expect(seen.repairs[0].issueIds, "the hard issue went pre-ticked").toEqual(["i1"]);
@@ -490,7 +502,7 @@ test("G5 · a stale base keeps the dialog open and says to refresh", async ({ pa
   };
   const { fence, seen, section } = await openCase(page, state);
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   await letter.getByLabel("What should change?").fill("End on their launch.");
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   const alert = letter.locator(".mat-repair").getByRole("alert");
@@ -509,9 +521,12 @@ test("G5 · a stale base keeps the dialog open and says to refresh", async ({ pa
 test("D2 · an old rubric run renders read-only in the old style", async ({ page }, testInfo) => {
   const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest({ resume: V1_RESUME_FAIL }) });
   const resume = section.locator('[data-doc="resume"]');
-  await expect(resume.locator(".case__docst")).toHaveText(/fail · 6 \/ 12/i);
-  await expect(resume).toContainText("Graded by the old checker");
-  await expect(resume.locator(".mat-rubric")).toBeVisible();
+  await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+  await expect(resume.locator(".mat-rubric")).toHaveCount(0);
+  const modal = await openScore(resume);
+  await expect(modal).toContainText("Graded by the old checker");
+  await expect(modal.locator("[data-score-repair]"), "an old run is read-only").toHaveCount(0);
+  await modal.locator(".jb-score__foot [data-score-close]").click();
   await expect(resume.getByRole("button", { name: "Repair" })).toHaveCount(0);
   await resume.getByRole("button", { name: "Download", exact: true }).click();
   await resume.getByRole("menuitem", { name: /PDF/ }).click();
@@ -531,14 +546,19 @@ test("D5 · Change template is a link, visibly apart from Repair", async ({ page
   await expect(bar).toContainText("Change template:");
   await expect(section).not.toContainText("Regenerate");
   const change = bar.getByRole("button", { name: "Change template to Dossier" });
-  const repair = section.locator('[data-doc="cover_letter"] .mat-score__acts').getByRole("button", { name: "Repair", exact: true });
   await expect(change).toBeVisible();
-  await expect(repair).toBeVisible();
   const look = (el) => el.evaluate((n) => {
     const s = globalThis.getComputedStyle(n);
     return { border: s.borderTopWidth, transform: s.textTransform, radius: s.borderTopLeftRadius };
   });
-  expect(await look(change), "the template switch does not look like the Repair button").not.toEqual(await look(repair));
+  const changeLook = await look(change);
+  /* HOLES SCORE: Repair is the score modal's footer action now. */
+  const modal = await openScore(section.locator('[data-doc="cover_letter"]'));
+  const repair = modal.locator("[data-score-repair]");
+  await expect(repair).toBeVisible();
+  expect(changeLook, "the template switch does not look like the Repair button").not.toEqual(await look(repair));
+  await modal.locator(".jb-score__foot [data-score-close]").click();
+  await expect(modal).toHaveCount(0);
   await change.click();
   await expect.poll(() => seen.regenerates.length).toBe(1);
   expect(seen.regenerates[0]).toEqual({ template: "dossier" });
@@ -556,7 +576,7 @@ test("Grok P2 · a 409 after the job-description paste still lands in the Repair
   };
   const { fence, seen, section } = await openCase(page, state);
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   await letter.getByLabel("What should change?").fill("End on their launch.");
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   const paste = page.locator(".brief-materials__jd-form");
@@ -577,7 +597,7 @@ test("Grok P2 · a Repair cancelled while the paste form is open sends nothing",
   const state = { jdMissing: true, manifest: () => readyManifest() };
   const { fence, seen, section } = await openCase(page, state);
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   const paste = page.locator(".brief-materials__jd-form");
   await expect(paste).toBeVisible();
@@ -594,15 +614,17 @@ test("Grok P2 · a Repair cancelled while the paste form is open sends nothing",
 test("Grok P2 · Escape closes Repair and returns to its button; an error takes focus", async ({ page }, testInfo) => {
   const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() });
   const letter = section.locator('[data-doc="cover_letter"]');
-  const repair = letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true });
-  await repair.click();
+  /* HOLES SCORE: Repair opens from the score modal, so focus comes back
+     to the grade button that opened it. */
+  const repair = letter.locator("[data-score-open]");
+  await openRepair(letter);
   await expect(letter.getByLabel("What should change?")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(letter.locator(".mat-repair")).toHaveCount(0);
   await expect(repair).toBeFocused();
 
   /* Nothing asked for: the validation message takes focus. */
-  await repair.click();
+  await openRepair(letter);
   await letter.locator('.mat-repair input[value="i1"]').uncheck();
   await letter.getByRole("button", { name: "Repair the cover letter" }).click();
   const alert = letter.locator(".mat-repair").getByRole("alert");
@@ -619,9 +641,10 @@ test("Grok P2 · Escape closes Repair and returns to its button; an error takes 
 test("Grok P2 · at 375px the new controls meet the 44px touch floor and the instruction box does not zoom", async ({ page }, testInfo) => {
   const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() }, { width: 375, height: 1600 });
   const letter = section.locator('[data-doc="cover_letter"]');
-  await letter.locator(".mat-score__acts").getByRole("button", { name: "Repair", exact: true }).click();
+  await openRepair(letter);
   const heights = async (selector) => letter.locator(selector).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
-  for (const selector of [".mat-repair__issue label", ".mat-dims > summary", ".mat-gaps > summary"]) {
+  /* HOLES SCORE: the dimension and gap disclosures moved into the score modal. */
+  for (const selector of [".mat-repair__issue label"]) {
     const hs = await heights(selector);
     expect(hs.length, `${selector} rendered`).toBeGreaterThan(0);
     expect(Math.min(...hs), `${selector} is at least 44px tall`).toBeGreaterThanOrEqual(44);

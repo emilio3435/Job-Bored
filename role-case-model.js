@@ -508,6 +508,23 @@
     return { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] };
   }
 
+  /* HOLES SCORE (§0.3, §0.8): the ATS tile and "You have" show one grade
+     button. It grades the document the stored scorecard rated, else the
+     package's resume, else its letter; materials-score.js does the math. */
+  var SCORE_FEATURE = { resume: "resume", resume_update: "resume", cover_letter: "cover_letter" };
+  function buildScore(deps) {
+    var ms = deps.gradeApi || root.JobBoredMaterialsScore;
+    if (!ms || typeof ms.gradeOf !== "function") return null;
+    var docs = (deps.manifest && deps.manifest.quality && deps.manifest.quality.documents) || {};
+    var sc = deps.scorecard && deps.scorecard.result ? deps.scorecard : null;
+    var feature = sc ? (SCORE_FEATURE[String(sc.feature || "").trim()] || "")
+      : (docs.resume ? "resume" : (docs.cover_letter ? "cover_letter" : null));
+    if (feature === null) return null;
+    var stale = false;
+    try { stale = typeof deps.scoreStale === "function" && !!deps.scoreStale(feature); } catch (e) { stale = false; }
+    return { feature: feature, grade: ms.gradeOf(feature ? docs[feature] : undefined, sc), stale: stale };
+  }
+
   function buildRecord(job, enr, materials, deps) {
     var ev = [];
     var found = deps.parseDate(job.foundAt);
@@ -822,6 +839,7 @@
       oneLine: inline(enr.roleInOneLine),
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
       youHave: buildYouHave(deps.scorecard),
+      score: buildScore(deps),
       moves: {
         talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : sheetPoints.slice(0, 6),
         materials: materials,
@@ -876,6 +894,11 @@
       materialsPending: false,
       materialsServer: rm && typeof rm.getServerState === "function" ? rm.getServerState() : "",
       resume: rm && typeof rm.getResumeSummary === "function" ? rm.getResumeSummary() : undefined,
+      /* U12: the row's own staleness, so the case's button agrees with it. */
+      scoreStale: rm && typeof rm.gradeFor === "function" ? function (feature) {
+        var g = rm.gradeFor(feature);
+        return !!(g && g.stale);
+      } : null,
       providerNotice: pe && typeof pe.getProviderNotice === "function" ? pe.getProviderNotice() : "",
     };
   }

@@ -267,8 +267,9 @@ describe("ATS analysis follows draft modal lifecycle", () => {
   });
 
   it("retry-ats-scorecard button uses current active draft text", () => {
+    /* HOLES SCORE (U11): Retry lives in the header grade slot now. */
     const handlersStart = resumeGenerationJs.indexOf(
-      'const atsGroups = document.getElementById("resumeGenerateAtsGroups")',
+      'const atsCard = document.getElementById("resumeGenerateAtsCard");\n    if (atsCard) {',
     );
     assert.notEqual(handlersStart, -1, "ATS retry handler block must exist");
     const handlerEnd = resumeGenerationJs.indexOf("if (draftNotesModal)", handlersStart);
