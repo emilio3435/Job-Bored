@@ -474,6 +474,7 @@ async function dispatchDiscoveryRun(runOptions, runTrigger) {
       runOptions.payload ||
       (await h("buildDiscoveryWebhookPayload", h("getSHEET_ID"), {
         trigger: runTrigger,
+        hunt: runOptions.hunt,
       }));
     const redelivery = getPendingRedeliveryIdentity();
     const payload =

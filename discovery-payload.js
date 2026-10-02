@@ -13,6 +13,31 @@
   var SOURCE_PRESETS = ["browser_only", "ats_only", "browser_plus_ats"];
   var TEXT_LIMIT = 2000;
   var LIST_LIMIT = 12;
+  // HOLES HUNT (spec §0.5, §0.10): every plan reserves this share of its
+  // rotation slots for picks no past run has tried; never fewer than one.
+  var DEFAULT_EXPLORATION_SHARE = 0.3;
+  var NOVELTY_HISTORY_LIMIT = 200;
+  var COMBO_SEARCH_LIMIT = 64;
+  // The rotating picks of a plan, in seeded-offset order (role is index+0 and
+  // is not a rotation slot: every target role stays in the query).
+  var ROTATION_SLOTS = [
+    { key: "adjacentTitle", facet: "adjacentTitles", offset: 1 },
+    { key: "skill", facet: "skills", offset: 2 },
+    { key: "industry", facet: "industries", offset: 3 },
+    { key: "location", facet: "locations", offset: 4 },
+    { key: "seniority", facet: "seniority", offset: 5 },
+    { key: "companyType", facet: "companyTypes", offset: 6 },
+    { key: "sourceLane", facet: "sourceLanes", offset: 7 },
+  ];
+  var OVERRIDE_QUERY_KEYS = [
+    "targetRoles",
+    "locations",
+    "seniority",
+    "keywordsInclude",
+    "keywordsExclude",
+    "remotePolicy",
+    "sourcePreset",
+  ];
   var SKILL_LEXICON = [
     "ai",
     "analytics",
@@ -283,8 +308,243 @@
     };
   }
 
+  function normalizeExplorationShare(raw) {
+    var n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      return DEFAULT_EXPLORATION_SHARE;
+    }
+    if (n > 1 && n <= 100) n = n / 100;
+    if (n <= 0) return 0;
+    if (n >= 1) return 1;
+    return Math.round(n * 100) / 100;
+  }
+
+  function noveltyKey(value) {
+    return cleanString(value, 180).toLowerCase();
+  }
+
+  function comboKey(selected) {
+    return ROTATION_SLOTS.map(function (slot) {
+      return noveltyKey(selected && selected[slot.key]);
+    }).join("|");
+  }
+
+  // History entries may be plans, `{ selected }` objects, or run summaries
+  // that carry `searchPlan`. Only the rotation picks matter.
+  function readNoveltyHistory(raw) {
+    var list = Array.isArray(raw)
+      ? raw
+      : raw && Array.isArray(raw.history)
+        ? raw.history
+        : [];
+    var triedValues = {};
+    var triedCombos = {};
+    var count = 0;
+    list.slice(0, NOVELTY_HISTORY_LIMIT).forEach(function (entry) {
+      if (!entry || typeof entry !== "object") return;
+      var plan =
+        entry.searchPlan && typeof entry.searchPlan === "object"
+          ? entry.searchPlan
+          : entry;
+      var selected =
+        plan.selected && typeof plan.selected === "object" ? plan.selected : plan;
+      var any = false;
+      ROTATION_SLOTS.forEach(function (slot) {
+        var value = noveltyKey(selected[slot.key]);
+        if (!value) return;
+        any = true;
+        triedValues[slot.key] = triedValues[slot.key] || {};
+        triedValues[slot.key][value] = true;
+      });
+      if (!any) return;
+      count += 1;
+      triedCombos[comboKey(selected)] = true;
+    });
+    return { triedValues: triedValues, triedCombos: triedCombos, count: count };
+  }
+
+  function wasTried(history, key, value) {
+    var seen = history.triedValues[key];
+    return Boolean(seen && seen[noveltyKey(value)]);
+  }
+
+  // The reserved share takes never-tried values, then never-tried
+  // combinations; the exploit slots keep their seeded picks untouched.
+  function applyExploration(picks, facets, index, share, history) {
+    var withValues = ROTATION_SLOTS.filter(function (slot) {
+      return facets[slot.facet].length > 0;
+    });
+    var total = withValues.length;
+    var slotCount = total
+      ? Math.min(total, Math.max(1, Math.round(share * total)))
+      : 0;
+    var start = total ? index % total : 0;
+    var rotated = withValues.map(function (_, i) {
+      return withValues[(start + i) % total];
+    });
+    var hasUntried = function (slot) {
+      return facets[slot.facet].some(function (value) {
+        return !wasTried(history, slot.key, value);
+      });
+    };
+    var reserved = rotated
+      .filter(hasUntried)
+      .concat(
+        rotated.filter(function (slot) {
+          return !hasUntried(slot);
+        }),
+      )
+      .slice(0, slotCount);
+    var candidates = reserved.map(function (slot) {
+      var values = facets[slot.facet];
+      var ordered = values.map(function (_, j) {
+        return values[(index + slot.offset + j) % values.length];
+      });
+      return ordered
+        .filter(function (value) {
+          return !wasTried(history, slot.key, value);
+        })
+        .concat(
+          ordered.filter(function (value) {
+            return wasTried(history, slot.key, value);
+          }),
+        );
+    });
+    var next = Object.assign({}, picks);
+    var assign = function (digits) {
+      reserved.forEach(function (slot, i) {
+        next[slot.key] = candidates[i][digits[i]];
+      });
+    };
+    var digits = reserved.map(function () {
+      return 0;
+    });
+    assign(digits);
+    if (history.count && history.triedCombos[comboKey(next)]) {
+      var found = false;
+      for (var step = 1; step < COMBO_SEARCH_LIMIT && !found; step += 1) {
+        var i = digits.length - 1;
+        while (i >= 0) {
+          digits[i] += 1;
+          if (digits[i] < candidates[i].length) break;
+          digits[i] = 0;
+          i -= 1;
+        }
+        if (i < 0) break;
+        assign(digits);
+        found = !history.triedCombos[comboKey(next)];
+      }
+      if (!found) {
+        assign(
+          reserved.map(function () {
+            return 0;
+          }),
+        );
+      }
+    }
+    var reservedKeys = reserved.map(function (slot) {
+      return slot.key;
+    });
+    return {
+      picks: next,
+      exploration: {
+        share: share,
+        slotCount: reserved.length,
+        slots: reserved.map(function (slot) {
+          return {
+            facet: slot.key,
+            value: next[slot.key],
+            novel: !wasTried(history, slot.key, next[slot.key]),
+          };
+        }),
+        exploit: ROTATION_SLOTS.filter(function (slot) {
+          return reservedKeys.indexOf(slot.key) === -1;
+        }).map(function (slot) {
+          return slot.key;
+        }),
+        novelCombo: !history.triedCombos[comboKey(next)],
+        historySize: history.count,
+      },
+    };
+  }
+
+  // A hunt's searchPlanOverride is a plan (hitlist cluster or effectivePlan)
+  // or a bare query (tweaks). Its search terms replace the profile's; a plan's
+  // own rotation picks are not the user's includes (INTERFACE-HUNTS §7).
+  function applySearchPlanOverride(profile, override) {
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+      return profile;
+    }
+    var planShaped = override.query && typeof override.query === "object";
+    var query = planShaped ? override.query : override;
+    var facets =
+      planShaped && override.facets && typeof override.facets === "object"
+        ? override.facets
+        : {};
+    var selected =
+      planShaped && override.selected && typeof override.selected === "object"
+        ? override.selected
+        : {};
+    var present = OVERRIDE_QUERY_KEYS.some(function (key) {
+      return typeof query[key] === "string";
+    });
+    if (!present) return profile;
+    var next = Object.assign({}, profile);
+    var fromFacet = function (list, raw) {
+      var values = Array.isArray(list) ? unique(list) : [];
+      return values.length ? values.join(", ") : cleanString(raw);
+    };
+    if (typeof query.targetRoles === "string" || Array.isArray(facets.roles)) {
+      next.targetRoles = fromFacet(facets.roles, query.targetRoles);
+    }
+    if (typeof query.locations === "string" || Array.isArray(facets.locations)) {
+      next.locations = fromFacet(facets.locations, query.locations);
+    }
+    if (typeof query.seniority === "string" || Array.isArray(facets.seniority)) {
+      next.seniority = fromFacet(facets.seniority, query.seniority);
+    }
+    if (typeof query.keywordsInclude === "string") {
+      var rotation = ["skill", "industry", "companyType"].map(function (key) {
+        return noveltyKey(selected[key]);
+      });
+      next.keywordsInclude = splitList(query.keywordsInclude)
+        .filter(function (value) {
+          return rotation.indexOf(noveltyKey(value)) === -1;
+        })
+        .join(", ");
+    }
+    if (typeof query.keywordsExclude === "string") {
+      next.keywordsExclude = cleanString(query.keywordsExclude);
+    }
+    if (typeof query.remotePolicy === "string") {
+      next.remotePolicy = cleanString(query.remotePolicy);
+    }
+    if (typeof query.sourcePreset === "string") {
+      var preset = normalizeSourcePreset(query.sourcePreset);
+      if (preset) next.sourcePreset = preset;
+      else delete next.sourcePreset;
+    }
+    return next;
+  }
+
+  // In the browser, hunts-store.js keeps the past plans; Node callers
+  // (scripts, tests) have no store and plan from an empty history.
+  function runtimeNovelty() {
+    var store =
+      typeof globalThis !== "undefined" ? globalThis.JobBoredHuntsStore : null;
+    if (!store || typeof store.noveltyContext !== "function") return null;
+    try {
+      return store.noveltyContext();
+    } catch (_) {
+      return null;
+    }
+  }
+
   function buildSearchPlan(input) {
-    var profile = sanitizeDiscoveryProfile(input.discoveryProfile || input.profile);
+    var profile = applySearchPlanOverride(
+      sanitizeDiscoveryProfile(input.discoveryProfile || input.profile),
+      input.searchPlanOverride,
+    );
     var preferences =
       input.preferences && typeof input.preferences === "object"
         ? input.preferences
@@ -318,13 +578,40 @@
     });
     var index = parseInt(seed.slice(0, 8), 16) || 0;
     var role = pick(roles, index);
-    var adjacent = pick(adjacentTitles, index + 1);
-    var skill = pick(skills, index + 2);
-    var industry = pick(industries, index + 3);
-    var location = pick(locations, index + 4);
-    var level = pick(seniority, index + 5);
-    var companyType = pick(companyTypes, index + 6);
-    var lane = pick(lanes, index + 7);
+    var facets = {
+      roles: roles,
+      adjacentTitles: adjacentTitles,
+      skills: skills,
+      industries: industries,
+      locations: locations,
+      seniority: seniority,
+      companyTypes: companyTypes,
+      sourceLanes: lanes,
+    };
+    var seeded = {};
+    ROTATION_SLOTS.forEach(function (slot) {
+      seeded[slot.key] = pick(facets[slot.facet], index + slot.offset);
+    });
+    var novelty =
+      input.novelty && typeof input.novelty === "object" ? input.novelty : null;
+    var explored = applyExploration(
+      seeded,
+      facets,
+      index,
+      normalizeExplorationShare(
+        input.explorationShare != null
+          ? input.explorationShare
+          : novelty && novelty.explorationShare,
+      ),
+      readNoveltyHistory(novelty),
+    );
+    var adjacent = explored.picks.adjacentTitle;
+    var skill = explored.picks.skill;
+    var industry = explored.picks.industry;
+    var location = explored.picks.location;
+    var level = explored.picks.seniority;
+    var companyType = explored.picks.companyType;
+    var lane = explored.picks.sourceLane;
     var query = {
       // UX01 C9 (FD-09): every role the user typed stays in the query; the
       // rotation only ADDS one adjacent title as "also trying". It used to
@@ -358,18 +645,10 @@
         sourceLane: lane,
         alsoTrying: adjacent && roles.indexOf(adjacent) === -1 ? [adjacent] : [],
       },
-      facets: {
-        roles: roles,
-        adjacentTitles: adjacentTitles,
-        skills: skills,
-        industries: industries,
-        locations: locations,
-        seniority: seniority,
-        companyTypes: companyTypes,
-        sourceLanes: lanes,
-      },
+      facets: facets,
       query: query,
       profileHash: snapshot.profileHash,
+      exploration: explored.exploration,
     };
   }
 
@@ -413,6 +692,11 @@
       preferences: source.preferences,
       schedule: source.schedule,
     });
+    // HOLES HUNT §1: `hunt` is a pass-through ({ id, searchPlanOverride }).
+    // /webhook carries no hunt reference (INTERFACE-HUNTS §4.3), so only the
+    // override reaches the plan; the id stays in the browser.
+    var hunt =
+      source.hunt && typeof source.hunt === "object" ? source.hunt : {};
     var searchPlan = buildSearchPlan({
       discoveryProfile: discoveryProfile,
       resume: source.resume,
@@ -421,6 +705,15 @@
       requestedAt: requestedAt,
       variationKey: variationKey,
       trigger: trigger || "manual",
+      searchPlanOverride: hunt.searchPlanOverride || source.searchPlanOverride,
+      explorationShare:
+        source.explorationShare != null
+          ? source.explorationShare
+          : hunt.explorationShare,
+      novelty:
+        source.novelty && typeof source.novelty === "object"
+          ? source.novelty
+          : runtimeNovelty(),
     });
     var allow = sanitizeCompanies(discoveryProfile.companyAllowlist);
     var block = sanitizeCompanies(discoveryProfile.companyBlocklist);
@@ -474,6 +767,7 @@
     buildProfileSnapshot: buildProfileSnapshot,
     buildSearchPlan: buildSearchPlan,
     generateVariationKey: generateVariationKey,
+    normalizeExplorationShare: normalizeExplorationShare,
     sanitizeCompanies: sanitizeCompanies,
     sanitizeDiscoveryProfile: sanitizeDiscoveryProfile,
     splitList: splitList,

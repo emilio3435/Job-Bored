@@ -28,6 +28,7 @@
     "scheduled-github": true,
     "scheduled-cloudflare": true,
     "scheduled-appsscript": true,
+    "scheduled-hunt": true, // HOLES HUNT-FE: INTERFACE-HUNTS.md §8
   };
   var LOCAL_JOB_DISCOVERY_STATUSES = {
     pending: true,
@@ -705,6 +706,15 @@
       : "";
   }
 
+  // HOLES HUNT-FE: the "Save as hunt" switch; hunts-ui.js renders it from the
+  // saved hunts and omits it for rows without a worker run id.
+  function saveHuntToggleHtml(run) {
+    var huntsUi = window.JobBoredHuntsUI;
+    return huntsUi && typeof huntsUi.runToggleHtml === "function"
+      ? huntsUi.runToggleHtml(run)
+      : "";
+  }
+
   function newRolesCellHtml(count, availability) {
     var n = toInt(count);
     if (availability !== "unavailable" && n > 0) {
@@ -778,7 +788,7 @@
             runAtToggleHtml(r.runAt, detailId, { open: open, key: key }) +
             "<td>" + statusBadge(r.status) + "</td>" +
             newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
-            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r)) +
+            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r) + saveHuntToggleHtml(r)) +
           "</tr>" +
           filterHintRowHtml(filterHintText(r.filterStats)) +
           detailRowHtml(detailId, details[key] || renderCoarseDetailHtml(r), open)
@@ -2085,6 +2095,14 @@
             setStatus(statusEl, "warn", "Write retry failed — reopen the dashboard and try again.");
             retryWrite.disabled = false;
           });
+          return;
+        }
+        var saveHunt = target.closest("[data-runs-save-hunt]");
+        if (saveHunt) {
+          var huntsUi = window.JobBoredHuntsUI;
+          if (huntsUi && typeof huntsUi.toggleRunHunt === "function") {
+            huntsUi.toggleRunHunt(saveHunt.getAttribute("data-runs-save-hunt") || "", saveHunt);
+          }
           return;
         }
         var more = target.closest("[data-runs-more]");

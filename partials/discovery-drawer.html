@@ -119,6 +119,19 @@
           >
             History
           </button>
+          <!-- HUNT-FE (HOLES 2026-10-02): Hunts sub-tab -->
+          <button
+            type="button"
+            role="tab"
+            class="discovery-subtab"
+            id="dd-tab-hunts"
+            data-subtab="hunts"
+            aria-controls="dd-panel-hunts"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Hunts
+          </button>
         </nav>
 
         <div class="discovery-drawer__body">
@@ -1084,6 +1097,70 @@
               local worker reachability.
             </p>
           </section>
+
+          <!-- HUNT-FE (HOLES 2026-10-02): Hunts sub-tab, filled by hunts-ui.js -->
+          <section
+            role="tabpanel"
+            id="dd-panel-hunts"
+            class="discovery-subtab-panel hunts-panel"
+            aria-labelledby="dd-tab-hunts"
+            hidden
+          >
+            <p class="discovery-drawer__lede">
+              Re-run the searches that keep finding leads. A saved hunt runs
+              on its own schedule; searches you don't save never repeat on
+              their own.
+            </p>
+            <div
+              class="hunts-status"
+              data-hunts-status
+              role="status"
+              aria-live="polite"
+            ></div>
+            <section class="hunts-section" aria-labelledby="huntsHitlistTitle">
+              <div class="hunts-section__head">
+                <h3 class="hunts-section__title" id="huntsHitlistTitle">Hitlist</h3>
+                <button
+                  type="button"
+                  class="btn-modal-secondary hunts-btn"
+                  data-hunts-action="refresh"
+                >
+                  Refresh
+                </button>
+              </div>
+              <p class="hunts-section__hint">
+                Searches you've run more than once, ranked by new leads, fit
+                and how recently they ran.
+              </p>
+              <ul
+                class="hunts-list"
+                role="list"
+                data-hunts-hitlist
+                aria-labelledby="huntsHitlistTitle"
+              ></ul>
+              <details class="hunts-oneoffs" data-hunts-oneoffs-wrap hidden>
+                <summary>
+                  Other past searches (<span data-hunts-oneoff-count>0</span>)
+                </summary>
+                <ul
+                  class="hunts-list"
+                  role="list"
+                  data-hunts-oneoffs
+                  aria-label="Other past searches"
+                ></ul>
+              </details>
+            </section>
+            <section class="hunts-section" aria-labelledby="huntsSavedTitle">
+              <h3 class="hunts-section__title" id="huntsSavedTitle">Saved hunts</h3>
+              <ul
+                class="hunts-list"
+                role="list"
+                data-hunts-saved
+                aria-labelledby="huntsSavedTitle"
+              ></ul>
+            </section>
+          </section>
+          <!-- /HUNT-FE -->
         </div>
 
         <footer class="discovery-drawer__footer">

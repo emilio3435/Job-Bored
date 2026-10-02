@@ -1843,6 +1843,7 @@ const DISCOVERY_SUBTAB_ORDER = [
   "automation",
   "connection",
   "history",
+  "hunts", // HOLES HUNT-FE: hunts-ui.js mounts #dd-panel-hunts
 ];
 let activeDiscoverySubtab = "search";
 
