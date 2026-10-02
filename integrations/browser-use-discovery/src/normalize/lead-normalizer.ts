@@ -350,6 +350,8 @@ export async function normalizeLeadWithDiagnostics(
 
   const userProfile = run.config.userProfile;
   const profileRuntimeConfig = run.config.runtimeConfig;
+  // HOLES R7: the Scorer column (AA) records which scorer produced fitScore.
+  let scorer = "heuristic";
 
   if (userProfile && profileRuntimeConfig) {
     const outcome = await scoreListingForProfile(rawListing, userProfile, {
@@ -364,6 +366,7 @@ export async function normalizeLeadWithDiagnostics(
       // scores for off-target listings. Keyword `fitScore` stays available via
       // `priority` / `tags` for debugging.
       effectiveFitScore = outcome.score.fitScore;
+      scorer = `llm:${outcome.modelId}`;
       fitAssessment = buildLlmFitAssessment(
         outcome.score,
         scoreApplicationComplexityLabel(rawListing),
@@ -461,6 +464,7 @@ export async function normalizeLeadWithDiagnostics(
       url,
       compensationText,
       fitScore: effectiveFitScore,
+      scorer,
       // Only finalizeMatchDecision in run-discovery.ts can supply Search Match.
       matchScore: null,
       favorite,

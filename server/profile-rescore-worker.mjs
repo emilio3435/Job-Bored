@@ -520,6 +520,51 @@ async function readPipelineRows(sheetId, token) {
 }
 
 /**
+ * Scorer (AA) is optional on legacy sheets and may be a user's own column.
+ * Add it only when blank, growing the grid first. Failed upgrades leave
+ * scoring available and are reported to the caller.
+ * @param {string} sheetId
+ * @param {string} token
+ * @returns {Promise<boolean>}
+ */
+async function prepareScorerColumn(sheetId, token) {
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const headerUrl = `${base}/values/${encodeURIComponent("Pipeline!AA1")}`;
+  let resp = await fetch(headerUrl, { headers });
+  if (!resp.ok && resp.status !== 400) throw new Error(`Scorer header read failed: HTTP ${resp.status}`);
+  const header = resp.ok ? String((await resp.json()).values?.[0]?.[0] || "").trim() : "";
+  if (header) return header === "Scorer";
+  const metadata = await fetch(`${base}?fields=sheets.properties`, { headers });
+  if (!metadata.ok) throw new Error(`Scorer grid read failed: HTTP ${metadata.status}`);
+  const properties = (await metadata.json()).sheets?.find(
+    (/** @type {{ properties?: { title?: string } }} */ sheet) => sheet.properties?.title === PIPELINE_SHEET_NAME,
+  )?.properties;
+  const width = Number(properties?.gridProperties?.columnCount);
+  if (!Number.isInteger(width) || width < 1 || typeof properties?.sheetId !== "number") {
+    throw new Error("Scorer grid metadata unavailable");
+  }
+  if (width < 27) {
+    resp = await fetch(`${base}:batchUpdate`, {
+      method: "POST", headers,
+      body: JSON.stringify({ requests: [{ appendDimension: { sheetId: properties.sheetId, dimension: "COLUMNS", length: 27 - width } }] }),
+    });
+    if (!resp.ok) throw new Error(`Scorer grid upgrade failed: HTTP ${resp.status}`);
+  }
+  // Re-check after growing; another writer may have claimed AA meanwhile.
+  resp = await fetch(headerUrl, { headers });
+  if (!resp.ok) throw new Error(`Scorer header re-read failed: HTTP ${resp.status}`);
+  const live = String((await resp.json()).values?.[0]?.[0] || "").trim();
+  if (live) return live === "Scorer";
+  resp = await fetch(`${base}/values:batchUpdate`, {
+    method: "POST", headers,
+    body: JSON.stringify({ valueInputOption: "RAW", data: [{ range: "Pipeline!AA1", values: [["Scorer"]] }] }),
+  });
+  if (!resp.ok) throw new Error(`Scorer header upgrade failed: HTTP ${resp.status}`);
+  return true;
+}
+
+/**
  * F16: re-read one row's Link cell right before writing, so a sort,
  * insert or delete between the snapshot and the write cannot land new
  * scores on a different job.
@@ -559,7 +604,7 @@ function escapeCellText(value) {
 }
 
 /**
- * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string }} input
+ * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string, scorer?: string }} input
  */
 async function writeRowScoreCells({
   sheetId,
@@ -568,6 +613,7 @@ async function writeRowScoreCells({
   fitScore,
   fitAssessment,
   talkingPoints,
+  scorer,
 }) {
   const url = new URL(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
@@ -589,6 +635,11 @@ async function writeRowScoreCells({
       values: [[escapeCellText(talkingPoints)]],
     },
   ];
+  if (scorer !== undefined) ranges.push({
+    range: `${PIPELINE_SHEET_NAME}!AA${rowNumber}`,
+    majorDimension: "ROWS",
+    values: [[escapeCellText(scorer)]],
+  });
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -1419,6 +1470,23 @@ export async function rescoreAllPipelineRows({
     throw new Error(`rescoreAllPipelineRows: ${providerStatus.detail}`);
   }
 
+  let scorerWritable = false;
+  try {
+    scorerWritable = await prepareScorerColumn(sheetId, token);
+    if (scorerWritable) {
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent("Pipeline!AA2:AA")}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) throw new Error(`Scorer column read failed: HTTP ${response.status}`);
+      const values = (await response.json()).values || [];
+      for (let index = 0; index < rows.length; index += 1) rows[index][26] = values[index]?.[0] || "";
+    }
+  } catch (error) {
+    scorerWritable = false;
+    emit({ kind: "progress", status: "warning", reason: "scorer_unavailable", detail: String(error) });
+  }
+
   /* F4: take a generation; a newer run aborts this one. Dry runs never
    * reach here (they returned above), so they stay concurrent. */
   const generation = ++rescoreGeneration;
@@ -1447,14 +1515,23 @@ export async function rescoreAllPipelineRows({
    * F4+F16: one guarded write. Skips (never throws) when a newer run
    * superseded this one, the profile moved on, or the row's Link cell
    * no longer holds the snapshotted URL.
-   * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string }} cell
-   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift">}
+   * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string, scorer: string }} cell
+   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift" | "llm_score_preserved">}
    */
   async function guardedWrite(cell) {
     if (superseded()) return "aborted";
     if (await profileMovedOn()) return "profile_changed";
     const liveUrl = await readLinkCell(sheetId, token, cell.rowNumber);
     if (liveUrl !== cell.expectedUrl) return "row_drift";
+    if (scorerWritable && cell.scorer === "prefilter") {
+      // An LLM score may have landed since the original snapshot.
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`Pipeline!AA${cell.rowNumber}`)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) throw new Error(`Scorer re-read failed: HTTP ${response.status}`);
+      if (/^llm:/i.test(String((await response.json()).values?.[0]?.[0] || ""))) return "llm_score_preserved";
+    }
     await writeRowScoreCells({
       sheetId,
       token,
@@ -1462,6 +1539,7 @@ export async function rescoreAllPipelineRows({
       fitScore: cell.fitScore,
       fitAssessment: cell.fitAssessment,
       talkingPoints: cell.talkingPoints,
+      scorer: scorerWritable ? cell.scorer : undefined,
     });
     return "written";
   }
@@ -1502,6 +1580,11 @@ export async function rescoreAllPipelineRows({
       }
       const preFilter = runPreFilter(rawListing, profile);
       if (!preFilter.pass) {
+        if (scorerWritable && /^llm:/i.test(String(row[26] || ""))) {
+          skipped += 1;
+          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: "llm_score_preserved" });
+          return;
+        }
         const score = {
           fitScore: 1,
           band: "Low",
@@ -1517,7 +1600,13 @@ export async function rescoreAllPipelineRows({
           fitScore: score.fitScore,
           fitAssessment: buildFitAssessment(score, ""),
           talkingPoints: "",
+          scorer: "prefilter",
         });
+        if (preWrite === "llm_score_preserved") {
+          skipped += 1;
+          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: preWrite });
+          return;
+        }
         if (preWrite !== "written") {
           failed += 1;
           emit({ kind: "progress", row: rowNumber, status: "failed", reason: preWrite });
@@ -1547,6 +1636,7 @@ export async function rescoreAllPipelineRows({
         fitScore: score.fitScore,
         fitAssessment: buildFitAssessment(score, ""),
         talkingPoints: buildTalkingPoints(score),
+        scorer: `llm:${resolvedProviderConfig.model}`,
       });
       if (wrote !== "written") {
         failed += 1;

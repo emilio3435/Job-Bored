@@ -38,10 +38,17 @@
   function getReviewReason(job, options) {
     if (!job || typeof job !== "object") return null;
     if (job.dismissedAt) return null;
-    if (!ACTIVE_STATUS_KEYS[normalizeStatus(job.status)]) return null;
     if (!hasHttpUrl(job.link)) return null;
-
     var notes = String(job._rawNotes || job.notes || "");
+    if (normalizeStatus(job.status) === "expired" && /\] Rediscovered expired posting/.test(notes)) {
+      return {
+        kind: "rediscovered-expired",
+        label: "Posting seen again — review to reopen",
+        detail: "Discovery found this posting again. Open it, then choose Set Researching to reopen it.",
+      };
+    }
+    if (!ACTIVE_STATUS_KEYS[normalizeStatus(job.status)]) return null;
+
     var noteMatch = REVIEW_NOTE_RE.exec(notes);
     if (noteMatch) {
       return {
@@ -73,7 +80,7 @@
   // "[JobBored YYYY-MM-DD] Please review this job …"; older builds wrote a bare
   // "[ISO] expired-review: …" stamp.
   var AUDIT_STAMP_RE =
-    /\[(?:JobBored\s+)?(\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?)\][^\n]*(?:expired[-\s]?review|availability|cleanup|marked expired|please review this job)/gi;
+    /\[(?:JobBored\s+)?(\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?)\][^\n]*(?:expired[-\s]?review|availability|cleanup|marked expired|please review this job|rediscovered expired posting)/gi;
 
   function latestAuditStamp(notes) {
     var latest = "";
@@ -97,6 +104,10 @@
     }
     var notes = String(job._rawNotes || job.notes || "");
     var checkedAt = latestAuditStamp(notes);
+    var reason = getReviewReason(job, options);
+    if (reason && reason.kind === "rediscovered-expired") {
+      return { state: "needs-review", label: reason.label, detail: reason.detail, checkedAt: checkedAt };
+    }
     if (normalizeStatus(job.status) === "expired") {
       return {
         state: "expired",
@@ -105,7 +116,6 @@
         checkedAt: checkedAt,
       };
     }
-    var reason = getReviewReason(job, options);
     if (reason && reason.kind === "cleanup-note") {
       return {
         state: "needs-review",

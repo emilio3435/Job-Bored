@@ -19,6 +19,7 @@ import {
   DEFAULT_SHEET_NAME,
   DEFAULT_TOKEN_SCOPE,
   PIPELINE_COL,
+  PIPELINE_EXTENSION_COLUMN_IDS,
   PIPELINE_LAST_COLUMN_LETTER,
   GoogleTransportError,
   SheetsHttpError,
@@ -30,6 +31,7 @@ import {
   ensureSheetGridColumns,
   getSheetValues,
   isRetryableStatus,
+  pipelineLetter,
   readPipelineLinks,
   resolveAccessToken,
   resolveRowsByLink,
@@ -250,7 +252,15 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     lead.approvalStatus ?? "",
     "",
     remoteBucket === "unknown" ? "" : remoteBucket,
+    fitScore ? lead.scorer || "" : "",
+    localCalendarDay(now),
+    "",
   ];
+}
+
+/** HOLES R7: an "llm:<model>" Scorer outranks every other scorer. */
+function isLlmScorer(value: string | undefined): boolean {
+  return /^llm:/i.test(String(value || "").trim());
 }
 
 // Per-row Edit Lock ids (column Y) and the column each one protects.
@@ -268,7 +278,11 @@ const LOCKABLE_INDEX: Record<string, number> = {
  * empty, honours the row's Edit Lock for identity columns, and never touches
  * the CRM columns.
  */
-function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
+function mergeExistingRow(
+  existingRow: string[],
+  leadRow: string[],
+  skipIndexes: ReadonlySet<number> = new Set(),
+): string[] {
   const merged = existingRow.slice(0, COLUMN_COUNT);
   while (merged.length < COLUMN_COUNT) merged.push("");
 
@@ -281,12 +295,22 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
     }
   }
 
+  // HOLES R7: a score that is not from an LLM never replaces one that is;
+  // H, K and AA stay together.
+  const keepScore =
+    !skipIndexes.has(PIPELINE_COL.scorer) &&
+    isLlmScorer(existingRow[PIPELINE_COL.scorer]) && !isLlmScorer(leadRow[PIPELINE_COL.scorer]);
   for (const column of PIPELINE_COLUMNS) {
     const index = column.sheetIndex;
+    // A user's own label (or a column this run could not add) is never written.
+    if (skipIndexes.has(index)) continue;
     const incoming = leadRow[index] || "";
-    // A fresh H must carry the assessment from that same scoring pass. An
-    // absent assessment clears stale prose rather than contradicting H.
-    if (column.id === "fitAssessment" && leadRow[PIPELINE_COL.fitScore]) {
+    if (keepScore && (column.id === "fitScore" || column.id === "fitAssessment" || column.id === "scorer")) {
+      continue;
+    }
+    // A fresh H must carry the assessment and scorer from that same scoring
+    // pass. An absent one clears stale text rather than contradicting H.
+    if ((column.id === "fitAssessment" || column.id === "scorer") && leadRow[PIPELINE_COL.fitScore]) {
       merged[index] = incoming;
       continue;
     }
@@ -307,6 +331,19 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
         const unknownMerge: never = column.discoveryMerge;
         throw new Error(`Unknown discoveryMerge: ${String(unknownMerge)}`);
       }
+    }
+  }
+  // A fresh sighting offers an Expired row for reopening without changing
+  // its status or erasing notes. The browser already reads Notes (O).
+  if (String(existingRow[PIPELINE_COL.status] || "").trim().toLowerCase() === "expired") {
+    const day = leadRow[PIPELINE_COL.lastSeen];
+    if (day) {
+      const note = `[JobBored ${day}] Rediscovered expired posting — review to reopen.`;
+      const notes = String(existingRow[PIPELINE_COL.notes] || "")
+        .split("\n")
+        .filter((line) => !/^\[JobBored \d{4}-\d{2}-\d{2}\] Rediscovered expired posting/.test(line))
+        .join("\n").trim();
+      merged[PIPELINE_COL.notes] = [notes, note].filter(Boolean).join("\n");
     }
   }
   return merged;
@@ -409,12 +446,13 @@ export function createPipelineWriter(
   async function readIdentitySnapshot(
     sheetId: string,
     token: string,
+    rowWidth: number = COLUMN_COUNT,
   ): Promise<string[][]> {
     // Identity columns only (Title..Source, Dismissed At..Edit Lock). Full
     // rows are fetched later for the matched row numbers alone.
     const [identity, tail] = await batchGetSheetValues(
       sheetId,
-      [`${sheetName}!B2:F`, `${sheetName}!W2:${LAST_COLUMN_LETTER}`],
+      [`${sheetName}!B2:F`, `${sheetName}!W2:${pipelineLetter(rowWidth - 1)}`],
       token,
       fetchImpl,
       retry,
@@ -441,15 +479,52 @@ export function createPipelineWriter(
   ): Promise<PipelineWriteResult> {
     const headerValues = await getSheetValues(
       sheetId,
-      `${sheetName}!A1:${LAST_COLUMN_LETTER}1`,
+      `${sheetName}!A1:Z1`,
       accessToken,
       fetchImpl,
       retry,
     );
+    // A legacy grid may end at Z. Read extensions separately so a missing
+    // grid can be grown below without making the initial header read fail.
+    try {
+      const extensions = await getSheetValues(
+        sheetId, `${sheetName}!AA1:AC1`, accessToken, fetchImpl, retry,
+      );
+      const core = (headerValues[0] || []).slice(0, 26);
+      while (core.length < 26) core.push("");
+      headerValues[0] = [...core, ...(extensions[0] || [])];
+    } catch (error) {
+      if (!(error instanceof SheetsHttpError) || error.status !== 400 ||
+          !/grid limits|exceeds|out of bounds/i.test(error.body || error.message)) throw error;
+    }
     const headerState = checkPipelineHeader(headerValues[0] || [], sheetName);
-    if (headerState.needsUpgrade || headerState.searchMatchHeader === "legacy" ||
-        headerState.searchMatchHeader === "missing" || headerState.workModeHeader === "missing") {
-      // Every legacy header write needs the full grid, including A1:Y1 and U1.
+    const coreHeaderUpgrade = headerState.needsUpgrade || headerState.searchMatchHeader === "legacy" ||
+      headerState.searchMatchHeader === "missing" || headerState.workModeHeader === "missing";
+    const missingExtensions = PIPELINE_EXTENSION_COLUMN_IDS.filter(
+      (id) => headerState.extensionHeaders[id] === "missing",
+    );
+    // Columns the writer leaves blank: a user's own label there (never
+    // written under) or an AA–AC header that could not be added this run.
+    const blankedColumns = new Set<number>();
+    if (headerState.workModeHeader === "foreign") blankedColumns.add(PIPELINE_COL.workMode);
+    if (headerState.searchMatchHeader === "foreign") blankedColumns.add(PIPELINE_COL.matchScore);
+    for (const id of PIPELINE_EXTENSION_COLUMN_IDS) {
+      if (headerState.extensionHeaders[id] === "foreign") blankedColumns.add(PIPELINE_COL[id]);
+    }
+    // Appended rows stop at the grid's last writable column.
+    let rowWidth: number = COLUMN_COUNT;
+    const headerWarnings: string[] = [];
+    const skipMissingExtensions = (why: string) => {
+      for (const id of missingExtensions) blankedColumns.add(PIPELINE_COL[id]);
+      rowWidth = Math.min(...missingExtensions.map((id) => PIPELINE_COL[id]));
+      const labels = missingExtensions
+        .map((id) => `${pipelineLetter(PIPELINE_COL[id])} ${PIPELINE_HEADER_ROW[PIPELINE_COL[id]]}`)
+        .join(", ");
+      headerWarnings.push(`Could not add Pipeline columns ${labels} (${why}); leads were written without them.`);
+    };
+    let gridReady = false;
+    if (missingExtensions.length) {
+      // AA–AC are optional: a grid that cannot grow never blocks the leads.
       try {
         await ensureSheetGridColumns({
           sheetId,
@@ -457,6 +532,23 @@ export function createPipelineWriter(
           token: accessToken,
           fetchImpl,
           minColumns: PIPELINE_HEADER_ROW.length,
+          retry,
+        });
+        gridReady = true;
+      } catch (error) {
+        skipMissingExtensions(formatError(error).slice(0, 300));
+      }
+    }
+    if (coreHeaderUpgrade && !gridReady) {
+      // Core header writes require only A–Z; optional extensions must not
+      // turn a successful legacy write into a grid-growth failure.
+      try {
+        await ensureSheetGridColumns({
+          sheetId,
+          sheetName,
+          token: accessToken,
+          fetchImpl,
+          minColumns: PIPELINE_COL.workMode + 1,
           retry,
         });
       } catch (error) {
@@ -529,6 +621,45 @@ export function createPipelineWriter(
         });
       }
     }
+    if (missingExtensions.length && rowWidth === COLUMN_COUNT) {
+      // Re-read AA1:AC1 right before writing: a cell someone filled since the
+      // header read is theirs now, and is left alone like any custom label.
+      let fresh: string[] | null = null;
+      try {
+        const values = await getSheetValues(
+          sheetId,
+          `${sheetName}!${pipelineLetter(PIPELINE_COL.scorer)}1:${pipelineLetter(PIPELINE_COL.possibleDuplicate)}1`,
+          accessToken,
+          fetchImpl,
+          retry,
+        );
+        fresh = (values[0] || []).map(asText);
+      } catch (error) {
+        skipMissingExtensions(formatError(error).slice(0, 300));
+      }
+      const writable = fresh
+        ? missingExtensions.filter((id) => !fresh[PIPELINE_COL[id] - PIPELINE_COL.scorer])
+        : [];
+      for (const id of missingExtensions) {
+        if (fresh && !writable.includes(id)) blankedColumns.add(PIPELINE_COL[id]);
+      }
+      if (writable.length) {
+        const response = await batchUpdateSheetValues(
+          sheetId,
+          writable.map((id) => ({
+            range: `${sheetName}!${pipelineLetter(PIPELINE_COL[id])}1`,
+            values: [[PIPELINE_HEADER_ROW[PIPELINE_COL[id]]]],
+          })),
+          accessToken,
+          fetchImpl,
+          retry,
+        );
+        if (!response.ok) {
+          const body = (await response.text().catch(() => "")).slice(0, 300);
+          skipMissingExtensions(`HTTP ${response.status}${body ? ` - ${body}` : ""}`);
+        }
+      }
+    }
     // A missing blacklist tab is normal (HTTP 400 "Unable to parse range") and
     // means "no blacklist". Any other error (429/5xx/network) is transient and
     // must NOT silently disable blacklist filtering — fail loud so suppressed
@@ -552,7 +683,7 @@ export function createPipelineWriter(
         .filter((value) => Boolean(value)),
     );
 
-    const existingRows = await readIdentitySnapshot(sheetId, accessToken);
+    const existingRows = await readIdentitySnapshot(sheetId, accessToken, rowWidth);
     const existingByLink = new Map<string, ExistingPipelineRow>();
     const existingByProvider = new Map<string, ExistingPipelineRow>();
     const existingBySemantic = new Map<string, ExistingPipelineRow>();
@@ -596,11 +727,13 @@ export function createPipelineWriter(
           `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
         ]
       : [];
+    warnings.push(...headerWarnings);
 
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
-      if (headerState.workModeHeader === "foreign") leadRow[PIPELINE_COL.workMode] = "";
-      if (headerState.searchMatchHeader === "foreign") leadRow[PIPELINE_COL.matchScore] = "";
+      for (const index of blankedColumns) {
+        if (index !== PIPELINE_COL.lastSeen) leadRow[index] = "";
+      }
       const link = leadRow[PIPELINE_COL.link];
       if (!link) continue;
       const identityHit = findExistingIdentityMatch(
@@ -611,40 +744,41 @@ export function createPipelineWriter(
       );
       if (identityHit) {
         const match = identityHit.match;
-        if (match.row[PIPELINE_COL.dismissedAt]) {
-          skippedBlacklist.push({ url: link, title: lead.title || "" });
-          skippedLinks.push({ url: link, reason: "blacklisted" });
-          continue;
-        }
         if (identityHit.decision.action === "review") {
-          skippedDuplicates += 1;
-          skippedLinks.push({ url: link, reason: "identity_collision" });
-          warnings.push(
-            `Merge review: semantic identity collision for ${link} with Pipeline row ${match.rowNumber}.`,
+          // Similar text is a hint, never authority to suppress a new URL,
+          // including when the similar older posting was dismissed.
+          if (!blankedColumns.has(PIPELINE_COL.possibleDuplicate)) {
+            leadRow[PIPELINE_COL.possibleDuplicate] = normalizeRowLink(match.row);
+          }
+          warnings.push(`Possible duplicate: ${link} resembles Pipeline row ${match.rowNumber}.`);
+        } else {
+          if (match.row[PIPELINE_COL.dismissedAt]) {
+            skippedBlacklist.push({ url: link, title: lead.title || "" });
+            skippedLinks.push({ url: link, reason: "blacklisted" });
+            continue;
+          }
+          const pending = pendingByRow.get(match.rowNumber) || {
+            rowNumber: match.rowNumber,
+            link: normalizeRowLink(match.row),
+            leadRows: [],
+          };
+          pending.leadRows.push(leadRow);
+          pendingByRow.set(match.rowNumber, pending);
+          rememberExistingIdentity(
+            { rowNumber: match.rowNumber, row: mergeExistingRow(match.row, leadRow, blankedColumns) },
+            existingByLink,
+            existingByProvider,
+            existingBySemantic,
           );
           continue;
         }
-        const pending = pendingByRow.get(match.rowNumber) || {
-          rowNumber: match.rowNumber,
-          link: normalizeRowLink(match.row),
-          leadRows: [],
-        };
-        pending.leadRows.push(leadRow);
-        pendingByRow.set(match.rowNumber, pending);
-        rememberExistingIdentity(
-          { rowNumber: match.rowNumber, row: mergeExistingRow(match.row, leadRow) },
-          existingByLink,
-          existingByProvider,
-          existingBySemantic,
-        );
-        continue;
       }
       if (blacklistedUrls.has(link)) {
         skippedBlacklist.push({ url: link, title: lead.title || "" });
         skippedLinks.push({ url: link, reason: "blacklisted" });
         continue;
       }
-      appends.push(headerState.workModeHeader === "foreign" ? leadRow.slice(0, 25) : leadRow);
+      appends.push(leadRow.slice(0, rowWidth).map((value, index) => blankedColumns.has(index) ? "" : value));
       rememberExistingIdentity(
         { rowNumber: existingRows.length + appends.length + 1, row: leadRow },
         existingByLink,
@@ -668,6 +802,7 @@ export function createPipelineWriter(
           token: accessToken,
           fetchImpl,
           targets: pending.map((p) => ({ rowNumber: p.rowNumber, link: p.link })),
+          lastColumn: pipelineLetter(rowWidth - 1),
           normalizeLink: normalizeLeadUrl,
           retry,
         });
@@ -692,7 +827,7 @@ export function createPipelineWriter(
             return;
           }
           let merged = result.row;
-          for (const leadRow of entry.leadRows) merged = mergeExistingRow(merged, leadRow);
+          for (const leadRow of entry.leadRows) merged = mergeExistingRow(merged, leadRow, blankedColumns);
           data.push(...changedCellRanges(sheetName, result.rowNumber, result.row, merged));
           matched += entry.leadRows.length;
           for (const leadRow of entry.leadRows) matchedLinks.push(leadRow[PIPELINE_COL.link]);
@@ -789,7 +924,7 @@ export function createPipelineWriter(
         try {
           response = await appendSheetValues(
             sheetId,
-            `${sheetName}!A:${headerState.workModeHeader === "foreign" ? "Y" : LAST_COLUMN_LETTER}`,
+            `${sheetName}!A:${pipelineLetter(rowWidth - 1)}`,
             appends,
             accessToken,
             fetchImpl,

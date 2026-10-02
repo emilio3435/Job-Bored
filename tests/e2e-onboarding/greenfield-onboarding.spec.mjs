@@ -57,6 +57,9 @@ const STARTER_HEADERS = [
   "Approval Status",
   "Edit Lock",
   "Work Mode",
+  "Scorer",
+  "Last Seen",
+  "Possible Duplicate",
 ];
 /** What POST /profile/contact/suggest answers (server/profile-identity.mjs shape). */
 const CONTACT_SUGGESTION = {
@@ -436,13 +439,13 @@ async function installHermeticBoundaries(page) {
         const range = decodeURIComponent(encodedRange);
         const body = request.postDataJSON();
         calls.sheetsHeaders.push(body);
-        if (range !== "Pipeline!A1:Z1") {
+        if (range !== "Pipeline!A1:AC1") {
           calls.violations.push(`starter header URL range ${range || "missing"}`);
         }
         if (url.searchParams.get("valueInputOption") !== "RAW") {
           calls.violations.push("starter header valueInputOption");
         }
-        if (body?.range !== "Pipeline!A1:Z1") {
+        if (body?.range !== "Pipeline!A1:AC1") {
           calls.violations.push(`starter header range ${body?.range || "missing"}`);
         }
         if (JSON.stringify(body?.values?.[0]) !== JSON.stringify(STARTER_HEADERS)) {
@@ -456,7 +459,7 @@ async function installHermeticBoundaries(page) {
           return;
         }
         await fulfillJson(route, {
-          updatedRange: "Pipeline!A1:Z1",
+          updatedRange: "Pipeline!A1:AC1",
           updatedRows: 1,
           updatedColumns: STARTER_HEADERS.length,
           updatedCells: STARTER_HEADERS.length,

@@ -268,8 +268,21 @@
     "Approval Status",
     "Edit Lock",
     "Work Mode",
+    "Scorer",
+    "Last Seen",
+    "Possible Duplicate",
   ];
-  const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
+  // Column letter for a 1-based column number: 26 -> "Z", 29 -> "AC".
+  function columnLetter(columnNumber) {
+    let n = columnNumber;
+    let out = "";
+    while (n > 0) {
+      out = String.fromCharCode(65 + ((n - 1) % 26)) + out;
+      n = Math.floor((n - 1) / 26);
+    }
+    return out;
+  }
+  const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${columnLetter(STARTER_PIPELINE_HEADERS.length)}1`;
 
   configCore.appsScriptDeployStateCache = null;
   configCore.appsScriptDeployBusy = false;

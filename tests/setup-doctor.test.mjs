@@ -659,8 +659,9 @@ describe("SetupDoctor pipeline tab repair", () => {
         if (init.method === "POST" && String(url).includes(":batchUpdate")) {
           order.push("grow");
           const body = JSON.parse(init.body);
+          // The repair writes through Z; AA–AC (HOLES) are the worker's to add.
           assert.deepEqual(body.requests[0].appendDimension, {
-            sheetId: 7, dimension: "COLUMNS", length: pipelineSchema.headerRow.length - 25,
+            sheetId: 7, dimension: "COLUMNS", length: 26 - 25,
           });
           return { ok: true, json: async () => ({}) };
         }
@@ -720,7 +721,8 @@ describe("SetupDoctor pipeline tab repair", () => {
       assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true, `width ${width}`);
       assert.equal(routed.gridReads(), 1, `width ${width}`);
       assert.equal(routed.order[0], "grid read", `width ${width}`);
-      assert.equal(routed.gridColumns(), pipelineSchema.headerRow.length);
+      // The repair writes through Z; AA–AC (HOLES) are the worker's to add.
+      assert.equal(routed.gridColumns(), Math.max(width, 26));
       if (width === 26) {
         assert.equal(routed.cells.get(25), "Custom Z");
         assert.equal(routed.order.includes("Pipeline!Z1"), false);

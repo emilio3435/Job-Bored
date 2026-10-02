@@ -5,10 +5,10 @@
   "schemaVersion": 1,
   "tabName": "Pipeline",
   "discoveryMergeSemantics": {
-    "overwrite": "Discovery owns the cell: a re-discovered non-empty value replaces it. Fit Assessment is also cleared when a new Fit Score has no assessment.",
+    "overwrite": "Discovery owns the cell: a re-discovered non-empty value replaces it. Fit Assessment is also cleared when a new Fit Score has no assessment. A Fit Score whose Scorer (AA) is not 'llm:' never replaces one whose Scorer is.",
     "lockable": "Discovery replaces the cell unless the row's Edit Lock (Y) names the field.",
     "fillIfEmpty": "Discovery writes the cell only while it is empty; a user's value is kept.",
-    "preserve": "Discovery never writes the cell on a re-discovered row."
+    "preserve": "Discovery preserves the cell on a re-discovered row; Notes may gain a stamped reopening notice when an Expired posting is seen again."
   },
   "headerRow": [
     "Date Found",
@@ -36,7 +36,10 @@
     "Dismissed At",
     "Approval Status",
     "Edit Lock",
-    "Work Mode"
+    "Work Mode",
+    "Scorer",
+    "Last Seen",
+    "Possible Duplicate"
   ],
   "columns": [
     {
@@ -273,6 +276,36 @@
       "sheetIndex": 25,
       "discoveryMerge": "fillIfEmpty",
       "enum": ["remote", "hybrid", "onsite"],
+      "optionalColumn": true
+    },
+    {
+      "id": "scorer",
+      "letter": "AA",
+      "headerLabel": "Scorer",
+      "type": "string",
+      "sheetIndex": 26,
+      "discoveryMerge": "overwrite",
+      "description": "Which scorer produced Fit Score (H): 'llm:<model>' for an LLM score, 'heuristic' for the keyword fallback, 'prefilter' for a rescore hard-constraint miss. Written with H in the same pass. A score whose Scorer is not 'llm:' never replaces a row whose Scorer is, so H, K and AA are kept together.",
+      "optionalColumn": true
+    },
+    {
+      "id": "lastSeen",
+      "letter": "AB",
+      "headerLabel": "Last Seen",
+      "type": "date",
+      "sheetIndex": 27,
+      "discoveryMerge": "overwrite",
+      "description": "The last day discovery found this posting live (YYYY-MM-DD, the worker's local day). An Expired row seen after its expiry is offered for reopening in Review.",
+      "optionalColumn": true
+    },
+    {
+      "id": "possibleDuplicate",
+      "letter": "AC",
+      "headerLabel": "Possible Duplicate",
+      "type": "string",
+      "description": "Set when discovery appended this row although it looks like another row (same company, title and location) without a matching URL or job id: holds that row's Link. Clear it to dismiss the flag; re-discovery never changes it.",
+      "sheetIndex": 28,
+      "discoveryMerge": "preserve",
       "optionalColumn": true
     }
   ]

@@ -34,7 +34,13 @@ export type PipelineColumnId =
   | "salary" | "fitScore" | "priority" | "tags" | "fitAssessment" | "contact"
   | "status" | "appliedDate" | "notes" | "followUpDate" | "talkingPoints"
   | "lastHeardFrom" | "responseFlag" | "logoUrl" | "matchScore" | "favorite"
-  | "dismissedAt" | "approvalStatus" | "editLock" | "workMode";
+  | "dismissedAt" | "approvalStatus" | "editLock" | "workMode"
+  | "scorer" | "lastSeen" | "possibleDuplicate";
+
+/** Optional columns after Z (AA–AC). Each may be absent or carry a user's own label. */
+export const PIPELINE_EXTENSION_COLUMN_IDS = ["scorer", "lastSeen", "possibleDuplicate"] as const;
+export type PipelineExtensionColumnId = (typeof PIPELINE_EXTENSION_COLUMN_IDS)[number];
+export type PipelineHeaderState = "missing" | "ready" | "foreign";
 
 function buildColumnIndex(): Record<PipelineColumnId, number> {
   const out = {} as Record<PipelineColumnId, number>;
@@ -99,18 +105,35 @@ export class PipelineHeaderMismatchError extends Error {
  * Check row 1 of the Pipeline tab against the schema. Columns A..Q must sit
  * at their schema positions; optional columns may be blank (a legacy Sheet)
  * but never carry another label. U accepts the legacy Match Score label and
- * leaves a foreign label untouched. Z follows the same foreign-header rule.
+ * leaves a foreign label untouched. Z and the AA–AC extensions follow the
+ * same foreign-header rule: a user's own label there is left alone and never
+ * written under.
  */
 export function checkPipelineHeader(
   headerRow: unknown[],
   sheetName = DEFAULT_SHEET_NAME,
-): { needsUpgrade: boolean; workModeHeader: "missing" | "ready" | "foreign"; searchMatchHeader: "missing" | "legacy" | "ready" | "foreign" } {
+): {
+  needsUpgrade: boolean;
+  workModeHeader: PipelineHeaderState;
+  searchMatchHeader: "missing" | "legacy" | "ready" | "foreign";
+  extensionHeaders: Record<PipelineExtensionColumnId, PipelineHeaderState>;
+} {
   let needsUpgrade = false;
-  let workModeHeader: "missing" | "ready" | "foreign" = "missing";
+  let workModeHeader: PipelineHeaderState = "missing";
   let searchMatchHeader: "missing" | "legacy" | "ready" | "foreign" = "missing";
+  const extensionHeaders: Record<PipelineExtensionColumnId, PipelineHeaderState> = {
+    scorer: "missing",
+    lastSeen: "missing",
+    possibleDuplicate: "missing",
+  };
   for (const column of PIPELINE_COLUMNS) {
     const raw = headerRow[column.sheetIndex];
     const found = typeof raw === "string" ? raw.trim() : "";
+    const extensionId = PIPELINE_EXTENSION_COLUMN_IDS.find((id) => id === column.id);
+    if (extensionId) {
+      extensionHeaders[extensionId] = found === column.headerLabel ? "ready" : found ? "foreign" : "missing";
+      continue;
+    }
     if (column.id === "workMode") {
       workModeHeader = found === column.headerLabel ? "ready" : found ? "foreign" : "missing";
       continue;
@@ -132,7 +155,7 @@ export function checkPipelineHeader(
       sheetName,
     });
   }
-  return { needsUpgrade, workModeHeader, searchMatchHeader };
+  return { needsUpgrade, workModeHeader, searchMatchHeader, extensionHeaders };
 }
 
 /* ------------------------------------------------------------------ */
@@ -808,11 +831,13 @@ export async function resolveRowsByLink(params: {
   fetchImpl: FetchLike;
   targets: RowTarget[];
   normalizeLink: (value: string) => string;
+  /** Limit reads to the writable grid when optional extensions cannot grow. */
+  lastColumn?: string;
   retry?: RetryOptions;
 }): Promise<ResolvedRow[]> {
   const { sheetId, sheetName, token, fetchImpl, targets, normalizeLink, retry } = params;
   if (!targets.length) return [];
-  const last = PIPELINE_LAST_COLUMN_LETTER;
+  const last = params.lastColumn || PIPELINE_LAST_COLUMN_LETTER;
   const fresh = await batchGetSheetValues(
     sheetId,
     targets.map((t) => `${sheetName}!A${t.rowNumber}:${last}${t.rowNumber}`),

@@ -66,9 +66,15 @@ function createRoutedFetch(route: RouteOptions) {
         },
       );
     }
-    // Header read.
-    if (method === "GET" && path.includes("/values/") && url.toString().includes("Pipeline!A1")) {
-      return json({ values: [route.headerRow] });
+    // Header reads (A1:AC1, and the AA1:AC1 re-read before the AA–AC
+    // header write) answer from the live header cells.
+    const headerRange = /\/values\/Pipeline!([A-Z]+)1(?::([A-Z]+)1)?$/.exec(decodeURIComponent(path));
+    if (method === "GET" && headerRange) {
+      const columnNumber = (letters: string) => [...letters].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0);
+      const from = columnNumber(headerRange[1]) - 1;
+      const to = columnNumber(headerRange[2] || headerRange[1]) - 1;
+      const row = Array.from({ length: to - from + 1 }, (_, offset) => cells.get(from + offset) ?? "");
+      return json({ values: [row] });
     }
     // No Blacklist tab in these tests.
     if (method === "GET" && url.toString().includes("Blacklist!")) {
@@ -165,7 +171,9 @@ test("a 25-column grid is grown before the Work Mode Z1 write", async () => {
 test("a concurrent grid widening preserves user data in AA and AB", async () => {
   const routed = createRoutedFetch({ headerRow: missingWorkModeHeader(), gridColumns: 25, widenBeforeGrow: 30 });
   await createPipelineWriter(runtimeConfig, { fetchImpl: routed.fetchImpl, retries: 0 }).write("sheet_123", []);
-  assert.equal(routed.gridColumns(), 31);
+  // HOLES: the grow now targets AC (Scorer, Last Seen, Possible Duplicate),
+  // and the AA–AC header write re-reads the row, so the user's AA and AB stay.
+  assert.equal(routed.gridColumns(), 30 + COLUMN_COUNT - 25);
   assert.equal(routed.cells.get(26), "User data in AA");
   assert.equal(routed.cells.get(27), "User data in AB");
 });
@@ -203,7 +211,7 @@ test("legacy header upgrades ensure the grid once while preserving occupied Z", 
   const headers = [...PIPELINE_HEADER_ROW.slice(0, 17), ...Array(8).fill(""), "Custom Z"];
   const routed = createRoutedFetch({ headerRow: headers, gridColumns: 26 });
   await createPipelineWriter(runtimeConfig, { fetchImpl: routed.fetchImpl, retries: 0 }).write("sheet_123", []);
-  const metadata = routed.calls.filter((call) => /\/spreadsheets\/[^/]+$/.test(new URL(call.url).pathname));
+  const metadata = routed.calls.filter((call) => call.method === "GET" && /\/spreadsheets\/[^/]+$/.test(new URL(call.url).pathname));
   assert.equal(metadata.length, 1);
   assert.equal(z1Calls(routed.calls).length, 0);
   assert.equal(routed.cells.get(25), "Custom Z");
@@ -223,10 +231,10 @@ test("Google header error detail and its message duplicate are capped at 2048 ch
   }
 });
 
-test("a 26-column grid skips the grow call but still writes Z1", async () => {
+test("a grid already wide enough (A–AC) skips the grow call but still writes Z1", async () => {
   const { fetchImpl, calls } = createRoutedFetch({
     headerRow: missingWorkModeHeader(),
-    gridColumns: 26,
+    gridColumns: COLUMN_COUNT,
   });
   const writer = createPipelineWriter(runtimeConfig, { fetchImpl, retries: 0 });
   await writer.write("sheet_123", []);

@@ -53,13 +53,21 @@ test("D19: every column declares a discovery merge rule", () => {
   }
 });
 
-test("Work Mode is the last, fill-if-empty Pipeline column", () => {
-  assert.equal(schema.headerRow.at(-1), "Work Mode");
-  const { id, letter, headerLabel, sheetIndex, discoveryMerge, enum: values } = schema.columns.at(-1)!;
-  assert.deepEqual({ id, letter, headerLabel, sheetIndex, discoveryMerge, values }, {
-    id: "workMode", letter: "Z", headerLabel: "Work Mode", sheetIndex: 25,
-    discoveryMerge: "fillIfEmpty", values: ["remote", "hybrid", "onsite"],
-  });
+test("Work Mode stays at Z, fill-if-empty; HOLES appends AA–AC after it", () => {
+  const workMode = schema.columns.find((c) => c.id === "workMode")! as (typeof schema.columns)[number] & { enum?: string[] };
+  assert.deepEqual(
+    { letter: workMode.letter, sheetIndex: workMode.sheetIndex, discoveryMerge: workMode.discoveryMerge, values: workMode.enum },
+    { letter: "Z", sheetIndex: 25, discoveryMerge: "fillIfEmpty", values: ["remote", "hybrid", "onsite"] },
+  );
+  assert.deepEqual(
+    schema.columns.slice(26).map(({ id, letter, headerLabel, discoveryMerge }) => ({ id, letter, headerLabel, discoveryMerge })),
+    [
+      { id: "scorer", letter: "AA", headerLabel: "Scorer", discoveryMerge: "overwrite" },
+      { id: "lastSeen", letter: "AB", headerLabel: "Last Seen", discoveryMerge: "overwrite" },
+      { id: "possibleDuplicate", letter: "AC", headerLabel: "Possible Duplicate", discoveryMerge: "preserve" },
+    ],
+  );
+  assert.equal(schema.headerRow.at(-1), "Possible Duplicate");
 });
 
 test("D19: the browser planner letters (pipeline-transitions.js) match the schema", () => {
