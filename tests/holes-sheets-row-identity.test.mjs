@@ -209,6 +209,39 @@ describe("A15 · a write that finishes after a reload finds its job by key, not 
     assert.equal(rowByLink(fake, A)[COL.status], "Phone Screen");
   });
 
+  for (const [name, run, check] of [
+    [
+      "markStatusExpired",
+      (env, idx) => env.sw.markStatusExpired(idx),
+      (job) => assert.equal(job.status, "Expired"),
+    ],
+    [
+      "editJobField",
+      (env, idx) => env.sw.editJobField(idx, "location", "Remote (US)"),
+      (job) => {
+        assert.equal(job.location, "Remote (US)");
+        assert.match(job._editLock || "", /location/);
+      },
+    ],
+  ]) {
+    it(`${name} copies a landed write onto the reloaded job`, async () => {
+      const fake = seed();
+      const env = loadWriteback(fake);
+      env.load();
+      const idx = env.indexOf(A);
+      let swapped = false;
+      fake.intercept(async (req) => {
+        if (req.method === "POST" && !swapped) {
+          swapped = true;
+          env.load();
+        }
+        return null;
+      });
+      await run(env, idx);
+      check(env.state.data.find((j) => j.link === A));
+    });
+  }
+
   it("emits jb:write:succeeded with the job's index in the current array", async () => {
     const fake = seed();
     const env = loadWriteback(fake);

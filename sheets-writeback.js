@@ -1009,6 +1009,11 @@ async function markStatusExpired(stableKey) {
       { guard: true },
     );
     if (!ok) throw new Error(`Pipeline M${sheetRow} write failed`);
+    const live = liveJob(target);
+    if (live && live !== job) {
+      live.status = "Expired";
+      host().renderPipeline();
+    }
     host().showToast("Marked Expired", "info");
   } catch (err) {
     console.error("[JobBored] markStatusExpired failed", err);
@@ -1058,6 +1063,7 @@ async function editJobField(stableKey, field, value) {
   const prevValue = job[field];
   const prevLock = job._editLock || "";
   const nextLock = unionLock(prevLock, field);
+  const target = writeTarget(stableKey);
   // The guard reads which job this row is for as the call starts (A4), so
   // the write starts before the optimistic edit renames a link-less job.
   const write = updateMultipleCells(
@@ -1074,11 +1080,20 @@ async function editJobField(stableKey, field, value) {
   try {
     const ok = await write;
     if (!ok) throw new Error(`Pipeline ${col}${sheetRow} write failed`);
+    const live = liveJob(target);
+    if (live && live !== job) {
+      live[field] = next;
+      live._editLock = nextLock;
+      host().renderPipeline();
+    }
     host().showToast("Saved", "info");
   } catch (err) {
     console.error("[JobBored] editJobField failed", err);
-    job[field] = prevValue;
-    job._editLock = prevLock;
+    const live = liveJob(target);
+    for (const j of live && live !== job ? [job, live] : [job]) {
+      j[field] = prevValue;
+      j._editLock = prevLock;
+    }
     host().renderPipeline();
     host().showToast("Couldn't save — reverted", "error");
   }
