@@ -1304,30 +1304,6 @@ body.jb-v2 [data-region="pipeline"] .pipe-sticker__flag[data-flag="offer"] {
   color: var(--jb-ink-inverse);
 }
 
-/* ───────────────────────── toast ───────────────────────── */
-body.jb-v2 [data-region="pipeline"] .pipe-toast {
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translate(-50%, 8px);
-  background: var(--jb-navy);
-  color: var(--jb-ink-inverse);
-  font-family: var(--jb-font-body);
-  font-size: var(--jb-text-sm);
-  padding: 8px 14px;
-  border-radius: var(--jb-radius-pill);
-  box-shadow: var(--jb-shadow-sticker);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--jb-transition-base),
-              transform var(--jb-transition-base);
-}
-
-body.jb-v2 [data-region="pipeline"] .pipe-toast.is-shown {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-
 /* ───────────────────────── C19 layout switch ───────────────────────── */
 body.jb-v2 [data-region="pipeline"] .pipe-tool__view {
   display: inline-flex;
@@ -1432,8 +1408,7 @@ body.jb-v2 [data-region="pipeline"][data-view="list"] .pipe-tool__chip {
   body.jb-v2 [data-region="pipeline"] .pipe-sticker__favorite,
   body.jb-v2 [data-region="pipeline"] .pipe-tool__chip,
   body.jb-v2 [data-region="pipeline"] .pipe-tool__search-input,
-  body.jb-v2 [data-region="pipeline"] .pipe-tool__btn,
-  body.jb-v2 [data-region="pipeline"] .pipe-toast {
+  body.jb-v2 [data-region="pipeline"] .pipe-tool__btn {
     transition: none;
   }
 }

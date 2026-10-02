@@ -2020,31 +2020,17 @@
     }, 900);
   }
 
-  /** Toast with an optional action; the shared a11y toast when present. */
-  function notify(region, msg, type, action) {
+  /** B12: every board toast goes through window.JobBoredFlowing.toast
+   *  (flowing-writes.js), which keeps the action even with no app renderer.
+   *  The board's own .pipe-toast region is gone. */
+  function notify(_region, msg, type, action) {
+    var opts = action ? { action: action } : {};
+    var flowing = root.JobBoredFlowing;
+    if (flowing && typeof flowing.toast === "function") return flowing.toast(msg, type || "info", opts);
+    // flowing-writes.js absent (unit harnesses): the shared primitive directly.
     var A11y = root.JobBoredA11y;
-    if (A11y && typeof A11y.toast === "function") {
-      A11y.toast(msg, type || "info", action ? { action: action } : {});
-      return;
-    }
-    showToast(region, msg);
-  }
-
-  function showToast(region, msg) {
-    var t = region.querySelector(".pipe-toast");
-    if (!t) {
-      t = document.createElement("div");
-      t.className = "pipe-toast";
-      t.setAttribute("role", "status");
-      t.setAttribute("aria-live", "polite");
-      region.appendChild(t);
-    }
-    t.textContent = msg;
-    t.classList.add("is-shown");
-    if (region.__pipeToastTimer) clearTimeout(region.__pipeToastTimer);
-    region.__pipeToastTimer = setTimeout(function () {
-      t.classList.remove("is-shown");
-    }, 2400);
+    if (A11y && typeof A11y.toast === "function") return A11y.toast(msg, type || "info", opts);
+    return null;
   }
 
   function cssEscape(s) {
