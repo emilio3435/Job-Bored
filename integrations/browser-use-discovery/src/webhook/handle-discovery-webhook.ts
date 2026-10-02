@@ -100,6 +100,14 @@ export type HandleWebhookDependencies = {
    * can abort. When omitted, async runs are not cancellable.
    */
   cancelRegistry?: RunCancelRegistry;
+  /**
+   * HOLES HUNT §0.9: set only on the worker's own hunt dispatcher, never from
+   * a request. A run with no Sheet credential is not refused: it executes,
+   * its write fails, and it ends write_failed holding its leads ("awaiting
+   * sheet write") until the dashboard flushes them through
+   * POST /runs/:id/retry-write. See docs/INTERFACE-HUNTS.md §5.
+   */
+  allowMissingSheetsCredential?: boolean;
 };
 
 // Default maximum async run duration: 60 minutes. Discovery runs in the
@@ -289,6 +297,7 @@ export async function handleDiscoveryWebhook(
   const preflight = await validateDiscoveryPreflight(
     parsed.request,
     runDependencies,
+    { allowMissingSheetsCredential: dependencies.allowMissingSheetsCredential === true },
   );
   if (preflight) {
     dependencies.log?.("discovery.run.preflight_failed", {
@@ -615,6 +624,7 @@ function normalizeConfiguredSheetId(raw: unknown): string {
 async function validateDiscoveryPreflight(
   request: DiscoveryWebhookRequestV1,
   runDependencies: RunDiscoveryDependencies,
+  options: { allowMissingSheetsCredential?: boolean } = {},
 ): Promise<DiscoveryPreflightFailure | null> {
   let storedConfig: StoredWorkerConfig;
   try {
@@ -730,7 +740,7 @@ async function validateDiscoveryPreflight(
       sheetId: resolvedSheetId,
     },
   );
-  if (!sheetsCredentialReadiness.configured) {
+  if (!sheetsCredentialReadiness.configured && !options.allowMissingSheetsCredential) {
     return {
       status: 409,
       message:
