@@ -297,6 +297,37 @@ describe("U12 · a grade the draft moved on from is stale until it is fresh", ()
     assert.equal(fresh.getAttribute("data-stale"), null, "fresh once the manifest caught up");
   });
 
+  /* Grok review: the flag belongs to each document's own version. A save of
+     the other document moves the package runId on; that must neither strand
+     this document's flag nor clear it early. */
+  it("should clear each document's flag from its own version, whatever the package runId says", async () => {
+    const env = boot();
+    await env.openRole();
+    const save = (doc, runId) => env.win.dispatchEvent(new env.win.CustomEvent("jb:scribe:saved", { detail: { slug: SLUG, doc, runId } }));
+    const staleOf = (doc) => env.rowOf(doc).querySelector("[data-score-open]").getAttribute("data-stale");
+    /* Resume saved as r5, then the letter as r6, before either refetch lands. */
+    const bumped = (types) => {
+      const m = manifest({ runId: "mr_r6" });
+      m.documents = m.documents.map((d) => (types.includes(d.type) ? { ...d, lastModifiedAt: "2026-09-28T12:00:00.000Z", text: FILE(d.text.filename, "2026-09-28T12:00:00.000Z") } : d));
+      return m;
+    };
+    /* The first refetch has only the letter's save in it. */
+    env.state.manifest = bumped(["cover_letter"]);
+    save("resume", "mr_r5");
+    save("cover_letter", "mr_r6");
+    assert.equal(staleOf("resume"), "true");
+    assert.equal(staleOf("cover_letter"), "true");
+    await settle();
+    assert.equal(staleOf("cover_letter"), null, "the letter's own version moved on: fresh");
+    assert.equal(staleOf("resume"), "true", "the resume's save is not in yet, whatever the package runId");
+    /* Then the resume's save lands too. */
+    env.state.manifest = bumped(["cover_letter", "resume"]);
+    save("cover_letter", "mr_r6"); /* any save refetches the manifest */
+    await settle();
+    assert.equal(staleOf("resume"), null, "fresh once its own version is in the manifest");
+    assert.equal(staleOf("cover_letter"), null);
+  });
+
   it("should mark a role-match grade stale when the text changed after it was scored", async () => {
     const m = manifest();
     m.quality.documents.cover_letter = { status: "pass", issues: [] };

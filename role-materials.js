@@ -1510,7 +1510,7 @@
   function commitManifest(hostEl, manifest, base, jobKey) {
     manifest = holdOptimistic(manifest);
     Object.keys(scribeSaves).forEach(function (k) {
-      if (manifest && k.indexOf(manifest.slug + "|") === 0 && scribeSaves[k] === manifest.runId) delete scribeSaves[k];
+      if (manifest && k.indexOf(manifest.slug + "|") === 0 && !savePending(manifest, k.slice(manifest.slug.length + 1))) delete scribeSaves[k];
     });
     renderManifest(hostEl, manifest, base);
     lastPaint = { kind: "manifest" };
@@ -2363,7 +2363,8 @@
      Repair form; opened from Scribe, they pre-fill Scribe's composer. */
 
   var ATS_FEATURE = { resume: "resume_update", cover_letter: "cover_letter" };
-  /* U12: Scribe saves the manifest has not caught up with, slug|doc -> runId. */
+  /* U12: Scribe saves the manifest has not caught up with,
+     slug|doc -> { runId, before: that document's version when it was saved }. */
   var scribeSaves = {};
   var scoreOpen = null;
   var rescoring = {};
@@ -2418,10 +2419,29 @@
      manifest hasn't caught up with, or a role-match score older than the
      text it rated. MATQ's runId (and an equal docHash) decide when the
      scorecard carries them. */
+  /* One document's own version in a manifest: its judge record's run and
+     its files' stamps. The package runId moves on whenever EITHER document
+     is saved, so it cannot say whether this one's save is in. */
+  function docVersionOf(manifest, feature) {
+    var doc = docOf(manifest, feature);
+    var qa = (qualityDocOf(manifest, feature) || {}).qa || {};
+    return [qa.runId || "", (doc && doc.lastModifiedAt) || "", (doc && doc.text && doc.text.modifiedAt) || ""].join("|");
+  }
+
+  /* U12: a Scribe save of this document the manifest hasn't caught up with.
+     It is in once this document's own version moved on since the save, its
+     judge record names the saved run, or the package run is that save. */
+  function savePending(manifest, feature) {
+    var saved = manifest ? scribeSaves[manifest.slug + "|" + feature] : null;
+    if (!saved) return false;
+    var qa = (qualityDocOf(manifest, feature) || {}).qa || {};
+    if (saved.runId && (qa.runId === saved.runId || manifest.runId === saved.runId)) return false;
+    return docVersionOf(manifest, feature) === saved.before;
+  }
+
   function scoreIsStale(manifest, feature, entry, grade) {
     if (!manifest) return false;
-    var saved = scribeSaves[manifest.slug + "|" + feature];
-    if (saved && saved !== manifest.runId) return true;
+    if (savePending(manifest, feature)) return true;
     if (!entry || grade.source !== "ats") return false;
     var r = entry.result || {};
     var qa = (qualityDocOf(manifest, feature) || {}).qa || null;
@@ -2603,7 +2623,7 @@
     var d = (e && e.detail) || {};
     var cur = currentManifest;
     if (!cur || !cur.manifest || !d.slug || d.slug !== cur.manifest.slug || !d.doc) return;
-    scribeSaves[d.slug + "|" + d.doc] = String(d.runId || "saved");
+    scribeSaves[d.slug + "|" + d.doc] = { runId: String(d.runId || ""), before: docVersionOf(cur.manifest, d.doc) };
     repaintMaterials(d.slug);
     refreshScore();
     fetchJson(cur.base + "/api/applications/" + encodeURIComponent(d.slug) + "/manifest").then(function (manifest) {
