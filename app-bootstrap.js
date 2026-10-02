@@ -350,8 +350,9 @@
 
   // Integrator closure shim (sole claimant of jb:closure:change).
   // preventDefault() MUST run before the writer: a claimed-and-then-fallen-back
-  // intent performs every closure twice. dismiss/restore/expire go through the
-  // F1-A planner + applyCells; unexpire stays on updateJobStatus("Researching")
+  // intent performs every closure twice. dismiss/restore go through
+  // dismissJob/restoreJob (HOLES A8); expire goes through the F1-A planner +
+  // applyCells; unexpire stays on updateJobStatus("Researching")
   // until the planner grows that action (SPEC §7).
   document.addEventListener("jb:closure:change", (e) => {
     const d = e.detail || {};
@@ -374,6 +375,22 @@
       document.dispatchEvent(event);
       if (typeof window.dispatchEvent === "function") window.dispatchEvent(event);
     };
+
+    // HOLES A8/R12: the card's dismiss/restore is dismissJob/restoreJob, so
+    // it writes the Blacklist row too, rolls back a half-failure, and
+    // offers that Undo; the planner batch wrote W and a note only.
+    if (
+      (action === "dismiss" && typeof sheetsWrite.dismissJob === "function") ||
+      (action === "restore" && typeof sheetsWrite.restoreJob === "function")
+    ) {
+      const write = action === "dismiss" ? sheetsWrite.dismissJob : sheetsWrite.restoreJob;
+      Promise.resolve(write(Number(jobKey)))
+        .then((ok) => {
+          if (ok === false) fail(`${action}_failed`);
+        })
+        .catch((err) => fail((err && err.message) || err));
+      return;
+    }
 
     if (action === "unexpire") {
       Promise.resolve(
