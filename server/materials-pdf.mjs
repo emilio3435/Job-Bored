@@ -53,6 +53,41 @@ function launchOptions() {
 }
 
 /**
+ * HOLES HOST /health?deep=1: can this host launch the PDF browser? Launches
+ * and closes it with the renderer's own options; a path guess would miss
+ * the headless shell Playwright actually runs. Never throws.
+ * @param {{ playwrightImport?: () => Promise<{ chromium: { launch: Function } }>, timeoutMs?: number }} [options]
+ * @returns {Promise<{ ok: boolean, detail?: string }>}
+ */
+export async function probePdfBrowser(options = {}) {
+  ensureBrowsersPath();
+  const load = options.playwrightImport || (() => importPlaywright());
+  /** @type {{ launch: Function }} */
+  let chromium;
+  try {
+    ({ chromium } = await load());
+  } catch {
+    return { ok: false, detail: "playwright is not installed" };
+  }
+  const launching = Promise.resolve().then(() => chromium.launch(launchOptions()));
+  let browser;
+  try {
+    browser = await withTimeout(launching, options.timeoutMs || PDF_TIMEOUT_MS);
+  } catch {
+    /* Closes it even when it comes up after the timeout. */
+    launching.then((late) => late.close(), () => {}).catch(() => {});
+    return { ok: false, detail: "the browser did not launch" };
+  }
+  /* Awaited: Playwright holds a SIGTERM handler until the browser is gone. */
+  try {
+    await browser.close();
+  } catch {
+    // it launched, which is what this answers
+  }
+  return { ok: true };
+}
+
+/**
  * Optional Playwright PDF render. Missing Playwright, a launch/render
  * failure, or a timeout returns `{ skipped: true, note: "pdf_skipped" }`
  * and never throws.

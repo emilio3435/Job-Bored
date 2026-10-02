@@ -98,6 +98,7 @@ import { codeForStatus } from "./api-error-codes.mjs";
 import { leadsChatHandler } from "./leads-chat.mjs";
 import { createRouteLimiter, limitFromEnv } from "./route-limits.mjs";
 import { atsFailureResponse } from "./ats-route-errors.mjs";
+import { deepHealth } from "./health-deep.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -336,14 +337,32 @@ app.use((req, res, next) => {
   return express.json({ limit: "2mb" })(req, res, next);
 });
 
-app.get("/health", (_req, res) => {
+app.get("/health", (req, res, next) => {
   const ats = getAtsConfigStatus();
-  res.json({
+  const shallow = {
     ok: true,
     service: "command-center-job-scraper",
     atsProvider: ats.provider,
     atsConfigured: ats.configured,
     ...(ats.configured ? {} : { atsConfigError: ats.reason }),
+  };
+  if (String(req.query.deep || "") !== "1") return res.json(shallow);
+  /* HOLES: readiness names what this host has installed, so a hosted
+   * listener asks for the token; shallow /health stays public. */
+  return requireApiAuth(req, res, () => {
+    deepHealth().then((deep) => {
+      if (deep.ok) return res.json({ ...shallow, checks: deep.checks });
+      const failed = Object.entries(deep.checks)
+        .filter(([name, check]) => !check.ok && ["schemas", "templates", "fonts"].includes(name))
+        .map(([name]) => name);
+      return res.status(503).json({
+        ...shallow,
+        ok: false,
+        error: `Not ready: ${failed.join(", ")} unavailable on this host.`,
+        retryable: false,
+        checks: deep.checks,
+      });
+    }, next);
   });
 });
 
