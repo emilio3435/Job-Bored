@@ -81,7 +81,7 @@
 
   // E4: the JobBored API transport. Attaches the hosted token when
   // hosted-api-auth.js is loaded; plain fetch otherwise.
-  function _apiFetch(url, init) {
+  function apiFetch(url, init) {
     const auth = window.JobBoredHostedApiAuth;
     if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
     return fetch(url, init);
@@ -96,7 +96,7 @@
       base + "/api/brand-logos/company?name=" + encodeURIComponent(companyName);
     // Inside the executor, a transport that throws becomes a miss.
     new Promise(function (resolve) {
-      resolve(_apiFetch(url, { credentials: "omit" }));
+      resolve(apiFetch(url, { credentials: "omit" }));
     })
       .then(function (r) {
         return r && r.ok ? r.json() : null;
