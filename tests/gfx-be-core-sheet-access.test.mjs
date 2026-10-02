@@ -240,10 +240,15 @@ describe("B1-N4 contract · verifyExistingSheetAccess reasons", () => {
       fetchImpl: async () => (n++ === 0 ? { ok: true, status: 200 } : { ok: false, status: 400 }),
     });
     assert.deepEqual(headers, { ok: false, reason: "headers_unreadable", status: 400 });
+    // HOLES A10: headers_ok now also needs row 1 to be the starter header
+    // (this harness's is ["Company", "Role"]) and a write probe to pass.
     const ok = await verify(env, {
       sheetId: "s",
       accessToken: FAKE_TOKEN,
-      fetchImpl: async () => ({ ok: true, status: 200 }),
+      fetchImpl: async (url) =>
+        jsonResponse(200, /\/values\//.test(url)
+          ? { values: [["Company", "Role"]] }
+          : { properties: { title: "Pipeline" } }),
     });
     assert.deepEqual(ok, { ok: true, reason: "headers_ok" });
   });
