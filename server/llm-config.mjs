@@ -279,7 +279,11 @@ export async function writeLlmConfig(config, env) {
  * @returns {LlmConfig}
  */
 function pinFromAtsEnv(env) {
-  const provider = asString(env.ATS_PROVIDER).toLowerCase() || "gemini";
+  // The shared enum, as ats-scorecard.mjs reads ATS_PROVIDER: "ollama" and
+  // "local" are openai_compatible (P15), and anything unknown stays gemini.
+  // The raw spelling rides along so normalizeLlmConfig keeps it as the alias.
+  const spelling = asString(env.ATS_PROVIDER).toLowerCase() || "gemini";
+  const provider = normalizeProvider(spelling) || "gemini";
   if (provider === "openai") {
     return {
       provider,
@@ -309,7 +313,7 @@ function pinFromAtsEnv(env) {
   }
   if (provider === "openai_compatible") {
     return {
-      provider,
+      provider: spelling,
       model: asString(env.ATS_OPENAI_COMPATIBLE_MODEL || env.ATS_OPENAI_COMPAT_MODEL),
       apiKey: asString(env.ATS_OPENAI_COMPATIBLE_API_KEY || env.ATS_OPENAI_COMPAT_API_KEY),
       baseUrl: asString(env.ATS_OPENAI_COMPATIBLE_BASE_URL || env.ATS_OPENAI_COMPAT_BASE_URL),
