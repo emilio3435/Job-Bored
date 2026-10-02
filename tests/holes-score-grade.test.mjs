@@ -32,10 +32,19 @@ const judged = (score, disposition = "READY") => ({ qa: { contract: "materials.q
 const letter = (score, disposition) => ms.gradeOf(judged(score, disposition), null).letter;
 
 describe("gradeOf · §0.8 bands", () => {
-  it("should put 59 in F and 60 at the bottom of D", () => {
-    assert.equal(letter(59), "F");
+  /* Grok review: 0–59 bands like the others — bottom three F-, top three F+. */
+  it("should band 0 to 59 like the others: 0–2 F-, 57–59 F+, F between, and 60 at the bottom of D", () => {
+    assert.deepEqual([0, 1, 2, 3, 30, 56, 57, 58, 59].map((s) => letter(s)), ["F-", "F-", "F-", "F", "F", "F", "F+", "F+", "F+"]);
     assert.equal(letter(60), "D-");
-    assert.equal(letter(0), "F");
+  });
+
+  it("should keep F- and F+ on the FAIL rank list: a FAIL never lifts them and never caps them", () => {
+    for (const s of [1, 58]) {
+      const g = ms.gradeOf(judged(s, "FAIL"), null);
+      assert.equal(g.letter, letter(s), `${s} stays ${letter(s)} on a FAIL`);
+      assert.equal(g.capped, false);
+    }
+    assert.equal(ms.gradeOf(judged(1), null).base, "F");
   });
 
   it("should mark the bottom three points of a band minus and the top three plus", () => {

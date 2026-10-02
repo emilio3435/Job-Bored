@@ -40,15 +40,16 @@
 
   /* -------------------- §0.8 the grade -------------------- */
 
-  /* Within a band the bottom three points are "-" and the top three "+";
-     below 60 is a plain F. */
+  /* Within a band the bottom three points are "-" and the top three "+",
+     F (0–59) included. */
   var BANDS = [
     { base: "A", lo: 90, hi: 100 },
     { base: "B", lo: 80, hi: 89 },
     { base: "C", lo: 70, hi: 79 },
     { base: "D", lo: 60, hi: 69 },
+    { base: "F", lo: 0, hi: 59 },
   ];
-  var RANK = ["F", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
+  var RANK = ["F-", "F", "F+", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
   var FAIL_CAP = "D";
 
   function letterFor(score) {
@@ -59,7 +60,7 @@
       if (score >= b.hi - 2) return b.base + "+";
       return b.base;
     }
-    return "F";
+    return "F-";
   }
 
   function finite(n) {
