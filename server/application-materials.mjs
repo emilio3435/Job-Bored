@@ -1,3 +1,4 @@
+import { resolveRunDir } from "./materials-history.mjs";
 /**
  * Application Materials API — safe local file access for job application
  * packages under ~/.jobbored/applications/<slug>/.
@@ -1071,6 +1072,20 @@ export async function resolveFile(slug, filename, { root } = {}) {
     contentType: contentTypeFor(filename),
     modifiedAt: st.mtime.toUTCString(),
   };
+}
+
+/** Resolve an immutable run artifact with the package allowlist and realpath guard.
+ * @param {string} slug @param {string} runId @param {string} filename @param {{root?:string}} [options] */
+export async function resolveRunFile(slug, runId, filename, { root } = {}) {
+  if (!isAllowedFilename(filename)) throw httpError("Filename not allowed", 400);
+  const appDir = await resolveApplicationDir(slug, { root });
+  const dir = await resolveRunDir(appDir, runId);
+  let file;
+  try { file = await realpath(join(dir, filename)); } catch { throw httpError("File not found", 404); }
+  if (!file.startsWith(dir + sep)) throw httpError("Path escape detected", 400);
+  const st = await stat(file);
+  if (!st.isFile()) throw httpError("Not a file", 404);
+  return { absolutePath: file, size: st.size, contentType: contentTypeFor(filename), modifiedAt: st.mtime.toUTCString() };
 }
 
 /**

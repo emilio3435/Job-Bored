@@ -1,3 +1,4 @@
+import { readQaVerdict, verdictSnapshot } from "./materials-qa.mjs";
 /**
  * Materials version history (Wave 2 · U-6).
  *
@@ -99,7 +100,7 @@ async function readText(path) {
  * @param {string} appDir
  * @param {string} runId
  */
-async function resolveRunDir(appDir, runId) {
+export async function resolveRunDir(appDir, runId) {
   if (!isValidRunId(runId)) throw httpError("Invalid run id", 400, "invalid_run_id");
   const runsRoot = join(appDir, RUNS_DIR);
   const dir = join(runsRoot, runId);
@@ -117,25 +118,10 @@ async function resolveRunDir(appDir, runId) {
   return real;
 }
 
-/**
- * @param {Record<string, unknown> | null} qa
- * @returns {{ disposition: string, score: number | null, max: number | null } | null}
- */
-function verdictOf(qa) {
-  if (!qa) return null;
-  const quality = qa.quality && typeof qa.quality === "object" ? /** @type {Record<string, unknown>} */ (qa.quality) : null;
-  if (qa.contract === "materials.qa.v2") {
-    return {
-      disposition: typeof qa.disposition === "string" ? qa.disposition : "",
-      score: quality && typeof quality.score === "number" ? quality.score : null,
-      max: 100,
-    };
-  }
-  const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : null;
-  const score = rubric && typeof rubric.score === "number" ? rubric.score : null;
-  const max = rubric && typeof rubric.max === "number" ? rubric.max : null;
-  const disposition = typeof qa.disposition === "string" ? qa.disposition : "";
-  return { disposition, score, max };
+/** @param {Record<string, unknown> | null} qa */
+export function verdictOf(qa) {
+  const view = readQaVerdict(qa);
+  return view ? { disposition: view.disposition, state: view.state, reason: view.reasons[0]?.text || "", failedChecks: verdictSnapshot(view)?.failedCheckIds || [], ...(view.legacy ? { legacy: view.legacy } : {}) } : null;
 }
 
 /**
@@ -175,7 +161,13 @@ async function docFingerprint(dir, doc) {
  * @property {string} [regeneratedFrom]
  * @property {Record<string, unknown>} [repair]
  * @property {HistoryDoc[]} documents
- * @property {Partial<Record<HistoryDoc, { disposition: string, score: number | null, max: number | null }>>} verdicts
+ * @property {Partial<Record<HistoryDoc, { disposition: string | null, state: string, reason: string, failedChecks: string[], legacy?: string }>>} verdicts
+ * @property {"run"|"pass"} kind
+ * @property {string} [parentRunId]
+ * @property {string} [label]
+ * @property {{reason:string}|null} held
+ * @property {boolean} isDefault
+ * @property {Partial<Record<HistoryDoc, Record<string,string>>>} files
  * @property {HistoryDoc[]} active documents whose served copy is this run's
  */
 
@@ -229,11 +221,11 @@ export async function listRuns(slug, { root } = {}) {
       const verdict = verdictOf(await readJson(join(runDir, DOC_FILES[doc].qa)));
       if (verdict) verdicts[doc] = verdict;
       const print = await docFingerprint(runDir, doc);
-      if (print != null && print === served[doc]) active.push(doc);
+      if (run?.kind !== "pass" && print != null && print === served[doc]) active.push(doc);
     }
     /** @type {RunSummary} */
     const summary = {
-      runId,
+      runId, kind: run?.kind === "pass" ? "pass" : "run", held: null, isDefault: false, files: {},
       date,
       feature: run && typeof run.feature === "string" ? run.feature : documents.length === 2 ? "both" : documents[0] || "",
       template: template && typeof template.family === "string" ? template.family : "",
@@ -242,6 +234,18 @@ export async function listRuns(slug, { root } = {}) {
       verdicts,
       active,
     };
+    if (typeof run?.parentRunId === "string") summary.parentRunId = run.parentRunId;
+    if (typeof run?.label === "string") summary.label = run.label;
+    const fail = Object.values(verdicts).find(v => v.disposition === "FAIL");
+    summary.held = fail ? { reason: fail.reason || "Document fails checks" } : null;
+    for (const doc of documents) {
+      const hrefs = {};
+      for (const ext of ["pdf", "html", "txt"]) {
+        const filename = DOC_FILES[doc][/** @type {"pdf"|"html"|"txt"} */ (ext)];
+        if (existsSync(join(runDir, filename))) /** @type {Record<string,string>} */ (hrefs)[ext] = `/api/applications/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}/files/${filename}`;
+      }
+      summary.files[doc] = hrefs;
+    }
     if (template && typeof template.regeneratedFrom === "string") summary.regeneratedFrom = template.regeneratedFrom;
     if (run && run.repair && typeof run.repair === "object") summary.repair = /** @type {Record<string, unknown>} */ (run.repair);
     runs.push(summary);
@@ -257,6 +261,8 @@ export async function listRuns(slug, { root } = {}) {
     const keep = holders.find((r) => r.runId === manifestRun) || holders[0];
     for (const run of holders) if (run !== keep) run.active = run.active.filter((d) => d !== doc);
   }
+  const defaultRun = runs.find(r => r.kind !== "pass" && r.runId === manifestRun && !r.held) || runs.find(r => r.kind !== "pass" && r.active.length && !r.held);
+  if (defaultRun) defaultRun.isDefault = true;
   return { slug, runs: runs.slice(0, MAX_RUNS) };
 }
 
@@ -279,6 +285,8 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
   if (pending && !/^(failed|complete|done)$/i.test(phase)) {
     throw httpError("A draft is running for this role. Wait for it to finish, then try again.", 409, "draft_in_flight");
   }
+  const storedRun = await readJson(join(runDir, "run.json"));
+  if (storedRun?.kind === "pass") throw httpError("Restore a document version through the editor", 409, "pass_not_promotable");
   const documents = docsInRun(runDir);
   if (!documents.length) throw httpError("This version has no documents to restore.", 404, "run_empty");
   /** @type {string[]} */
@@ -344,7 +352,7 @@ async function newestFeatureRunId(appDir, feature) {
     if (!entry.isDirectory() || !isValidRunId(entry.name)) continue;
     const dir = join(runsRoot, entry.name);
     const run = await readJson(join(dir, "run.json"));
-    if (!run || (run.feature !== feature && run.feature !== "both")) continue;
+    if (!run || run.kind === "pass" || (run.feature !== feature && run.feature !== "both")) continue;
     let date = typeof run.finishedAt === "string" ? run.finishedAt
       : typeof run.requestedAt === "string" ? run.requestedAt : "";
     if (!date) {
@@ -418,6 +426,7 @@ export async function recordRepairOutcome({ root, slug, runId, repair, pipelineR
     issueIds: repair.issueIds,
     changed: normalizedText(childText) !== normalizedText(repair.sourceText),
     adopted,
+    before: savedRepair.before || pipelineRepair.before || verdictSnapshot({ ...await readJson(join(appDir, RUNS_DIR, repair.parentRunId, files.qa)), runId: repair.parentRunId }),
     reason: String(pipelineRepair.reason || savedRepair.reason || (adopted ? "candidate adopted" : "candidate retained for review")),
   };
   await writeFile(join(runDir, "run.json"), `${JSON.stringify({ ...run, repair: result }, null, 2)}\n`, "utf8");

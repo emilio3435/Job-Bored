@@ -30,6 +30,7 @@ import {
   listApplications,
   listPendingQueue,
   resolveFile,
+  resolveRunFile,
   writeJobDescription,
   getApplicationsRoot,
   isValidSlug,
@@ -55,7 +56,8 @@ import { registerCompanyLogoRoute } from "./company-logo-route.mjs";
 import { refreshLogosFromLedger } from "./materials-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
-import { regeneratePackage, templateRegenerateResponse } from "./materials-regenerate.mjs";
+import { JUDGE_TIMEOUT_MS } from "./materials-judge.mjs";
+import { regeneratePackage, templateRegenerateResponse, rescoreRun } from "./materials-regenerate.mjs";
 import { registerMaterialsEditRoutes } from "./materials-versions.mjs";
 import { diffRuns, listRuns, loadRepairSource, promoteRun } from "./materials-history.mjs";
 import { loadChecklist, setChecklistItem } from "./materials-checklist.mjs";
@@ -1303,6 +1305,28 @@ app.get("/api/applications/:slug/runs", async (req, res) => {
   } catch (e) {
     sendAppError(res, e);
   }
+});
+
+app.get("/api/applications/:slug/runs/:runId/files/:filename", async (req, res) => {
+  try {
+    const meta = await resolveRunFile(req.params.slug, req.params.runId, req.params.filename);
+    res.setHeader("Content-Type", meta.contentType);
+    res.setHeader("Content-Length", String(meta.size));
+    res.setHeader("Last-Modified", meta.modifiedAt);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (meta.contentType.startsWith("text/html")) res.setHeader("Content-Security-Policy", MATERIALS_HTML_CSP);
+    if (String(req.query.download || "") === "1") res.setHeader("Content-Disposition", `attachment; filename="${req.params.filename.replace(/"/g, "")}"`);
+    const stream = createReadStream(meta.absolutePath);
+    stream.on("error", error => { if (!res.headersSent) sendAppError(res, error); else res.end(); });
+    stream.pipe(res);
+  } catch (e) { sendAppError(res, e); }
+});
+
+app.post("/api/applications/:slug/runs/:runId/rescore", async (req, res) => {
+  try {
+    res.json(await rescoreRun({ slug: req.params.slug, runId: req.params.runId }, { signal: routeDeadlineSignal(req, res, 4 * JUDGE_TIMEOUT_MS) }));
+  } catch (e) { sendAppError(res, e); }
 });
 
 app.post("/api/applications/:slug/runs/:runId/promote", async (req, res) => {

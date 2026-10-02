@@ -184,11 +184,11 @@ describe("repair source and request", () => {
     const child = await addRun("child", "resume", resumeDraft, "Same   text", "2026-09-28T02:00:00Z");
     const source = await loadRepairSource(slug, "resume", "parent", { root });
     const result = await recordRepairOutcome({ root, slug, runId: "child", repair: { ...source, instruction: "Tighten", issueIds: ["i1"] }, pipelineResult: { repair: { adopted: false, reason: "new hard gate" } } });
-    assert.deepEqual(result, { parentRunId: "parent", instruction: "Tighten", issueIds: ["i1"], changed: false, adopted: false, reason: "new hard gate" });
+    assert.deepEqual(result, { parentRunId: "parent", instruction: "Tighten", issueIds: ["i1"], changed: false, adopted: false, before: { runId: "parent", disposition: "REVIEW", failedCheckIds: [] }, reason: "new hard gate" });
     assert.deepEqual(JSON.parse(await readFile(join(child, "run.json"), "utf8")).repair, result);
   });
 
-  it("G8 and C7: lists v2 scores and promotes only the selected document's draft", async () => {
+  it("G8 and C7: adapts v2 verdicts without totals and promotes only the selected document's draft", async () => {
     const resumeDir = await addRun("r1", "resume", resumeDraft, "Resume version", "2026-09-28T01:00:00Z");
     await writeFile(join(resumeDir, "qa.resume.json"), JSON.stringify({ contract: "materials.qa.v2", disposition: "READY", quality: { score: 91 } }));
     await addRun("r2", "cover_letter", letterDraft, "Letter version", "2026-09-28T02:00:00Z");
@@ -196,7 +196,7 @@ describe("repair source and request", () => {
     await writeFile(join(root, slug, "cover-letter.txt"), "Letter version");
     const letterBefore = await readFile(join(root, slug, "draft.cover_letter.json"));
     const listed = await listRuns(slug, { root });
-    assert.deepEqual(listed.runs.find((run) => run.runId === "r1").verdicts.resume, { disposition: "READY", score: 91, max: 100 });
+    assert.deepEqual(listed.runs.find((run) => run.runId === "r1").verdicts.resume, { disposition: "READY", state: "graded", reason: "", failedChecks: [], legacy: "old_checker" });
     await promoteRun(slug, "r1", { root });
     assert.deepEqual(await readFile(join(root, slug, "draft.cover_letter.json")), letterBefore);
     assert.deepEqual(await readFile(join(root, slug, "draft.resume.json")), await readFile(join(resumeDir, "draft.resume.json")));
