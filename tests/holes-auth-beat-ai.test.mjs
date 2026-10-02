@@ -52,8 +52,7 @@ describe("A5 · the AI step verifies a key before it keeps it", () => {
     await startCheck(env, "openrouter", "sk-or-typo-example");
 
     assert.deepEqual(checked, ["openrouter"], "the typed key is what gets checked");
-    assert.equal(stored(env).resumeProvider, "gemini", "storage keeps the working provider");
-    assert.notEqual(stored(env).resumeOpenRouterApiKey, "sk-or-typo-example");
+    assert.deepEqual(stored(env), {}, "storage never saw the failed key");
     assert.equal(env.window.COMMAND_CENTER_CONFIG.resumeProvider, "gemini");
     assert.equal(env.window.COMMAND_CENTER_CONFIG.resumeGeminiApiKey, "AIza-example-working");
     assert.notEqual(env.window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey, "sk-or-typo-example");
@@ -75,9 +74,7 @@ describe("A5 · the AI step verifies a key before it keeps it", () => {
     releaseFirst({ ok: false, provider: "openrouter", message: "OpenRouter HTTP 401" });
     await first;
 
-    assert.equal(stored(env).resumeProvider, "gemini");
-    assert.notEqual(stored(env).resumeOpenRouterApiKey, "sk-or-typo-example");
-    assert.notEqual(stored(env).resumeOpenAIApiKey, "sk-typo-example");
+    assert.deepEqual(stored(env), {}, "storage never saw either failed key");
     assert.equal(env.window.COMMAND_CENTER_CONFIG.resumeProvider, "gemini");
   });
 
@@ -86,5 +83,49 @@ describe("A5 · the AI step verifies a key before it keeps it", () => {
     await startCheck(env, "openrouter", "sk-or-good-example");
     assert.equal(stored(env).resumeProvider, "openrouter");
     assert.equal(stored(env).resumeOpenRouterApiKey, "sk-or-good-example");
+  });
+
+  it("writes nothing to storage while the check is still running (F3)", async () => {
+    let release;
+    const env = await openAi({
+      verifyProvider: () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    });
+    const check = startCheck(env, "openrouter", "sk-or-pending-example");
+    await new Promise((r) => setImmediate(r));
+
+    // A tab closed now must leave no unverified key behind.
+    assert.deepEqual(stored(env), {}, "no store write before the check passes");
+    assert.equal(
+      env.window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey,
+      "sk-or-pending-example",
+      "the checker reads the typed key from the live config",
+    );
+    release({ ok: true, provider: "openrouter", model: "m" });
+    await check;
+    assert.equal(stored(env).resumeOpenRouterApiKey, "sk-or-pending-example");
+  });
+
+  it("keeps a change made while the check ran when the check fails (F6)", async () => {
+    let release;
+    const env = await openAi({
+      verifyProvider: () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    });
+    const check = startCheck(env, "openrouter", "sk-or-typo-example");
+    await new Promise((r) => setImmediate(r));
+    // Another tab picks a provider meanwhile; jb-config lands it here.
+    env.window.COMMAND_CENTER_CONFIG.resumeProvider = "anthropic";
+
+    release({ ok: false, provider: "openrouter", message: "OpenRouter HTTP 401" });
+    await check;
+
+    assert.equal(env.window.COMMAND_CENTER_CONFIG.resumeProvider, "anthropic", "the newer choice survives");
+    assert.notEqual(env.window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey, "sk-or-typo-example");
+    assert.equal(stored(env).resumeProvider, undefined, "no rollback write over the newer choice");
   });
 });

@@ -232,9 +232,11 @@
     // JOBQA: the key (or base URL) field's own error, drawn beside the field
     // from state so the shell's repaints keep it; "" when none.
     fieldError: "",
-    // A5: what the provider fields held before the first unverified check;
-    // null once a check settles. See holdRollback().
+    // A5: what the provider fields held before the first unverified check,
+    // and what the checks staged; null once a check settles. See
+    // stageProviderConfig().
     rollback: null,
+    staged: null,
   };
 
   const FIELD_ERROR_ID = "oneFlowAiFieldError";
@@ -862,59 +864,73 @@
     return fetch(url, init);
   }
 
-  /** The one write path: the override store, mirrored into the live config. */
-  function persistProviderConfig(def, value) {
+  function providerPatch(def, value) {
     const patch = { resumeProvider: def.id };
     if (def.baseUrlField) patch[def.baseUrlField] = value;
     else if (def.keyField) patch[def.keyField] = value;
     if (def.modelField) patch[def.modelField] = resolveModel(def);
+    return patch;
+  }
+
+  /** The one write path: the override store, mirrored into the live config. */
+  function persistProviderConfig(patch) {
     call("mergeStoredConfigOverridePatch", patch);
     const cfg = window.COMMAND_CENTER_CONFIG;
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
   }
 
   /**
-   * A5: the checker reads the live config, so a key is saved before its
-   * check — and a failed check must not leave a typo in charge of a provider
-   * that worked. This keeps what each field held before the first unverified
-   * try (a later try adds only fields it touches first).
+   * A5: the checker reads the live config, so a typed key goes there — and
+   * only there — for its check. Nothing reaches the store until the check
+   * passes, so a closed tab leaves no unverified key behind. state.rollback
+   * keeps what each field held before the first unverified try;
+   * state.staged keeps what the tries put there.
    */
-  function providerFields(def) {
-    return ["resumeProvider", def.baseUrlField || def.keyField, def.modelField].filter(Boolean);
+  function stageProviderConfig(patch) {
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    if (!cfg || typeof cfg !== "object") return;
+    if (!state.rollback) state.rollback = {};
+    if (!state.staged) state.staged = {};
+    for (const key of Object.keys(patch)) {
+      if (!Object.prototype.hasOwnProperty.call(state.rollback, key)) {
+        state.rollback[key] = { had: Object.prototype.hasOwnProperty.call(cfg, key), value: cfg[key] };
+      }
+    }
+    Object.assign(cfg, patch);
+    Object.assign(state.staged, patch);
   }
 
-  function holdRollback(def) {
-    const cfg = liveConfig();
-    if (!state.rollback) state.rollback = {};
-    for (const key of providerFields(def)) {
-      if (!Object.prototype.hasOwnProperty.call(state.rollback, key)) {
-        state.rollback[key] = cfg[key] == null ? "" : cfg[key];
-      }
+  /** Put back a field only while it still holds what a try staged (F6). */
+  function restoreFields(keys) {
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    if (!cfg || typeof cfg !== "object" || !state.rollback) return;
+    for (const key of keys) {
+      if (cfg[key] !== state.staged[key]) continue;
+      const before = state.rollback[key];
+      if (before.had) cfg[key] = before.value;
+      else delete cfg[key];
     }
   }
 
-  function restoreFields(keys) {
-    const patch = {};
-    for (const key of keys) patch[key] = state.rollback[key];
-    if (!Object.keys(patch).length) return;
-    call("mergeStoredConfigOverridePatch", patch);
-    const cfg = window.COMMAND_CENTER_CONFIG;
-    if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
+  function endTries() {
+    state.rollback = null;
+    state.staged = null;
   }
 
-  /** The check failed: every field goes back to its last verified value. */
+  /** The check failed: every staged field goes back to its last verified value. */
   function rollbackUnverified() {
     if (!state.rollback) return;
     restoreFields(Object.keys(state.rollback));
-    state.rollback = null;
+    endTries();
   }
 
-  /** The check passed: keep its fields; undo any an abandoned try left. */
-  function keepVerified(def) {
-    if (!state.rollback) return;
-    const kept = providerFields(def);
-    restoreFields(Object.keys(state.rollback).filter((key) => !kept.includes(key)));
-    state.rollback = null;
+  /** The check passed: save its fields; undo any an abandoned try left. */
+  function keepVerified(patch) {
+    if (state.rollback) {
+      restoreFields(Object.keys(state.rollback).filter((key) => !(key in patch)));
+    }
+    endTries();
+    persistProviderConfig(patch);
   }
 
   /** @returns {Promise<boolean>} whether ~/.jobbored/llm.json took the pin */
@@ -1001,8 +1017,8 @@
       );
       return;
     }
-    holdRollback(def);
-    persistProviderConfig(def, value);
+    const patch = providerPatch(def, value);
+    stageProviderConfig(patch);
 
     const run = (state.checkRun += 1);
     state.stalled = false;
@@ -1053,7 +1069,7 @@
     }
 
     state.lastFailure = null;
-    keepVerified(def);
+    keepVerified(patch);
     const model = String((result && result.model) || "").trim();
     setStages(ctx, [
       { label: "Checking your key…", state: "done" },
