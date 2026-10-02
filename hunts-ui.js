@@ -337,12 +337,17 @@
       '<p class="hunts-item__yield">' + countsHtml(c.leadsWritten, c.leadsUpdated) + fit +
       trendHtml(c.trend, id) + "</p>" +
       "</div>" +
+      '<div class="hunts-item__actions">' +
+      '<button type="button" class="btn-modal-secondary hunts-btn" data-hunts-action="run-search"' +
+      ' data-cluster-key="' + esc(c.key) + '" aria-describedby="' + id + '-title"' + lockedAttr(ctx) +
+      ">Run again</button>" +
       '<button type="button" class="hunts-switch" role="switch" aria-checked="' + (saved ? "true" : "false") + '"' +
       ' data-hunts-action="toggle-save" data-cluster-key="' + esc(c.key) + '"' +
       ' aria-describedby="' + id + '-title"' + lockedAttr(ctx) + ">" +
       '<span class="hunts-switch__track" aria-hidden="true"><span class="hunts-switch__thumb"></span></span>' +
       '<span class="hunts-switch__label">Save as hunt</span>' +
       "</button>" +
+      "</div>" +
       "</li>"
     );
   }
@@ -620,6 +625,11 @@
     return (root && root.JobBoredA11y) || null;
   }
 
+  function appHost() {
+    var app = root && root.JobBoredApp;
+    return (app && app.core && app.core.host) || null;
+  }
+
   function announce(message, assertive) {
     var api = a11y();
     if (api && api.live && typeof api.live.announce === "function") {
@@ -893,6 +903,38 @@
             { store: store, opener: btn },
           ).then(render);
         }
+      } else if (action === "run-search") {
+        // Spec §0.5: re-run a productive past search once, unsaved. It goes
+        // through the normal dispatch as trigger "hunt" with the cluster's
+        // plan as searchPlanOverride (INTERFACE-HUNTS §4.3).
+        var past = clusterByKey(btn.getAttribute("data-cluster-key") || "");
+        var host = appHost();
+        if (!past) return;
+        if (!host || typeof host.triggerDiscoveryRun !== "function") {
+          announce("Discovery isn’t ready yet.", true);
+          return;
+        }
+        btn.disabled = true;
+        Promise.resolve(
+          host.triggerDiscoveryRun({
+            trigger: "hunt",
+            hunt: { searchPlanOverride: past.searchPlan },
+          }),
+        ).then(
+          function (res) {
+            btn.disabled = false;
+            announce(
+              res && res.ok === false
+                ? "The search didn’t start. Check the Runs log."
+                : "Search started. Follow it in the Runs log.",
+              Boolean(res && res.ok === false),
+            );
+          },
+          function () {
+            btn.disabled = false;
+            announce("The search didn’t start.", true);
+          },
+        );
       } else if (action === "run") {
         withBusy(id, function () {
           return store.runHunt(id);

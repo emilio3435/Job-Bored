@@ -351,3 +351,39 @@ test("HUNT-FE-UI-9: mount() paints the panel, re-renders on store changes, and r
   assert.equal(h.refreshes(), 1, "staying visible does not refetch");
   assert.equal(h.context.JobBoredHuntsUI.mount(h.panel, { store: h.store }), null, "mounts once");
 });
+
+test("HUNT-FE-UI-10: a hitlist row offers Run again, which runs the search once as trigger 'hunt' with the cluster's plan", async () => {
+  const row = ui.renderClusterHtml(REPEATING, 0, { now: NOW });
+  assert.match(row, /data-hunts-action="run-search" data-cluster-key="sk_22819704278edfea"[^>]*>Run again</);
+  const locked = ui.renderClusterHtml(REPEATING, 0, { now: NOW, locked: true });
+  assert.match(locked, /data-hunts-action="run-search"[^>]* disabled>/);
+
+  const h = mountHarness();
+  const calls = [];
+  h.context.JobBoredApp = {
+    core: {
+      host: {
+        triggerDiscoveryRun: async (opts) => {
+          calls.push(opts);
+          return { ok: true, runId: "run_new" };
+        },
+      },
+    },
+  };
+  h.context.JobBoredHuntsUI.mount(h.panel, { store: h.store, drawer: h.drawer });
+  const btn = {
+    disabled: false,
+    attrs: { "data-hunts-action": "run-search", "data-cluster-key": REPEATING.key },
+    getAttribute(name) {
+      return this.attrs[name] || null;
+    },
+  };
+  btn.closest = (sel) => (sel === "[data-hunts-action]" ? btn : null);
+  h.panel.handlers.click({ target: btn });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].trigger, "hunt");
+  // The call crosses the vm realm boundary; compare the data, not prototypes.
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].hunt)), { searchPlanOverride: PLAN });
+  assert.equal(btn.disabled, false, "the button comes back after the dispatch settles");
+});

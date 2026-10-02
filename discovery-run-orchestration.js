@@ -391,6 +391,7 @@ async function triggerDiscoveryRun(options) {
       runOptions.payload ||
       (await h("buildDiscoveryWebhookPayload", h("getSHEET_ID"), {
         trigger: runTrigger,
+        hunt: runOptions.hunt,
       }));
     // Guardrail: verify intent is present before sending the webhook request.
     // The dashboard resolves intent through the SAME shared helper the worker

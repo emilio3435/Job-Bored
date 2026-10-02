@@ -321,3 +321,14 @@ test("HUNT-FE-STORE-9: noveltyContext hands buildSearchPlan the cached plans' ro
   await store.refresh();
   assert.deepEqual(store.noveltyContext(), { history: [{ selected: PLAN.selected }] });
 });
+
+test("HUNT-FE-STORE-10: loadHunts() refreshes only the saved list, so Runs rows know what is saved", async () => {
+  const events = [];
+  const { store, calls } = makeStore({ routes: ONLINE, events });
+  assert.equal(await store.loadHunts(), true);
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ["GET /hunts"]);
+  assert.equal(store.huntForRun("run_saved").id, HUNT.id);
+  assert.equal(events.length, 1, "listeners hear about the new list");
+  const offline = makeStore({ routes: {} });
+  assert.equal(await offline.store.loadHunts(), false);
+});

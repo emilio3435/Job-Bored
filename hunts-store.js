@@ -357,6 +357,17 @@
       });
     }
 
+    /** GET /hunts only: enough for the Runs rows' "Save as hunt" state. */
+    function loadHunts() {
+      return request("GET", "/hunts").then(function (res) {
+        if (!res.ok || !Array.isArray(res.body.hunts)) return false;
+        cache.hunts = res.body.hunts;
+        writeCache();
+        changed();
+        return true;
+      });
+    }
+
     function mutation(res, apply) {
       if (res.offline) {
         status.offline = true;
@@ -575,6 +586,7 @@
     return {
       CHANGED_EVENT: CHANGED_EVENT,
       refresh: refresh,
+      loadHunts: loadHunts,
       snapshot: snapshot,
       saveHunt: saveHunt,
       updateHunt: updateHunt,
@@ -586,17 +598,30 @@
     };
   }
 
-  /* ---- the page's store, and the flush on open (§0.9) ---- */
+  /* ---- the page's store: on open, load the saved hunts and flush (§0.9) ---- */
 
   var store = createHuntsStore();
 
-  function bootFlushOnOpen() {
-    var done = false;
+  // The worker config and the Google token arrive after boot, so retry on a
+  // short backoff (and on the Sheet load event); each step runs once per page.
+  function bootOnOpen() {
+    var loaded = false;
+    var loading = false;
+    var flushed = false;
     var attempt = function () {
-      if (done || !defaultAccessToken() || !defaultResolveWorker()) return;
-      store.flushAwaitingSheetWrites().then(function (report) {
-        if (report && report.ok) done = true;
-      });
+      if (!defaultResolveWorker()) return;
+      if (!loaded && !loading) {
+        loading = true;
+        store.loadHunts().then(function (ok) {
+          loading = false;
+          loaded = ok;
+        });
+      }
+      if (!flushed && defaultAccessToken()) {
+        store.flushAwaitingSheetWrites().then(function (report) {
+          if (report && report.ok) flushed = true;
+        });
+      }
     };
     FLUSH_RETRY_DELAYS_MS.forEach(function (delay) {
       setTimeout(attempt, delay);
@@ -605,7 +630,7 @@
   }
 
   if (root && root.document && typeof root.addEventListener === "function") {
-    bootFlushOnOpen();
+    bootOnOpen();
   }
 
   return Object.assign({ createHuntsStore: createHuntsStore, CACHE_KEY: CACHE_KEY }, store);
