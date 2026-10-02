@@ -193,4 +193,5 @@ Lists split on `,`, `;` and newlines. Values are lowercased, trimmed and whitesp
 - `runs-tab.js` `SCHEDULED_TRIGGERS` should add `scheduled-hunt` so the Scheduled chip finds hunt runs (tests/runs-tab.test.mjs pins that list's fixture).
 - A run row's "Save as hunt" toggle is on when some hunt has `sourceRunId === runId` or `searchKey ===` the run summary's `searchKey`.
 - A worker that serves hunts lists `routes.hunts: "/hunts"` in `GET /health`; an older worker answers `/hunts` with 404 `not_found`.
+- The Cloudflare relay template (`templates/cloudflare-worker/worker.js`) does not forward `/hunts` yet; hunts work on a direct or tunnelled worker URL.
 - Show "worker offline" when `/hunts` fails at the network level. Never cache `googleAccessToken` in localStorage (§0.7).
