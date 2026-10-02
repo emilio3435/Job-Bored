@@ -72,15 +72,28 @@ describe("HOLES PROV P7 · OpenAI reasoning models get no temperature", () => {
     assert.ok("max_tokens" in draft);
   });
 
-  it("keeps temperature on OpenRouter, even for an OpenAI reasoning model id", async () => {
-    const { draft, inline } = await draftAndInline({
-      resumeProvider: "openrouter",
-      resumeOpenRouterApiKey: "fictional-key",
-      resumeOpenRouterModel: "openai/gpt-5.4-mini",
+  for (const provider of ["openrouter", "local"]) {
+    for (const model of ["openai/gpt-5.4-mini", "o3-mini"]) {
+      it(`omits temperature for ${model} through ${provider} in drafting and inline calls`, async () => {
+        const { draft, inline } = await draftAndInline(provider === "openrouter" ? {
+          resumeProvider: provider, resumeOpenRouterApiKey: "fictional-key", resumeOpenRouterModel: model,
+        } : {
+          resumeProvider: provider, resumeLocalApiKey: "fictional-key", resumeLocalModel: model,
+        });
+        assert.equal("temperature" in draft, false);
+        assert.equal("temperature" in inline, false);
+      });
+    }
+    it(`keeps temperature for ordinary chat models through ${provider}`, async () => {
+      const { draft, inline } = await draftAndInline(provider === "openrouter" ? {
+        resumeProvider: provider, resumeOpenRouterApiKey: "fictional-key", resumeOpenRouterModel: "openai/gpt-4o-mini",
+      } : {
+        resumeProvider: provider, resumeLocalModel: "gemma4:e2b",
+      });
+      assert.equal(draft.temperature, 0.7);
+      assert.equal(inline.temperature, 0.5);
     });
-    assert.equal(draft.temperature, 0.7);
-    assert.equal(inline.temperature, 0.5);
-  });
+  }
 
   it("still drafts when llm-output-budget.js has not loaded (fallback keeps temperature)", async () => {
     const { draft, inline } = await draftAndInline(openai("gpt-5.4"), { withBudget: false });

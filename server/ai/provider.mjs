@@ -755,8 +755,8 @@ export async function chat(input) {
     headers = { "content-type": "application/json" };
     if (resolved.apiKey) headers.authorization = `Bearer ${resolved.apiKey}`;
     // OpenAI's reasoning models (gpt-5, o-series) reject any temperature (P7).
-    const reasoningModel = provider === "openai" && openAIUsesMaxCompletionTokens(model);
-    const limitKey = reasoningModel ? "max_completion_tokens" : "max_tokens";
+    const reasoningModel = openAIUsesMaxCompletionTokens(model);
+    const limitKey = provider === "openai" && reasoningModel ? "max_completion_tokens" : "max_tokens";
     /** @type {Record<string, unknown> | undefined} */
     let responseFormat;
     if (schema) {

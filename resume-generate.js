@@ -448,7 +448,7 @@
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.5,
+      ...(output.openAIUsesMaxCompletionTokens(model) ? {} : { temperature: 0.5 }),
       ...output.outputLimitField(label === "OpenRouter" ? "openrouter" : "local", model, wantJson ? undefined : 8192),
     };
     const headers = { "Content-Type": "application/json" };
@@ -869,7 +869,7 @@
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.7,
+      ...(output.openAIUsesMaxCompletionTokens(model) ? {} : { temperature: 0.7 }),
       ...output.outputLimitField("openrouter", model),
     };
 
@@ -923,7 +923,7 @@
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.7,
+      ...(output.openAIUsesMaxCompletionTokens(model) ? {} : { temperature: 0.7 }),
       ...output.outputLimitField("local", model),
     };
     const headers = { "Content-Type": "application/json" };

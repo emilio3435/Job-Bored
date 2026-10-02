@@ -27,12 +27,22 @@ describe("P7 · OpenAI reasoning models get no temperature", () => {
     });
   }
 
-  it("keeps temperature for a chat model and for other providers", async () => {
+  for (const provider of ["openrouter", "openai_compatible"]) {
+    for (const model of ["openai/gpt-5.4-mini", "o3-mini"]) {
+      it(`omits temperature for ${model} through ${provider}`, async () => {
+        const { calls, fetchImpl } = capture();
+        await chat({ pin: { provider, model, apiKey: "fictional-key", baseUrl: provider === "openai_compatible" ? "http://127.0.0.1:11434/v1" : "" }, messages: [{ role: "user", content: "hi" }], temperature: 0.2, fetchImpl });
+        assert.equal("temperature" in calls[0].body, false);
+      });
+    }
+  }
+
+  it("keeps temperature for ordinary chat models through OpenAI and OpenRouter", async () => {
     const openai = capture();
     await chat({ pin: { provider: "openai", model: "gpt-4o-mini", apiKey: "fictional-key" }, messages: [{ role: "user", content: "hi" }], temperature: 0.2, fetchImpl: openai.fetchImpl });
     assert.equal(openai.calls[0].body.temperature, 0.2);
     const router = capture();
-    await chat({ pin: { provider: "openrouter", model: "openai/gpt-5.4-mini", apiKey: "fictional-key" }, messages: [{ role: "user", content: "hi" }], temperature: 0.2, fetchImpl: router.fetchImpl });
-    assert.equal(router.calls[0].body.temperature, 0.2, "OpenRouter normalizes its own parameters");
+    await chat({ pin: { provider: "openrouter", model: "openai/gpt-4o-mini", apiKey: "fictional-key" }, messages: [{ role: "user", content: "hi" }], temperature: 0.2, fetchImpl: router.fetchImpl });
+    assert.equal(router.calls[0].body.temperature, 0.2);
   });
 });
