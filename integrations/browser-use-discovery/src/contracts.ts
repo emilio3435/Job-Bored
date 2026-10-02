@@ -406,6 +406,10 @@ export const DISCOVERY_RUN_TRIGGERS = [
   "scheduled-cloudflare",
   "scheduled-appsscript",
   "cli",
+  // HOLES HUNT: a saved hunt run now (`hunt`) or by the in-worker scheduler
+  // (`scheduled-hunt`). See docs/INTERFACE-HUNTS.md §4.3.
+  "hunt",
+  "scheduled-hunt",
 ] as const;
 
 export type DiscoveryRunTrigger = (typeof DISCOVERY_RUN_TRIGGERS)[number];

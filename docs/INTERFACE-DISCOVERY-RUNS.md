@@ -66,12 +66,14 @@ Every discovery run MUST record one of these values in column B. The worker infe
 | `scheduled-cloudflare` | Cloudflare Cron sends the webhook payload with `trigger:"scheduled-cloudflare"`. |
 | `scheduled-appsscript` | Apps Script time trigger sends the webhook payload with `trigger:"scheduled-appsscript"`. |
 | `cli` | Direct CLI invocation — a one-off `curl` or `npm run ...`. Default for legacy `mode:"refresh"` profile refreshes when no `trigger` field is present. |
+| `hunt` | A saved hunt run now (`POST /hunts/:id/run`, or a queued run-now the hunt scheduler starts). See docs/INTERFACE-HUNTS.md. |
+| `scheduled-hunt` | The worker's in-process hunt scheduler fires a saved hunt's schedule slot. |
 
 **Request contract extension:** add a top-level optional string field to `DiscoveryProfileRequestV1`:
 
 ```ts
 /** Who/what initiated this run. Omit for UI-initiated runs (worker defaults to "manual"). */
-trigger?: "manual" | "scheduled-browser" | "scheduled-local" | "scheduled-github" | "scheduled-cloudflare" | "scheduled-appsscript" | "cli";
+trigger?: "manual" | "scheduled-browser" | "scheduled-local" | "scheduled-github" | "scheduled-cloudflare" | "scheduled-appsscript" | "cli" | "hunt" | "scheduled-hunt";
 ```
 
 The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/refresh.ps1`, `templates/systemd/*.service`) route through `scripts/run-scheduled-discovery.mjs` with `--trigger scheduled-local` so the log reflects the origin accurately. The GitHub Actions template passes `--trigger scheduled-github`.

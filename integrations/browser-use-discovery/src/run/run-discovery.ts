@@ -30,7 +30,7 @@ import type {
   StoredWorkerConfig,
   SupportedSourceId,
 } from "../contracts.ts";
-import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
+import { ATS_SOURCE_IDS, DISCOVERY_RUN_TRIGGERS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
 import {
   type DiscoveryRunsLogger,
   resolveDiscoveryRunLogError,
@@ -4160,15 +4160,11 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set([
-  "manual",
-  "scheduled-browser",
-  "scheduled-local",
-  "scheduled-github",
-  "scheduled-cloudflare",
-  "scheduled-appsscript",
-  "cli",
-]);
+// Derived from the contract list so a new trigger (HUNT: `hunt`,
+// `scheduled-hunt`) is never logged under a fallback label.
+const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set(
+  DISCOVERY_RUN_TRIGGERS,
+);
 
 /**
  * Pick the trigger label to record in the DiscoveryRuns sheet tab.
