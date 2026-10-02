@@ -394,7 +394,8 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
     assert.ok(stageNames.includes("outreach"));
     assert.match(run.stages.find((s) => s.stage === "prepare").detail, /intel cache hit/);
 
-    assert.equal(qa.judge.status, "ok", JSON.stringify(qa.judge));
+    assert.equal(qa.reviews[0].role, "first");
+    assert.equal(qa.reviews[0].status, "ok", JSON.stringify(qa.reviews));
     assert.ok(qa.sentences.some((sentence) => sentence.citations.some((citation) => citation.sourceId === "intel-1")), "the judge cites cached research");
 
     const outreach = JSON.parse(await readFile(join(dir, "outreach.json"), "utf8"));

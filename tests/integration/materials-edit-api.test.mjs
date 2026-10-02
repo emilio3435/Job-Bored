@@ -362,7 +362,9 @@ it("service path validates proposal, stream, commit, restore and stale PDF witho
   assert.equal(accepted.body.run.pdf, "ready");
   const acceptedQa = JSON.parse(await readFile(join(pkg.dir, "qa.resume.json"), "utf8"));
   assert.equal(acceptedQa.runId, accepted.body.run.runId);
-  assert.equal(acceptedQa.status, "review");
+  assert.equal(acceptedQa.contract, "materials.qa.v3");
+  assert.equal(acceptedQa.state, "not_rescored");
+  assert.equal(acceptedQa.disposition, null);
   assert.equal((await service.versions(safeDir, "resume")).versions.length, 2);
   const restored = await service.restore(pkg.slug, "r0");
   assert.equal(restored.statusCode, 200);
@@ -379,7 +381,11 @@ it("service path validates proposal, stream, commit, restore and stale PDF witho
     assert.equal(result.statusCode, 503);
     assert.equal(result.body.run.pdf, "stale");
     assert.match(await readFile(join(stale.dir, "resume.html"), "utf8"), /Tracked shipments\./);
-    assert.equal(JSON.parse(await readFile(join(stale.dir, "qa.resume.json"), "utf8")).status, "fail");
+    const staleQa = JSON.parse(await readFile(join(stale.dir, "qa.resume.json"), "utf8"));
+    assert.equal(staleQa.contract, "materials.qa.v3");
+    assert.equal(staleQa.state, "not_rescored");
+    assert.equal(staleQa.disposition, null);
+    assert.ok(staleQa.gates.some(gate => gate.id === "pdf_unrendered" && gate.kind === "hard" && !gate.pass));
   } finally { browserAvailable = true; }
 });
 

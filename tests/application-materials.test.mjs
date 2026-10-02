@@ -227,7 +227,7 @@ describe("buildManifest", () => {
     `);
 
     const manifest = await buildManifest("sparse-two-page-role", { root });
-    assert.equal(manifest.quality.version, "materials-quality.v1");
+    assert.equal(manifest.quality.version, "materials-quality.v2");
     assert.equal(manifest.quality.documents.resume.status, "review");
     assert.ok(
       manifest.quality.documents.resume.issues.some(
