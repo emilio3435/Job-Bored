@@ -50,6 +50,7 @@ import {
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { registerCompanyLogoRoute } from "./company-logo-route.mjs";
 import { refreshLogosFromLedger } from "./materials-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
@@ -754,6 +755,7 @@ app.post("/api/brand-logos/:slug", async (req, res) => {
     sendAppError(res, e);
   }
 });
+registerCompanyLogoRoute(app);
 
 /* F21: the claim ledger, built from resume.txt + profile.json on each
  * profile save (see POST /profile) and read by the materials pipeline.
