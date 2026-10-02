@@ -397,7 +397,7 @@ for (const width of [1440, 390]) {
       const resume = section.locator('[data-doc="resume"]');
       /* HOLES SCORE (§0.3): the row shows the grade button; the why, the
          fallbacks and the profile fix open in the score modal. */
-      await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(resume.locator(".case__docst")).toHaveText(/^drafted$/i);
       await expect(resume.locator(".mat-rubric")).toHaveCount(0);
       await resume.locator("[data-score-open]").click();
       const modal = page.locator(".jb-score");
@@ -467,7 +467,7 @@ for (const width of [1440, 390]) {
 
       /* A REVIEW letter downloads its ATS text straight away. */
       const letter = section.locator('[data-doc="cover_letter"]');
-      await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(letter.locator(".case__docst")).toHaveText(/^drafted$/i);
       await letter.getByRole("button", { name: "Download", exact: true }).click();
       await expect(letter.getByRole("menuitem")).toHaveCount(3);
       const download = page.waitForEvent("download");
@@ -569,8 +569,8 @@ test("Draft both queues the resume, then the letter as its own run (U-5)", async
   phase = "done";
   /* The verdict lands on the grade button; the pill keeps the document's state. */
   await expect(section.locator('[data-doc="resume"] [data-score-open]')).toHaveAttribute("data-verdict", "FAIL", { timeout: 20_000 });
-  await expect(section.locator('[data-doc="resume"] .case__docst')).toHaveText(/^ready$/i);
-  await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
+  await expect(section.locator('[data-doc="resume"] .case__docst')).toHaveText(/^drafted$/i);
+  await expect(letter.locator(".case__docst")).toHaveText(/^drafted$/i);
   expect(seen.requests, "one request: the server chains the letter").toHaveLength(1);
   expectHermetic(fence, seen, testInfo);
 });

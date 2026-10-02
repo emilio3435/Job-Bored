@@ -967,6 +967,17 @@
     if (a.parentNode) a.parentNode.removeChild(a);
   }
 
+  /* FIX3-W1: closing the held confirm gives focus back to the Download
+     that opened it (the version list repaints, so it is found again). */
+  function closeConfirm(ctl) {
+    var runId = ctl.ui.confirm && ctl.ui.confirm.runId;
+    ctl.ui.confirm = null;
+    refresh(ctl, true);
+    var back = runId ? ctl.el.querySelector('li[data-run="' + String(runId).replace(/"/g, "") + '"] [data-action="materials-download"]') : null;
+    if (back && typeof back.focus === "function") back.focus();
+    else focusIn(ctl, '[data-score-step="versions"]');
+  }
+
   function focusIn(ctl, sel) {
     var target = ctl.el.querySelector(sel);
     if (target && typeof target.focus === "function") target.focus();
@@ -1020,15 +1031,12 @@
         }
         if (action === "materials-download-anyway") {
           if (typeof e.preventDefault === "function") e.preventDefault();
-          ctl.ui.confirm = null;
           download(ctl, t.getAttribute("data-href") || "", t.getAttribute("data-filename") || "");
-          refresh(ctl, true);
+          closeConfirm(ctl);
           return;
         }
         if (action === "materials-confirm-cancel") {
-          ctl.ui.confirm = null;
-          refresh(ctl, true);
-          focusIn(ctl, '[data-score-step="versions"]');
+          closeConfirm(ctl);
           return;
         }
         if (action === "materials-download" || action === "materials-preview") return;
@@ -1082,6 +1090,8 @@
     if (e.key === "Escape") {
       if (typeof e.preventDefault === "function") e.preventDefault();
       if (typeof e.stopPropagation === "function") e.stopPropagation();
+      /* FIX3-W1: an open held confirm closes first, and only it. */
+      if (ctl.ui.confirm) { closeConfirm(ctl); return; }
       closeCtl(ctl, "escape");
       return;
     }

@@ -733,9 +733,11 @@
   function renderYouHave(m) {
     var btn = scoreButton(m, "case");
     if (!btn) return "";
+    /* FIX3-W2: it names the document whose verdict it shows. */
+    var doc = m.score.feature === "cover_letter" ? "Cover letter" : "Resume";
     return '<section class="case__section case__section--you">' +
       sectionHead("You have", src("ai", "ai · quality check")) +
-      '<p class="case__grade">' + btn + "</p></section>";
+      '<p class="case__grade"><span class="case__grade-doc">' + esc(doc) + "</span>" + btn + "</p></section>";
   }
 
   /* Replied is three-state, so it is a segmented control, not a toggle that

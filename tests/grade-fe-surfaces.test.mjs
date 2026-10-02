@@ -111,6 +111,20 @@ function renderCase(over) {
   return { html: mount.innerHTML, model };
 }
 
+describe("GRADE-F FIX3-W2 · You have names the document whose verdict it shows", () => {
+  it("GRADE-F FIX3-W2: You have shows the resume's own verdict, labelled with the resume", () => {
+    const quality = { documents: {
+      resume: qd({ ...V3.V3_READY, document: "resume" }),
+      cover_letter: qd(V3.V3_UNSUPPORTED),
+    } };
+    const { html } = renderCase({ manifest: { documents: [], pending: null, quality } });
+    const you = /<section class="case__section case__section--you">([\s\S]*?)<\/section>/.exec(html);
+    assert.ok(you, "You have renders");
+    assert.match(you[1], /class="case__grade-doc">Resume</);
+    assert.match(you[1], /data-feature="resume"[^>]*aria-label="Resume: Ready\. Open the quality check\."/);
+  });
+});
+
 describe("GRADE-F G3 · the Case tile is this draft's requirement coverage", () => {
   it("GRADE-F G3: the tile reads 'Covers 1 of 3 requirements' and names what is missing, tied to the run", () => {
     const { html, model } = renderCase();

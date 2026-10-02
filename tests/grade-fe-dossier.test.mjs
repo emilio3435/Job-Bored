@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import * as V3 from "./fixtures/materials-qa-v3.mjs";
-import { click, load, makeScoreEnv, text } from "./fixtures/holes-score-dom.mjs";
+import { click, keydown, load, makeScoreEnv, read, text } from "./fixtures/holes-score-dom.mjs";
 
 const BASE = "http://127.0.0.1:3847";
 const SLUG = "acme-robotics-dispatch-analyst";
@@ -265,5 +265,109 @@ describe("GRADE-F FIX2-N1 · a refused Rescore leaves the verdict on screen", ()
     assert.equal(text(env.rowOf("cover_letter").querySelector("[data-score-open]")), "Fails · Tool support");
     assert.equal(manifests(), before, "nothing was refetched as if it had worked");
     assert.equal(env.modal().querySelector("footer [data-score-rescore]").getAttribute("aria-busy"), "false");
+  });
+});
+
+/* FIX3-W1 (real-Chrome walkthrough): Escape on the held / FAIL confirm
+   closed it but left focus on BODY. Escape and Cancel give focus back to
+   the Download control that opened it (JB-A11Y: focus returns to the
+   opener); a Download inside the closed menu hands it to the menu's
+   toggle. The confirm's first action takes focus with a visible ring. */
+describe("GRADE-F FIX3-W1 · the held and FAIL confirms give focus back", () => {
+  async function openHeld(env, inMenu) {
+    const row = env.rowOf("cover_letter");
+    if (inMenu) {
+      const toggle = row.querySelector('[data-action="materials-download-menu"]');
+      toggle.dispatchEvent(click(toggle));
+      const pdf = row.querySelector('.mat-dl__menu [data-gate="held"]');
+      pdf.dispatchEvent(click(pdf));
+      return { row, opener: toggle };
+    }
+    const versions = row.querySelector('[data-action="materials-history"]');
+    versions.dispatchEvent(click(versions));
+    await settle();
+    const dl = row.querySelector('.mat-hist li[data-run="passing-repair-pass-1"] [data-action="materials-download"]');
+    dl.dispatchEvent(click(dl));
+    return { row, opener: dl };
+  }
+
+  it("GRADE-F FIX3-W1: Escape on a held confirm opened from the Download menu returns focus to the menu's toggle", async () => {
+    const env = boot();
+    await env.openRole();
+    const { row, opener } = await openHeld(env, true);
+    const box = row.querySelector(".mat-confirm");
+    assert.ok(box, "the confirm opened");
+    assert.ok(env.doc.activeElement === box.querySelector("button"), "its first action has focus");
+    env.doc.activeElement.dispatchEvent(keydown(env.doc.activeElement, "Escape"));
+    assert.ok(row.querySelector(".mat-confirm") === null, "Escape closed it");
+    assert.ok(env.doc.activeElement === opener, "focus is back on the Download toggle, not BODY");
+  });
+
+  it("GRADE-F FIX3-W1: Escape and Cancel on a version's held confirm return focus to that Download", async () => {
+    const env = boot();
+    await env.openRole();
+    let { row, opener } = await openHeld(env, false);
+    env.doc.activeElement.dispatchEvent(keydown(env.doc.activeElement, "Escape"));
+    assert.ok(row.querySelector(".mat-confirm") === null);
+    assert.ok(env.doc.activeElement === opener, "Escape: focus is back on the version's Download");
+    opener.dispatchEvent(click(opener));
+    const cancel = row.querySelector('.mat-confirm [data-action="materials-confirm-cancel"]');
+    cancel.dispatchEvent(click(cancel));
+    assert.ok(row.querySelector(".mat-confirm") === null);
+    assert.ok(env.doc.activeElement === opener, "Cancel: focus is back on the version's Download");
+  });
+
+  it("GRADE-F FIX3-W1: in the modal, Escape on a held confirm closes only the confirm and returns focus to its Download", async () => {
+    const env = boot();
+    await env.openRole();
+    const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
+    btn.dispatchEvent(click(btn));
+    const step = env.modal().querySelector('[data-score-step="versions"]');
+    step.dispatchEvent(click(step));
+    await settle();
+    const dl = () => env.modal().querySelector('li[data-run="passing-repair-pass-1"] [data-action="materials-download"]');
+    dl().dispatchEvent(click(dl()));
+    assert.ok(env.modal().querySelector(".mat-confirm"));
+    env.doc.activeElement.dispatchEvent(keydown(env.doc.activeElement, "Escape"));
+    assert.ok(env.modal(), "the modal stays open");
+    assert.ok(env.modal().querySelector(".mat-confirm") === null, "the confirm closed");
+    assert.ok(env.doc.activeElement === dl(), "focus is on the version's Download");
+    dl().dispatchEvent(click(dl()));
+    const cancel = env.modal().querySelector('.mat-confirm [data-action="materials-confirm-cancel"]');
+    cancel.dispatchEvent(click(cancel));
+    assert.ok(env.doc.activeElement === dl(), "Cancel returns focus to the same Download");
+  });
+
+  it("GRADE-F FIX3-W1: the confirm's actions show a focus ring however focus arrived", () => {
+    const css = read("materials-insights.css");
+    assert.match(css, /\.mat-confirm[^{]*\.case__doc-btn:focus\b[^{]*\{[^}]*box-shadow: var\(--jb-shadow-focus\)/);
+  });
+});
+
+/* FIX3-W2 (walkthrough): a green "READY" file pill sat beside "Fails · …".
+   A drafted document's pill says "Drafted", neutral; the verdict lives on
+   the verdict button only. */
+describe("GRADE-F FIX3-W2 · no green Ready beside an adverse verdict", () => {
+  it("GRADE-F FIX3-W2: a drafted resume or letter's pill reads Drafted, neutral, beside its verdict", async () => {
+    const env = boot();
+    await env.openRole();
+    for (const type of ["cover_letter", "resume"]) {
+      const pill = env.rowOf(type).querySelector(".case__docst");
+      assert.equal(text(pill), "drafted");
+      assert.match(pill.getAttribute("class"), /case__docst--drafted/);
+      assert.doesNotMatch(pill.getAttribute("class"), /case__docst--ready/);
+    }
+    assert.equal(text(env.rowOf("cover_letter").querySelector("[data-score-open]")), "Fails · Tool support");
+    assert.match(read("materials-insights.css"), /\.case__docst--drafted \{[^}]*color: var\(--jb-ink-2\)/);
+  });
+
+  it("GRADE-F FIX3-W2: the legacy panel card with a verdict says Drafted, not Ready", () => {
+    const env = boot();
+    const host = env.doc.createElement("div");
+    env.doc.body.appendChild(host);
+    env.win.JobBoredRoleMaterials.renderManifest(host, manifest(), "http://127.0.0.1:3847");
+    const card = host.querySelector('[data-doc-type="cover_letter"]');
+    assert.ok(card.querySelector("[data-score-open]"), "the card carries the verdict button");
+    assert.equal(text(card.querySelector(".brief-materials__card-status")), "Drafted");
   });
 });
