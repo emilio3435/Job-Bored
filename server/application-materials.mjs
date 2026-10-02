@@ -1123,7 +1123,11 @@ async function servedQaFile(dir, filename) {
   const records = (await Promise.all([load("qa.letter.json"), load("qa.resume.json")])).map(readQaVerdict).filter(Boolean);
   const old = await load("qa.json");
   const disposition = records.length ? combinedStatus(records) === "fail" ? "FAIL" : combinedStatus(records) === "review" ? "REVIEW" : "READY" : ["FAIL", "REVIEW", "READY"].includes(old?.disposition) ? old.disposition : "REVIEW";
-  if (filename === "qa-report.md") return records.length ? formatDocumentQaReport({ records }) : `# QA report\n\nStatus: ${disposition}\nGraded by the old checker\n`;
+  if (filename === "qa-report.md") {
+    const report = await readFile(await resolveContainedFile(dir, filename), "utf8");
+    if (records.length && records.every(r => !r.legacy) && !/(?:quality|advisory|overall)\s*score|\d+\s*(?:\/|of)\s*(?:100|16)|\bscore[d]?\s+\d+/i.test(report)) return report;
+    return records.length ? formatDocumentQaReport({ records }) : `# QA report\n\nStatus: ${disposition}\nGraded by the old checker\n`;
+  }
   return JSON.stringify({ contract: "materials.qa.v3", runId: old?.runId || records[0]?.runId || "legacy", disposition,
     textHashes: records.length ? Object.fromEntries(records.map(r => [r.document, r.textHash])) : old?.textHashes || {},
     documents: records.length ? Object.fromEntries(records.map(r => [r.document, r.disposition])) : Object.fromEntries(Object.entries(old?.documents || {}).map(([doc, status]) => [doc, ["FAIL", "REVIEW", "READY"].includes(String(status)) ? status : "REVIEW"])),

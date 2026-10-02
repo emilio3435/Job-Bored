@@ -100,7 +100,7 @@ export async function withPackagePublishClaim(dir, expectedRunId, publish, optio
   try {
     if (!options.allowPending && existsSync(join(key, "pending.json"))) throw httpError("A materials request is already running for this role.", 409, "materials_pending");
     const assertBase = async () => {
-      const current = await readJson(join(key, "run.json"));
+      const current = await readJson(await resolveContainedFile(key, "run.json", { optional: true }));
       if (String(current?.runId || "") !== expectedRunId) throw httpError("The base version is no longer current", 409, "stale_base");
     };
     await assertBase();
@@ -130,11 +130,22 @@ export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfR
   await saveCombinedQa(dir, runId, records, notes);
   return combinedStatus(records);
 }
-/** @param {string} dir @param {string} runId @param {any[]} records @param {string[]} notes */
-async function saveCombinedQa(dir, runId, records, notes) {
+/** @param {string} dir @param {string} runId @param {any[]} records @param {string[]} notes @param {boolean} [contained] */
+async function saveCombinedQa(dir, runId, records, notes, contained = false) {
   const status = combinedStatus(records);
-  await writeFile(join(dir, "qa.json"), `${JSON.stringify({ contract: "materials.qa.v3", runId, disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW", textHashes: Object.fromEntries(records.map(q => [q.document, q.textHash])), documents: Object.fromEntries(records.map(q => [q.document, q.disposition])) }, null, 2)}\n`);
-  await writeFile(join(dir, "qa-report.md"), formatDocumentQaReport({ records, notes }));
+  await writeFile(contained ? await resolveContainedFile(dir, "qa.json", { optional: true }) : join(dir, "qa.json"), `${JSON.stringify({ contract: "materials.qa.v3", runId, disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW", textHashes: Object.fromEntries(records.map(q => [q.document, q.textHash])), documents: Object.fromEntries(records.map(q => [q.document, q.disposition])) }, null, 2)}\n`);
+  await writeFile(contained ? await resolveContainedFile(dir, "qa-report.md", { optional: true }) : join(dir, "qa-report.md"), formatDocumentQaReport({ records, notes }));
+}
+
+/** @param {string} dir @returns {Promise<Record<string,any>>} */
+async function containedQaRecords(dir) {
+  /** @type {Record<string,any>} */
+  const out = {};
+  for (const document of ["resume", "letter"]) {
+    const record = await readJson(await resolveContainedFile(dir, `qa.${document}.json`, { optional: true }));
+    if (record) out[document] = readQaVerdict({ ...record, document });
+  }
+  return out;
 }
 
 /** Reuse only identical prose; otherwise judge using the shared packet.
@@ -142,6 +153,8 @@ async function saveCombinedQa(dir, runId, records, notes) {
  * runId: string, issues: Array<{code?:string,message?:string,severity?:string}>, notes: string[], jdText: string,
  * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps, force?: boolean }} input */
 export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps, force = false }) {
+  /** @param {string} name */
+  const sourcePath = name => force ? resolveContainedFile(sourceDir, name, { optional: true }) : Promise.resolve(join(sourceDir, name));
   const documents = /** @type {Array<"resume"|"letter">} */ ([...(typeof rendered.resumeHtml === "string" ? ["resume"] : []), ...(typeof rendered.letterHtml === "string" ? ["letter"] : [])]);
   const tools = { runHardGates, judgeMaterials, buildQaRecord, splitSentences, ...deps.qaTools };
   const storedLedger = await readLedger();
@@ -155,28 +168,28 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
   const records = [];
   let judgedChange = false;
   for (const document of documents) {
-    const raw = await readJson(join(sourceDir, qaFileName(document)));
+    const raw = await readJson(await sourcePath(qaFileName(document)));
     const old = readQaVerdict(raw);
     const fitted = rendered.fit[document === "letter" ? "coverLetter" : "resume"]?.model || model;
     const body = documentBody(fitted, document);
     const hash = textHash(body);
     const localIssues = issues.filter(i => ["both", document].includes(issueDocument(i)));
-    const context = await readJudgeContext(sourceDir, document, fallback);
+    const context = await readJudgeContext(sourceDir, document, fallback, await sourcePath(`judge-context.${document}.json`));
     let qa;
     if (!force && raw?.contract !== "materials.qa.v1" && old && old.state !== "not_rescored" && old.textHash === hash && !localIssues.length) {
       qa = { ...old, runId, state: "carried_over", carriedFrom: { runId: old.runId, date: String(inheritedRun?.finishedAt || inheritedRun?.requestedAt || "") } };
     } else if ((!force && raw?.contract === "materials.qa.v1") || !canJudge) {
       qa = buildQaRecord({ document, runId, finalText: body, textHash: hash, state: "not_rescored", gates: localIssues.map(i => ({ id: i.code || "version_issue", kind: "hard", pass: false, reason: i.message || "Version issue", sentenceIds: [] })) });
     } else {
-      const draft = await readJson(join(sourceDir, document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
-      const refs = await readJson(join(sourceDir, "writer-sources.json"));
+      const draft = await readJson(await sourcePath(document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
+      const refs = await readJson(await sourcePath("writer-sources.json"));
       const evidenceLedger = context.ledger || ledger || { claims: context.sources.claims.map((/** @type {any} */ c) => ({ ...c, id: c.id.replace(/^claim:/, "") })) };
       const html = (document === "letter" ? rendered.letterHtml : rendered.resumeHtml) || "";
       const twin = (document === "letter" ? rendered.letterTxt : rendered.resumeTxt) || "";
       const normal = (/** @type {string} */ text) => text.replace(/\s+/g, " ").trim().toLowerCase();
       const parity = Boolean(twin) && body.split("\n").map(normal).filter(Boolean).every(line => normal(twin).includes(line));
       const pdfName = document === "letter" ? "cover-letter.pdf" : "resume.pdf";
-      const pdf = await readFile(join(force ? sourceDir : stagingDir, pdfName)).catch(() => undefined);
+      const pdf = await readFile(force ? await sourcePath(pdfName) : join(stagingDir, pdfName)).catch(() => undefined);
       const gates = [...await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n"), sourceRefs: refs?.[document === "letter" ? "cover_letter" : "resume"] || [], artifacts: { html, pdf, renderedText: parity ? body : twin } }),
         ...localIssues.map(i => ({ id: i.code || "version_issue", kind: i.severity === "fail" ? "hard" : "constraint", pass: false, reason: i.message || "Version issue", sentenceIds: [] }))];
       // In-place Rescore cannot positively remeasure layout or blocked requests.
@@ -199,6 +212,7 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
       if (old?.textHash !== hash) context.sources.advisory = await refreshedDocumentAdvisory({ document, body, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n") });
       const packet = buildJudgePacket({ writer: pin || inheritedRun?.pin, judge: pin?.judge, documents: [{ document, text: body, textHash: hash, sentences: tools.splitSentences(body, document) }], sources: context.sources, signal: deps.signal, fetchImpl: deps.fetchImpl });
       const judge = await tools.judgeMaterials(packet);
+      context.constraints = constraints;
       judgedChange = true;
       qa = readQaVerdict(await tools.buildQaRecord({ document, runId, finalText: body, textHash: hash, gates, judge, constraints, rescore: { reducedEvidence: context.reducedEvidence, ...(context.reducedEvidence ? { why: "Rescored with less context than the original draft" } : {}) } }));
     }
@@ -222,25 +236,29 @@ export async function rescoreRun({ slug, runId }, deps = {}) {
   for (const name of ["run.json", "pending.json", "job-description.md", ...qaFiles]) await resolveContainedFile(appDir, name, { optional: true });
   const current = await readJson(await resolveContainedFile(appDir, "run.json", { optional: true }));
   return withPackagePublishClaim(appDir, String(current?.runId || ""), async () => {
-    const run = await readJson(join(runDir, "run.json"));
-    const stored = await readJson(join(runDir, "render-model.json"));
+    const run = await readJson(await resolveContainedFile(runDir, "run.json"));
+    const stored = await readJson(await resolveContainedFile(runDir, "render-model.json", { optional: true }));
     if (!stored) throw httpError("This run has no render model", 409, "render_model_missing");
     const model = /** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (stored));
     const rendered = /** @type {Awaited<ReturnType<typeof renderPackage>>} */ (/** @type {unknown} */ ({
-      resumeHtml: run?.feature !== "cover_letter" && model.documents.resume ? await readFile(join(runDir, "resume.html"), "utf8").catch(() => "") : undefined,
-      letterHtml: run?.feature !== "resume" && model.documents.coverLetter ? await readFile(join(runDir, "cover-letter.html"), "utf8").catch(() => "") : undefined,
-      resumeTxt: await readFile(join(runDir, "resume.txt"), "utf8").catch(() => ""),
-      letterTxt: await readFile(join(runDir, "cover-letter.txt"), "utf8").catch(() => ""), fit: {},
+      resumeHtml: run?.feature !== "cover_letter" && model.documents.resume ? await readFile(await resolveContainedFile(runDir, "resume.html", { optional: true }), "utf8").catch(() => "") : undefined,
+      letterHtml: run?.feature !== "resume" && model.documents.coverLetter ? await readFile(await resolveContainedFile(runDir, "cover-letter.html", { optional: true }), "utf8").catch(() => "") : undefined,
+      resumeTxt: await readFile(await resolveContainedFile(runDir, "resume.txt", { optional: true }), "utf8").catch(() => ""),
+      letterTxt: await readFile(await resolveContainedFile(runDir, "cover-letter.txt", { optional: true }), "utf8").catch(() => ""), fit: {},
     }));
     const stagingDir = await mkdtemp(join(appDir, ".rescore-"));
     try {
-      const result = await writeJudgedVersionQa({ sourceDir: runDir, stagingDir, rendered, model, runId, issues: [], notes: [], jdText: String(await readFile(join(appDir, "job-description.md"), "utf8").catch(() => "")), inheritedRun: run, deps, force: true });
+      const result = await writeJudgedVersionQa({ sourceDir: runDir, stagingDir, rendered, model, runId, issues: [], notes: [], jdText: String(await readFile(await resolveContainedFile(appDir, "job-description.md", { optional: true }), "utf8").catch(() => "")), inheritedRun: run, deps, force: true });
       for (const name of qaFiles) if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), await resolveContainedFile(runDir, name, { optional: true }));
+      let rootAffected = false;
       for (const document of /** @type {const} */ (["resume", "letter"])) {
-        const served = await readJson(join(appDir, qaFileName(document)));
-        if ((served?.runId === runId || current?.runId === runId) && existsSync(join(stagingDir, qaFileName(document)))) await copyFile(join(stagingDir, qaFileName(document)), await resolveContainedFile(appDir, qaFileName(document), { optional: true }));
+        const served = await readJson(await resolveContainedFile(appDir, qaFileName(document), { optional: true }));
+        if ((served?.runId === runId || current?.runId === runId) && existsSync(join(stagingDir, qaFileName(document)))) {
+          rootAffected = true;
+          for (const name of [qaFileName(document), `judge-context.${document}.json`]) await copyFile(join(stagingDir, name), await resolveContainedFile(appDir, name, { optional: true }));
+        }
       }
-      const records = await readDocumentQa(runDir);
+      const records = await containedQaRecords(runDir);
       const heldDoc = Object.values(records).find(q => q?.disposition === "FAIL");
       if (run) {
         /** @type {Record<string,any>} */
@@ -250,8 +268,14 @@ export async function rescoreRun({ slug, runId }, deps = {}) {
       }
       if (current?.runId === runId) {
         for (const name of ["qa.json", "qa-report.md", "run.json"]) await resolveContainedFile(appDir, name, { optional: true });
-        await saveCombinedQa(appDir, runId, Object.values(await readDocumentQa(appDir)), []);
+        await saveCombinedQa(appDir, runId, Object.values(await containedQaRecords(appDir)), [], true);
         await copyFile(await resolveContainedFile(runDir, "run.json"), await resolveContainedFile(appDir, "run.json", { optional: true }));
+      } else if (rootAffected && current) {
+        await saveCombinedQa(appDir, String(current.runId), Object.values(await containedQaRecords(appDir)), [], true);
+        if (Object.values(await containedQaRecords(appDir)).some(q => q.disposition !== "READY")) {
+          delete current.cacheKey;
+          await writeFile(await resolveContainedFile(appDir, "run.json"), JSON.stringify(current, null, 2) + "\n");
+        }
       }
       return { ok: true, slug, runId, ...result, documents: records };
     } finally { await rm(stagingDir, { recursive: true, force: true }); }
