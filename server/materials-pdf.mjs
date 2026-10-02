@@ -29,6 +29,30 @@ function withTimeout(work, ms) {
 }
 
 /**
+ * HOLES S9: the full `playwright` package (a repo-root dev dependency) keeps
+ * local dev on its own browser builds; the server image has only its own
+ * playwright-core, so fall back to that.
+ * @param {(name: string) => Promise<any>} [importImpl]
+ * @returns {Promise<{ chromium: { launch: Function } }>}
+ */
+export async function importPlaywright(importImpl = (name) => import(name)) {
+  try {
+    return await importImpl("playwright");
+  } catch {
+    return importImpl("playwright-core");
+  }
+}
+
+/**
+ * HOLES S9: JOBBORED_CHROMIUM_PATH points Playwright at a system Chromium
+ * (the Alpine image has no Playwright browser build).
+ */
+function launchOptions() {
+  const executablePath = String(process.env.JOBBORED_CHROMIUM_PATH || "").trim();
+  return executablePath ? { headless: true, executablePath } : { headless: true };
+}
+
+/**
  * Optional Playwright PDF render. Missing Playwright, a launch/render
  * failure, or a timeout returns `{ skipped: true, note: "pdf_skipped" }`
  * and never throws.
@@ -42,7 +66,7 @@ function withTimeout(work, ms) {
  * @returns {Promise<{ skipped: boolean, path?: string, note?: string }>}
  */
 export async function renderPdfIfPossible(html, outPath, options = {}) {
-  const load = options.playwrightImport || (() => import("playwright"));
+  const load = options.playwrightImport || (() => importPlaywright());
   const timeoutMs =
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
@@ -53,7 +77,7 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
     await withTimeout(
       (async () => {
         const { chromium } = await load();
-        const launched = await chromium.launch({ headless: true });
+        const launched = await chromium.launch(launchOptions());
         closeBrowser = () => launched.close();
         const page = await launched.newPage();
         await page.setContent(html, { waitUntil: "load" });
@@ -175,7 +199,7 @@ export function ensureBrowsersPath(env = process.env) {
  */
 export async function openPdfSession(options = {}) {
   ensureBrowsersPath();
-  const load = options.playwrightImport || (() => import("playwright"));
+  const load = options.playwrightImport || (() => importPlaywright());
   const timeoutMs =
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
@@ -184,7 +208,7 @@ export async function openPdfSession(options = {}) {
   let browser = null;
   try {
     const { chromium } = await withTimeout(load(), timeoutMs);
-    browser = await withTimeout(Promise.resolve(chromium.launch({ headless: true })), timeoutMs);
+    browser = await withTimeout(Promise.resolve(chromium.launch(launchOptions())), timeoutMs);
   } catch {
     return null;
   }
