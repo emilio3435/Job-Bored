@@ -478,6 +478,13 @@
   display: none;
 }
 
+/* HOLES DISCO D7: Cancel / Dismiss beside the live run. */
+.dp-live-run__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--jb-space-3);
+}
+
 .dp-live-run:has(.jb-live-run[data-health="stalled"]) {
   border-color: var(--jb-warn);
   background: var(--jb-warn-tint);

@@ -26,7 +26,7 @@ export type BrowserUseSessionDeps = {
   lookupImpl?: SafeFetchOptions["lookupImpl"];
 };
 
-const DEFAULT_BROWSER_COMMAND_TIMEOUT_MS = 30_000;
+export const DEFAULT_BROWSER_COMMAND_TIMEOUT_MS = 90_000;
 const MAX_PAGE_BODY_BYTES = 4 * 1024 * 1024;
 
 export function createBrowserUseSessionManager(

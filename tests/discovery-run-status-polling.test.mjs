@@ -81,7 +81,9 @@ describe("discovery run status polling", () => {
       pollingSource,
       /const pollingWebhookUrl = getDiscoveryStatusPollingWebhookUrl\(webhookUrl\);/,
     );
-    assert.match(pollingSource, /pollRunStatus\(pollingWebhookUrl\)/);
+    // HOLES DISCO D2: the loop now hands pollRunStatus its own identity as a
+    // second argument; the URL it polls is still the resolved polling URL.
+    assert.match(pollingSource, /pollRunStatus\(pollingWebhookUrl[,)]/);
     assert.match(pollingSource, /tracker\.isTerminal\(\)/);
     assert.doesNotMatch(pollingSource, /pollRunStatus\(webhookUrl\)/);
     assert.doesNotMatch(
