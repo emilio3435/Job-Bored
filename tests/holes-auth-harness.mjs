@@ -156,30 +156,40 @@ function makeElement(id) {
   };
 }
 
-/** Google Identity Services, as far as auth-session.js reaches into it. */
+/**
+ * Google Identity Services, as far as auth-session.js reaches into it. Each
+ * request remembers the token client that sent it, and Google answers or
+ * fails through that client's own callbacks, as GIS does.
+ */
 function makeGis() {
+  const clientOf = new WeakMap();
   const gis = {
     config: null,
+    clients: [],
     requests: [],
     revoked: [],
-    /** Google answers the latest request with a token, echoing its state. */
+    /** Google answers the latest request with a token. */
     reply(response = {}) {
       gis.replyTo(gis.requests.at(-1), response);
     },
-    /** Google answers one earlier request, as GIS does: its state comes back. */
+    /** Google answers one earlier request, through its own client. */
     replyTo(request, response = {}) {
-      const state = request && request.state != null ? { state: request.state } : {};
-      gis.config.callback({
+      const config = (request && clientOf.get(request)) || gis.config;
+      config.callback({
         access_token: "tok-default",
         expires_in: 3600,
         scope: SCOPES,
-        ...state,
         ...response,
       });
     },
-    /** GIS error_callback: popup_closed, popup_failed_to_open, unknown. */
+    /** The latest request's window fails: popup_closed, popup_failed_to_open, unknown. */
     fail(err) {
-      gis.config.error_callback(err);
+      gis.failTo(gis.requests.at(-1), err);
+    },
+    /** One earlier request's window fails, through its own client. */
+    failTo(request, err) {
+      const config = (request && clientOf.get(request)) || gis.config;
+      config.error_callback(err);
     },
   };
   const google = {
@@ -187,9 +197,12 @@ function makeGis() {
       oauth2: {
         initTokenClient(config) {
           gis.config = config;
+          gis.clients.push(config);
           return {
             requestAccessToken(request) {
-              gis.requests.push(request ? { ...request } : {});
+              const sent = request ? { ...request } : {};
+              clientOf.set(sent, config);
+              gis.requests.push(sent);
             },
           };
         },

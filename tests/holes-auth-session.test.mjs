@@ -470,9 +470,10 @@ describe("A6 · an error from a written-off request leaves the current sign-in a
     const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
     tab.auth.initAuth();
     const first = tab.auth.signIn();
+    const firstRequest = tab.gis.requests.at(-1);
     const second = tab.auth.signIn();
 
-    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    tab.gis.failTo(firstRequest, { type: "popup_closed", message: "Popup window closed" });
     assert.equal(await settledWithin(second), "pending", "the first window's closing is not the second's");
 
     tab.gis.reply({ access_token: "tok-2" });
@@ -487,9 +488,10 @@ describe("A6 · an error from a written-off request leaves the current sign-in a
     tab.auth.initAuth();
     await signInInteractively(tab, "tok-1");
     void tab.auth.refreshAccessTokenSilently();
+    const refreshRequest = tab.gis.requests.at(-1);
     const attempt = tab.auth.signIn();
 
-    tab.gis.fail({ type: "unknown", message: "prompt=none failed" });
+    tab.gis.failTo(refreshRequest, { type: "unknown", message: "prompt=none failed" });
     assert.equal(await settledWithin(attempt), "pending", "the refresh's error is not the sign-in's");
 
     tab.gis.reply({ access_token: "tok-2" });
@@ -545,5 +547,84 @@ describe("A3 · a window that closes after a remote sign-out is quiet (P2)", () 
 
     assert.deepEqual(b.toasts.slice(before), [], "the session already ended; nothing to report");
     assert.equal(b.auth.isSignedIn(), false);
+  });
+});
+
+/* Round 4 (Grok's r3 verdict): one GIS token client per request, so an
+   error is bound to the request that made it — Grok's exact orderings. */
+
+describe("A6 · every error reaches only its own request (r3 P1)", () => {
+  it("a timed-out refresh's late error leaves a newer sign-in alone", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    const refresh = tab.auth.refreshAccessTokenSilently();
+    const refreshRequest = tab.gis.requests.at(-1);
+    await tab.clock.advance(25_000);
+    assert.equal(await refresh, false, "the refresh left the pending op");
+    const attempt = tab.auth.signIn();
+
+    tab.gis.failTo(refreshRequest, { type: "unknown", message: "prompt=none failed" });
+    assert.equal(await settledWithin(attempt), "pending", "not the sign-in's error");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+  });
+
+  it("a timed-out restore's late error leaves a newer sign-in alone", async () => {
+    const origin = makeOrigin();
+    origin.localStorage.setItem(
+      MARKER_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        expiresAt: Date.UTC(2026, 9, 2, 13, 0, 0),
+        oauthClientId: CLIENT_ID,
+      }),
+    );
+    const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    const restoreRequest = tab.gis.requests.at(-1);
+    await tab.clock.advance(8_000);
+    const attempt = tab.auth.signIn();
+    const before = tab.toasts.length;
+
+    tab.gis.failTo(restoreRequest, { type: "popup_failed_to_open", message: "Failed to open popup window" });
+    assert.equal(await settledWithin(attempt), "pending", "not the sign-in's error");
+    assert.deepEqual(tab.toasts.slice(before), [], "no toast for an ended restore");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+  });
+
+  it("the current sign-in's own closed window ends it while an older request is still out", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    const first = tab.auth.signIn();
+    const firstRequest = tab.gis.requests.at(-1);
+    const second = tab.auth.signIn();
+
+    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    assert.deepEqual({ ...(await settledWithin(second)) }, { ok: false, reason: "popup_closed" });
+    assert.deepEqual({ ...(await first) }, { ok: false, reason: "superseded" });
+
+    tab.gis.replyTo(firstRequest, { access_token: "tok-old" });
+    await flush();
+    assert.equal(tab.auth.isSignedIn(), false, "the written-off window's token is dropped");
+  });
+
+  it("the current sign-in's own failure to open ends it after a refresh it replaced", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    void tab.auth.refreshAccessTokenSilently();
+    const attempt = tab.auth.signIn();
+
+    tab.gis.fail({ type: "popup_failed_to_open", message: "Failed to open popup window" });
+    assert.deepEqual(
+      { ...(await settledWithin(attempt)) },
+      { ok: false, reason: "popup_failed_to_open" },
+    );
   });
 });

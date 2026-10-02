@@ -61,57 +61,56 @@ let tokenRefreshTimer = null;
 /** A1: the one silent refresh in flight. Concurrent 401s share it. */
 let silentRefreshPromise = null;
 /**
- * GIS answers every request through one callback. Each request carries a
- * `state` that Google echoes back, so a reply reaches the op that asked for
- * it (A17), and a reply whose op was written off — by a sign-out here or in
- * another tab, Clear settings, or a newer sign-in — is dropped (A3). An op
- * stays here after its wait runs out, so a late silent answer is still that
- * refresh or restore (A7/A17).
+ * Each request gets its own GIS token client, whose callback and
+ * error_callback close over the op that asked, so every reply and every
+ * error reaches its own request (A17, A6). An op is live from its request
+ * until its reply or error arrives, or until it is written off — by a
+ * sign-out here or in another tab, Clear settings, or a newer sign-in —
+ * after which whatever it reports is dropped (A3). A silent op stays live
+ * after its wait runs out, so a late answer is still that refresh or
+ * restore (A7/A17).
  */
-const oauthRequestsByState = new Map();
-let oauthRequestSeq = 0;
+const liveOAuthOps = new Set();
+let oauthClientIdInUse = "";
+/** The error handler of the client in use (initAuth's, or the re-init's). */
+let oauthErrorHandler = null;
 
 function requestOAuthToken(op, request) {
-  oauthRequestSeq += 1;
-  const state = `jb-${Date.now().toString(36)}-${oauthRequestSeq}`;
-  op.state = state;
-  oauthRequestsByState.set(state, op);
-  tokenClient.requestAccessToken({ ...request, state });
+  const oauth2 =
+    typeof google !== "undefined" && google.accounts && google.accounts.oauth2;
+  if (!oauthClientIdInUse || !oauth2 || typeof oauth2.initTokenClient !== "function") {
+    tokenClient.requestAccessToken(request);
+    return;
+  }
+  const client = oauth2.initTokenClient({
+    client_id: oauthClientIdInUse,
+    scope: GOOGLE_SIGNIN_SCOPES,
+    include_granted_scopes: true,
+    callback: (response) => handleTokenResponse(response, op),
+    error_callback: (err) => handleBoundTokenError(err, op),
+  });
+  liveOAuthOps.add(op);
+  client.requestAccessToken(request);
 }
 
-/**
- * GIS's error_callback carries no state. A request written off while it was
- * still current — replaced by a sign-in, ended by a sign-out — may still
- * report an error (its window closes, its prompt:none fails); that error is
- * its own, not the op now current (A6, A3). Each entry absorbs one error, or
- * goes when its reply arrives, or after ORPHANED_REQUEST_TTL_MS.
- */
-const orphanedOAuthRequests = new Map();
-const ORPHANED_REQUEST_TTL_MS = 120_000;
-
-function orphanOAuthRequest(op) {
-  if (op && op.state && oauthRequestsByState.has(op.state)) {
-    orphanedOAuthRequests.set(op.state, Date.now());
-  }
+function handleBoundTokenError(err, asked) {
+  // A3/A6: written off, or already answered — its window closing is no error.
+  if (!liveOAuthOps.has(asked)) return;
+  liveOAuthOps.delete(asked);
+  // A7/A17: a silent request whose wait already ran out; that wait ended it.
+  if (asked !== oauthPendingOp) return;
+  if (typeof oauthErrorHandler === "function") oauthErrorHandler(err);
 }
 
-/** @returns {boolean} whether this error belongs to a written-off request */
-function takeOrphanedOAuthError() {
-  const now = Date.now();
-  for (const [state, at] of orphanedOAuthRequests) {
-    orphanedOAuthRequests.delete(state);
-    if (now - at < ORPHANED_REQUEST_TTL_MS) return true;
-  }
-  return false;
+/** Every request still out goes unanswered from here on. */
+function writeOffOAuthRequests() {
+  liveOAuthOps.clear();
 }
 
 /** Clear settings: no silent request may sign this tab back in. */
 function writeOffSilentRequests() {
-  if (oauthPendingOp && oauthPendingOp.kind !== "interactive") {
-    orphanOAuthRequest(oauthPendingOp);
-  }
-  for (const [state, op] of oauthRequestsByState) {
-    if (op.kind !== "interactive") oauthRequestsByState.delete(state);
+  for (const op of liveOAuthOps) {
+    if (op.kind !== "interactive") liveOAuthOps.delete(op);
   }
 }
 
@@ -853,21 +852,23 @@ function applyOAuthClientChange(clientId) {
     accessToken = null;
     tokenExpiresAt = 0;
     grantedOauthScopes = "";
+    const onError = (err) => {
+      console.error("[JobBored] GIS error_callback (re-init):", err);
+      host().recordSheetAccessError(err);
+      settleInteractiveSignIn(err);
+      if (isOAuthOriginClientFailure(err)) {
+        showOriginClientFailureToast(openGoogleOriginDetour());
+      }
+    };
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: cid,
       scope: GOOGLE_SIGNIN_SCOPES,
       include_granted_scopes: true,
       callback: handleTokenResponse,
-      error_callback: (err) => {
-        console.error("[JobBored] GIS error_callback (re-init):", err);
-        if (takeOrphanedOAuthError()) return;
-        host().recordSheetAccessError(err);
-        settleInteractiveSignIn(err);
-        if (isOAuthOriginClientFailure(err)) {
-          showOriginClientFailureToast(openGoogleOriginDetour());
-        }
-      },
+      error_callback: onError,
     });
+    oauthClientIdInUse = cid;
+    oauthErrorHandler = onError;
     setupAuthUI();
     host().renderAppsScriptDeployUi();
     host().maybeSyncSettingsModalModeAfterAuth();
@@ -911,16 +912,8 @@ function initAuth() {
         clearTimeout(gisInitWatchdogTimer);
         gisInitWatchdogTimer = null;
       }
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: GOOGLE_SIGNIN_SCOPES,
-        include_granted_scopes: true,
-        callback: handleTokenResponse,
-        error_callback: (err) => {
+      const onError = (err) => {
           console.error("[JobBored] GIS error_callback:", err);
-          // P1/A3: a written-off request's error; the current op, if any,
-          // waits for its own answer.
-          if (takeOrphanedOAuthError()) return;
           if (oauthPendingOp?.kind === "silent-refresh") {
             oauthPendingOp.finish(false);
             return;
@@ -964,8 +957,16 @@ function initAuth() {
                 ? "Google sign-in couldn’t open a window. Allow popups for this site, turn off your popup blocker for localhost, and use a normal browser tab (embedded previews often block OAuth)."
                 : "Google sign-in failed. Try again, allow third-party cookies for accounts.google.com if your browser blocks them, or open the app in Chrome/Edge.";
           showToast(msg, "error", true);
-        },
+      };
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GOOGLE_SIGNIN_SCOPES,
+        include_granted_scopes: true,
+        callback: handleTokenResponse,
+        error_callback: onError,
       });
+      oauthClientIdInUse = clientId;
+      oauthErrorHandler = onError;
       setupAuthUI();
       restoreOAuthSession();
       host().renderAppsScriptDeployUi();
@@ -979,17 +980,18 @@ function initAuth() {
   tryInit();
 }
 
-function handleTokenResponse(tokenResponse) {
+/**
+ * @param {object} tokenResponse
+ * @param {object} [asked] the op whose own client this reply came through;
+ *   absent for the shared client (and test doubles): the current op.
+ */
+function handleTokenResponse(tokenResponse, asked) {
   let pending = oauthPendingOp;
-  const state =
-    tokenResponse && typeof tokenResponse.state === "string" ? tokenResponse.state : "";
-  if (state) {
-    orphanedOAuthRequests.delete(state);
-    const asked = oauthRequestsByState.get(state);
+  if (asked) {
     // A3: written off — signed out here or in another tab, Clear settings,
     // or a newer sign-in took over. Its answer must not sign anyone in.
-    if (!asked) return;
-    oauthRequestsByState.delete(state);
+    if (!liveOAuthOps.has(asked)) return;
+    liveOAuthOps.delete(asked);
     if (asked !== oauthPendingOp) {
       // A17: another op is waiting; this answer is not its answer.
       if (oauthPendingOp || asked.kind === "interactive") return;
@@ -1170,7 +1172,6 @@ function signIn(options = {}) {
     );
     return Promise.resolve({ ok: false, reason: "not_ready" });
   }
-  orphanOAuthRequest(oauthPendingOp);
   if (oauthPendingOp?.kind === "silent-refresh") {
     oauthPendingOp.finish(false);
   } else if (oauthPendingOp?.kind === "silent-restore") {
@@ -1180,7 +1181,7 @@ function signIn(options = {}) {
   }
   // A17: this sign-in is the user's choice now; an older request's answer,
   // late restore included, must not answer it.
-  oauthRequestsByState.clear();
+  writeOffOAuthRequests();
   let finish;
   const outcome = new Promise((resolve) => {
     finish = resolve;
@@ -1230,9 +1231,8 @@ function endSessionLocally(message) {
   clearSessionAuthState();
   // A3: a sign-out ends a sign-in still open too, and no reply still on its
   // way may sign this tab back in; its window closing later is no error.
-  if (oauthPendingOp?.kind === "interactive") orphanOAuthRequest(oauthPendingOp);
   settleInteractiveSignIn({ type: "cancelled" });
-  oauthRequestsByState.clear();
+  writeOffOAuthRequests();
   // Wipe in-memory and on-DOM pipeline data so the signed-out session can't
   // see or interact with what was loaded before.
   host().setPipelineRawRows(null);
@@ -1294,7 +1294,7 @@ function postSessionMessage(message) {
 
 function handleSignOutElsewhere() {
   if (!accessToken && !oauthPendingOp) {
-    oauthRequestsByState.clear();
+    writeOffOAuthRequests();
     return;
   }
   closeAuthUserMenu();
