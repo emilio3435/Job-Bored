@@ -115,11 +115,13 @@ test("relay forwards GET /runs/:runId to DISCOVERY_TARGET /runs/:runId", async (
     });
   };
   try {
+    // HOLES S6: the relay fails closed, so the poll carries the bearer too.
     const res = await worker.fetch(
       new Request("https://relay.example/runs/run-123?verbose=1", {
         method: "GET",
+        headers: { authorization: "Bearer secret-1" },
       }),
-      { DISCOVERY_TARGET: "https://abc.ngrok-free.app" },
+      { DISCOVERY_TARGET: "https://abc.ngrok-free.app", SHARED_SECRET: "secret-1" },
     );
 
     assert.equal(res.status, 200);
