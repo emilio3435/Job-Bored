@@ -213,7 +213,11 @@ describe("analyzeAtsScorecard provider routing", () => {
       assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
       assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer or-test-key");
       assert.equal(body.model, "openai/gpt-oss-120b:free");
-      assert.equal(body.response_format, undefined);
+      // HOLES PROV P18: OpenRouter is asked for the scorecard schema; an
+      // endpoint without structured output ignores it.
+      assert.equal(body.response_format.type, "json_schema");
+      assert.equal(body.response_format.json_schema.name, "ats_scorecard");
+      assert.equal(body.response_format.json_schema.strict, true);
       assert.equal(scorecard.overallScore, 79); // M12: mean of 70/80/75/88/82
       assert.equal(scorecard.model, "openai/gpt-oss-120b:free");
     } finally {
@@ -482,7 +486,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
     }
   });
 
-  it("does not retry provider HTTP errors", async () => {
+  it("retries a provider 429 at most twice, then reports the rate limit (HOLES PROV P8)", async () => {
     const restoreEnv = setTestProviderEnv();
     const originalFetch = globalThis.fetch;
     let calls = 0;
@@ -507,7 +511,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
         assert.equal(error?.retryable, true);
         return true;
       });
-      assert.equal(calls, 1);
+      assert.equal(calls, 3);
     } finally {
       globalThis.fetch = originalFetch;
       restoreEnv();
@@ -543,7 +547,8 @@ describe("analyzeAtsScorecard provider parsing", () => {
         assert.equal(error?.retryable, true);
         return true;
       });
-      assert.equal(calls, 1);
+      // HOLES PROV P8: a 5xx is retried at most twice before it surfaces.
+      assert.equal(calls, 3);
     } finally {
       globalThis.fetch = originalFetch;
       restoreEnv();

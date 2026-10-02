@@ -39,6 +39,7 @@
   if (window.JobBoredModelCatalog) return;
 
   const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+  const REQUEST_TIMEOUT_MS = 15_000;
   const CACHE_STORAGE_PREFIX = "command_center_model_catalog:";
   const SUPPORTED = new Set([
     "gemini",
@@ -371,6 +372,17 @@
     return out;
   }
 
+  /** A deadline for one provider request; none without AbortSignal.timeout. */
+  function requestDeadline() {
+    return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      : undefined;
+  }
+
+  function isTimeout(err) {
+    return Boolean(err && err.name === "TimeoutError");
+  }
+
   // --- Public API ---------------------------------------------------------
 
   /**
@@ -416,12 +428,14 @@
     }
     let resp;
     try {
-      resp = await doFetch(url, { method: "GET", headers });
+      resp = await doFetch(url, { method: "GET", headers, signal: requestDeadline() });
     } catch (err) {
       return {
         models: getStaticModels(p),
         source: "static",
-        error: `network: ${err && err.message ? err.message : String(err)}`,
+        error: isTimeout(err)
+          ? `timeout: no answer within ${REQUEST_TIMEOUT_MS / 1000} seconds`
+          : `network: ${err && err.message ? err.message : String(err)}`,
       };
     }
     if (!resp || !resp.ok) {
@@ -487,13 +501,22 @@
     }
     let resp;
     try {
-      resp = await doFetch(url, { method: "GET", headers });
+      resp = await doFetch(url, { method: "GET", headers, signal: requestDeadline() });
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
-      const friendly =
-        p === "local"
-          ? `Couldn't reach the local server at ${url}. Start it (e.g. Ollama) and retry.`
-          : `Network error reaching ${p} (${msg}). Browser CORS or connectivity blocked the check.`;
+      const seconds = REQUEST_TIMEOUT_MS / 1000;
+      let friendly;
+      if (isTimeout(err)) {
+        friendly =
+          p === "local"
+            ? `No answer from the local server at ${url} within ${seconds} seconds. Check that it is running (e.g. Ollama), then try again.`
+            : `No answer from ${p} within ${seconds} seconds. Check the connection, then try again.`;
+      } else {
+        friendly =
+          p === "local"
+            ? `Couldn't reach the local server at ${url}. Start it (e.g. Ollama) and retry.`
+            : `Network error reaching ${p} (${msg}). Browser CORS or connectivity blocked the check.`;
+      }
       return { ok: false, status: 0, message: friendly };
     }
     if (resp && resp.ok) {

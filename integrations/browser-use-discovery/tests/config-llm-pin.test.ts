@@ -99,16 +99,17 @@ test("explicit Gemini versions and families in llm.json remain pinned", async ()
   const dir = await mkdtemp(join(tmpdir(), "jb-disc-pin-"));
   const path = join(dir, "llm.json");
   try {
-    for (const model of [
-      "gemini-2.5-pro",
-      "gemini-flash-lite",
-      "gemini-3.5-flash",
-      "gemini-3.7-flash-preview",
+    for (const [model, wire] of [
+      ["gemini-2.5-pro", "gemini-2.5-pro"],
+      // HOLES PROV P3: a family name is not a model id; it runs as its alias.
+      ["gemini-flash-lite", "gemini-flash-lite-latest"],
+      ["gemini-3.5-flash", "gemini-3.5-flash"],
+      ["gemini-3.7-flash-preview", "gemini-3.7-flash-preview"],
     ]) {
       await writeFile(path, JSON.stringify({ provider: "gemini", model, apiKey: "pin-key" }));
       const cfg = loadRuntimeConfig({ JOBBORED_LLM_CONFIG_PATH: path });
-      assert.equal(cfg.geminiModel, model);
-      assert.equal(cfg.llmModel, model);
+      assert.equal(cfg.geminiModel, wire);
+      assert.equal(cfg.llmModel, wire);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
