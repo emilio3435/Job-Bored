@@ -1,3 +1,4 @@
+import { resolveRunDir } from "./materials-history.mjs";
 /**
  * Regenerate a published package in another template family, with zero LLM
  * calls (visual spec §9.4, mechanism spec: caching).
@@ -18,18 +19,19 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { copyFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getApplicationsRoot } from "./application-materials.mjs";
+import { resolveProvider } from "./ai/provider.mjs";
+import { resolveApplicationDir, getApplicationsRoot } from "./application-materials.mjs";
 import { loadEmployerMarks, readTargetMark } from "./brand-logos.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
-import { judgeMaterials, splitSentences } from "./materials-judge.mjs";
+import { judgeMaterials, splitSentences, buildJudgePacket, readJudgeContext } from "./materials-judge.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { targetCompanyOf } from "./materials-monogram.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { employersWithoutMarks, newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
-import { buildQaRecord, combinedStatus, formatDocumentQaReport, issueDocument, qaFileName, readDocumentQa } from "./materials-qa.mjs";
+import { buildQaRecord, combinedStatus, formatDocumentQaReport, issueDocument, qaFileName, readDocumentQa, readQaVerdict } from "./materials-qa.mjs";
 import { retargetModel, runsToText, validateRenderModel } from "./materials-render.mjs";
 import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-model-adapter.mjs";
 import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
@@ -116,107 +118,102 @@ export async function withPackagePublishClaim(dir, expectedRunId, publish, optio
 export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady }) {
   const prior = await readDocumentQa(dir);
   const records = [];
-  for (const [document, html] of [["resume", rendered.resumeHtml], ["letter", rendered.letterHtml]]) {
+  for (const document of /** @type {const} */ (["resume", "letter"])) {
+    const html = document === "letter" ? rendered.letterHtml : rendered.resumeHtml;
     if (typeof html !== "string") continue;
-    const docIssues = issues
-      .filter((issue) => issueDocument(issue) === "both" || issueDocument(issue) === document)
-      .map((issue) => ({ code: String(issue.code || "version_issue"), message: String(issue.message || "Version QA issue"), severity: issue.severity === "fail" ? /** @type {const} */ ("fail") : /** @type {const} */ ("review") }));
-    const documentPdfReady = pdfReady && Boolean(document === "resume" ? rendered.pdf?.resume : rendered.pdf?.coverLetter);
-    docIssues.push(documentPdfReady
-      ? { code: "version_qa_unscored", message: "This version was rendered from a stored model; draft evidence was not rescored.", severity: "review" }
-      : { code: "pdf_unrendered", message: "PDF was not rendered for this version.", severity: "fail" });
-    const status = docIssues.some((issue) => issue.severity === "fail") ? "fail" : "review";
-    const record = {
-      contract: "materials.qa.v1", document: /** @type {"resume" | "letter"} */ (document), runId,
-      status, disposition: status === "fail" ? "FAIL" : "REVIEW",
-      dispositionReason: docIssues.find((issue) => issue.severity === "fail")?.message || docIssues[0]?.message || "This version needs review.",
-      rubric: { score: 0, max: 1, threshold: 1, rows: [{ id: "version_recheck", score: 0, max: 1, note: "Draft evidence was not rescored." }] },
-      checks: docIssues, measurements: {}, degraded: [],
-    };
-    prior[record.document] = record;
-    records.push(record);
-    await writeFile(join(dir, qaFileName(record.document)), `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    const finalText = (document === "letter" ? rendered.letterTxt : rendered.resumeTxt) || "";
+    const gates = issues.filter(i => ["both", document].includes(issueDocument(i))).map(i => ({ id: i.code || "version_issue", kind: "hard", pass: false, reason: i.message || "Version issue", sentenceIds: [] }));
+    if (!pdfReady) gates.push({ id: "pdf_unrendered", kind: "hard", pass: false, reason: "PDF was not rendered for this version", sentenceIds: [] });
+    const record = buildQaRecord({ document, runId, finalText, textHash: textHash(finalText), gates, state: "not_rescored" });
+    prior[document] = record; records.push(record);
+    await writeFile(join(dir, qaFileName(document)), `${JSON.stringify(record, null, 2)}\n`);
   }
+  await saveCombinedQa(dir, runId, records, notes);
+  return combinedStatus(records);
+}
+/** @param {string} dir @param {string} runId @param {any[]} records @param {string[]} notes */
+async function saveCombinedQa(dir, runId, records, notes) {
   const status = combinedStatus(records);
-  await writeFile(join(dir, "qa.json"), `${JSON.stringify({
-    contract: "materials.qa.v1", runId, status,
-    disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW",
-    ...(status === "pass" ? {} : { dispositionReason: records.find((record) => record.dispositionReason)?.dispositionReason || "" }),
-    degraded: [], measurements: {},
-    rubric: {
-      score: 0, max: records.length, threshold: records.length,
-      rows: records.flatMap((record) => record.rubric.rows.map((row) => ({ ...row, document: record.document }))),
-    },
-    checks: records.flatMap((record) => record.checks),
-  }, null, 2)}\n`, "utf8");
-  await writeFile(join(dir, "qa-report.md"), formatDocumentQaReport({ records: [prior.resume, prior.letter].filter((record) => record !== undefined), notes }), "utf8");
-  return status;
+  await writeFile(join(dir, "qa.json"), `${JSON.stringify({ contract: "materials.qa.v3", runId, disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW", textHashes: Object.fromEntries(records.map(q => [q.document, q.textHash])), documents: Object.fromEntries(records.map(q => [q.document, q.disposition])) }, null, 2)}\n`);
+  await writeFile(join(dir, "qa-report.md"), formatDocumentQaReport({ records, notes }));
 }
 
-/** Reuse a v2 judgment only for identical fitted prose with no new deterministic issue. */
-/** @param {{ sourceDir: string, stagingDir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, model: import("./materials-render.mjs").RenderModel,
+/** Reuse only identical prose; otherwise judge using the shared packet.
+ * @param {{ sourceDir: string, stagingDir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, model: import("./materials-render.mjs").RenderModel,
  * runId: string, issues: Array<{code?:string,message?:string,severity?:string}>, notes: string[], jdText: string,
- * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps }} input */
-async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps }) {
-  const documents = /** @type {Array<"resume" | "letter">} */ ([
-    ...(rendered.resumeHtml ? ["resume"] : []), ...(rendered.letterHtml ? ["letter"] : []),
-  ]);
-  const previous = await Promise.all(documents.map((document) => readJson(join(sourceDir, qaFileName(document)))));
-  if (!documents.length || !previous.every((qa) => qa?.contract === "materials.qa.v2")) return null;
+ * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps, force?: boolean }} input */
+export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps, force = false }) {
+  const documents = /** @type {Array<"resume"|"letter">} */ ([...(rendered.resumeHtml ? ["resume"] : []), ...(rendered.letterHtml ? ["letter"] : [])]);
   const tools = { runHardGates, judgeMaterials, buildQaRecord, splitSentences, ...deps.qaTools };
-  const storedLedger = deps.judgeSources ? null : await readLedger();
+  const storedLedger = await readLedger();
   const ledger = storedLedger?.ok ? storedLedger.ledger : null;
-  const claims = /** @type {Array<{id:string,text:string,verified?:boolean}>} */ (Array.isArray(ledger?.claims) ? ledger.claims : []);
-  const sources = deps.judgeSources || {
-    posting: [{ id: "posting:1", text: jdText }],
-    claims: claims.filter((claim) => claim.verified).map((claim) => ({ id: claim.id, text: claim.text })),
-    voice: "", research: [],
-  };
+  const claims = ledger?.claims || [];
+  const fallback = deps.judgeSources || { posting: jdText ? [{ id: "posting:1", text: jdText }] : [], claims: claims.map((/** @type {any} */ c) => ({ id: `claim:${c.id}`, text: c.text, verified: c.verified === true })), voice: "", research: [] };
   let pin = deps.pin || null;
-  if (!pin) {
-    try {
-      const config = loadLlmConfig();
-      if (config) pin = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (await resolveActivePin(config)));
-    } catch { pin = null; }
-  }
-  /** @type {Array<any>} */
+  if (!pin) { try { const config = loadLlmConfig(); if (config) pin = /** @type {Record<string,unknown>} */ (/** @type {unknown} */ (await resolveActivePin(config))); } catch { /* unavailable */ } }
+  const canJudge = Boolean(deps.qaTools?.judgeMaterials || resolveProvider(pin).configured);
+  /** @type {any[]} */
   const records = [];
   let judgedChange = false;
-  for (const [index, document] of documents.entries()) {
+  for (const document of documents) {
+    const raw = await readJson(join(sourceDir, qaFileName(document)));
+    const old = readQaVerdict(raw);
     const fitted = rendered.fit[document === "letter" ? "coverLetter" : "resume"]?.model || model;
     const body = documentBody(fitted, document);
     const hash = textHash(body);
-    const localIssues = issues.filter((issue) => ["both", document].includes(issueDocument(issue)));
-    const oldQa = previous[index];
-    if (oldQa?.textHash === hash && !localIssues.length) {
-      records.push(oldQa);
-      await copyFile(join(sourceDir, qaFileName(document)), join(stagingDir, qaFileName(document)));
-      continue;
+    const localIssues = issues.filter(i => ["both", document].includes(issueDocument(i)));
+    const context = await readJudgeContext(sourceDir, document, fallback);
+    let qa;
+    if (!force && raw?.contract !== "materials.qa.v1" && old && old.state !== "not_rescored" && old.textHash === hash && !localIssues.length) {
+      qa = { ...old, runId, state: "carried_over", carriedFrom: { runId: old.runId, date: String(inheritedRun?.finishedAt || inheritedRun?.requestedAt || "") } };
+    } else if ((!force && raw?.contract === "materials.qa.v1") || !canJudge) {
+      qa = buildQaRecord({ document, runId, finalText: body, textHash: hash, state: "not_rescored", gates: localIssues.map(i => ({ id: i.code || "version_issue", kind: "hard", pass: false, reason: i.message || "Version issue", sentenceIds: [] })) });
+    } else {
+      const draft = await readJson(join(sourceDir, document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
+      const refs = await readJson(join(sourceDir, "writer-sources.json"));
+      const evidenceLedger = context.ledger || ledger || { claims: context.sources.claims.map((/** @type {any} */ c) => ({ ...c, id: c.id.replace(/^claim:/, "") })) };
+      const gates = [...await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n"), sourceRefs: refs?.[document === "letter" ? "cover_letter" : "resume"] || [] }),
+        ...localIssues.map(i => ({ id: i.code || "version_issue", kind: i.severity === "fail" ? "hard" : "constraint", pass: false, reason: i.message || "Version issue", sentenceIds: [] }))];
+      const packet = buildJudgePacket({ writer: pin || inheritedRun?.pin, judge: pin?.judge, documents: [{ document, text: body, textHash: hash, sentences: tools.splitSentences(body, document) }], sources: context.sources, signal: deps.signal, fetchImpl: deps.fetchImpl });
+      const judge = await tools.judgeMaterials(packet);
+      judgedChange = true;
+      qa = readQaVerdict(await tools.buildQaRecord({ document, runId, finalText: body, textHash: hash, gates, judge, constraints: context.constraints, rescore: { reducedEvidence: context.reducedEvidence, ...(context.reducedEvidence ? { why: "Rescored with less context than the original draft" } : {}) } }));
     }
-    const draft = await readJson(join(sourceDir, document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
-    const issueGates = localIssues.map((issue) => ({ id: String(issue.code || "version_issue"), kind: issue.severity === "fail" ? "hard" : "constraint", pass: false, reason: String(issue.message || "Version QA issue"), sentenceIds: [] }));
-    const hardGates = /** @type {Array<{id:string,kind:"hard"|"advisory"|"constraint",pass:boolean,reason:string,sentenceIds:string[]}>} */ (await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: ledger || { claims: sources.claims }, posting: jdText }));
-    const gates = [...hardGates.filter((gate) => !issueGates.some((issue) => issue.id === gate.id)), ...issueGates];
-    const judge = await tools.judgeMaterials({
-      writer: pin || inheritedRun?.pin || null, judge: pin?.judge,
-      documents: [{ document, text: body, textHash: hash, sentences: tools.splitSentences(body, document) }], sources,
-    });
-    judgedChange = true;
-    const qa = await tools.buildQaRecord({
-      document, runId, finalText: body, textHash: hash, gates, judge, constraints: [], degraded: [],
-      repair: { attempted: false, parentRunId: null, changed: null, adopted: null, before: null, after: null },
-    });
     records.push(qa);
-    await writeFile(join(stagingDir, qaFileName(document)), `${JSON.stringify(qa, null, 2)}\n`, "utf8");
+    await writeFile(join(stagingDir, qaFileName(document)), `${JSON.stringify(qa, null, 2)}\n`);
+    await writeFile(join(stagingDir, `judge-context.${document}.json`), `${JSON.stringify({ sources: context.sources, constraints: context.constraints, ...(context.ledger ? { ledger: context.ledger } : {}) })}\n`);
   }
-  const status = combinedStatus(records);
-  await writeFile(join(stagingDir, "qa.json"), `${JSON.stringify({
-    contract: "materials.qa.v2", runId, disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW",
-    textHashes: Object.fromEntries(records.map((qa) => [qa.document, qa.textHash])),
-    documents: Object.fromEntries(records.map((qa) => [qa.document, qa.disposition])),
-  }, null, 2)}\n`, "utf8");
-  await writeFile(join(stagingDir, "qa-report.md"), formatDocumentQaReport({ records, notes }), "utf8");
-  return { status, judgedChange };
+  await saveCombinedQa(stagingDir, runId, records, notes);
+  return { status: combinedStatus(records), judgedChange };
+}
+
+/** Re-run the selected version's QA in place, under the existing publish claim.
+ * @param {{slug:string,runId:string}} input @param {RegenerateDeps} [deps] */
+export async function rescoreRun({ slug, runId }, deps = {}) {
+  const appDir = await resolveApplicationDir(slug, { root: deps.applicationsRoot });
+  const runDir = await resolveRunDir(appDir, runId);
+  const current = await readJson(join(appDir, "run.json"));
+  return withPackagePublishClaim(appDir, String(current?.runId || ""), async () => {
+    const run = await readJson(join(runDir, "run.json"));
+    const stored = await readJson(join(runDir, "render-model.json"));
+    if (!stored) throw httpError("This run has no render model", 409, "render_model_missing");
+    const model = /** @type {import("./materials-render.mjs").RenderModel} */ (/** @type {unknown} */ (stored));
+    const rendered = /** @type {Awaited<ReturnType<typeof renderPackage>>} */ (/** @type {unknown} */ ({ resumeHtml: model.documents.resume ? "stored" : undefined, letterHtml: model.documents.coverLetter ? "stored" : undefined, fit: {} }));
+    const stagingDir = await mkdtemp(join(appDir, ".rescore-"));
+    try {
+      const result = await writeJudgedVersionQa({ sourceDir: runDir, stagingDir, rendered, model, runId, issues: [], notes: [], jdText: String(await readFile(join(appDir, "job-description.md"), "utf8").catch(() => "")), inheritedRun: run, deps, force: true });
+      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md", "judge-context.resume.json", "judge-context.letter.json"]) if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), join(runDir, name));
+      for (const document of /** @type {const} */ (["resume", "letter"])) {
+        const served = await readJson(join(appDir, qaFileName(document)));
+        if ((served?.runId === runId || current?.runId === runId) && existsSync(join(stagingDir, qaFileName(document)))) await copyFile(join(stagingDir, qaFileName(document)), join(appDir, qaFileName(document)));
+      }
+      const records = await readDocumentQa(runDir);
+      const heldDoc = Object.values(records).find(q => q?.disposition === "FAIL");
+      if (run) await writeFile(join(runDir, "run.json"), JSON.stringify({ ...run, held: heldDoc ? { reason: heldDoc.reasons[0]?.text || "Document fails checks" } : null }, null, 2) + "\n");
+      if (current?.runId === runId) { await saveCombinedQa(appDir, runId, Object.values(await readDocumentQa(appDir)), []); await copyFile(join(runDir, "run.json"), join(appDir, "run.json")); }
+      return { ok: true, slug, runId, ...result, documents: records };
+    } finally { await rm(stagingDir, { recursive: true, force: true }); }
+  });
 }
 
 /**
@@ -246,6 +243,8 @@ async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, ru
  * @property {{ runHardGates: Function, judgeMaterials: Function, buildQaRecord: Function, splitSentences: Function }} [qaTools]
  * @property {Record<string, unknown>} [judgeSources]
  * @property {Record<string, unknown>} [pin]
+ * @property {AbortSignal} [signal]
+ * @property {typeof fetch} [fetchImpl]
  */
 
 /**
@@ -474,7 +473,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     if (rendered.pdf.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));
     if (rendered.pdf.coverLetter) await copyFile(coverLetterPdfPath, join(dir, "cover-letter.pdf"));
     if (judged) {
-      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md"]) {
+      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md", "judge-context.resume.json", "judge-context.letter.json"]) {
         if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), join(dir, name));
       }
     }
@@ -484,6 +483,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
       rendered,
       model,
       pages,
+      extraFiles: ["judge-context.resume.json", "judge-context.letter.json"],
       run: {
         runId,
         slug,
