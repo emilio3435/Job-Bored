@@ -124,7 +124,11 @@ describe("A17 · a token after the restore timeout is a restore", () => {
     );
     const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
     tab.auth.initAuth();
-    assert.deepEqual(tab.gis.requests, [{ prompt: "none" }], "boot asks Google silently");
+    assert.deepEqual(
+      tab.gis.requests.map((r) => r.prompt),
+      ["none"],
+      "boot asks Google silently",
+    );
 
     await tab.clock.advance(8_000);
     assert.deepEqual(tab.gateModes(), ["signin"], "the restore wait ran out");
@@ -246,24 +250,16 @@ describe("A6 · closing Google's window ends the sign-in at once", () => {
   });
 
   it("stays quiet when the window closes after its sign-in already finished", async () => {
-    // The restore wait ran out, the user pressed Sign in, and the late
-    // silent token answered first; closing the leftover window is no error.
-    const origin = makeOrigin();
-    origin.localStorage.setItem(
-      MARKER_KEY,
-      JSON.stringify({
-        hasOauthSession: true,
-        expiresAt: Date.UTC(2026, 9, 2, 13, 0, 0),
-        oauthClientId: CLIENT_ID,
-      }),
-    );
-    const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
+    // The user pressed Sign in twice; the second window answered. Closing
+    // the first, leftover window is no error.
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
     tab.auth.initAuth();
-    await tab.clock.advance(8_000);
-    void tab.auth.signIn();
-    tab.gis.reply({ access_token: "tok-late-restore" });
+    const first = tab.auth.signIn();
+    const second = tab.auth.signIn();
+    tab.gis.reply({ access_token: "tok-2" });
     await flush();
-    assert.equal(tab.auth.isSignedIn(), true);
+    assert.deepEqual({ ...(await first) }, { ok: false, reason: "superseded" });
+    assert.deepEqual({ ...(await second) }, { ok: true });
     const before = tab.toasts.length;
 
     tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
@@ -303,5 +299,164 @@ describe("§0.7 guard · the access token never reaches localStorage", () => {
       assert.equal(value.includes("tok-secret"), false, `localStorage[${key}] holds a token`);
     }
     assert.equal(origin.localStorage.getItem(RUNTIME_KEY), null);
+  });
+});
+
+/* Round 2 (Astra's verdict): every reply is bound to the request that asked
+   for it, and an op that ends ends for good. */
+
+/** A settled-or-not probe that never hangs a red run. */
+async function settledWithin(promise) {
+  const marker = Symbol("pending");
+  let value = marker;
+  promise.then((v) => {
+    value = v;
+  });
+  await flush();
+  return value === marker ? "pending" : value;
+}
+
+describe("A3 · a sign-out ends every outstanding request (F1, F2)", () => {
+  it("drops both late replies after a timed-out refresh, its retry, and a sign-out", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+
+    const timedOut = tab.auth.refreshAccessTokenSilently();
+    const timedOutRequest = tab.gis.requests.at(-1);
+    await tab.clock.advance(25_000);
+    assert.equal(await timedOut, false);
+    void tab.auth.refreshAccessTokenSilently(); // the retry
+    const retryRequest = tab.gis.requests.at(-1);
+    assert.notEqual(retryRequest, timedOutRequest);
+
+    tab.auth.signOut();
+    await flush();
+    tab.gis.replyTo(timedOutRequest, { access_token: "tok-late-1" });
+    tab.gis.replyTo(retryRequest, { access_token: "tok-late-2" });
+    await flush();
+
+    assert.equal(tab.auth.isSignedIn(), false, "no reply signs the user back in");
+    assert.equal(tab.auth.getAccessToken(), null);
+    assert.equal(tab.sessionStorage.getItem(RUNTIME_KEY), null);
+  });
+
+  async function tabMidReconsent() {
+    const origin = makeOrigin();
+    const a = loadAuthTab(origin, { sheetId: "sheet-1" });
+    const b = loadAuthTab(origin, { sheetId: "sheet-1" });
+    a.auth.initAuth();
+    b.auth.initAuth();
+    await signInInteractively(a, "tok-a");
+    await signInInteractively(b, "tok-b");
+    const reconsent = b.auth.signIn({ prompt: "consent" });
+    return { a, b, reconsent, reconsentRequest: b.gis.requests.at(-1) };
+  }
+
+  it("signs this tab out when another tab signs out during a re-consent, and the window closes", async () => {
+    const { a, b, reconsent } = await tabMidReconsent();
+
+    a.auth.signOut();
+    await flush();
+    assert.equal(b.auth.isSignedIn(), false, "tab B drops its old token at once");
+    assert.equal(b.auth.getAccessToken(), null);
+    assert.deepEqual({ ...(await settledWithin(reconsent)) }, { ok: false, reason: "cancelled" });
+
+    b.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    await flush();
+    assert.equal(b.auth.isSignedIn(), false, "closing the window leaves tab B signed out");
+    assert.equal(b.auth.getOauthPendingOp(), null);
+  });
+
+  it("keeps this tab signed out when the re-consent window answers after the sign-out", async () => {
+    const { a, b, reconsentRequest } = await tabMidReconsent();
+
+    a.auth.signOut();
+    await flush();
+    b.gis.replyTo(reconsentRequest, { access_token: "tok-b-new" });
+    await flush();
+
+    assert.equal(b.auth.isSignedIn(), false);
+    assert.equal(b.sessionStorage.getItem(RUNTIME_KEY), null);
+  });
+});
+
+describe("A17 · a late restore never answers a newer sign-in (F4)", () => {
+  it("drops the old restore's token and waits for the sign-in's own", async () => {
+    const origin = makeOrigin();
+    origin.localStorage.setItem(
+      MARKER_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        expiresAt: Date.UTC(2026, 9, 2, 13, 0, 0),
+        oauthClientId: CLIENT_ID,
+      }),
+    );
+    const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    const restoreRequest = tab.gis.requests.at(-1);
+    await tab.clock.advance(8_000);
+    const attempt = tab.auth.signIn();
+
+    tab.gis.replyTo(restoreRequest, { access_token: "tok-late-restore" });
+    await flush();
+
+    assert.equal(await settledWithin(attempt), "pending", "the sign-in still waits for its window");
+    assert.equal(tab.auth.isSignedIn(), false);
+    assert.equal(tab.toasts.some((t) => t.message === "Signed in"), false);
+
+    tab.gis.reply({ access_token: "tok-signin" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+    assert.equal(tab.auth.getAccessToken(), "tok-signin");
+  });
+});
+
+describe("A1/A6 · a refresh during a sign-in waits for it (F5)", () => {
+  async function reconsentThenRefresh() {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    const attempt = tab.auth.signIn({ prompt: "consent" });
+    const before = tab.gis.requests.length;
+    const refresh = tab.auth.refreshAccessTokenSilently();
+    assert.equal(tab.gis.requests.length, before, "no silent request over the open sign-in");
+    return { tab, attempt, refresh };
+  }
+
+  it("settles both when the window closes", async () => {
+    const { tab, attempt, refresh } = await reconsentThenRefresh();
+    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+    await flush();
+    assert.deepEqual({ ...(await settledWithin(attempt)) }, { ok: false, reason: "popup_closed" });
+    assert.equal(await settledWithin(refresh), false);
+  });
+
+  it("settles both with the new token when the window signs in", async () => {
+    const { tab, attempt, refresh } = await reconsentThenRefresh();
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await settledWithin(attempt)) }, { ok: true });
+    assert.equal(await settledWithin(refresh), true);
+    assert.equal(tab.auth.getAccessToken(), "tok-2");
+  });
+});
+
+describe("A1/A6 · a sign-in during a 401 refresh survives the 401 caller", () => {
+  it("keeps the sign-in open when the Sheets caller clears the session", async () => {
+    const tab = loadAuthTab(makeOrigin(), { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    const caller = sheetsCallerOn401(tab);
+    const attempt = tab.auth.signIn();
+
+    assert.equal(await caller, false, "signIn() ends the refresh in flight");
+    assert.equal(await settledWithin(attempt), "pending", "the 401 caller does not cancel it");
+
+    tab.gis.reply({ access_token: "tok-2" });
+    await flush();
+    assert.deepEqual({ ...(await attempt) }, { ok: true });
+    assert.equal(tab.auth.isSignedIn(), true);
+    assert.equal(tab.auth.getAccessToken(), "tok-2");
   });
 });

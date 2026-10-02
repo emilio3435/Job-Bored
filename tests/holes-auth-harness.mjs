@@ -162,12 +162,18 @@ function makeGis() {
     config: null,
     requests: [],
     revoked: [],
-    /** Google answers the latest request with a token. */
+    /** Google answers the latest request with a token, echoing its state. */
     reply(response = {}) {
+      gis.replyTo(gis.requests.at(-1), response);
+    },
+    /** Google answers one earlier request, as GIS does: its state comes back. */
+    replyTo(request, response = {}) {
+      const state = request && request.state != null ? { state: request.state } : {};
       gis.config.callback({
         access_token: "tok-default",
         expires_in: 3600,
         scope: SCOPES,
+        ...state,
         ...response,
       });
     },

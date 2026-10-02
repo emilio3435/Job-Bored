@@ -61,13 +61,29 @@ let tokenRefreshTimer = null;
 /** A1: the one silent refresh in flight. Concurrent 401s share it. */
 let silentRefreshPromise = null;
 /**
- * A7/A17: GIS answers every request through one callback, so a reply that
- * outlives its wait arrives with no pending op. This names the silent op it
- * answers ("silent-refresh" | "silent-restore"), or "signed-out" when the
- * session it belonged to has since ended (sign-out, Clear settings), in
- * which case the reply is dropped.
+ * GIS answers every request through one callback. Each request carries a
+ * `state` that Google echoes back, so a reply reaches the op that asked for
+ * it (A17), and a reply whose op was written off — by a sign-out here or in
+ * another tab, Clear settings, or a newer sign-in — is dropped (A3). An op
+ * stays here after its wait runs out, so a late silent answer is still that
+ * refresh or restore (A7/A17).
  */
-let unansweredSilentOp = null;
+const oauthRequestsByState = new Map();
+let oauthRequestSeq = 0;
+
+function requestOAuthToken(op, request) {
+  oauthRequestSeq += 1;
+  const state = `jb-${Date.now().toString(36)}-${oauthRequestSeq}`;
+  oauthRequestsByState.set(state, op);
+  tokenClient.requestAccessToken({ ...request, state });
+}
+
+/** Clear settings: no silent request may sign this tab back in. */
+function writeOffSilentRequests() {
+  for (const [state, op] of oauthRequestsByState) {
+    if (op.kind !== "interactive") oauthRequestsByState.delete(state);
+  }
+}
 
 function canUseLocalStorage() {
   try {
@@ -271,22 +287,22 @@ function clearSessionAuthState() {
   clearScheduledTokenRefresh();
   const abandoned = oauthPendingOp;
   // A1: settle a refresh still in flight, so its shared promise never
-  // outlives the session it was refreshing; an interactive caller too.
+  // outlives the session it was refreshing.
   if (abandoned?.kind === "silent-refresh" && abandoned.finish) {
     abandoned.finish(false);
-  } else if (abandoned?.kind === "interactive" && abandoned.finish) {
-    abandoned.finish({ ok: false, reason: "cancelled" });
   }
-  // A3: Google may still answer that request; the answer must not sign the
-  // user back in (Clear settings ends the session here, not via signOut).
-  if (abandoned) unansweredSilentOp = "signed-out";
+  // A3: Google may still answer a silent request; the answer must not sign
+  // the user back in (Clear settings ends the session here, not via
+  // signOut). A sign-in the user started stays open: a 401 caller lands
+  // here when that sign-in ended its refresh, and the new token is wanted.
+  writeOffSilentRequests();
   accessToken = null;
   userEmail = null;
   userPictureUrl = null;
   userGivenName = null;
   grantedOauthScopes = "";
   tokenExpiresAt = null;
-  oauthPendingOp = null;
+  if (oauthPendingOp?.kind !== "interactive") oauthPendingOp = null;
   host().setPendingSetupStarterSheetCreate(false);
   clearPersistedOAuthSession();
   clearPersistedRuntimeOAuthSession();
@@ -487,6 +503,16 @@ function initTokenRefreshVisibilityListener() {
  */
 function refreshAccessTokenSilently() {
   if (!tokenClient) return Promise.resolve(false);
+  // A1/A6: a sign-in the user started brings the new token. Wait for it
+  // rather than replacing its op, which would leave its caller waiting.
+  const interactive = oauthPendingOp;
+  if (interactive?.kind === "interactive" && interactive.outcome) {
+    return interactive.outcome.then((result) => {
+      if (result && result.ok) return true;
+      if (result && result.reason === "superseded") return refreshAccessTokenSilently();
+      return false;
+    });
+  }
   // A1: a second caller joins the refresh in flight. A second request would
   // replace the first op, orphan its waiter, and time it out into a sign-out.
   if (silentRefreshPromise) return silentRefreshPromise;
@@ -513,15 +539,12 @@ function refreshAccessTokenSilently() {
   const t = setTimeout(() => {
     // A7: the op ends with its wait, or it blocks the wake-up refresh for
     // good. A reply that still comes is handled as this refresh.
-    if (oauthPendingOp === op) {
-      oauthPendingOp = null;
-      unansweredSilentOp = "silent-refresh";
-    }
+    if (oauthPendingOp === op) oauthPendingOp = null;
     done(false);
   }, 25_000);
   oauthPendingOp = op;
   try {
-    tokenClient.requestAccessToken({ prompt: "none" });
+    requestOAuthToken(op, { prompt: "none" });
   } catch (e) {
     op.finish(false);
   }
@@ -569,9 +592,8 @@ function restoreOAuthSession() {
   const restoreTimeoutMs = 8000;
   setTimeout(() => {
     if (oauthPendingOp !== restoreOp || accessToken) return;
-    oauthPendingOp = null;
     // A17: Google may still answer; that token is this restore, late.
-    unansweredSilentOp = "silent-restore";
+    oauthPendingOp = null;
     console.warn("[JobBored] silent restore timed out after", restoreTimeoutMs, "ms");
     if (host().getOAuthClientId()) {
       host().showSheetAccessGate("signin", {
@@ -581,7 +603,7 @@ function restoreOAuthSession() {
     }
   }, restoreTimeoutMs);
   try {
-    tokenClient.requestAccessToken({ prompt: "none" });
+    requestOAuthToken(restoreOp, { prompt: "none" });
   } catch (e) {
     oauthPendingOp = null;
     clearPersistedOAuthSession();
@@ -875,8 +897,8 @@ function initAuth() {
           const hadInteractive = oauthPendingOp?.kind === "interactive";
           settleInteractiveSignIn(err);
           oauthPendingOp = null;
-          // A6: no sign-in was waiting and the tab is signed in — a late
-          // silent token already answered it, so this window is moot.
+          // A6: no sign-in was waiting and the tab is signed in — a newer
+          // attempt already answered, so this window is moot.
           if (!hadInteractive && accessToken) return;
           if (isOAuthOriginClientFailure(err)) {
             showOriginClientFailureToast(openGoogleOriginDetour());
@@ -917,18 +939,24 @@ function initAuth() {
 
 function handleTokenResponse(tokenResponse) {
   let pending = oauthPendingOp;
-  if (!pending && unansweredSilentOp) {
-    const late = unansweredSilentOp;
-    unansweredSilentOp = null;
-    // A3: the user signed out (here or in another tab) after this request
-    // left; its answer must not sign them back in.
-    if (late === "signed-out") return;
-    // A7/A17: the answer to a silent request whose wait already ran out. It
-    // is that silent op, late (a restore once no session is left to
-    // refresh), never an interactive sign-in.
-    pending = {
-      kind: late === "silent-refresh" && accessToken ? "silent-refresh" : "silent-restore",
-    };
+  const state =
+    tokenResponse && typeof tokenResponse.state === "string" ? tokenResponse.state : "";
+  if (state) {
+    const asked = oauthRequestsByState.get(state);
+    // A3: written off — signed out here or in another tab, Clear settings,
+    // or a newer sign-in took over. Its answer must not sign anyone in.
+    if (!asked) return;
+    oauthRequestsByState.delete(state);
+    if (asked !== oauthPendingOp) {
+      // A17: another op is waiting; this answer is not its answer.
+      if (oauthPendingOp || asked.kind === "interactive") return;
+      // A7/A17: the answer to a silent request whose wait already ran out.
+      // It is that silent op, late (a restore once no session is left to
+      // refresh), never an interactive sign-in.
+      pending = {
+        kind: asked.kind === "silent-refresh" && accessToken ? "silent-refresh" : "silent-restore",
+      };
+    }
   }
   const silentOp =
     pending &&
@@ -1106,12 +1134,15 @@ function signIn(options = {}) {
   } else if (oauthPendingOp?.kind === "interactive" && oauthPendingOp.finish) {
     oauthPendingOp.finish({ ok: false, reason: "superseded" });
   }
-  unansweredSilentOp = null;
+  // A17: this sign-in is the user's choice now; an older request's answer,
+  // late restore included, must not answer it.
+  oauthRequestsByState.clear();
   let finish;
   const outcome = new Promise((resolve) => {
     finish = resolve;
   });
-  oauthPendingOp = { kind: "interactive", finish };
+  const op = { kind: "interactive", finish, outcome };
+  oauthPendingOp = op;
   const request = {};
   let prompt =
     options && typeof options === "object" && options.prompt != null
@@ -1130,7 +1161,7 @@ function signIn(options = {}) {
     /* ignore */
   }
   if (prompt) request.prompt = prompt;
-  tokenClient.requestAccessToken(request);
+  requestOAuthToken(op, request);
   return outcome;
 }
 
@@ -1153,8 +1184,10 @@ function signOut() {
 /** This tab's signed-out state, shared by signOut and a sign-out elsewhere (A3). */
 function endSessionLocally(message) {
   clearSessionAuthState();
-  // A silent reply still on its way must not sign this tab back in.
-  unansweredSilentOp = "signed-out";
+  // A3: a sign-out ends a sign-in still open too, and no reply still on its
+  // way may sign this tab back in.
+  settleInteractiveSignIn({ type: "cancelled" });
+  oauthRequestsByState.clear();
   // Wipe in-memory and on-DOM pipeline data so the signed-out session can't
   // see or interact with what was loaded before.
   host().setPipelineRawRows(null);
@@ -1215,10 +1248,8 @@ function postSessionMessage(message) {
 }
 
 function handleSignOutElsewhere() {
-  // An interactive sign-in here is this tab's own, newer choice.
-  if (oauthPendingOp?.kind === "interactive") return;
   if (!accessToken && !oauthPendingOp) {
-    unansweredSilentOp = "signed-out";
+    oauthRequestsByState.clear();
     return;
   }
   closeAuthUserMenu();

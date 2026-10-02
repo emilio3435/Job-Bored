@@ -660,7 +660,7 @@ test("VAL-ONEFLOW-001: every beat reaches the payoff on a fresh install", async 
   expect(gis.init.clientId).toBe(CLIENT_ID);
   expect(gis.init.scope.split(/\s+/).sort()).toEqual([...GOOGLE_SCOPES].sort());
   expect(gis.init.includeGrantedScopes).toBe(true);
-  expect(gis.requests).toEqual([{ prompt: "consent" }]);
+  expect(gis.requests).toEqual([{ prompt: "consent", state: expect.any(String) }]);
   expect(state.calls.sheetsCreate).toHaveLength(1);
   expect(state.calls.sheetsHeaders).toHaveLength(1);
 
