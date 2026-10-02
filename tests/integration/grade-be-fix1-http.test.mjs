@@ -107,3 +107,18 @@ it("GRADE-B FIX1-B10: HTTP Rescore returns 409 during drafting and 429 at the li
   const limited = await errorResponse(path, 429, { method: "POST" });
   assert.equal(limited.body.code, "rate_limited"); assert.ok(limited.response.headers.get("retry-after"));
 });
+it("GRADE-B FIX3-R3: both HTTP file routes strip legacy repair snapshot totals without disk writes", async t => {
+  if (!available(t)) return;
+  const legacy = { contract: "materials.qa.v1", document: "resume", runId: "original", status: "fail", repair: { attempted: true,
+    before: { status: "fail", score: 8, max: 16, codes: ["metric_mismatch"] }, after: { status: "pass", score: 16, max: 16, codes: [] } } };
+  for (const dir of [app, run]) await save(join(dir, "qa.resume.json"), legacy);
+  for (const [dir, prefix] of [[app, "/api/applications/acme/files/"], [run, "/api/applications/acme/runs/original/files/"]]) {
+    const before = await readFile(join(dir, "qa.resume.json"), "utf8");
+    const response = await fetch(base + prefix + "qa.resume.json");
+    assert.equal(response.status, 200);
+    const view = await response.json();
+    assert.deepEqual(view.repair.before, { status: "fail", codes: ["metric_mismatch"] });
+    assert.deepEqual(view.repair.after, { status: "pass", codes: [] });
+    assert.equal(await readFile(join(dir, "qa.resume.json"), "utf8"), before);
+  }
+});

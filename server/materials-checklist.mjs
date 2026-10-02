@@ -118,7 +118,7 @@ export function buildChecklistItems(facts, state = {}) {
 
   if (facts.docs.resume) {
     const resume = facts.verdicts.resume;
-    const held = Object.values(facts.verdicts).find(v => v?.disposition === "FAIL" && (!resume?.runId || !v.runId || v.runId === resume.runId));
+    const held = resume?.disposition === "FAIL" ? resume : Object.values(facts.verdicts).find(v => v?.disposition === "FAIL" && resume?.runId && v.runId === resume.runId);
     items.push({
       id: "resume",
       label: "Download your tailored resume (PDF)",
