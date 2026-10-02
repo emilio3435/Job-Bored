@@ -81,7 +81,7 @@ function manifest() {
 
 /* Fictional steps with the server's shapes (server/materials-checklist.mjs). */
 const STEPS = [
-  { id: "resume", label: "Download your tailored resume (PDF)", detail: "It failed its quality check (6 / 12). Repair it or read it closely first.", tone: "warn", action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: true, label: "Download" } },
+  { id: "resume", label: "Download your tailored resume (PDF)", detail: "It failed its quality check. Repair it or read it closely first.", tone: "warn", action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: true, label: "Download" } },
   { id: "links", label: "Check your portfolio and profile links", detail: "Open each one: portfolio.example.test/sam-okafor." },
   { id: "salary", label: "If the form asks about salary, hold it for the recruiter", detail: "Leave it blank or write \"open to discuss\"." },
   { id: "submit", label: "Submit the application on Harbor Analytics's site", detail: "The posting opens in a new tab.", action: { kind: "open", href: "https://jobs.harbor-analytics.test/product-lead", label: "Open posting" } },
@@ -279,6 +279,8 @@ for (const width of [1440, 375]) {
       await expect(strip.locator(".jb-cl__now")).toHaveCount(1);
       await expect(strip.locator(".jb-cl__now")).toHaveAttribute("data-item", "resume");
       await expect(strip.locator(".jb-cl__now .jb-cl__pos")).toHaveText("Step 1 of 6");
+      /* GRADE-F FIX1-F6: the server's checklist details carry no score. */
+      await expect(strip, "GRADE-F FIX1-F6: no score in the resume step").not.toContainText(/\/ 12/);
       await expect(strip.locator(".jb-cl__peek")).toHaveCount(1);
       await expect(strip.locator(".jb-cl__peek")).toContainText("Check your portfolio and profile links");
       await expect(strip.locator("[data-item]")).toHaveCount(1);

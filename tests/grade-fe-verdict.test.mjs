@@ -238,7 +238,8 @@ describe("GRADE-F G6/G7 · the version rows", () => {
       const dl = byId[id].querySelector('[data-action="materials-download"]');
       assert.equal(dl.getAttribute("data-gate"), "held");
       assert.equal(dl.getAttribute("data-held"), "1 claim needs a source");
-      assert.ok(byId[id].querySelector('[data-action="materials-promote"]'), "Use this version");
+      /* FIX1-F2: a pass sibling can't be promoted; the whole run can. */
+      assert.equal(!!byId[id].querySelector('[data-action="materials-promote"]'), id === "failing-repair", "Use this version");
     }
     assert.match(text(byId["previous-good"]), /Default/);
     assert.equal(byId["previous-good"].querySelector('[data-action="materials-download"]').getAttribute("data-gate"), null);

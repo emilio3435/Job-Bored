@@ -145,6 +145,14 @@
       + (cov.missing.length ? "; missing: " + cov.missing.join(", ") : "");
   }
 
+  /* G3 (FIX1-F7): a carried-over record's coverage was measured on another
+     run — the one it was carried from — so it reads "From an earlier
+     version" whatever the host says. */
+  function carriedFromOtherRun(rec) {
+    var from = rec && rec.state === "carried_over" && rec.carriedFrom ? String(rec.carriedFrom.runId || "") : "";
+    return !!from && from !== String(rec.runId || "");
+  }
+
   function noPeriod(s) {
     return String(s || "").trim().replace(/[.!?]+$/, "");
   }
@@ -187,7 +195,7 @@
       held: disposition === "FAIL" ? { reason: reason || WORDS.FAIL } : null,
       legacy: rec && rec.legacy ? String(rec.legacy) : "",
       reviews: rec ? list(rec.reviews) : [],
-      coverage: coverageView(rec && rec.coverage, o.stale),
+      coverage: coverageView(rec && rec.coverage, o.stale || carriedFromOtherRun(rec)),
       checks: checks,
       sentences: rec ? list(rec.sentences) : [],
       issues: rec ? list(rec.issues) : [],
@@ -543,9 +551,19 @@
       }).join("") + "</ul>" : "");
   }
 
+  /* G4 (FIX1-F5): the ratings are the first successful review's — the
+     second's when the first didn't run (server/materials-qa.mjs). */
+  function ratedBy(view) {
+    var ok = view.reviews.filter(function (r) { return r.status === "ok"; });
+    var r = ok.filter(function (x) { return x.role === "first"; })[0] || ok[0];
+    if (!r) return "";
+    return (r.role === "second" ? "the second review" : "the first review") + " (" + reviewModel(r) + ")";
+  }
+
   function writingHtml(model) {
     if (!model.writing.length) return emptyHtml("No writing ratings for this version.");
-    return '<p class="jb-score__sub">Advisory: each rating is 0–4 from the first review, and one under 3 sends the draft to review.</p>'
+    var by = ratedBy(model.view);
+    return '<p class="jb-score__sub">Advisory: each rating is 0–4' + esc(by ? " from " + by : "") + ", and one under 3 sends the draft to review.</p>"
       + '<ul class="jb-score__dimlist">' + model.writing.map(function (r) {
         return '<li class="jb-score__dim"><span class="jb-score__dim-label">' + esc(r.label) + "</span>"
           + meterHtml(r.value, r.max)
@@ -701,6 +719,19 @@
     return { state: state, word: WORDS[d] || "Not graded", tone: TONES[d] || "none", reason: noPeriod(x.reason), legacy: x.legacy ? String(x.legacy) : "" };
   }
 
+  var CHECK_WORDS = { fail: "Fails", review: "Needs review" };
+
+  /* FIX1-F3: a version's own failed and review checks
+     (RunSummary.verdicts[doc].checks), readable without promoting it. */
+  function checksHtml(v) {
+    var checks = list(v && v.checks).filter(function (c) { return CHECK_WORDS[c.status]; });
+    if (!checks.length) return "";
+    return '<details class="jb-ver__checks"><summary>Checks for this version</summary><ul>'
+      + checks.map(function (c) {
+        return "<li>" + esc(String(c.label || c.id || "")) + " — " + esc(CHECK_WORDS[c.status]) + "</li>";
+      }).join("") + "</ul></details>";
+  }
+
   function runRowHtml(r, feature, o) {
     var mi = insights();
     var v = runVerdict(r.verdicts && r.verdicts[feature]);
@@ -713,7 +744,9 @@
     var filename = String(download).split("?")[0].split("/").pop();
     var dlHref = download ? withQuery(base + download, "download=1") : "";
     var what = cap(r.template || "") + (SOURCE_WORDS[r.source] ? " · " + SOURCE_WORDS[r.source] : "");
-    var before = r.source === "repair" && r.repair && r.repair.before ? WORDS[String(r.repair.before.disposition || "").toUpperCase()] : "";
+    /* FIX1-F1: the run's source is its template's; a repair is known by
+       its repair record. A pass sibling is never a manual repair. */
+    var before = r.kind !== "pass" && r.repair && r.repair.before ? WORDS[String(r.repair.before.disposition || "").toUpperCase()] : "";
     var acts = [];
     if (preview) {
       acts.push('<a class="jb-ver__btn" href="' + esc(base + preview) + '" target="_blank" rel="noopener" data-action="materials-preview"'
@@ -723,7 +756,8 @@
       acts.push('<a class="jb-ver__btn" href="' + esc(dlHref) + '" download data-action="materials-download" data-filename="' + esc(filename) + '"'
         + (held ? ' data-gate="held" data-held="' + esc(held) + '"' : "") + ">Download</a>");
     }
-    if (!isDefault && o.promote) {
+    /* FIX1-F2: the server refuses to promote a pass (409 pass_not_promotable). */
+    if (!isDefault && o.promote && r.kind !== "pass") {
       acts.push('<button type="button" class="jb-ver__btn" data-action="materials-promote" data-score-promote="' + esc(r.runId) + '"'
         + ' data-run="' + esc(r.runId) + '" data-feature="' + esc(feature) + '">Use this version</button>');
     }
@@ -747,6 +781,7 @@
       + (before ? '<p class="jb-ver__note">' + esc(before + " → " + v.word) + "</p>" : "")
       + (v.state === "carried_over" ? '<p class="jb-ver__note">Same text as an earlier version — verdict carried over</p>' : "")
       + (v.legacy ? '<p class="jb-ver__note">Graded by the old checker</p>' : "")
+      + checksHtml(r.verdicts && r.verdicts[feature])
       + (acts.length ? '<p class="jb-ver__acts">' + acts.join("") + "</p>" : "")
       + confirm
       + "</li>";
@@ -998,11 +1033,17 @@
         }
         var run = t.getAttribute("data-score-promote");
         if (run && typeof ctl.spec.promote === "function") {
+          ctl.ui.error = "";
           Promise.resolve(ctl.spec.promote(run)).then(function () {
             ctl.ui.history = undefined;
             loadHistory(ctl);
             refresh(ctl);
-          }, function () { refresh(ctl, true); });
+          }, function (err) {
+            if (ctl.closed) return;
+            ctl.ui.error = "Couldn’t switch versions: " + ((err && err.message) || "unknown error");
+            refresh(ctl, true);
+            announce(ctl.ui.error, true);
+          });
           return;
         }
       }

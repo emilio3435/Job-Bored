@@ -187,8 +187,8 @@ function draftingManifest({ feature = "resume", next, stages = STAGES_MID_RUN, d
 }
 
 const CHECKLIST_ITEMS = [
-  { id: "resume", label: "Download your tailored resume (PDF)", detail: "It failed its quality check (6 / 12). Repair it or read it closely first.", tone: "warn", action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: true, label: "Download" } },
-  { id: "letter", label: "Review your cover letter", detail: "Quality check says review (9 / 12). Give it a read.", action: { kind: "preview", doc: "cover_letter", filename: "cover-letter.html", label: "Read it" } },
+  { id: "resume", label: "Download your tailored resume (PDF)", detail: "It failed its quality check. Repair it or read it closely first.", tone: "warn", action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: true, label: "Download" } },
+  { id: "letter", label: "Review your cover letter", detail: "Quality check says review. Give it a read.", action: { kind: "preview", doc: "cover_letter", filename: "cover-letter.html", label: "Read it" } },
   { id: "links", label: "Check your portfolio and profile links", detail: "Open each one: linkedin.com/in/jordan-rivera." },
   { id: "salary", label: "If the form asks about salary, hold it for the recruiter", detail: "Your voice guide: \"Hold comp for the recruiter call.\"" },
   { id: "submit", label: "Submit the application on Meridian Labs's site", detail: "The posting opens in a new tab.", action: { kind: "open", href: "https://jobs.meridian-labs.test/senior-pm", label: "Open posting" } },
@@ -485,10 +485,14 @@ for (const width of [1440, 390]) {
       /* MREV CHECKLIST: a horizontal strip, one step in focus plus a peek. */
       const total = CHECKLIST_ITEMS.length;
       await expect(list.locator(".jb-cl__now")).toHaveAttribute("data-item", "resume");
+      /* GRADE-F FIX1-F6: the server's checklist details carry no score. */
+      await expect(list, "GRADE-F FIX1-F6: no score in the resume step").not.toContainText(/\/ 12/);
       await expect(list.locator(".jb-cl__count")).toHaveText(`${total} steps remaining · 0 completed`);
       await expect(row.locator(".case__docst")).toHaveText(new RegExp(`0 / ${total} done`, "i"));
 
       await list.getByRole("button", { name: "Next step" }).click();
+      await expect(list.locator(".jb-cl__now")).toHaveAttribute("data-item", "letter");
+      await expect(list, "GRADE-F FIX1-F6: no score in the letter step").not.toContainText(/\/ 12/);
       await list.getByRole("button", { name: "Next step" }).click();
       await list.getByLabel("Check your portfolio and profile links").check();
       await expect(list.locator(".jb-cl__count")).toHaveText(`${total - 1} steps remaining · 1 completed`);
