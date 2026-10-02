@@ -309,7 +309,7 @@ export async function readJudgeContext(dir, document, fallback, file = join(dir,
     const stored = JSON.parse(await readFile(file, "utf8"));
     if (stored?.sources) {
       const complete = ["posting", "claims", "research", "advisory"].every(key => Array.isArray(stored.sources[key])) && typeof stored.sources.voice === "string" && Array.isArray(stored.constraints);
-      return { ...stored, sources: { ...fallback, ...stored.sources }, constraints: stored.constraints || [], reducedEvidence: !complete };
+      return { ...stored, sources: { ...fallback, ...stored.sources }, constraints: stored.constraints || [], reducedEvidence: stored.reducedEvidence === true || !complete };
     }
   } catch { /* older run lacks context */ }
   return { sources: fallback, constraints: [], reducedEvidence: true };
@@ -365,9 +365,9 @@ export function documentAdvisory(document, sentences, draft, delintResult, tagge
 }
 
 /** Recompute the pipeline's sentence advisories for a delivered edited body.
- * @param {{document:"letter"|"resume",body:string,ledger:any,posting:string}} input */
-export async function refreshedDocumentAdvisory({ document, body, ledger, posting }) {
+ * @param {{document:"letter"|"resume",body:string,ledger:any,posting:string,company?:string}} input */
+export async function refreshedDocumentAdvisory({ document, body, ledger, posting, company = "" }) {
   const draft = { statement: document === "resume" ? body : "", bullets: [], earlier: [], letter: document === "letter" ? { hook: body } : {} };
-  const delinted = delint({ fields: document === "letter" ? { "letter.hook": body } : { statement: body }, letter: document === "letter" ? draft.letter : null, letterText: document === "letter" ? body : "", jdText: posting, pack: await loadVoicePack() });
+  const delinted = delint({ fields: document === "letter" ? { "letter.hook": body } : { statement: body }, letter: document === "letter" ? draft.letter : null, letterText: document === "letter" ? body : "", company, jdText: posting, pack: await loadVoicePack() });
   return documentAdvisory(document, splitSentences(body, document), draft, delinted, tagDraftMetrics({ draft, ledger, postingText: posting }), ledger);
 }

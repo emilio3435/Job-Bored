@@ -22,7 +22,7 @@ import { readQaVerdict, verdictSnapshot } from "./materials-qa.mjs";
 import { copyFile, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, sep } from "node:path";
-import { resolveApplicationDir } from "./application-materials.mjs";
+import { resolveApplicationDir, resolveContainedFile } from "./application-materials.mjs";
 import { RUNS_DIR } from "./materials-package.mjs";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
@@ -279,14 +279,19 @@ export async function listRuns(slug, { root } = {}) {
 export async function promoteRun(slug, runId, { root, now = () => new Date() } = {}) {
   const appDir = await resolveApplicationDir(slug, { root });
   const runDir = await resolveRunDir(appDir, runId);
-  const pending = await readJson(join(appDir, "pending.json"));
+  const names = [...new Set([...Object.values(DOC_FILES).flatMap(files => Object.values(files)), ...RUN_LEVEL_FILES, "judge-context.resume.json", "judge-context.letter.json", "writer-sources.json", "draft.json", "manifest.json", "pending.json"])];
+  // Reject an unsafe source or destination before replacing any published file.
+  for (const dir of [runDir, appDir]) for (const name of names) await resolveContainedFile(dir, name, { optional: true });
+  const sourcePath = (/** @type {string} */ name) => resolveContainedFile(runDir, name, { optional: true });
+  const destinationPath = (/** @type {string} */ name) => resolveContainedFile(appDir, name, { optional: true });
+  const pending = await readJson(await destinationPath("pending.json"));
   const phase = pending && pending.progress && typeof pending.progress === "object"
     ? String(/** @type {Record<string, unknown>} */ (pending.progress).phase || "")
     : "";
   if (pending && !/^(failed|complete|done)$/i.test(phase)) {
     throw httpError("A draft is running for this role. Wait for it to finish, then try again.", 409, "draft_in_flight");
   }
-  const storedRun = await readJson(join(runDir, "run.json"));
+  const storedRun = await readJson(await sourcePath("run.json"));
   if (storedRun?.kind === "pass") throw httpError("Restore a document version through the editor", 409, "pass_not_promotable");
   const documents = docsInRun(runDir);
   if (!documents.length) throw httpError("This version has no documents to restore.", 404, "run_empty");
@@ -295,34 +300,43 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
   for (const doc of documents) {
     const files = DOC_FILES[doc];
     for (const name of [files.html, files.pdf, files.txt, files.qa, files.draft]) {
-      if (!existsSync(join(runDir, name))) continue;
-      await copyFile(join(runDir, name), join(appDir, name));
+      const source = await sourcePath(name);
+      if (!existsSync(source)) continue;
+      await copyFile(source, await destinationPath(name));
       copied.push(name);
     }
     const context = `judge-context.${doc === "cover_letter" ? "letter" : "resume"}.json`;
-    if (existsSync(join(runDir, context))) {
-      await copyFile(join(runDir, context), join(appDir, context)); copied.push(context);
-    } else await rm(join(appDir, context), { force: true });
+    const source = await sourcePath(context);
+    if (existsSync(source)) {
+      await copyFile(source, await destinationPath(context)); copied.push(context);
+    } else await rm(await destinationPath(context), { force: true });
   }
-  if (existsSync(join(runDir, "writer-sources.json"))) {
-    await copyFile(join(runDir, "writer-sources.json"), join(appDir, "writer-sources.json")); copied.push("writer-sources.json");
-  } else await rm(join(appDir, "writer-sources.json"), { force: true });
+  const writerSources = await readJson(await sourcePath("writer-sources.json"));
+  if (writerSources) {
+    const merged = await readJson(await destinationPath("writer-sources.json")) || {};
+    let changed = false;
+    for (const doc of documents) if (Array.isArray(writerSources[doc])) { merged[doc] = writerSources[doc]; changed = true; }
+    if (changed) {
+      await writeFile(await destinationPath("writer-sources.json"), `${JSON.stringify(merged, null, 2)}\n`);
+      copied.push("writer-sources.json");
+    }
+  }
   for (const name of RUN_LEVEL_FILES) {
-    if (!existsSync(join(runDir, name))) continue;
-    await copyFile(join(runDir, name), join(appDir, name));
+    const source = await sourcePath(name);
+    if (!existsSync(source)) continue;
+    await copyFile(source, await destinationPath(name));
     copied.push(name);
   }
-  if (documents.length === 2 && existsSync(join(runDir, "draft.json"))) {
-    await copyFile(join(runDir, "draft.json"), join(appDir, "draft.json"));
+  if (documents.length === 2 && existsSync(await sourcePath("draft.json"))) {
+    await copyFile(await sourcePath("draft.json"), await destinationPath("draft.json"));
     copied.push("draft.json");
   }
-  const run = await readJson(join(runDir, "run.json"));
-  const manifestPath = join(appDir, "manifest.json");
-  const manifest = (await readJson(manifestPath)) || {};
+  const run = storedRun;
+  const manifest = (await readJson(await destinationPath("manifest.json"))) || {};
   /** @type {Record<string, unknown>} */
   const next = { ...manifest, runId, updated_at: now().toISOString(), promotedFrom: runId };
   if (run && run.template && typeof run.template === "object") next.template = run.template;
-  await writeFile(manifestPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFile(await destinationPath("manifest.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return { ok: true, slug, runId, documents, copied };
 }
 

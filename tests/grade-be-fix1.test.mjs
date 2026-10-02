@@ -129,7 +129,7 @@ it("GRADE-B FIX1-B6: promotion carries selected judge context and removes missin
   await rm(join(run, "judge-context.letter.json")); await rm(join(run, "writer-sources.json"));
   await promoteRun("acme", "original", { root });
   await assert.rejects(readFile(join(app, "judge-context.letter.json")), { code: "ENOENT" });
-  await assert.rejects(readFile(join(app, "writer-sources.json")), { code: "ENOENT" });
+  assert.deepEqual(await json(join(app, "writer-sources.json")), { cover_letter: [{ sentence: "Forecast.", claimIds: ["1"] }] });
 }));
 
 it("GRADE-B FIX1-B7: real unlinked gate defects are targeted and never preserved", () => {
