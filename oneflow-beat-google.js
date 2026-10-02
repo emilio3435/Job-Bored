@@ -773,8 +773,11 @@
           "p",
           "oneflow-google__privacy",
           {},
-          "Your sign-in lasts for this tab only; your Client ID and Sheet " +
-            "link are saved in this browser.",
+          // A2: new tabs restore silently, so the sign-in itself is not
+          // tab-only; the access token is (sessionStorage).
+          "JobBored keeps your Google access token in this tab only; new " +
+            "tabs sign you in again quietly. Your Client ID and Sheet link " +
+            "are saved in this browser.",
         ),
       );
       body.appendChild(renderDetour(ctx));
@@ -786,16 +789,40 @@
   // The primary path (spec §5 B1)
   // ---------------------------------------------------------------
 
-  function waitForSignIn() {
+  /**
+   * Poll until `done()` holds or the deadline passes. `attempt` is what
+   * signIn() answered: when Google ends the sign-in without a token (A6 —
+   * the user closed its window), the wait ends at once with that reason
+   * instead of running out a two-minute clock that also swallowed retries.
+   * @returns {Promise<{ok: boolean, reason: string}>}
+   */
+  function waitUntil(done, attempt) {
     return new Promise((resolve) => {
+      let over = false;
+      const end = (ok, reason) => {
+        if (over) return;
+        over = true;
+        resolve({ ok, reason });
+      };
+      if (attempt && typeof attempt.then === "function") {
+        attempt.then(
+          (result) => {
+            if (result && result.ok === false && result.reason !== "superseded") {
+              end(false, String(result.reason || ""));
+            }
+          },
+          () => {},
+        );
+      }
       const deadline = Date.now() + SIGN_IN_TIMEOUT_MS;
       const tick = () => {
-        if (signedIn()) {
-          resolve(true);
+        if (over) return;
+        if (done()) {
+          end(true, "");
           return;
         }
         if (Date.now() >= deadline) {
-          resolve(false);
+          end(false, "timeout");
           return;
         }
         setTimeout(tick, SIGN_IN_POLL_MS);
@@ -804,23 +831,21 @@
     });
   }
 
+  function waitForSignIn(attempt) {
+    return waitUntil(signedIn, attempt);
+  }
+
   /** After a consent re-ask: wait until the grant includes Sheets. */
-  function waitForSheetsGrant() {
-    return new Promise((resolve) => {
-      const deadline = Date.now() + SIGN_IN_TIMEOUT_MS;
-      const tick = () => {
-        if (signedIn() && sheetsScopeGranted()) {
-          resolve(true);
-          return;
-        }
-        if (Date.now() >= deadline) {
-          resolve(false);
-          return;
-        }
-        setTimeout(tick, SIGN_IN_POLL_MS);
-      };
-      tick();
-    });
+  function waitForSheetsGrant(attempt) {
+    return waitUntil(() => signedIn() && sheetsScopeGranted(), attempt);
+  }
+
+  /** Why sign-in didn't finish, ending in the button that tries again. */
+  function signInFailedMessage(reason, button) {
+    return reason === "popup_closed"
+      ? `You closed the Google window before signing in. Press ${button} to try again.`
+      : "Google sign-in didn't finish. If the popup was blocked, allow " +
+          `popups for this page and press ${button} again.`;
   }
 
   function signedInStage(state_) {
@@ -871,6 +896,7 @@
     // B1-N2: consent is requested HERE, synchronously, while the click is
     // still a user gesture — after an await the popup would be blocked.
     let reconsent = false;
+    let attempt;
     if (state.scopeMissing) {
       state.scopeMissing = false;
       reconsent = true;
@@ -879,32 +905,29 @@
         { label: "Creating your Pipeline sheet…", state: "todo" },
         { label: "Sheet ready ✓", state: "todo" },
       ]);
-      call("signIn", { prompt: "consent" });
+      attempt = call("signIn", { prompt: "consent" });
     } else if (!signedIn()) {
       setStages(ctx, [
         { label: "Waiting for Google sign-in…", state: "active" },
         { label: "Creating your Pipeline sheet…", state: "todo" },
         { label: "Sheet ready ✓", state: "todo" },
       ]);
-      call("signIn");
+      attempt = call("signIn");
     }
     state.inFlight = true;
-    return finishContinue(ctx, reconsent).finally(() => {
+    return finishContinue(ctx, reconsent, attempt).finally(() => {
       state.inFlight = false;
     });
   }
 
-  async function finishContinue(ctx, reconsent) {
+  async function finishContinue(ctx, reconsent, attempt) {
     if (reconsent || !signedIn()) {
-      const ok = reconsent ? await waitForSheetsGrant() : await waitForSignIn();
-      if (!ok) {
+      const result = reconsent
+        ? await waitForSheetsGrant(attempt)
+        : await waitForSignIn(attempt);
+      if (!result.ok) {
         clearStages(ctx);
-        repaint(
-          ctx,
-          "Google sign-in didn't finish. If the popup was blocked, allow " +
-            "popups for this page and press Continue with Google again.",
-          "error",
-        );
+        repaint(ctx, signInFailedMessage(result.reason, "Continue with Google"), "error");
         return;
       }
     }
@@ -1010,14 +1033,12 @@
         { label: "Waiting for Google sign-in…", state: "active" },
         { label: "Checking that sheet…", state: "todo" },
       ]);
-      call("signIn");
-      const ok = await waitForSignIn();
-      if (!ok) {
+      const result = await waitForSignIn(call("signIn"));
+      if (!result.ok) {
         clearStages(ctx);
         repaint(
           ctx,
-          "Google sign-in didn't finish. If the popup was blocked, allow " +
-            "popups for this page and press Sign in & connect this sheet again.",
+          signInFailedMessage(result.reason, "Sign in & connect this sheet"),
           "error",
         );
         return;

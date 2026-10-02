@@ -191,9 +191,10 @@ Google's Make a copy duplicates every row in the template, so delete any rows be
 ### 3. Finish setup in the dashboard
 
 Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
-Paste your Client ID when it asks. Your sign-in lasts for this tab only; your
-Client ID and Sheet link are saved in this browser, so the normal setup path
-needs no manual `config.js` edits.
+Paste your Client ID when it asks. JobBored keeps your Google access token in
+this tab only; new tabs sign you in again quietly. Your Client ID and Sheet
+link are saved in this browser, so the normal setup path needs no manual
+`config.js` edits.
 
 Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into the dashboard — the app extracts the ID automatically.
 

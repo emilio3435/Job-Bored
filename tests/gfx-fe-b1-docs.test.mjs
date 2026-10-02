@@ -99,7 +99,7 @@ describe("G18 · G19 · G20 · G22 · the sheet section", () => {
   it("G22: says where the sign-in and the Client ID are kept", () => {
     assert.ok(
       setup().includes(
-        "Your sign-in lasts for this tab only; your\nClient ID and Sheet link are saved in this browser",
+        "JobBored keeps your Google access token in\nthis tab only; new tabs sign you in again quietly. Your Client ID and Sheet\nlink are saved in this browser",
       ),
     );
   });
