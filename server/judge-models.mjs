@@ -1,5 +1,5 @@
 import { loadStoredLlmConfig } from "./llm-config.mjs";
-import { GEMINI_API_BASE, geminiHeaders, normalizeProvider } from "./ai/provider.mjs";
+import { GEMINI_API_BASE, geminiHeaders, normalizeProvider, routeDeadlineSignal } from "./ai/provider.mjs";
 import { isProviderUrlBlocked, providerFetch } from "./provider-url-guard.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
@@ -11,6 +11,8 @@ const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434";
 /** A runaway cursor never costs more than five upstream lists. */
 const MAX_CATALOG_PAGES = 5;
+/** One deadline for the whole walk, every page included (P4). */
+const CATALOG_TIMEOUT_MS = 20_000;
 
 /** @typedef {Record<string, unknown>} CatalogModel */
 
@@ -283,7 +285,7 @@ function savedJudgeKey(provider, env) {
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {NodeJS.ProcessEnv} [env]
- * @param {{ fetchImpl?: typeof fetch }} [options]
+ * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number }} [options] timeoutMs is a test seam for the catalog deadline
  * @returns {Promise<void>}
  */
 export async function handlePostJudgeModels(req, res, env = process.env, options = {}) {
@@ -313,6 +315,7 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   }
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const signal = routeDeadlineSignal(req, res, options.timeoutMs ?? CATALOG_TIMEOUT_MS);
   // The first page failing is an error; a later page failing returns the
   // partial list — a shorter working list beats a dead dropdown.
   /** @type {unknown[]} */
@@ -325,11 +328,14 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
       upstream = await providerFetch(url, {
         method: "GET",
         headers: spec.headers(apiKey),
+        signal,
       }, { fetchImpl });
     } catch (error) {
       if (page > 0) break;
       if (isProviderUrlBlocked(error)) {
         res.status(400).json({ error: error instanceof Error ? error.message : "That address can't be used." });
+      } else if (signal.aborted && signal.reason && signal.reason.name === "TimeoutError") {
+        res.status(504).json({ error: `${spec.label} didn't answer in time: try again.` });
       } else {
         res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
       }
