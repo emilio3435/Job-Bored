@@ -192,4 +192,5 @@ Lists split on `,`, `;` and newlines. Values are lowercased, trimmed and whitesp
 ## 8. Notes for the dashboard
 - `runs-tab.js` `SCHEDULED_TRIGGERS` should add `scheduled-hunt` so the Scheduled chip finds hunt runs (tests/runs-tab.test.mjs pins that list's fixture).
 - A run row's "Save as hunt" toggle is on when some hunt has `sourceRunId === runId` or `searchKey ===` the run summary's `searchKey`.
+- A worker that serves hunts lists `routes.hunts: "/hunts"` in `GET /health`; an older worker answers `/hunts` with 404 `not_found`.
 - Show "worker offline" when `/hunts` fails at the network level. Never cache `googleAccessToken` in localStorage (§0.7).
