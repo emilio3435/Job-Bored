@@ -211,3 +211,88 @@ describe("D4 · overall deadline = maxRunDurationMs + grace (§0.4, §0.11)", ()
     assert.equal(tab.tracker.isActive(), true);
   });
 });
+
+describe("§0.4 · a slow status GET is not a lost connection (Grok DISCO review)", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("keeps watching through repeated 8 s timeouts while the worker may still run", async () => {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a");
+    // Five slow polls in a row — more than MAX_POLL_ERRORS (3).
+    await tab.clock.advance(2000);
+    for (let i = 0; i < 5; i += 1) {
+      await tab.clock.advance(tab.runTracker.DEFAULT_PER_POLL_TIMEOUT_MS + 4000);
+    }
+    assert.ok(pollsFor(net, "run_a").length >= 6, "the loop is still polling");
+    assert.equal(tab.tracker.isSettled(), false, "a slow worker is not a lost one");
+    assert.equal(tab.tracker.isActive(), true);
+    assert.ok(
+      !tab.toasts.some((t) => /Lost the status connection/i.test(t.message)),
+      "no lost-connection message for slow answers",
+    );
+
+    // …and the first answer after them returns the run to running.
+    const last = pollsFor(net, "run_a").at(-1);
+    net.respond(last, 200, runStatusBody("run_a"));
+    await flush();
+    assert.equal(tab.tracker.getState().status, "running");
+  });
+
+  it("settles a run whose status only ever times out once maxRunDurationMs + grace passes", async () => {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a", { pollAfterMs: 60000 });
+    const limit =
+      tab.runTracker.DEFAULT_MAX_RUN_DURATION_MS + tab.runTracker.RUN_DEADLINE_GRACE_MS;
+    await tab.clock.advance(HOUR);
+    assert.equal(tab.tracker.isActive(), true, "still watching an hour in");
+    await tab.clock.advance(limit - HOUR + 2 * 60000);
+    const settledAt = pollsFor(net, "run_a").length;
+    await tab.clock.advance(10 * 60000);
+    assert.equal(pollsFor(net, "run_a").length, settledAt, "no polls after the deadline");
+    assert.equal(tab.tracker.getState().deadlineExceeded, true);
+    assert.equal(tab.tracker.isActive(), false);
+  });
+
+  it("still gives up after MAX_POLL_ERRORS real errors (network failures)", async () => {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a");
+    await tab.clock.advance(2000);
+    for (let i = 0; i < 3; i += 1) {
+      net.fail(pollsFor(net, "run_a").at(-1));
+      await flush();
+      await tab.clock.advance(4000);
+    }
+    assert.equal(tab.tracker.isSettled(), true);
+  });
+});
+
+describe("§2 · wake() during an in-flight poll (Grok DISCO review)", () => {
+  it("polls right after the in-flight request when the tab was shown during it", async () => {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a");
+    await tab.clock.advance(2000);
+    assert.equal(pollsFor(net, "run_a").length, 1);
+    tab.document.setVisibility("hidden");
+    await flush();
+    tab.document.setVisibility("visible"); // wake() lands while poll 1 is in flight
+    await flush();
+    net.respond(pollsFor(net, "run_a")[0], 200, runStatusBody("run_a"));
+    await flush();
+    assert.equal(pollsFor(net, "run_a").length, 2, "polled at once, not a pollAfterMs later");
+  });
+
+  it("does not poll early when nothing woke it during the request", async () => {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a");
+    await tab.clock.advance(2000);
+    net.respond(pollsFor(net, "run_a")[0], 200, runStatusBody("run_a"));
+    await flush();
+    assert.equal(pollsFor(net, "run_a").length, 1);
+    assert.deepEqual(tab.clock.pending(), [2000]);
+  });
+});

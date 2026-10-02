@@ -973,9 +973,16 @@
       return this;
     }
 
-    /** Called when polling itself fails (network error, timeout, non-2xx). */
-    markPollError(errorMessage = "") {
-      this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
+    /**
+     * Called when polling itself fails (network error, timeout, non-2xx).
+     * §0.4: a status GET that only timed out is a slow worker, not a lost
+     * one — pass { timedOut: true } and it never counts toward
+     * MAX_POLL_ERRORS; the run deadline decides when watching stops.
+     */
+    markPollError(errorMessage = "", options) {
+      if (!(options && options.timedOut)) {
+        this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
+      }
       this._state.lastPollAt = new Date().toISOString();
       this._state.errorMessage = String(errorMessage || "Polling failed");
       this._state.statusUnavailable = true;

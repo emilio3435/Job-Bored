@@ -904,10 +904,12 @@ async function pollRunStatus(webhookUrl, options) {
     });
   } catch (err) {
     if (!isCurrent()) return null;
+    const timedOut = !!(err && err.name === "AbortError");
     tracker.markPollError(
-      err && err.name === "AbortError"
+      timedOut
         ? `Status request timed out after ${Math.round(perPollTimeoutMs / 1000)}s`
         : `Network error fetching status: ${err && err.message ? err.message : String(err)}`,
+      { timedOut },
     );
     return null;
   } finally {
@@ -1195,6 +1197,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     generation: Number(started.pollGeneration) || 0,
     leading: false,
     inFlight: false,
+    wakePending: false,
     wake() {},
   };
   activePollLoop = loop;
@@ -1216,7 +1219,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
 
   // D13: poll now — the tab was shown, or the tab that polled stepped back.
   loop.wake = () => {
-    if (!isCurrent() || loop.inFlight) return;
+    if (!isCurrent()) return;
+    // A wake during a request polls again as soon as it settles (§2).
+    if (loop.inFlight) {
+      loop.wakePending = true;
+      return;
+    }
     if (tracker._pollTimer) {
       clearTimeout(tracker._pollTimer);
       tracker._pollTimer = null;
@@ -1253,9 +1261,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     announceRunLease(loop, "lease");
 
     loop.inFlight = true;
+    loop.wakePending = false;
     const statusData = await pollRunStatus(pollingWebhookUrl, { isCurrent });
     loop.inFlight = false;
     if (!isCurrent()) return;
+    const wokenMeanwhile = loop.wakePending && !isDocumentHidden();
+    loop.wakePending = false;
     if (statusData) {
       tracker.updateFromStatusResponse(statusData);
       surfacePreFilterRejectionsFromStatus(statusData);
@@ -1272,6 +1283,9 @@ async function startDiscoveryStatusPolling(webhookUrl) {
         renderDiscoveryRunStatus();
         return;
       }
+      // §0.4: slow (timed-out) polls never add up to MAX_POLL_ERRORS, so
+      // the run deadline is what ends a watch that only ever times out.
+      if (settleIfPastDeadline()) return;
       if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
         stepBackFromRun(loop);
         tracker.markStatusConnectionLost(
@@ -1302,8 +1316,20 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       return;
     }
 
-    // D4: past maxRunDurationMs + grace and the worker has gone quiet —
-    // stop watching and say so. Fresh progress is never cut short (§0.4).
+    if (settleIfPastDeadline()) return;
+
+    // Normal: wait pollAfterMs then poll again — or poll now if the tab was
+    // shown, or the polling tab stepped back, while the request was out.
+    if (wokenMeanwhile) {
+      void poll();
+      return;
+    }
+    tracker._pollTimer = setTimeout(poll, pollInterval(updated));
+  }
+
+  // D4: past maxRunDurationMs + grace and the worker has gone quiet — stop
+  // watching and say so. Fresh progress is never cut short (§0.4).
+  function settleIfPastDeadline() {
     const nowMs = Date.now();
     if (
       typeof tracker.isPastDeadline === "function" &&
@@ -1313,11 +1339,9 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       stepBackFromRun(loop);
       tracker.markDeadlineExceeded();
       renderDiscoveryRunStatus();
-      return;
+      return true;
     }
-
-    // Normal: wait pollAfterMs then poll again
-    tracker._pollTimer = setTimeout(poll, pollInterval(updated));
+    return false;
   }
 
   // Kick off the first poll after the advertised pollAfterMs
