@@ -15,14 +15,17 @@
  * are copied once when the new root is missing or empty.
  */
 
-import { readFile, readdir, stat, realpath, rename, writeFile, mkdir, cp } from "node:fs/promises";
+import { readFile, readdir, stat, realpath, rename, writeFile, mkdir, cp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
 import { auditApplicationMaterials } from "./materials-quality.mjs";
 import { isUsableJobDescription } from "./materials-jd-gate.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
+/* HOLES S8: job-description.md's `source` header is a provenance token. */
+const JD_SOURCE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 const ALLOWED_FILES = new Set([
   "resume.pdf",
@@ -1147,8 +1150,13 @@ export async function writeJobDescription(slug, text, meta = {}) {
   if (!filePath.startsWith(dir + sep)) {
     throw httpError("Path escape detected", 400);
   }
-  const source = (meta && typeof meta.source === "string") ? meta.source : "unknown";
-  const jobUrl = (meta && typeof meta.jobUrl === "string") ? meta.jobUrl : "";
+  /* HOLES S8: the header is read back into the drafting prompt, so neither
+     value may close the comment: `source` is a provenance token or
+     "unknown", and `jobUrl` is re-serialized by the URL parser, which drops
+     newlines and percent-encodes `>`. */
+  const rawSource = meta && typeof meta.source === "string" ? meta.source : "";
+  const source = JD_SOURCE_PATTERN.test(rawSource) ? rawSource : "unknown";
+  const jobUrl = headerJobUrl(meta && meta.jobUrl);
   const header = [
     `<!-- job-description.md`,
     `source: ${source}`,
@@ -1158,6 +1166,29 @@ export async function writeJobDescription(slug, text, meta = {}) {
     ``,
   ].join("\n");
   const payload = header + body + "\n";
-  await writeFile(filePath, payload, { encoding: "utf8" });
+  /* Temp file in the same folder, then rename over the old one, so a crash
+     never leaves half a posting. */
+  const tmp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, payload, { encoding: "utf8" });
+    await rename(tmp, filePath);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
   return { path: filePath, bytesWritten: Buffer.byteLength(payload, "utf8"), source };
+}
+
+/**
+ * An http(s) job URL in its parsed, single-line form, or "".
+ * @param {unknown} raw
+ */
+function headerJobUrl(raw) {
+  if (typeof raw !== "string" || !raw.trim() || raw.length > 2048) return "";
+  try {
+    const url = new URL(raw.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
 }
