@@ -884,6 +884,21 @@ function shouldRefreshPipelineAfterDiscoveryRun(state) {
   );
 }
 
+// D9: a run the browser can't follow gives no completion signal, so the
+// board reloads on a short schedule instead of waiting for its own poll.
+const UNWATCHED_RUN_REFRESH_DELAYS_MS = [60 * 1000, 3 * 60 * 1000];
+
+function refreshPipelineAfterUnwatchedRun(options) {
+  const load = () => {
+    if (typeof host().loadAllData !== "function") return;
+    Promise.resolve(host().loadAllData()).catch((err) => {
+      console.warn("[JobBored] post-discovery refresh failed:", err);
+    });
+  };
+  if (options && options.immediate) load();
+  for (const delay of UNWATCHED_RUN_REFRESH_DELAYS_MS) setTimeout(load, delay);
+}
+
 async function refreshPipelineAfterDiscoveryRun(state) {
   if (!shouldRefreshPipelineAfterDiscoveryRun(state)) return false;
   if (typeof host().loadAllData !== "function") return false;
@@ -1300,9 +1315,11 @@ function renderDiscoveryRunStatus(options) {
   const why = String(state.errorMessage || "").trim().replace(/[.\s]+$/, "");
   switch (state.status) {
     case "pending":
-      statusMessage = state.statusUnavailable
-        ? "Discovery started. This setup can't send live updates — new roles will land in your Pipeline; check Runs in a few minutes."
-        : "Discovery started — searching for new roles…";
+      statusMessage = state.dispatchUnconfirmed
+        ? "Discovery may have started — the worker didn't answer within a minute. Check Runs before you run it again; running it again won't start a duplicate."
+        : state.statusUnavailable
+          ? "Discovery started. This setup can't send live updates — new roles will land in your Pipeline; check Runs in a few minutes."
+          : "Discovery started — searching for new roles…";
       statusTone = "info";
       break;
     case "running":
@@ -1783,6 +1800,7 @@ function resetPostAccessBootstrap() {
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,
     shouldRefreshPipelineAfterDiscoveryRun: shouldRefreshPipelineAfterDiscoveryRun,
     refreshPipelineAfterDiscoveryRun: refreshPipelineAfterDiscoveryRun,
+    refreshPipelineAfterUnwatchedRun: refreshPipelineAfterUnwatchedRun,
     startDiscoveryStatusPolling: startDiscoveryStatusPolling,
     stopDiscoveryStatusPolling: stopDiscoveryStatusPolling,
     dismissDiscoveryRun: dismissDiscoveryRun,

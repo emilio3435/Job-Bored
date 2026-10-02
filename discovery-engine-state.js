@@ -260,6 +260,17 @@
         lastCheckedAt: new Date().toISOString(),
       });
     }
+    // D14: an accepted async run proves the engine took the work; it never
+    // makes an engine already verified as connected less verified.
+    const saved = getSavedDiscoveryEngineStateForUrl(normalizedUrl);
+    if (
+      source === "run_discovery" &&
+      state === core.DISCOVERY_ENGINE_STATE_UNVERIFIED &&
+      saved &&
+      saved.state === core.DISCOVERY_ENGINE_STATE_CONNECTED
+    ) {
+      return saved;
+    }
     return saveDiscoveryEngineStatePatch({
       state,
       webhookUrl: normalizedUrl,

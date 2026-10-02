@@ -405,7 +405,9 @@
     if (!progress) {
       if (!health) {
         health =
-          status === "pending"
+          status === "pending" && s.dispatchUnconfirmed
+            ? { key: "unknown", text: "The worker didn't confirm this run. Check Runs." }
+            : status === "pending"
             ? { key: "starting", text: "Starting the search…" }
             : s.statusUnavailable
               ? { key: "unknown", text: "This setup can't send live updates." }
@@ -642,6 +644,7 @@
           filterStats: sanitizeFilterStats(parsed.filterStats),
           maxRunDurationMs: positiveMs(parsed.maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
           deadlineExceeded: !!parsed.deadlineExceeded,
+          dispatchUnconfirmed: !!parsed.dispatchUnconfirmed,
         };
       } catch (_) {
         return this._idle();
@@ -689,6 +692,7 @@
         filterStats: null,
         maxRunDurationMs: DEFAULT_MAX_RUN_DURATION_MS,
         deadlineExceeded: false,
+        dispatchUnconfirmed: false,
       };
     }
 
@@ -751,7 +755,25 @@
         filterStats: null,
         maxRunDurationMs: positiveMs(maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
         deadlineExceeded: false,
+        dispatchUnconfirmed: false,
       };
+      this._persist(this._state);
+      return this;
+    }
+
+    /**
+     * D16: the dispatch POST timed out, so the worker may or may not have
+     * the run. Only its identity is kept (never the payload, which can carry
+     * a Google token) so the next attempt re-sends it and the worker answers
+     * with the original run instead of starting a second one.
+     */
+    markDispatchUnconfirmed({ webhookUrl = "", trigger = "manual", variationKey = "", requestedAt = "" }) {
+      this.beginTracking({ runId: "", webhookUrl, trigger, variationKey, requestedAt, statusUnavailable: true });
+      const requestedMs = Date.parse(this._state.requestedAt);
+      if (Number.isFinite(requestedMs)) {
+        this._state.initiatedAt = new Date(requestedMs).toISOString();
+      }
+      this._state.dispatchUnconfirmed = true;
       this._persist(this._state);
       return this;
     }

@@ -202,6 +202,9 @@
     if (Number.isFinite(Number(src.pollAfterMs))) {
       result.pollAfterMs = Number(src.pollAfterMs);
     }
+    if (src.timedOut === true) {
+      result.timedOut = true;
+    }
     return result;
   }
 
@@ -689,8 +692,12 @@
         : 15000;
     const controller =
       typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timedOut = false;
     const timeoutId = controller
-      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      ? window.setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
       : null;
 
     const secret =
@@ -747,6 +754,20 @@
         endpointUrl,
       });
     } catch (err) {
+      if (timedOut) {
+        // D16: no answer in time is not "unreachable" — the endpoint may
+        // have received the request and started the work.
+        return createVerificationResult({
+          ok: false,
+          kind: "network_error",
+          engineState: "none",
+          httpStatus: 0,
+          message: `The endpoint didn't answer within ${Math.round(timeoutMs / 1000)} s.`,
+          detail: `It may still have received the request. Tried: ${endpointUrl}`,
+          layer: "browser",
+          timedOut: true,
+        });
+      }
       const message = text(err && err.message, text(err, "request failed"));
       const isCorsLike =
         /cors|failed to fetch|networkerror|typeerror|aborted/i.test(message);

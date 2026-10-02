@@ -360,21 +360,73 @@ function askHostChange(opts) {
 }
 
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */
+// D3: single-flight. While a dispatch is in flight, or the tracker is still
+// watching a run, it answers { ok:false, reason:"run_active", runId }. A run
+// the browser can no longer watch (settled) blocks nothing. `options` passes
+// through untouched to the payload build. Resolves { ok, reason?, kind?, runId? }.
 async function triggerDiscoveryRun(options) {
   const runOptions =
     options && typeof options === "object" && !Array.isArray(options)
       ? options
       : {};
   const runTrigger = String(runOptions.trigger || "manual").trim() || "manual";
+  const watching =
+    typeof discoveryRunTracker.isActive === "function" && discoveryRunTracker.isActive();
+  if (discoveryRunDispatchInFlight || watching) {
+    const active =
+      typeof discoveryRunTracker.getState === "function" ? discoveryRunTracker.getState() : {};
+    if (runTrigger === "manual") {
+      h("showToast",
+        "A discovery run is already going — follow it in the Discovery drawer or Runs.",
+        "info",
+      );
+    }
+    return { ok: false, reason: "run_active", runId: String((active && active.runId) || "") };
+  }
+  discoveryRunDispatchInFlight = true;
+  try {
+    return await dispatchDiscoveryRun(runOptions, runTrigger);
+  } catch (err) {
+    console.error("[JobBored] Discovery webhook:", err);
+    h("showToast", String(err && err.message ? err.message : err), "error", true);
+    return { ok: false, reason: "error" };
+  } finally {
+    discoveryRunDispatchInFlight = false;
+  }
+}
+
+// D3: one dispatch at a time per tab.
+let discoveryRunDispatchInFlight = false;
+
+// §0.11: the dispatch POST waits a generous minute for the worker to answer.
+const DISCOVERY_RUN_DISPATCH_TIMEOUT_MS = 60 * 1000;
+
+/**
+ * D16: the identity of a dispatch that timed out — it may have started a
+ * run. Re-sending the same requestedAt + variationKey lets the worker answer
+ * with that run (LIFECYCLE-1 dedupe) instead of starting a second one.
+ */
+function getPendingRedeliveryIdentity() {
+  if (typeof discoveryRunTracker.getState !== "function") return null;
+  const state = discoveryRunTracker.getState();
+  if (!state.dispatchUnconfirmed || !state.variationKey || !state.requestedAt) return null;
+  if (
+    typeof discoveryRunTracker.isPastDeadline === "function" &&
+    discoveryRunTracker.isPastDeadline(Date.now())
+  ) {
+    return null;
+  }
+  return { variationKey: state.variationKey, requestedAt: state.requestedAt };
+}
+
+async function dispatchDiscoveryRun(runOptions, runTrigger) {
   if (h("isLocalDashboardOrigin")) {
     await ensureLocalDiscoveryAutoSetupForRun();
     await h("warnDiscoverySourceReadinessBeforeRun");
   }
+  // D11: the setup above was this click's one chance to change the computer.
+  // Running it again when no endpoint resolved asked permission twice.
   let hook = await resolveDiscoveryRunWebhookUrl();
-  if (!hook && (await ensureLocalDiscoveryAutoSetupForRun())) {
-    await h("warnDiscoverySourceReadinessBeforeRun");
-    hook = await resolveDiscoveryRunWebhookUrl();
-  }
   if (!hook) {
     void h("requestDiscoverySetup", {
       entryPoint: "run_discovery",
@@ -387,11 +439,14 @@ async function triggerDiscoveryRun(options) {
     // The drawer builds the payload it previewed and hands it back here, so the
     // request the user was shown is the request that ships. Every other caller
     // still builds its own.
-    const payload =
+    const builtPayload =
       runOptions.payload ||
       (await h("buildDiscoveryWebhookPayload", h("getSHEET_ID"), {
         trigger: runTrigger,
       }));
+    const redelivery = getPendingRedeliveryIdentity();
+    const payload =
+      redelivery && builtPayload ? { ...builtPayload, ...redelivery } : builtPayload;
     // Guardrail: verify intent is present before sending the webhook request.
     // The dashboard resolves intent through the SAME shared helper the worker
     // parser guards with (handle-discovery-webhook.ts), so a run the worker
@@ -413,6 +468,7 @@ async function triggerDiscoveryRun(options) {
     const result = await h("verifyDiscoveryWebhookWithSharedModel", hook, payload, {
       context: "run_discovery",
       sheetId: h("getSHEET_ID") || "",
+      timeoutMs: DISCOVERY_RUN_DISPATCH_TIMEOUT_MS,
     });
     if (result.ok) {
       const engineState = h("getDiscoveryEngineStateFromVerificationResult", result);
@@ -421,6 +477,10 @@ async function triggerDiscoveryRun(options) {
       }
       await h("refreshDiscoveryReadinessSnapshot", { force: true, rerender: false });
       h("showDiscoveryVerificationToast", result, { context: "run_discovery" });
+      // D8: a stub received the request, but it cannot search — no run started.
+      if (result.kind === "stub_only") {
+        return { ok: false, reason: "stub_only", kind: "stub_only" };
+      }
 
       // Extract run tracking metadata from accepted_async responses and start polling
       if (result.kind === "accepted_async" && result.runId) {
@@ -441,10 +501,30 @@ async function triggerDiscoveryRun(options) {
         // Start async polling — will update tracker state on each response
         if (statusPath) {
           void statusApi.startDiscoveryStatusPolling(webhookUrl);
+        } else {
+          refreshBoardAfterUnwatchedRun({ immediate: false });
         }
+      } else {
+        // D9: a run that finished synchronously, or an async one with no run
+        // id to follow — reload the board instead of waiting for its poll.
+        refreshBoardAfterUnwatchedRun({ immediate: result.kind !== "accepted_async" });
       }
 
-      return { ok: true, kind: result.kind };
+      return { ok: true, kind: result.kind, runId: String(result.runId || "") };
+    }
+    if (result.kind === "network_error" && result.timedOut) {
+      // D16: no answer within the dispatch timeout is not "can't reach" — the
+      // worker may have the run. Keep its identity for the next attempt.
+      if (typeof discoveryRunTracker.markDispatchUnconfirmed === "function") {
+        discoveryRunTracker.markDispatchUnconfirmed({
+          webhookUrl: String(hook || "").trim(),
+          trigger: runTrigger,
+          variationKey: (payload && payload.variationKey) || "",
+          requestedAt: (payload && payload.requestedAt) || "",
+        });
+        statusApi.renderDiscoveryRunStatus();
+      }
+      return { ok: false, reason: "may_have_started" };
     }
     if (
       (result.kind === "network_error" || result.kind === "invalid_endpoint") &&
@@ -460,7 +540,7 @@ async function triggerDiscoveryRun(options) {
         context: "run_discovery",
         endpointUrl: hook,
       });
-      return { ok: false, kind: "stub_only" };
+      return { ok: false, reason: "stub_only", kind: "stub_only" };
     }
     h("showDiscoveryVerificationToast", result, {
       context: "run_discovery",
@@ -474,6 +554,12 @@ async function triggerDiscoveryRun(options) {
   }
 }
 
+function refreshBoardAfterUnwatchedRun(options) {
+  if (statusApi && typeof statusApi.refreshPipelineAfterUnwatchedRun === "function") {
+    statusApi.refreshPipelineAfterUnwatchedRun(options);
+  }
+}
+
   Object.assign(runOrchestration, {
     generateDiscoveryVariationKey,
     getDiscoveryRunWebhookUrlCandidates,
@@ -482,6 +568,7 @@ async function triggerDiscoveryRun(options) {
     scoreDiscoveryRunWebhookCandidates,
     resolveDiscoveryRunWebhookUrl,
     ensureLocalDiscoveryAutoSetupForRun,
+    getPendingRedeliveryIdentity,
     triggerDiscoveryRun,
   });
 
