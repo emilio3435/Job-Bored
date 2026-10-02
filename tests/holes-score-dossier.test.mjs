@@ -225,6 +225,19 @@ describe("Dossier · the modal's actions land on the row (U6)", () => {
     assert.ok(env.rowOf("cover_letter").querySelector(".mat-repair"), "Repair opened");
   });
 
+  it("should give focus back to the row's grade button when Repair is cancelled", async () => {
+    const env = boot();
+    await env.openRole();
+    const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
+    btn.dispatchEvent(click(btn));
+    const repair = env.modal().querySelector("[data-score-repair]");
+    repair.dispatchEvent(click(repair));
+    const cancel = env.rowOf("cover_letter").querySelector('.mat-repair [data-action="materials-repair-cancel"]');
+    cancel.dispatchEvent(click(cancel));
+    assert.equal(env.rowOf("cover_letter").querySelector(".mat-repair"), null, "Repair closed");
+    assert.equal(env.doc.activeElement, env.rowOf("cover_letter").querySelector("[data-score-open]"), "focus is back on the grade button");
+  });
+
   it("should score the package's own text for this role on Rescore, once", async () => {
     const env = boot();
     await env.openRole();

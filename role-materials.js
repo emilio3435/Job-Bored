@@ -2701,7 +2701,9 @@
     if (!again && feature) {
       var section = currentSection();
       var row = docHostFor(section, feature);
-      again = row && row.querySelector('[data-action="materials-repair"]');
+      /* HOLES SCORE: a graded row's Repair lives in the score modal, so
+         focus returns to the grade button that opened it. */
+      again = row && (row.querySelector('[data-action="materials-repair"]') || row.querySelector("[data-score-open]"));
     }
     if (again && typeof again.focus === "function") again.focus();
   }
