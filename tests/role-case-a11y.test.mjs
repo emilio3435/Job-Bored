@@ -39,6 +39,7 @@ function load() {
   assert.equal(typeof sandbox.window.JobBoredText.escapeHtml, "function", "jb-text must load first");
   run("dossier-field-provenance.js");
   run("recruiter-strip.js");
+  run("materials-score.js"); /* HOLES SCORE: the grade button */
   run("role-case-model.js");
   run("role-case.js");
   return sandbox.window.JobBoredCase;
@@ -324,13 +325,17 @@ describe("P2 — the copy says what it means", () => {
   /* UX01 C13 (TA-13): the tile names the document it rates. This fixture's
      scorecard records no feature, so it is a "Draft score", never guessed to
      be the resume. */
+  /* HOLES SCORE (§0.3): the tile's value is the grade button, named for
+     screen readers; only a low grade takes the low tone. */
   it("the ATS tile names its document, and only a low score is crimson", () => {
     const good = html({ scorecard: { result: { overallScore: 94, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
     assert.match(good, /data-num="ats"[\s\S]*?Draft score/);
     assert.match(good, /scored draft · 2026-08-30/);
+    assert.match(good, /data-num="ats"[\s\S]*?<button type="button" class="jb-grade" data-tone="good"[^>]*aria-label="Grade A, 94 of 100 — open score details"/);
     assert.doesNotMatch(good, /data-num="ats"[\s\S]*?case__num-v--crimson/, "a 94 is not bad news");
     const bad = html({ scorecard: { result: { overallScore: 41, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(bad, /data-num="ats"[\s\S]*?case__num-v--crimson/);
+    assert.match(bad, /data-num="ats"[\s\S]*?class="jb-grade" data-tone="low"/);
+    assert.doesNotMatch(bad, /<small>\/100<\/small>/, "the number lives in the modal");
   });
 
   /* P2-7: the engineering reliability legend, shipped as UI with no key. */

@@ -34,6 +34,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { companyDisplayName, companyDomainHint, companyKey } from "./materials-monogram.mjs";
+import { redactSecrets } from "./security-boundaries.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -391,6 +392,23 @@ export async function runResolver({
   return spawnResolver(args, timeoutMs, pythonExecutable);
 }
 
+/* HOLES S15: the resolver needs a PATH, a locale, a temp dir and the TLS and
+ * proxy settings to fetch logos; never the server's provider keys or API
+ * token. */
+const RESOLVER_ENV_KEYS = [
+  "PATH", "PATHEXT", "SYSTEMROOT", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+];
+
+function resolverEnv() {
+  /** @type {NodeJS.ProcessEnv} */
+  const env = {};
+  for (const key of RESOLVER_ENV_KEYS) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return env;
+}
+
 /**
  * Run logo_resolver.py and parse its report.
  * @param {string[]} args
@@ -404,7 +422,7 @@ function spawnResolver(args, timeoutMs, pythonExecutable = "python3") {
     let settled = false;
     const child = spawn(pythonExecutable, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
+      env: resolverEnv(),
     });
     const timer = setTimeout(() => {
       if (settled) return;
@@ -426,7 +444,12 @@ function spawnResolver(args, timeoutMs, pythonExecutable = "python3") {
       settled = true;
       clearTimeout(timer);
       if (code === 0) return resolveFn(parseResolverReport(stdout));
-      rejectFn(makeError(stderr.trim() || `logo resolver exited ${code}`, 502));
+      /* HOLES S15: a traceback names server paths and can echo a key, so it
+       * stays in the server log and the browser gets the exit code. */
+      if (stderr.trim()) {
+        console.warn(`[brand-logos] logo resolver exited ${code}:`, redactSecrets(stderr.trim().slice(-2000)));
+      }
+      rejectFn(makeError(`logo resolver exited ${code}`, 502));
     });
   });
 }

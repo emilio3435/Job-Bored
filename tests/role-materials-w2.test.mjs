@@ -15,6 +15,7 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(repoRoot, "role-materials.js"), "utf8");
 const insightsSource = readFileSync(join(repoRoot, "materials-insights.js"), "utf8");
+const scoreSource = readFileSync(join(repoRoot, "materials-score.js"), "utf8");
 /* Trap 2: jb-text.js before role-case-model.js, or the model throws and
    CASE_DOC_TYPES is missing — the rows would silently degrade to the panel. */
 const caseSources = ["jb-text.js", "role-case-model.js"].map((f) => ({
@@ -195,6 +196,7 @@ before(() => {
     throw new Error("role-case-model.js did not expose CASE_DOC_TYPES");
   }
   vm.runInContext(insightsSource, ctx, { filename: "materials-insights.js" });
+  vm.runInContext(scoreSource, ctx, { filename: "materials-score.js" });
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
   api = windowEl.JobBoredRoleMaterials;
   if (!api) throw new Error("role-materials.js did not expose JobBoredRoleMaterials");
@@ -264,15 +266,16 @@ function row(html, type) {
 }
 
 describe("W2 · rows with a pipeline verdict", () => {
-  it("should pill the FAIL verdict with its score and show why, with the fix", () => {
+  /* HOLES SCORE (spec §0.3): the row shows the grade button and nothing
+     of the scorecard; the why and the fix moved to the score modal
+     (tests/holes-score-dossier.test.mjs). */
+  it("should show the FAIL verdict as a grade button and keep the scorecard out of the row", () => {
     const r = row(render(manifest()), "resume");
     assert.match(r, /data-qa="fail"/);
-    assert.match(r, /case__docst--qa-fail" data-status="review">fail · 6 \/ 12</);
-    assert.match(r, /This resume failed its quality check\./);
-    assert.match(r, /Reading the job fell back to rules: the AI’s answer was cut off\./);
-    assert.match(r, /Review your details/);
-    /* MREV D2: an old (rubric) verdict is read-only, and with a verdict the
-       action row never adds its own Repair. */
+    assert.match(r, /class="jb-grade"[^>]*data-score-open data-feature="resume"[^>]*aria-label="Grade F, 50 of 100 — open score details"/);
+    /* Grok review: the pill says the document's own state, not the verdict. */
+    assert.match(r, /case__docst--ready" data-status="review">ready</);
+    assert.doesNotMatch(r, /6 \/ 12|failed its quality check|fell back to rules|Review your details/);
     assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0);
   });
 
@@ -285,7 +288,7 @@ describe("W2 · rows with a pipeline verdict", () => {
     assert.match(resume, /\/files\/resume\.txt\?download=1/);
     assert.match(resume, /\/export\/resume\.docx\?download=1/);
     assert.doesNotMatch(letter, /data-gate/);
-    assert.match(letter, /case__docst--qa-review" data-status="review">review · 9 \/ 12</);
+    assert.match(letter, /case__docst--ready" data-status="review">ready</);
     assert.doesNotMatch(letter, /LinkedIn/);
   });
 
@@ -300,15 +303,16 @@ describe("W2 · rows with a pipeline verdict", () => {
 });
 
 describe("MREV D1 · rows with a judge verdict (materials.qa.v2)", () => {
-  it("should pill the v2 verdict out of 100 and show the judge's scorecard with one Repair", async () => {
+  it("should show the v2 verdict as one grade button, capped at D on FAIL, with no inline scorecard", async () => {
     const { V2_LETTER_FAIL } = await import("./fixtures/materials-qa-v2.mjs");
     const base = manifest();
     const html = render({ ...base, quality: { documents: { ...base.quality.documents, cover_letter: V2_LETTER_FAIL } } });
     const r = row(html, "cover_letter");
-    assert.match(r, /case__docst--qa-fail" data-status="review">fail · 64 \/ 100</);
-    assert.match(r, /data-qa-contract="v2"/);
-    assert.match(r, /Factual blockers/);
-    assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 1, "the scorecard's Repair, not a second one");
+    assert.match(r, /class="jb-grade"[^>]*data-feature="cover_letter"[^>]*aria-label="Grade (D|D-|F), \d+ of 100 — open score details"/);
+    /* Grok review: the pill says the document's own state, not the verdict. */
+    assert.match(r, /case__docst--ready" data-status="review">ready</);
+    assert.doesNotMatch(r, /data-qa-contract|Factual blockers|64 \/ 100/);
+    assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0, "Repair lives in the modal");
     /* A v2 FAIL still gates Download. */
     assert.equal((r.match(/data-gate="fail"/g) || []).length, 3, "PDF, text and Word");
   });

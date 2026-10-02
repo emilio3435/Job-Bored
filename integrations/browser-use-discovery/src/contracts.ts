@@ -100,6 +100,10 @@ export const PIPELINE_HEADER_ROW = [
   // discovery overwrites identity fields exactly as before.
   "Edit Lock",
   "Work Mode",
+  // HOLES R7/R16/R3: score provenance, last sighting, and the duplicate flag.
+  "Scorer",
+  "Last Seen",
+  "Possible Duplicate",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -406,6 +410,10 @@ export const DISCOVERY_RUN_TRIGGERS = [
   "scheduled-cloudflare",
   "scheduled-appsscript",
   "cli",
+  // HOLES HUNT: a saved hunt run now (`hunt`) or by the in-worker scheduler
+  // (`scheduled-hunt`). See docs/INTERFACE-HUNTS.md §4.3.
+  "hunt",
+  "scheduled-hunt",
 ] as const;
 
 export type DiscoveryRunTrigger = (typeof DISCOVERY_RUN_TRIGGERS)[number];
@@ -684,6 +692,11 @@ export type NormalizedLead = {
   compensationText: string;
   fitScore: number | null;
   /**
+   * HOLES R7: which scorer produced fitScore, written to the Scorer column
+   * (AA): "llm:<model>" or "heuristic". Absent for placeholder scores.
+   */
+  scorer?: string;
+  /**
    * 0–10 score from the Gemini job-matcher's overallScore (0–1 multiplied by
    * 10 and rounded). Distinct from profile-aware fitScore. Populated only by finalizeMatchDecision in
    * run-discovery.ts when a matcher decision is available; null when the run
@@ -935,6 +948,45 @@ export type DiscoveryRunLifecycle = {
    * Absent on runs from before DISCAT.
    */
   filterStats?: DiscoveryRunFilterStats;
+  /**
+   * HOLES HUNT: the share of slots this run reserved for never-tried
+   * companies, surfaces, providers and facet combinations, and what each
+   * explore or exploit slot yielded. Absent on runs from before HUNT.
+   */
+  exploration?: DiscoveryRunExploration;
+};
+
+export type DiscoveryExplorationSlotKind = "company" | "surface" | "facet";
+export type DiscoveryExplorationSlotMode = "explore" | "exploit";
+
+export type DiscoveryExplorationSlot = {
+  index: number;
+  kind: DiscoveryExplorationSlotKind;
+  key: string;
+  label: string;
+  /** ATS provider of a company or surface slot, when known. */
+  provider?: string;
+  mode: DiscoveryExplorationSlotMode;
+  listingsSeen: number;
+  leadsWritten: number;
+};
+
+export type DiscoveryExplorationYield = {
+  slots: number;
+  listingsSeen: number;
+  leadsWritten: number;
+};
+
+/** docs/INTERFACE-HUNTS.md §6. `slots` holds at most 200 entries. */
+export type DiscoveryRunExploration = {
+  share: number;
+  reservedSlots: number;
+  slotCount: number;
+  slots: DiscoveryExplorationSlot[];
+  totals: {
+    explore: DiscoveryExplorationYield;
+    exploit: DiscoveryExplorationYield;
+  };
 };
 
 /**

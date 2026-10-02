@@ -1,0 +1,495 @@
+/* ============================================
+   HOLES HUNT-FE — discovery drawer, Hunts sub-tab (hunts-ui.js)
+   Tokens only (tokens-v2.css / style.css aliases); mirrors the drawer's
+   section, chip and button language from css/discovery-drawer.css.
+   ============================================ */
+
+.hunts-panel {
+  gap: var(--space-4);
+}
+
+.hunts-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hunts-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.hunts-section__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.hunts-section__hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ---- status banner ---- */
+
+.hunts-status:empty {
+  display: none;
+}
+
+.hunts-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--status-info-border);
+  border-radius: var(--radius-md);
+  background: var(--status-info-bg);
+  color: var(--text);
+}
+
+.hunts-banner--offline,
+.hunts-banner--warn {
+  border-color: var(--status-warn-border);
+  background: var(--status-warn-bg);
+}
+
+.hunts-banner__title {
+  margin: 0;
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--status-warn);
+}
+
+.hunts-banner__body {
+  margin: 0;
+  flex: 1 1 16rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ---- lists and rows ---- */
+
+.hunts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hunts-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.hunts-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.hunts-item--paused {
+  background: var(--surface-2);
+}
+
+.hunts-item[aria-busy="true"] {
+  opacity: 0.7;
+}
+
+.hunts-item__main {
+  flex: 1 1 14rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.hunts-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hunts-item__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.hunts-item__meta,
+.hunts-item__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.hunts-item__error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--status-err);
+  overflow-wrap: anywhere;
+}
+
+.hunts-item__yield {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.hunts-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.hunts-count--new {
+  font-weight: 700;
+  color: var(--status-ok);
+}
+
+.hunts-fit {
+  color: var(--text);
+}
+
+/* ---- chips: status badge and trend ---- */
+
+.hunts-badge,
+.hunts-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--jb-radius-pill);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.hunts-badge--active,
+.hunts-trend--up {
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-bg);
+  color: var(--status-ok);
+}
+
+.hunts-trend--down {
+  border-color: var(--status-warn-border);
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+}
+
+.hunts-spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1rem;
+}
+
+.hunts-spark__bar {
+  width: 4px;
+  height: var(--hunts-bar-h, 6%);
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+/* ---- "Save as hunt" switch (hitlist rows and Runs rows) ---- */
+
+.hunts-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--jb-radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--jb-transition-fast), background var(--jb-transition-fast);
+}
+
+.hunts-switch:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.hunts-switch:focus-visible {
+  outline: 2px solid var(--jb-focus-color);
+  outline-offset: 2px;
+}
+
+.hunts-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.hunts-switch__track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 1.125rem;
+  border-radius: var(--jb-radius-pill);
+  background: var(--border);
+  transition: background var(--jb-transition-fast);
+}
+
+.hunts-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.125rem - 4px);
+  height: calc(1.125rem - 4px);
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform var(--jb-transition-fast);
+}
+
+.hunts-switch[aria-checked="true"] {
+  border-color: var(--status-ok-border);
+  background: var(--status-ok-bg);
+}
+
+.hunts-switch[aria-checked="true"] .hunts-switch__track {
+  background: var(--accent);
+}
+
+.hunts-switch[aria-checked="true"] .hunts-switch__thumb {
+  transform: translateX(0.875rem);
+}
+
+.hunts-switch--row {
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
+.hunts-btn--danger {
+  color: var(--status-err);
+}
+
+.hunts-btn:focus-visible {
+  outline: 2px solid var(--jb-focus-color);
+  outline-offset: 2px;
+}
+
+/* ---- one-off searches ---- */
+
+.hunts-oneoffs[hidden] {
+  display: none;
+}
+
+.hunts-oneoffs > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.hunts-oneoffs > summary:focus-visible {
+  outline: 2px solid var(--jb-focus-color);
+  outline-offset: 2px;
+}
+
+.hunts-oneoffs > .hunts-list {
+  margin-top: var(--space-2);
+}
+
+/* ---- editor and picker forms ---- */
+
+.hunts-editor,
+.hunts-picker {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.hunts-editor {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.hunts-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.hunts-field > label,
+.hunts-schedule > legend {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hunts-field input[type="text"],
+.hunts-inline-field input {
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.hunts-field__hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.hunts-range {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hunts-range input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.hunts-range__value {
+  min-width: 3ch;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hunts-schedule {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hunts-schedule__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.hunts-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.hunts-schedule__when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+
+.hunts-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.hunts-inline-field[hidden] {
+  display: none;
+}
+
+.hunts-inline-field input[type="number"] {
+  width: 5ch;
+}
+
+.hunts-form-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--status-err);
+}
+
+.hunts-form-error[hidden] {
+  display: none;
+}
+
+.hunts-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---- phones (375px): stack, wrap, 44px targets ---- */
+
+@media (max-width: 600px) {
+  .hunts-item {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .hunts-item__main {
+    flex-basis: auto;
+  }
+
+  .hunts-item__actions > .hunts-btn {
+    flex: 1 1 calc(50% - var(--space-2));
+  }
+
+  .hunts-switch,
+  .hunts-btn,
+  .hunts-editor__actions > button,
+  .hunts-radio,
+  .hunts-field input[type="text"],
+  .hunts-inline-field input {
+    min-height: 2.75rem;
+  }
+
+  .hunts-switch {
+    justify-content: center;
+  }
+
+  .hunts-switch--row {
+    margin-left: 0;
+    margin-top: var(--space-2);
+  }
+
+  .hunts-schedule__kinds {
+    flex-direction: column;
+  }
+}

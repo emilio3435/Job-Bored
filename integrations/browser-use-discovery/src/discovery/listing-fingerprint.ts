@@ -371,10 +371,11 @@ export function computeListingPrimaryFingerprintKeys(
     url: canonicalUrl || input.url,
   });
   const providerJobId = computeListingProviderJobId(input);
-  const tenantScope = computeListingTenantScope(
-    providerType || normalizeSourceId(input.sourceId || ""),
-    canonicalUrl || input.url || "",
-  );
+  const tenantScope =
+    computeListingTenantScope(
+      providerType || normalizeSourceId(input.sourceId || ""),
+      canonicalUrl || input.url || "",
+    ) || siteScopeForUnknownProvider(providerType, canonicalUrl || input.url || "");
   const providerName =
     providerType || normalizeSourceId(input.sourceId || "") || "unknown";
   return dedupeStrings([
@@ -385,6 +386,16 @@ export function computeListingPrimaryFingerprintKeys(
         : `provider:${providerName}:${providerJobId}`
       : "",
   ]);
+}
+
+/**
+ * HOLES R8: an id from a provider with no rule here (a company career site,
+ * a grounded-web page) is only unique on its own site, so it is scoped by
+ * host; otherwise two employers' "requisition 100" would be one job.
+ */
+function siteScopeForUnknownProvider(providerType: string, rawUrl: string): string {
+  if (PROVIDER_RULES.some((rule) => rule.provider === providerType)) return "";
+  return safeHostname(rawUrl).replace(/^www\./, "");
 }
 
 /**
@@ -513,15 +524,53 @@ export function dedupeFingerprintListings<T extends ListingFingerprintInput>(
   const unionFind = createUnionFind(items.length);
   const keyOwners = new Map<string, number>();
 
+  // HOLES R8: every cluster remembers its provider job ids by namespace
+  // (provider plus tenant or site). A URL or provider-key match always joins:
+  // it is the same posting even when two extractors read different ids. A
+  // text match (semantic key, content hash) never joins clusters whose ids in
+  // one namespace are disjoint: those are different openings.
+  const providerIdsByRoot = new Map<number, Map<string, Set<string>>>();
+  allFingerprints.forEach((fingerprint, index) => {
+    const namespace = providerNamespace(fingerprint);
+    if (namespace) {
+      providerIdsByRoot.set(index, new Map([[namespace, new Set([fingerprint.providerJobId])]]));
+    }
+  });
+  const join = (left: number, right: number, sameListing: boolean): void => {
+    const leftRoot = unionFind.find(left);
+    const rightRoot = unionFind.find(right);
+    if (leftRoot === rightRoot) return;
+    const leftIds = providerIdsByRoot.get(leftRoot);
+    const rightIds = providerIdsByRoot.get(rightRoot);
+    if (!sameListing && leftIds && rightIds) {
+      for (const [namespace, ids] of leftIds) {
+        const others = rightIds.get(namespace);
+        if (others && ![...ids].some((id) => others.has(id))) return;
+      }
+    }
+    unionFind.union(leftRoot, rightRoot);
+    const merged = new Map<string, Set<string>>();
+    for (const source of [leftIds, rightIds]) {
+      for (const [namespace, ids] of source || []) {
+        merged.set(namespace, new Set([...(merged.get(namespace) || []), ...ids]));
+      }
+    }
+    providerIdsByRoot.delete(leftRoot);
+    providerIdsByRoot.delete(rightRoot);
+    if (merged.size > 0) providerIdsByRoot.set(unionFind.find(leftRoot), merged);
+  };
+  const joinSameListing = (left: number, right: number) => join(left, right, true);
+  const joinSimilarText = (left: number, right: number) => join(left, right, false);
+
   for (let index = 0; index < allFingerprints.length; index += 1) {
     const fingerprint = allFingerprints[index];
     for (const key of fingerprint.primaryFingerprintKeys) {
-      registerFingerprintKey(keyOwners, unionFind, `primary|${key}`, index);
+      registerFingerprintKey(keyOwners, joinSameListing, `primary|${key}`, index);
     }
     if (fingerprint.semanticKey) {
       registerFingerprintKey(
         keyOwners,
-        unionFind,
+        joinSimilarText,
         `semantic|${fingerprint.semanticKey}`,
         index,
       );
@@ -529,7 +578,7 @@ export function dedupeFingerprintListings<T extends ListingFingerprintInput>(
     if (fingerprint.contentHash) {
       registerFingerprintKey(
         keyOwners,
-        unionFind,
+        joinSimilarText,
         `content|${fingerprint.contentHash}`,
         index,
       );
@@ -745,9 +794,16 @@ function scoreListingQuality(
   return score;
 }
 
+/** The provider job key minus its id: "provider:greenhouse:acme" for "…:111". */
+function providerNamespace(fingerprint: ListingFingerprint): string {
+  const { providerJobKey, providerJobId } = fingerprint;
+  if (!providerJobKey || !providerJobId || !providerJobKey.endsWith(`:${providerJobId}`)) return "";
+  return providerJobKey.slice(0, -(providerJobId.length + 1));
+}
+
 function registerFingerprintKey(
   owners: Map<string, number>,
-  unionFind: ReturnType<typeof createUnionFind>,
+  join: (left: number, right: number) => void,
   key: string,
   index: number,
 ): void {
@@ -757,7 +813,7 @@ function registerFingerprintKey(
     owners.set(key, index);
     return;
   }
-  unionFind.union(existing, index);
+  join(existing, index);
 }
 
 function selectPreferredIndex<T extends ListingFingerprintInput>(

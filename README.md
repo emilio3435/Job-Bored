@@ -385,6 +385,9 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |
 | Y: Edit Lock       | Optional. Comma-separated identity fields you edited in-app (`title`,`company`,`location`,`salary`); discovery skips these so your renames stick | App (set when **You** edit a card) |
 | Z: Work Mode       | Optional. `remote`, `hybrid`, or `onsite`; blank means unknown. Discovery fills an empty cell. | Auto or **You** |
+| AA: Scorer         | Optional. Which scorer produced the Fit Score: `llm:<model>`, `heuristic`, or `prefilter` (a rescore hard-constraint miss). A non-LLM score replaces a filled Fit Score only when its existing Scorer is explicitly `heuristic`; blank provenance is protected. | Auto |
+| AB: Last Seen      | Optional. The last day discovery found the posting live. An Expired row seen again shows up in Review to reopen. | Auto |
+| AC: Possible Duplicate | Optional. The Link of a row this one looks like (same company, title and location) but with no matching URL or job id. Clear it to dismiss the flag. | Auto (you can clear it) |
 
 ## Agentic discovery (optional)
 

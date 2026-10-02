@@ -62,6 +62,19 @@ export type WebhookResponseLike = {
   body: string;
 };
 
+/** Reserve admission synchronously, including the awaited preflight window. */
+export function createDiscoveryRunAdmission(isRunActive: () => boolean) {
+  let pending = false;
+  return {
+    isPending: () => pending,
+    tryAcquire(): (() => void) | null {
+      if (pending || isRunActive()) return null;
+      pending = true;
+      return () => { pending = false; };
+    },
+  };
+}
+
 export type HandleWebhookDependencies = {
   runSynchronously?: boolean;
   asyncPollAfterMs?: number;
@@ -91,7 +104,7 @@ export type HandleWebhookDependencies = {
   includeRunStatusToken?: boolean;
   /**
    * Maximum duration in milliseconds for an async run before it is forcibly
-   * terminalized. Defaults to 60 minutes (3600000ms) if not specified.
+   * terminalized. Defaults to 3 hours (10800000ms) if not specified.
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
@@ -100,20 +113,23 @@ export type HandleWebhookDependencies = {
    * can abort. When omitted, async runs are not cancellable.
    */
   cancelRegistry?: RunCancelRegistry;
+  /**
+   * HOLES HUNT §0.9: set only on the worker's own hunt dispatcher, never from
+   * a request. A run with no Sheet credential is not refused: it executes,
+   * its write fails, and it ends write_failed holding its leads ("awaiting
+   * sheet write") until the dashboard flushes them through
+   * POST /runs/:id/retry-write. See docs/INTERFACE-HUNTS.md §5.
+   */
+  allowMissingSheetsCredential?: boolean;
+  admission?: ReturnType<typeof createDiscoveryRunAdmission>;
 };
 
-// Default maximum async run duration: 60 minutes. Discovery runs in the
-// background; per-source timeouts still provide narrower stuck-lane bounds.
-const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
-
-/**
- * BEAUDIT A9: the dashboard's Google Identity Services access token lives
- * about 3600 s, which equals the default run budget, so a run authorized only
- * by that token could not write its final DiscoveryRuns row. Such runs are
- * capped at 50 minutes, which leaves the terminal write inside the token's
- * life.
- */
-export const GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS = 50 * 60 * 1000;
+// Default maximum async run duration: 3 hours (HOLES §0.11). Discovery runs in
+// the background; per-source timeouts still provide narrower stuck-lane bounds.
+// A run carried by the dashboard's Google token gets the same budget: if the
+// token expires before the Sheet write, the run ends write_failed with its
+// leads kept, and the dashboard refreshes the token and retries the write.
+export const DEFAULT_MAX_RUN_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
@@ -265,12 +281,6 @@ export async function handleDiscoveryWebhook(
           };
           return {
             ...baseRunDependencies,
-            // BEAUDIT A9: end inside the request token's life.
-            maxRunDurationMs: Math.min(
-              baseRunDependencies.maxRunDurationMs ??
-                DEFAULT_MAX_RUN_DURATION_MS,
-              GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS,
-            ),
             runtimeConfig: overrideRuntimeConfig,
             pipelineWriter: dependencies.createPipelineWriterForRequest
               ? dependencies.createPipelineWriterForRequest(
@@ -286,71 +296,19 @@ export async function handleDiscoveryWebhook(
       : baseRunDependencies;
 
   const runMode = dependencies.runSynchronously ? "sync" : "async";
-  const preflight = await validateDiscoveryPreflight(
-    parsed.request,
-    runDependencies,
-  );
-  if (preflight) {
-    dependencies.log?.("discovery.run.preflight_failed", {
-      runId,
-      mode: runMode,
-      sheetId: parsed.request.sheetId,
-      variationKey: parsed.request.variationKey,
-      message: preflight.message,
-    });
-    return jsonResponse(preflight.status, {
+  // Replays of an already registered run cannot start new work. Otherwise
+  // reserve admission before preflight awaits, without writing status early.
+  const knownReplay = derivedRunId && runId === derivedRunId && dependencies.runStatusStore?.get(runId);
+  const releaseAdmission = knownReplay || !dependencies.admission
+    ? () => {}
+    : dependencies.admission.tryAcquire();
+  if (!releaseAdmission) {
+    return jsonResponse(409, {
       ok: false,
-      message: preflight.message,
-      ...(preflight.detail ? { detail: preflight.detail } : {}),
-      ...(preflight.remediation ? { remediation: preflight.remediation } : {}),
+      reason: "run_active",
+      message: "A discovery run is active; retry when the worker is idle.",
     });
   }
-
-  dependencies.log?.("discovery.request.validated", {
-    runId,
-    mode: runMode,
-    sheetId: parsed.request.sheetId,
-    variationKey: parsed.request.variationKey,
-  });
-
-  // LIFECYCLE-1: duplicate delivery short circuit. Sits after preflight and
-  // immediately before the first run-status side effect, so the order
-  // invariant (method -> auth -> parse -> token strip -> preflight -> first
-  // status write -> run) is unchanged. The caller gets the ORIGINAL runId and
-  // statusPath back, so its poller latches onto the live run instead of a
-  // second one; no second run, no second history finalizer, no second Sheet
-  // write.
-  if (derivedRunId && runId === derivedRunId) {
-    const existing = dependencies.runStatusStore?.get(runId);
-    if (existing) {
-      const { selectedLeads: _selectedLeads, ...publicStatus } = existing;
-      dependencies.log?.("discovery.request.duplicate_delivery_ignored", {
-        runId,
-        mode: runMode,
-        sheetId: parsed.request.sheetId,
-        variationKey: parsed.request.variationKey,
-        existingStatus: existing.status,
-      });
-      return existing.terminal
-        ? jsonResponse(200, {
-            ok: true,
-            kind: "completed_sync",
-            runId,
-            message: existing.message,
-            statusPath,
-            outcome: publicStatus,
-          } satisfies DiscoveryWebhookAck)
-        : jsonResponse(202, {
-            ok: true,
-            kind: "accepted_async",
-            runId,
-            message: existing.message,
-            statusPath,
-            pollAfterMs,
-          } satisfies DiscoveryWebhookAck);
-    }
-  }
-
   const acceptedStatus = buildAcceptedRunStatus({
     runId,
     trigger: dispatchTrigger,
@@ -361,7 +319,79 @@ export async function handleDiscoveryWebhook(
     },
     acceptedAt,
   });
-  dependencies.runStatusStore?.put(acceptedStatus);
+  try {
+    const preflight = await validateDiscoveryPreflight(
+      parsed.request,
+      runDependencies,
+      { allowMissingSheetsCredential: dependencies.allowMissingSheetsCredential === true },
+    );
+    if (preflight) {
+      dependencies.log?.("discovery.run.preflight_failed", {
+        runId,
+        mode: runMode,
+        sheetId: parsed.request.sheetId,
+        variationKey: parsed.request.variationKey,
+        message: preflight.message,
+      });
+      return jsonResponse(preflight.status, {
+        ok: false,
+        message: preflight.message,
+        ...(preflight.detail ? { detail: preflight.detail } : {}),
+        ...(preflight.remediation ? { remediation: preflight.remediation } : {}),
+      });
+    }
+
+    dependencies.log?.("discovery.request.validated", {
+      runId,
+      mode: runMode,
+      sheetId: parsed.request.sheetId,
+      variationKey: parsed.request.variationKey,
+    });
+
+    // LIFECYCLE-1: duplicate delivery short circuit. Sits after preflight and
+    // immediately before the first run-status side effect, so the order
+    // invariant (method -> auth -> parse -> token strip -> preflight -> first
+    // status write -> run) is unchanged. The caller gets the ORIGINAL runId and
+    // statusPath back, so its poller latches onto the live run instead of a
+    // second one; no second run, no second history finalizer, no second Sheet
+    // write.
+    if (derivedRunId && runId === derivedRunId) {
+      const existing = dependencies.runStatusStore?.get(runId);
+      if (existing) {
+        const { selectedLeads: _selectedLeads, ...publicStatus } = existing;
+        dependencies.log?.("discovery.request.duplicate_delivery_ignored", {
+          runId,
+          mode: runMode,
+          sheetId: parsed.request.sheetId,
+          variationKey: parsed.request.variationKey,
+          existingStatus: existing.status,
+        });
+        return existing.terminal
+          ? jsonResponse(200, {
+              ok: true,
+              kind: "completed_sync",
+              runId,
+              message: existing.message,
+              statusPath,
+              outcome: publicStatus,
+            } satisfies DiscoveryWebhookAck)
+          : jsonResponse(202, {
+              ok: true,
+              kind: "accepted_async",
+              runId,
+              message: existing.message,
+              statusPath,
+              pollAfterMs,
+            } satisfies DiscoveryWebhookAck);
+      }
+    }
+
+    dependencies.runStatusStore?.put(acceptedStatus);
+  } finally {
+    // The accepted status now makes the worker busy; refusals and exceptions
+    // release the preflight reservation without registering a phantom run.
+    releaseAdmission();
+  }
 
   const historyFinalizer = createTerminalHistoryFinalizer({
     runId,
@@ -467,11 +497,8 @@ export async function handleDiscoveryWebhook(
   });
 
   const startedAt = now().toISOString();
-  const configuredMaxRunDurationMs =
+  const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
-  const maxRunDurationMs = requestGoogleAccessToken
-    ? Math.min(configuredMaxRunDurationMs, GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS)
-    : configuredMaxRunDurationMs;
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   try {
     dependencies.runStatusStore?.put(runningStatus);
@@ -615,6 +642,7 @@ function normalizeConfiguredSheetId(raw: unknown): string {
 async function validateDiscoveryPreflight(
   request: DiscoveryWebhookRequestV1,
   runDependencies: RunDiscoveryDependencies,
+  options: { allowMissingSheetsCredential?: boolean } = {},
 ): Promise<DiscoveryPreflightFailure | null> {
   let storedConfig: StoredWorkerConfig;
   try {
@@ -730,7 +758,7 @@ async function validateDiscoveryPreflight(
       sheetId: resolvedSheetId,
     },
   );
-  if (!sheetsCredentialReadiness.configured) {
+  if (!sheetsCredentialReadiness.configured && !options.allowMissingSheetsCredential) {
     return {
       status: 409,
       message:

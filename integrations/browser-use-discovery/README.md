@@ -135,7 +135,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_HOST`: bind host, defaults to `127.0.0.1`
 - `BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS`: comma/newline/semicolon-separated allowed origins
 - `BROWSER_USE_DISCOVERY_ASYNC_ACK`: `true` by default
-- `BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS`: async run watchdog, defaults to `3600000` (60 minutes)
+- `BROWSER_USE_DISCOVERY_MAX_RUN_DURATION_MS`: async run watchdog, defaults to `10800000` (3 hours)
 - `BROWSER_USE_DISCOVERY_WORKER_CONFIG` / `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON, defaults to `~/.jobbored/browser-use-discovery/worker-config.json`
 - `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker memory database

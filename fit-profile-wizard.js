@@ -1096,7 +1096,7 @@
     // Skip titles
     var skipTitlesChips = renderChipInput({
       values: hc.skipTitles || [],
-      placeholder: "Title substring to hard-reject",
+      placeholder: "Title word to hard-reject",
       max: SKIP_TITLES_MAX,
       onChange: function (next) {
         hc.skipTitles = next;

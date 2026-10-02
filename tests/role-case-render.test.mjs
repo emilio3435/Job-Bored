@@ -43,6 +43,9 @@ function load() {
      the sentence assertions would pass on an empty string. */
   vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
   assert.equal(typeof sandbox.window.JobBoredRecruiterStrip.nextAction, "function", "recruiter-strip must export nextAction");
+  /* HOLES SCORE: the grade button comes from materials-score.js, which
+     index.html loads before the Case. */
+  vm.runInNewContext(readFileSync(join(repoRoot, "materials-score.js"), "utf8"), sandbox, { filename: "materials-score.js" });
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case.js"), "utf8"), sandbox, { filename: "role-case.js" });
   return sandbox.window.JobBoredCase;
@@ -227,8 +230,10 @@ describe("The Case renders every block from the model", () => {
     assert.match(canvas[1], /class="case__quote"[^>]*>[\s\S]*?In their words/, "the lede opens the canvas");
     assert.match(canvas[1], /class="case__section case__section--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
     assert.match(canvas[1], /class="case__chip"[^>]*data-status="partial"[^>]*>[\s\S]*?Storybook/);
-    assert.match(canvas[1], /class="case__section case__section--you"[\s\S]*?case__sev--high[\s\S]*?Experimentation/);
-    assert.match(canvas[1], /class="case__dim"[\s\S]*?style="width: 84%;"/);
+    /* HOLES SCORE (§0.3): "You have" is the grade button; the gaps and
+       dimensions it listed open in the score modal. */
+    assert.match(canvas[1], /class="case__section case__section--you"[\s\S]*?<button type="button" class="jb-grade"[^>]*data-score-open[^>]*data-scope="case"/);
+    assert.doesNotMatch(canvas[1], /case__sev--|class="case__dim"|Experimentation/);
     assert.match(canvas[1], /class="case__section case__section--say"[\s\S]*?<span class="case__idx">01<\/span>/);
     assert.match(canvas[1], /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
 

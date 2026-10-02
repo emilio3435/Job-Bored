@@ -190,6 +190,9 @@
     if (text(src.suggestedUrl)) {
       result.suggestedUrl = text(src.suggestedUrl);
     }
+    if (text(src.reason) === "run_active") {
+      result.reason = "run_active";
+    }
     if (text(src.runId)) {
       result.runId = text(src.runId);
     }
@@ -201,6 +204,9 @@
     }
     if (Number.isFinite(Number(src.pollAfterMs))) {
       result.pollAfterMs = Number(src.pollAfterMs);
+    }
+    if (src.timedOut === true) {
+      result.timedOut = true;
     }
     return result;
   }
@@ -556,6 +562,25 @@
         });
       }
 
+      // HOLES HUNT-FE: shared admission answers 409 run_active while another
+      // run is admitted. The worker is reachable and busy, not misrouted.
+      if (
+        Number(status) === 409 &&
+        data &&
+        typeof data === "object" &&
+        text(data.reason) === "run_active"
+      ) {
+        return createVerificationResult({
+          ok: false,
+          kind: "invalid_endpoint",
+          engineState: "unverified",
+          httpStatus: 409,
+          reason: "run_active",
+          message: "A run is already active.",
+          detail: "Try again when the current run finishes.",
+          layer: "upstream",
+        });
+      }
       if (data && typeof data === "object" && data.ok === false) {
         const workerDownstream = isLikelyCloudflareWorkerUrl(endpointUrl);
         const responseMessage =
@@ -689,8 +714,12 @@
         : 15000;
     const controller =
       typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timedOut = false;
     const timeoutId = controller
-      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      ? window.setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
       : null;
 
     const secret =
@@ -747,6 +776,20 @@
         endpointUrl,
       });
     } catch (err) {
+      if (timedOut) {
+        // D16: no answer in time is not "unreachable" — the endpoint may
+        // have received the request and started the work.
+        return createVerificationResult({
+          ok: false,
+          kind: "network_error",
+          engineState: "none",
+          httpStatus: 0,
+          message: `The endpoint didn't answer within ${Math.round(timeoutMs / 1000)} s.`,
+          detail: `It may still have received the request. Tried: ${endpointUrl}`,
+          layer: "browser",
+          timedOut: true,
+        });
+      }
       const message = text(err && err.message, text(err, "request failed"));
       const isCorsLike =
         /cors|failed to fetch|networkerror|typeerror|aborted/i.test(message);

@@ -339,6 +339,9 @@
       "Approval Status",
       "Edit Lock",
       "Work Mode",
+      "Scorer",
+      "Last Seen",
+      "Possible Duplicate",
     ],
     "statuses": [
       "New",
@@ -572,7 +575,16 @@
           },
           body: JSON.stringify({
             requests: [
-              { addSheet: { properties: { title: "Pipeline", index: 0 } } },
+              {
+                addSheet: {
+                  properties: {
+                    title: "Pipeline",
+                    index: 0,
+                    // A new tab has 26 columns; the header row runs to AC.
+                    gridProperties: { columnCount: Math.max(26, contract.headerRow.length) },
+                  },
+                },
+              },
             ],
           }),
         },
@@ -670,11 +682,9 @@
       const needsSearchMatch = !u || u === "Match Score";
       const needsWorkMode = !String(headers[25] || "").trim();
       if (needsCoreUpgrade || needsSearchMatch || needsWorkMode) {
-        const gridError = await ensurePipelineGridWidth(
-          sheetId,
-          token,
-          contract.headerRow.length,
-        );
+        // This repair writes A1:Y1, U1 and Z1 only; the discovery worker adds
+        // AA–AC (Scorer, Last Seen, Possible Duplicate) on its next write.
+        const gridError = await ensurePipelineGridWidth(sheetId, token, 26);
         if (gridError) return { ok: false, error: gridError };
       }
       if (needsCoreUpgrade) {

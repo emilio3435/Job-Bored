@@ -23,6 +23,7 @@ import {
   type WebhookRequestLike,
   type WebhookResponseLike,
 } from "./handle-discovery-webhook.ts";
+import type { HuntsRouteHandler } from "./handle-hunts.ts";
 import type { RunCancelRegistry } from "./run-async-lifecycle.ts";
 import { appendRunStatusToken, createRunStatusToken, hasValidRunStatusToken, parseRunStatusPath } from "./run-status-auth.ts";
 
@@ -68,6 +69,8 @@ export interface WorkerRouterDependencies {
   candidateCatalog?: {
     listCandidates(query: CandidateCatalogListQuery): CandidateCatalogListResult;
   };
+  /** HOLES HUNT: the `/hunts` routes (docs/INTERFACE-HUNTS.md §3). */
+  hunts?: HuntsRouteHandler;
   handlers: WorkerRouteHandlers;
   logEvent(event: string, details: Record<string, unknown>): void;
   readBody?(request: IncomingMessage): Promise<string>;
@@ -343,6 +346,11 @@ async function handleWorkerRequest(
 
   if (requestPath === CANDIDATES_PATH) {
     handleCandidates(deps, request, method, requestUrl, finishJson, corsHeaders);
+    return;
+  }
+
+  if (requestPath === "/hunts" || requestPath.startsWith("/hunts/")) {
+    await handleHunts(deps, readBody, request, method, requestPath, requestUrl, finishJson, corsHeaders);
     return;
   }
 
@@ -740,6 +748,56 @@ async function handleRunRetryWrite(
   } finally {
     retryingWrites.delete(runId);
   }
+}
+
+/**
+ * HOLES HUNT: every `/hunts` route takes the webhook secret in local and
+ * hosted mode alike (they create, change and start runs), then reads a POST
+ * body under the shared limit and hands off to the hunts handler.
+ */
+async function handleHunts(
+  deps: WorkerRouterDependencies,
+  readBody: (request: IncomingMessage) => Promise<string>,
+  request: IncomingMessage,
+  method: string,
+  requestPath: string,
+  requestUrl: URL,
+  finishJson: (status: number, body: unknown, extraHeaders?: Record<string, string>) => void,
+  corsHeaders: Record<string, string>,
+): Promise<void> {
+  const auth = hasValidWebhookSecret(deps.runtimeConfig.webhookSecret, headersForHandler(request.headers));
+  if (!auth.valid) {
+    finishJson(
+      401,
+      {
+        ok: false,
+        message: "Unauthorized hunts request.",
+        auth: {
+          category: auth.category,
+          detail: auth.detail,
+          ...(auth.remediation ? { remediation: auth.remediation } : {}),
+        },
+      },
+      corsHeaders,
+    );
+    return;
+  }
+  if (!deps.hunts) {
+    finishJson(503, { ok: false, code: "hunts_unavailable", message: "Hunts are not available on this worker." }, corsHeaders);
+    return;
+  }
+  let bodyText = "";
+  if (method === "POST") {
+    try {
+      bodyText = await readBody(request);
+    } catch (error) {
+      if (!(error instanceof BodyTooLargeError)) throw error;
+      finishJson(413, { ok: false, code: "payload_too_large", message: "Request body exceeds the configured limit." }, corsHeaders);
+      return;
+    }
+  }
+  const result = await deps.hunts({ method, path: requestPath, query: requestUrl.searchParams, bodyText });
+  finishJson(result.status, result.body, result.allow ? { ...corsHeaders, allow: result.allow } : corsHeaders);
 }
 
 /**

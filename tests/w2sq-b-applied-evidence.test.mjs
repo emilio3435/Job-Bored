@@ -57,6 +57,12 @@ function loadSheetsWrite() {
     CustomEvent: TestCustomEvent,
   };
   const fetchImpl = async (url, init) => {
+    // HOLES A4: a guarded write first re-reads its row; answer with this
+    // job's identity cells (Title, Company, Link) so the write proceeds.
+    if (!init || !init.method || init.method === "GET") {
+      const cells = ["", "Eng", "Acme", "", "https://acme.example/jobs/1"];
+      return { ok: true, status: 200, json: async () => ({ valueRanges: [{ values: [cells] }] }) };
+    }
     const body = JSON.parse(init.body || "{}");
     for (const d of body.data || [body]) {
       writes.push(`${d.range}=${JSON.stringify(d.values?.[0]?.[0] ?? "")}`);

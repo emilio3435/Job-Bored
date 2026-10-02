@@ -32,6 +32,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import { parseSalaryMax, runPreFilter } from "./shared/listing-prefilter.mjs";
 import {
   loadLlmConfig,
   migrateLlmConfigFromEnv,
@@ -46,8 +47,8 @@ const __dirname = dirname(__filename);
 
 const PIPELINE_SHEET_NAME = "Pipeline";
 const HEADER_ROW_COUNT = 1;
-// Read range covers every Pipeline column we know about (24 columns through X).
-const READ_RANGE = `${PIPELINE_SHEET_NAME}!A2:X`;
+// Read range covers the columns rescore reads, through Z (Work Mode).
+const READ_RANGE = `${PIPELINE_SHEET_NAME}!A2:Z`;
 const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
@@ -280,6 +281,7 @@ function providerFetchSignal(externalSignal) {
 
 // Column indices (0-based within the row array, matching PIPELINE_HEADER_ROW).
 const COL = {
+  DATE_FOUND: 0, // A
   TITLE: 1,
   COMPANY: 2,
   LOCATION: 3,
@@ -287,117 +289,18 @@ const COL = {
   SALARY: 6,
   FIT_SCORE: 7, // H
   FIT_ASSESSMENT: 10, // K
+  STATUS: 12, // M
   TALKING_POINTS: 16, // Q
+  DISMISSED_AT: 22, // W
+  WORK_MODE: 25, // Z
 };
 
-const SPONSORSHIP_DENY_PHRASES = [
-  "no sponsorship",
-  "us citizens only",
-  "must be authorized to work in the us without sponsorship",
-  "no visa sponsorship",
-];
+// HOLES R6: rescore refreshes leads still in triage. Applied and later
+// stages, closed rows and dismissed rows keep the score they were judged on.
+const ACTIVE_STATUS_KEYS = new Set(["", "new", "researching"]);
 
-/**
- * Parse the maximum published salary from common annual compensation strings.
- * @param {string} text
- * @returns {number | null}
- */
-function parseSalaryMax(text) {
-  const cleaned = String(text || "").replace(/\$/g, "").toLowerCase();
-  if (!cleaned.trim()) return null;
-  const matches = cleaned.match(/[\d][\d,]*\.?\d*\s*k?/g);
-  if (!matches || matches.length === 0) return null;
-  const values = [];
-  for (const raw of matches) {
-    const hasK = /k$/.test(raw.trim());
-    const numeric = raw.replace(/k$/, "").replace(/,/g, "").trim();
-    if (!numeric) continue;
-    const parsed = Number.parseFloat(numeric);
-    if (!Number.isFinite(parsed) || parsed <= 0) continue;
-    const dollars = hasK ? parsed * 1000 : parsed;
-    if (!hasK && dollars < 1000) continue;
-    values.push(dollars);
-  }
-  return values.length ? Math.max(...values) : null;
-}
-
-/**
- * Server-rescore mirror of the discovery worker's deterministic hard filter.
- * Order and reason strings intentionally match profile-aware-scorer.ts.
- * @param {RawListing} rawListing
- * @param {UserProfile} profile
- */
-function runPreFilter(rawListing, profile) {
-  const hc = profile.hardConstraints || {};
-  const titleLower = String(rawListing.title || "").toLowerCase();
-  for (const phrase of hc.skipTitles || []) {
-    const needle = String(phrase || "").trim().toLowerCase();
-    if (needle && titleLower.includes(needle)) {
-      return {
-        pass: false,
-        reason: "skip_title_match",
-        detail: `Title contains skip phrase "${phrase}".`,
-      };
-    }
-  }
-
-  if (hc.workMode === "remote_only" && rawListing.remoteBucket !== "remote") {
-    return {
-      pass: false,
-      reason: "work_mode_mismatch",
-      detail: `Profile requires remote_only; listing remoteBucket=${rawListing.remoteBucket || "unknown"}.`,
-    };
-  }
-
-  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
-    const acceptable = (hc.acceptableLocations || [])
-      .map((entry) => String(entry || "").trim().toLowerCase())
-      .filter(Boolean);
-    if (acceptable.length > 0) {
-      const locationLower = String(rawListing.location || "").toLowerCase();
-      const matches = acceptable.some((loc) => locationLower.includes(loc));
-      if (!matches) {
-        return {
-          pass: false,
-          reason: "location_outside_acceptable",
-          detail: `Location "${rawListing.location || ""}" outside acceptableLocations [${acceptable.join(", ")}].`,
-        };
-      }
-    }
-  }
-
-  if (hc.workAuth === "needs_sponsorship") {
-    const descLower = String(rawListing.descriptionText || "").toLowerCase();
-    for (const phrase of SPONSORSHIP_DENY_PHRASES) {
-      if (descLower.includes(phrase)) {
-        return {
-          pass: false,
-          reason: "work_auth_mismatch",
-          detail: `Listing description signals "${phrase}".`,
-        };
-      }
-    }
-  }
-
-  const parsedMax = parseSalaryMax(rawListing.compensationText || "");
-  if (parsedMax === null) {
-    if (hc.salaryRequired) {
-      return {
-        pass: false,
-        reason: "salary_missing_but_required",
-        detail: "Profile requires published salary; listing has none.",
-      };
-    }
-  } else if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
-    return {
-      pass: false,
-      reason: "salary_below_floor",
-      detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
-    };
-  }
-
-  return { pass: true };
-}
+// HOLES R2/R9/R10: runPreFilter and parseSalaryMax come from
+// shared/listing-prefilter.mjs, the same gate discovery runs.
 
 const SHEET_COLUMN_LETTER = {
   FIT_SCORE: "H",
@@ -617,6 +520,64 @@ async function readPipelineRows(sheetId, token) {
 }
 
 /**
+ * Scorer (AA) is optional on legacy sheets and may be a user's own column.
+ * Add it only when blank, growing the grid first. Failed upgrades leave
+ * scoring available and are reported to the caller.
+ * @param {string} sheetId
+ * @param {string} token
+ * @returns {Promise<boolean>}
+ */
+async function prepareScorerColumn(sheetId, token) {
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const headerUrl = `${base}/values/${encodeURIComponent("Pipeline!AA1")}`;
+  let resp = await fetch(headerUrl, { headers });
+  if (!resp.ok && resp.status !== 400) throw new Error(`Scorer header read failed: HTTP ${resp.status}`);
+  const header = resp.ok ? String((await resp.json()).values?.[0]?.[0] || "").trim() : "";
+  if (header) return header === "Scorer";
+  const metadata = await fetch(`${base}?fields=sheets.properties`, { headers });
+  if (!metadata.ok) throw new Error(`Scorer grid read failed: HTTP ${metadata.status}`);
+  const properties = (await metadata.json()).sheets?.find(
+    (/** @type {{ properties?: { title?: string } }} */ sheet) => sheet.properties?.title === PIPELINE_SHEET_NAME,
+  )?.properties;
+  const width = Number(properties?.gridProperties?.columnCount);
+  if (!Number.isInteger(width) || width < 1 || typeof properties?.sheetId !== "number") {
+    throw new Error("Scorer grid metadata unavailable");
+  }
+  if (width < 27) {
+    resp = await fetch(`${base}:batchUpdate`, {
+      method: "POST", headers,
+      body: JSON.stringify({ requests: [{ appendDimension: { sheetId: properties.sheetId, dimension: "COLUMNS", length: 27 - width } }] }),
+    });
+    if (!resp.ok) throw new Error(`Scorer grid upgrade failed: HTTP ${resp.status}`);
+  }
+  // Re-check after growing; another writer may have claimed AA meanwhile.
+  resp = await fetch(headerUrl, { headers });
+  if (!resp.ok) throw new Error(`Scorer header re-read failed: HTTP ${resp.status}`);
+  const live = String((await resp.json()).values?.[0]?.[0] || "").trim();
+  if (live) return live === "Scorer";
+  resp = await fetch(`${base}/values:batchUpdate`, {
+    method: "POST", headers,
+    body: JSON.stringify({ valueInputOption: "RAW", data: [{ range: "Pipeline!AA1", values: [["Scorer"]] }] }),
+  });
+  if (!resp.ok) throw new Error(`Scorer header upgrade failed: HTTP ${resp.status}`);
+  return true;
+}
+
+/**
+ * @param {unknown} fitScore
+ * @param {unknown} scorer
+ * @param {boolean} scorerColumn
+ * @returns {"llm_score_preserved" | "existing_score_preserved" | null}
+ */
+function preservedScoreReason(fitScore, scorer, scorerColumn) {
+  if (!String(fitScore ?? "").trim()) return null;
+  const provenance = scorerColumn ? String(scorer || "").trim() : "";
+  if (/^heuristic$/i.test(provenance)) return null;
+  return /^llm:/i.test(provenance) ? "llm_score_preserved" : "existing_score_preserved";
+}
+
+/**
  * F16: re-read one row's Link cell right before writing, so a sort,
  * insert or delete between the snapshot and the write cannot land new
  * scores on a different job.
@@ -656,7 +617,7 @@ function escapeCellText(value) {
 }
 
 /**
- * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string }} input
+ * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string, scorer?: string }} input
  */
 async function writeRowScoreCells({
   sheetId,
@@ -665,6 +626,7 @@ async function writeRowScoreCells({
   fitScore,
   fitAssessment,
   talkingPoints,
+  scorer,
 }) {
   const url = new URL(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
@@ -686,6 +648,11 @@ async function writeRowScoreCells({
       values: [[escapeCellText(talkingPoints)]],
     },
   ];
+  if (scorer !== undefined) ranges.push({
+    range: `${PIPELINE_SHEET_NAME}!AA${rowNumber}`,
+    majorDimension: "ROWS",
+    values: [[escapeCellText(scorer)]],
+  });
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -1269,20 +1236,17 @@ async function scoreOneWithProvider({ profile, rawListing, providerConfig, signa
  * @returns {RawListing}
  */
 function buildRawListingFromRow(row) {
-  const location = String(row[COL.LOCATION] || "").trim();
-  const locationLower = location.toLowerCase();
   return {
     sourceId: "rescore",
     sourceLabel: "Rescore",
     title: String(row[COL.TITLE] || "").trim(),
     company: String(row[COL.COMPANY] || "").trim(),
-    location,
+    location: String(row[COL.LOCATION] || "").trim(),
     url: String(row[COL.LINK] || "").trim(),
-    remoteBucket: locationLower.includes("remote")
-      ? "remote"
-      : locationLower.includes("hybrid")
-        ? "hybrid"
-        : "onsite",
+    // Work Mode (Z) is discovery's own reading of the job, or the user's;
+    // blank leaves the shared pre-filter to infer it from the same text
+    // discovery reads (location, title, description).
+    remoteBucket: String(row[COL.WORK_MODE] || "").trim(),
     compensationText: String(row[COL.SALARY] || "").trim(),
     descriptionText: "",
   };
@@ -1301,6 +1265,10 @@ async function maybeFetchDescription(rawListing) {
       title: rawListing.title,
       company: rawListing.company,
     });
+    // HOLES R15: a SerpApi "title_company" pick is a different posting by
+    // the same company (another city, another req). Scoring the row against
+    // it is worse than scoring on the row's own fields.
+    if (scraped && scraped.matchKind === "title_company") return "";
     const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
     const text = String(
       (scraped && (scraped.description || scrapeOutput.bodyText)) ||
@@ -1372,7 +1340,26 @@ function classifyRowForRescore(row) {
   const title = String(row[COL.TITLE] || "").trim();
   const company = String(row[COL.COMPANY] || "").trim();
   if (!title && !company) return { kind: "skip", reason: "blank_row" };
+  if (!ACTIVE_STATUS_KEYS.has(String(row[COL.STATUS] || "").trim().toLowerCase())) {
+    return { kind: "skip", reason: "not_active" };
+  }
+  if (String(row[COL.DISMISSED_AT] || "").trim()) return { kind: "skip", reason: "dismissed" };
   return { kind: "rescore", url };
+}
+
+/**
+ * Newest first: by Date Found, then by sheet position (discovery appends at
+ * the bottom). Rows without a readable date go last.
+ * @param {{ rowNumber: number, row: unknown[] }} a
+ * @param {{ rowNumber: number, row: unknown[] }} b
+ */
+function newestFirst(a, b) {
+  const aTime = Date.parse(String(a.row[COL.DATE_FOUND] || "").trim());
+  const bTime = Date.parse(String(b.row[COL.DATE_FOUND] || "").trim());
+  const aKey = Number.isFinite(aTime) ? aTime : -Infinity;
+  const bKey = Number.isFinite(bTime) ? bTime : -Infinity;
+  if (aKey !== bKey) return bKey - aKey;
+  return b.rowNumber - a.rowNumber;
 }
 
 /* ─── Public entry point ───────────────────────────────────────────────── */
@@ -1433,18 +1420,17 @@ export async function rescoreAllPipelineRows({
     typeof maxRows === "number" && Number.isInteger(maxRows) && maxRows > 0
       ? Math.min(maxRows, MAX_ROWS)
       : MAX_ROWS;
-  const counted = rows.slice(0, effectiveMax);
   /** @type {Array<{ rowNumber: number, row: unknown[], expectedUrl: string }>} */
-  const candidates = [];
+  const eligible = [];
   let skipped = 0;
-  for (let i = 0; i < counted.length; i += 1) {
-    const cls = classifyRowForRescore(counted[i]);
+  for (let i = 0; i < rows.length; i += 1) {
+    const cls = classifyRowForRescore(rows[i]);
     const rowNumber = i + HEADER_ROW_COUNT + 1; // header is row 1; data starts row 2
     if (cls.kind === "rescore") {
-      candidates.push({
+      eligible.push({
         rowNumber,
-        row: counted[i],
-        expectedUrl: String(counted[i][COL.LINK] || "").trim(),
+        row: rows[i],
+        expectedUrl: String(rows[i][COL.LINK] || "").trim(),
       });
     } else {
       skipped += 1;
@@ -1456,6 +1442,8 @@ export async function rescoreAllPipelineRows({
       });
     }
   }
+  // The cap counts rows that will be scored, newest first.
+  const candidates = eligible.sort(newestFirst).slice(0, effectiveMax);
 
   if (dryRun) {
     const result = {
@@ -1495,6 +1483,23 @@ export async function rescoreAllPipelineRows({
     throw new Error(`rescoreAllPipelineRows: ${providerStatus.detail}`);
   }
 
+  let scorerWritable = false;
+  try {
+    scorerWritable = await prepareScorerColumn(sheetId, token);
+    if (scorerWritable) {
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent("Pipeline!AA2:AA")}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) throw new Error(`Scorer column read failed: HTTP ${response.status}`);
+      const values = (await response.json()).values || [];
+      for (let index = 0; index < rows.length; index += 1) rows[index][26] = values[index]?.[0] || "";
+    }
+  } catch (error) {
+    scorerWritable = false;
+    emit({ kind: "progress", status: "warning", reason: "scorer_unavailable", detail: String(error) });
+  }
+
   /* F4: take a generation; a newer run aborts this one. Dry runs never
    * reach here (they returned above), so they stay concurrent. */
   const generation = ++rescoreGeneration;
@@ -1523,14 +1528,26 @@ export async function rescoreAllPipelineRows({
    * F4+F16: one guarded write. Skips (never throws) when a newer run
    * superseded this one, the profile moved on, or the row's Link cell
    * no longer holds the snapshotted URL.
-   * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string }} cell
-   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift">}
+   * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string, scorer: string }} cell
+   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift" | "llm_score_preserved" | "existing_score_preserved">}
    */
   async function guardedWrite(cell) {
     if (superseded()) return "aborted";
     if (await profileMovedOn()) return "profile_changed";
     const liveUrl = await readLinkCell(sheetId, token, cell.rowNumber);
     if (liveUrl !== cell.expectedUrl) return "row_drift";
+    if (cell.scorer === "prefilter") {
+      // A protected score may have landed since the original snapshot.
+      const range = scorerWritable ? `Pipeline!H${cell.rowNumber}:AA${cell.rowNumber}` : `Pipeline!H${cell.rowNumber}`;
+      const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) throw new Error(`Scorer re-read failed: HTTP ${response.status}`);
+      const cells = (await response.json()).values?.[0] || [];
+      const reason = preservedScoreReason(cells[0], cells[19], scorerWritable);
+      if (reason) return reason;
+    }
     await writeRowScoreCells({
       sheetId,
       token,
@@ -1538,6 +1555,7 @@ export async function rescoreAllPipelineRows({
       fitScore: cell.fitScore,
       fitAssessment: cell.fitAssessment,
       talkingPoints: cell.talkingPoints,
+      scorer: scorerWritable ? cell.scorer : undefined,
     });
     return "written";
   }
@@ -1578,6 +1596,12 @@ export async function rescoreAllPipelineRows({
       }
       const preFilter = runPreFilter(rawListing, profile);
       if (!preFilter.pass) {
+        const preserveReason = preservedScoreReason(row[COL.FIT_SCORE], row[26], scorerWritable);
+        if (preserveReason) {
+          skipped += 1;
+          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: preserveReason });
+          return;
+        }
         const score = {
           fitScore: 1,
           band: "Low",
@@ -1593,7 +1617,13 @@ export async function rescoreAllPipelineRows({
           fitScore: score.fitScore,
           fitAssessment: buildFitAssessment(score, ""),
           talkingPoints: "",
+          scorer: "prefilter",
         });
+        if (preWrite === "llm_score_preserved" || preWrite === "existing_score_preserved") {
+          skipped += 1;
+          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: preWrite });
+          return;
+        }
         if (preWrite !== "written") {
           failed += 1;
           emit({ kind: "progress", row: rowNumber, status: "failed", reason: preWrite });
@@ -1623,6 +1653,7 @@ export async function rescoreAllPipelineRows({
         fitScore: score.fitScore,
         fitAssessment: buildFitAssessment(score, ""),
         talkingPoints: buildTalkingPoints(score),
+        scorer: `llm:${resolvedProviderConfig.model}`,
       });
       if (wrote !== "written") {
         failed += 1;
@@ -1665,6 +1696,7 @@ export async function rescoreAllPipelineRows({
 export const _internal = {
   scoreOneWithChatCompletions,
   classifyRowForRescore,
+  buildRawListingFromRow,
   runPreFilter,
   parseSalaryMax,
   buildSystemPrompt,

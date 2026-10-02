@@ -22,6 +22,8 @@ import { spawnNpm } from "./lib/spawn-npm.mjs";
 const require = createRequire(import.meta.url);
 const payloadBuilder = require("../discovery-payload.js");
 const FAIL_PREFIX = "scheduled-discovery";
+// HOLES §0.11: the dispatch POST gets a generous 60 s to be accepted.
+export const DEFAULT_DISPATCH_TIMEOUT_MS = 60_000;
 
 function fail(message, code = 1) {
   console.error(`${FAIL_PREFIX}: ${message}`);
@@ -43,17 +45,20 @@ Options:
                   Default: scheduled-local.
   --sheet-id ID   Sheet ID to pin into the discovery webhook payload.
   --port N        Worker port. Default: BROWSER_USE_DISCOVERY_PORT in .env or 8644.
+  --dispatch-timeout-ms N
+                  How long the worker has to accept the run. Default: ${DEFAULT_DISPATCH_TIMEOUT_MS}.
   --dry-run       Print the payload JSON instead of POSTing it.
   --help, -h      Show this message.
 `);
   process.exit(code);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     trigger: "scheduled-local",
     sheetId: "",
     port: null,
+    dispatchTimeoutMs: DEFAULT_DISPATCH_TIMEOUT_MS,
     dryRun: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -64,7 +69,12 @@ function parseArgs(argv) {
       continue;
     }
     const next = argv[i + 1];
-    if (arg === "--trigger" || arg === "--sheet-id" || arg === "--port") {
+    if (
+      arg === "--trigger" ||
+      arg === "--sheet-id" ||
+      arg === "--port" ||
+      arg === "--dispatch-timeout-ms"
+    ) {
       if (next === undefined || next.startsWith("--")) {
         fail(`missing value for ${arg}`);
       }
@@ -72,6 +82,12 @@ function parseArgs(argv) {
         out.trigger = String(next).trim() || "scheduled-local";
       } else if (arg === "--sheet-id") {
         out.sheetId = String(next).trim();
+      } else if (arg === "--dispatch-timeout-ms") {
+        const ms = Number(next);
+        if (!Number.isInteger(ms) || ms < 1) {
+          fail("--dispatch-timeout-ms must be a positive integer");
+        }
+        out.dispatchTimeoutMs = ms;
       } else {
         const port = Number(next);
         if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -408,15 +424,29 @@ async function main() {
   // when missing so the cron does not race the user's terminal session.
   await ensureWorkerRunning(port);
   const url = `http://127.0.0.1:${port}/webhook`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-discovery-secret": secret,
-    },
-    body: JSON.stringify(payload),
-  });
-  const text = await response.text();
+  let response;
+  let text;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": secret,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(args.dispatchTimeoutMs),
+    });
+    text = await response.text();
+  } catch (error) {
+    // The worker may have taken the run before going quiet, so a blind
+    // retry could start it twice.
+    if (error && error.name === "TimeoutError") {
+      fail(
+        `POST ${url} got no answer within ${args.dispatchTimeoutMs} ms; the run may have started — check Runs before running it again.`,
+      );
+    }
+    throw error;
+  }
   if (!response.ok) {
     fail(`POST ${url} failed with HTTP ${response.status}: ${text}`);
   }

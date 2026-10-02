@@ -1,14 +1,12 @@
-// BEAUDIT A9: a run authorized only by the dashboard's short-lived Google
-// access token (about 3600 s) must end, and write its DiscoveryRuns row,
-// inside that token's life.
+// BEAUDIT A9, as moved by HOLES §0.11: a run authorized only by the
+// dashboard's short-lived Google access token keeps the configured budget
+// instead of a 50-minute cap; a token that expires before the write ends the
+// run write_failed with its leads kept, for the dashboard to retry.
 // BEAUDIT A15: mergedUserProfile secrets are stripped at every depth.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS,
-  handleDiscoveryWebhook,
-} from "../../src/webhook/handle-discovery-webhook.ts";
+import { handleDiscoveryWebhook } from "../../src/webhook/handle-discovery-webhook.ts";
 
 const SECRET = "hardening-secret";
 const SHEET_ID = "1AbCdEfGhIjKlMnOpQrSt";
@@ -50,7 +48,7 @@ function deps(capture: (request: Record<string, unknown>, runDeps: Record<string
   } as never;
 }
 
-test("A9: a run carried by a request googleAccessToken is capped below the token's life", async () => {
+test("A9/§0.11: a run carried by a request googleAccessToken keeps the configured duration", async () => {
   let seen = 0;
   await handleDiscoveryWebhook(
     request({ googleAccessToken: "dashboard-token" }),
@@ -58,9 +56,7 @@ test("A9: a run carried by a request googleAccessToken is capped below the token
       seen = Number(runDeps.maxRunDurationMs);
     }),
   );
-  assert.ok(seen > 0);
-  assert.ok(seen <= GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS, `maxRunDurationMs ${seen} must be <= ${GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS}`);
-  assert.ok(GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS < 3600 * 1000);
+  assert.equal(seen, 60 * 60 * 1000);
 });
 
 test("A9: a run on the worker's own credential keeps the configured duration", async () => {

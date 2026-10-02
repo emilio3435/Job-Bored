@@ -183,6 +183,8 @@
       ]),
       h("div", { class: "scribe__tabs", role: "tablist", "aria-label": "Document", "data-scribe": "doc-tabs" }, r.docTabs),
       h("div", { class: "scribe__group" }, [
+        /* HOLES SCORE: this document's grade; it opens the score modal. */
+        r.grade = h("span", { class: "scribe__grade", "data-scribe": "grade" }),
         r.pages,
         h("span", { class: "scribe__pill scribe__pill--lock", title: "Employer, title, dates, degree and figures cannot be changed by Scribe" }, [lockIcon(), "Facts locked"]),
       ]),
@@ -421,7 +423,12 @@
       announce: announce,
       logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
       renderVersions: function () { renderVersions(ctl); },
-      reload: function () { return loadDoc(ctl); },
+      reload: function () {
+        return loadDoc(ctl).then(function (res) {
+          if (!ctl.closed) emitSaved(ctl, ctl.state.currentRunId);
+          return res;
+        });
+      },
     });
     return ctl.versionsUi;
   }
@@ -478,7 +485,25 @@
     if (ui) ui.sync();
   }
 
+  /* HOLES SCORE ("Scribe v2 shows no score"): the header carries the
+     open document's grade button, from the host's opts.score. */
+  function renderScore(ctl) {
+    var el = ctl.refs && ctl.refs.grade;
+    var score = ctl.opts.score;
+    var ms = root.JobBoredMaterialsScore;
+    if (!el) return;
+    var g = score && typeof score.gradeFor === "function" && ms ? score.gradeFor(ctl.state.doc) : null;
+    el.innerHTML = g ? ms.buttonHtml(g.grade, { feature: ctl.state.doc, scope: "scribe", stale: g.stale }) : "";
+  }
+
+  /* U12: a save or a Bring back makes a new run; the rows mark this
+     document's grade stale until the manifest catches up. */
+  function emitSaved(ctl, runId) {
+    emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: ctl.state.doc, runId: String(runId || "") });
+  }
+
   function renderAll(ctl) {
+    renderScore(ctl);
     renderTabs(ctl);
     renderPages(ctl);
     renderRegionLabel(ctl);
@@ -1255,6 +1280,7 @@
       logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: "Saved as v" + n }), note.replace(/^Saved as v\d+ /, "")]);
       announce("Saved as version " + n + ".");
       ctl.state.proposal = null;
+      emitSaved(ctl, run.runId);
       return loadDoc(ctl);
     }, function (err) {
       if (ctl.closed || ctl.state.proposal !== p) return;
@@ -1366,9 +1392,20 @@
     return true;
   }
 
+  /* A dialog opened over the desk (the score modal) owns its own keys:
+     Esc closes it, not Scribe. */
+  function inOtherModal(ctl, node) {
+    for (var n = node; n && n.getAttribute; n = n.parentNode) {
+      if (n === ctl.refs.sheet) return false;
+      if (n.getAttribute("aria-modal") === "true") return true;
+    }
+    return false;
+  }
+
   function onKeydown(ctl, e) {
     var r = ctl.refs;
     if (ctl.closed) return;
+    if (inOtherModal(ctl, e.target)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */
@@ -1436,6 +1473,7 @@
       if (act === "stop") { stop(ctl); return; }
       if (act === "discard") { discard(ctl); return; }
       if (act === "show-changes") { toggleShow(ctl); return; }
+      if (t.getAttribute && t.getAttribute("data-score-open") != null) { openScore(ctl, t); return; }
       if (t.getAttribute && t.getAttribute("data-review") != null) { reviewAction(ctl, t.getAttribute("data-review"), t.getAttribute("data-op"), t); return; }
       if (t.getAttribute && t.getAttribute("data-doc") != null && t.getAttribute("role") === "tab") { ctl.setDoc(t.getAttribute("data-doc")); return; }
       if (t.getAttribute && t.getAttribute("data-side") != null) { ctl.setSide(t.getAttribute("data-side")); return; }
@@ -1447,6 +1485,22 @@
   }
 
   /* A chip fills the composer; it never sends (SPEC §2). */
+  /* The score modal's Fix this, Apply and Repair fill the composer. */
+  function openScore(ctl, btn) {
+    var score = ctl.opts.score;
+    if (!score || typeof score.open !== "function") return;
+    score.open(ctl.state.doc, btn, {
+      fill: function (text) {
+        var ta = ctl.refs.prompt;
+        if (ctl.closed || !ta) return;
+        ta.value = String(text || "");
+        autogrow(ctl);
+        if (ctl.isNarrow()) ctl.setSeg("chat");
+        ta.focus();
+      },
+    });
+  }
+
   function fillChip(ctl, chip) {
     var ta = ctl.refs.prompt;
     var cur = String(ta.value || "").trim();
@@ -1550,6 +1604,7 @@
     this.onInput = function () { autogrow(self); };
     this.onResize = function () { fitViewport(self); fitFrame(self); };
     this.onRoleClosed = function () { self.close("role-closed"); };
+    this.onManifest = function () { renderScore(self); };
     /* Keys are heard on the document, in the capture phase, for the whole
        life of the desk: focus that falls to <body> is still inside it. */
     doc().addEventListener("keydown", this.onKey, true);
@@ -1558,6 +1613,7 @@
     r.prompt.addEventListener("input", this.onInput);
     root.addEventListener("resize", this.onResize);
     root.addEventListener("jb:role:closed", this.onRoleClosed);
+    root.addEventListener("jb:materials:manifest", this.onManifest);
     if (root.visualViewport && typeof root.visualViewport.addEventListener === "function") {
       root.visualViewport.addEventListener("resize", this.onViewport);
       root.visualViewport.addEventListener("scroll", this.onViewport);
@@ -1590,6 +1646,7 @@
     r.prompt.removeEventListener("input", this.onInput);
     root.removeEventListener("resize", this.onResize);
     root.removeEventListener("jb:role:closed", this.onRoleClosed);
+    root.removeEventListener("jb:materials:manifest", this.onManifest);
     if (r.host.parentNode) r.host.parentNode.removeChild(r.host);
     if (doc().documentElement && doc().documentElement.classList) doc().documentElement.classList.remove("jb-scribe-open");
     if (active === this) active = null;

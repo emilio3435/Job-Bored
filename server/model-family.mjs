@@ -16,10 +16,22 @@ export function normalizeGeminiFlashPreference(model) {
     : id;
 }
 
+/**
+ * Settings offers Gemini families by name; Google answers only to their
+ * moving -latest aliases (HOLES PROV P3), so "gemini-pro" must never reach
+ * the wire as a literal.
+ */
+const GEMINI_FAMILY_WIRE_ALIASES = Object.freeze({
+  "gemini-pro": "gemini-pro-latest",
+  "gemini-flash-lite": "gemini-flash-lite-latest",
+});
+
 /** @param {unknown} model */
 export function resolveGeminiFlashWireModel(model) {
   const preference = normalizeGeminiFlashPreference(model);
-  return preference === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : preference;
+  if (preference === GEMINI_FLASH_FAMILY) return GEMINI_FLASH_FALLBACK;
+  const bare = /** @type {keyof typeof GEMINI_FAMILY_WIRE_ALIASES} */ (preference.replace(/^models\//i, "").toLowerCase());
+  return Object.hasOwn(GEMINI_FAMILY_WIRE_ALIASES, bare) ? GEMINI_FAMILY_WIRE_ALIASES[bare] : preference;
 }
 
 const WEAK_EXACT = new Set([

@@ -779,6 +779,7 @@ async function buildDiscoveryWebhookPayload(sheetIdOverride, options) {
       trigger,
       googleAccessToken: dashboardGoogleAccessToken || "",
       mergedUserProfile,
+      hunt: payloadOptions.hunt,
     });
     return built;
   }

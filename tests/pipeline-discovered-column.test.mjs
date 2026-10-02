@@ -28,12 +28,16 @@ describe("v2 pipeline Discovered column", () => {
   });
 
   it("renders discovered jobs as normal draggable sticker cards", () => {
+    // HOLES B6/B13: the column loop reads stageLists() (pending moves applied)
+    // and reuses unchanged card nodes; Discovered still sources vm.untriaged.
     assert.ok(
-      pipelineJs.includes('var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);'),
+      pipelineJs.includes('lists["new"] = (vm.untriaged || []).slice();') &&
+        pipelineJs.includes("var cards = lists[s.key] || [];"),
       "new/discovered should source cards from vm.untriaged inside the normal column loop",
     );
     assert.ok(
-      pipelineJs.includes("frag.appendChild(StickerCard(c, {") &&
+      pipelineJs.includes("StickerCard(c, { parts: parts })") &&
+        pipelineJs.includes("var parts = stickerParts(c, {") &&
         pipelineJs.includes("stage: s.key,") &&
         pipelineJs.includes("selected: String(c.jobKey) === String(state.selectedJobKey),"),
       "discovered cards should render through StickerCard, not a separate button rail",

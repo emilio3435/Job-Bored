@@ -49,6 +49,8 @@ import { experiencesFromStructure } from "./materials-resume-structure.mjs";
 import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
 import { detectGarbledResume, readCanonicalResume, resumeGarbledError } from "./materials-resume-source.mjs";
 import { buildResumeRead, resumeTextSha256, saveResumeRead } from "./resume-read.mjs";
+import { isProviderUrlBlocked, providerFetch } from "./provider-url-guard.mjs";
+import { redactSecrets } from "./security-boundaries.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
 // (./profile-draft-shared.js), consumed here AND by the browser for B3's
@@ -845,6 +847,19 @@ function truncatedDraftError(providerLabel, code, provider, model) {
 }
 
 /**
+ * The URL guard refused the base URL (S1): the provider's configuration must
+ * change, so it answers like a missing one (409 → the AI step).
+ * @param {unknown} cause @param {ProfileProvider} provider
+ */
+function blockedProviderError(cause, provider) {
+  const err = /** @type {ProfileProviderError} */ (new Error(messageOf(cause, "That provider address is not allowed.")));
+  err.code = "profile_provider_not_configured";
+  err.provider = provider;
+  err.cause = cause;
+  return err;
+}
+
+/**
  * @param {string} resumeText
  * @param {ProfileProviderConfig} config
  * @param {ProfileCallOptions} [opts]
@@ -882,13 +897,14 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
   let resp;
   try {
-    resp = await fetch(buildChatCompletionsUrl(config.baseUrl), {
+    resp = await providerFetch(buildChatCompletionsUrl(config.baseUrl), {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal: opts.signal,
     });
   } catch (cause) {
+    if (isProviderUrlBlocked(cause)) throw blockedProviderError(cause, config.provider);
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
     const detail =
       error && error.message
@@ -959,7 +975,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
   const prompt = buildUserPrompt(resumeText);
   let resp;
   try {
-    resp = await fetch(`${trimTrailingSlashes(config.baseUrl)}/messages`, {
+    resp = await providerFetch(`${trimTrailingSlashes(config.baseUrl)}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -987,6 +1003,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
       signal: opts.signal,
     });
   } catch (cause) {
+    if (isProviderUrlBlocked(cause)) throw blockedProviderError(cause, "anthropic");
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
     const detail = error && error.message ? error.message : cause;
     const err = /** @type {ProfileProviderError} */ (new Error(
@@ -1071,7 +1088,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   };
   let resp;
   try {
-    resp = await fetch(url, {
+    resp = await providerFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": String(cfg.apiKey) },
       body: JSON.stringify(body),
@@ -1343,6 +1360,7 @@ export function createProfileFromResumeHandler(deps = {}) {
     } catch (err) {
       const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
       const code = error && error.code ? String(error.code) : "";
+      console.warn("[profile-from-resume] provider analysis failed:", redactSecrets(err instanceof Error ? err.stack || err.message : messageOf(err, "profile provider failed")));
       // A provider with no key is the CLIENT's configuration state, not a
       // server fault: 409, so the dashboard can route the user to the AI step
       // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
@@ -1350,7 +1368,7 @@ export function createProfileFromResumeHandler(deps = {}) {
         return res.status(409).json({
           ok: false,
           reason: "gemini_not_configured",
-          message: messageOf(err, "profile provider failed"),
+          message: "Configure an AI provider in Settings → AI.",
         });
       }
       if (code === "profile_provider_not_configured") {
@@ -1358,7 +1376,7 @@ export function createProfileFromResumeHandler(deps = {}) {
           ok: false,
           reason: "profile_provider_not_configured",
           provider: error && typeof error.provider === "string" ? error.provider : undefined,
-          message: messageOf(err, "profile provider failed"),
+          message: "Configure an AI provider in Settings → AI.",
         });
       }
       const provider = error && typeof error.provider === "string" ? error.provider : "";
@@ -1367,7 +1385,7 @@ export function createProfileFromResumeHandler(deps = {}) {
         ok: false,
         reason: isGeminiError ? "gemini_error" : "profile_provider_error",
         provider: provider || undefined,
-        message: messageOf(err, "profile provider failed"),
+        message: "The AI provider could not read the resume. Try again or check Settings → AI.",
       });
     }
   };

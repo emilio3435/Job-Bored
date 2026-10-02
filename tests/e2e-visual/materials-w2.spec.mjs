@@ -395,11 +395,19 @@ for (const width of [1440, 390]) {
       const state = { manifest: readyManifest };
       const { fence, seen, section } = await openCase(page, state, { width, height: width === 390 ? 1500 : 1100 });
       const resume = section.locator('[data-doc="resume"]');
-      await expect(resume.locator(".case__docst")).toHaveText(/fail · 6 \/ 12/i);
-      await expect(resume.getByText("This resume failed its quality check.")).toBeVisible();
-      await expect(resume.getByText("Reading the job fell back to rules: the AI’s answer was cut off.")).toBeVisible();
-      await expect(resume.getByRole("button", { name: "Review your details" })).toBeVisible();
-      await expect(resume.locator('.mat-rubric__row[data-rubric="outcome_coverage"]')).toContainText("0 / 2");
+      /* HOLES SCORE (§0.3): the row shows the grade button; the why, the
+         fallbacks and the profile fix open in the score modal. */
+      await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
+      await expect(resume.locator(".mat-rubric")).toHaveCount(0);
+      await resume.locator("[data-score-open]").click();
+      const modal = page.locator(".jb-score");
+      await expect(modal).toBeVisible();
+      await expect(modal.locator(".jb-score__verdict")).toContainText("experience section");
+      await expect(modal).toContainText("Reading the job fell back to rules: the AI’s answer was cut off.");
+      await expect(modal.getByRole("button", { name: "Review your details" })).toBeVisible();
+      await shoot(modal.locator(".jb-score__card"), testInfo, `w2-score-modal-${width}`);
+      await modal.locator(".jb-score__foot [data-score-close]").click();
+      await expect(modal).toHaveCount(0);
       await expectNoSidewaysScroll(page, width);
       await shoot(resume, testInfo, `w2-scorecard-${width}`);
 
@@ -457,7 +465,7 @@ for (const width of [1440, 390]) {
 
       /* A REVIEW letter downloads its ATS text straight away. */
       const letter = section.locator('[data-doc="cover_letter"]');
-      await expect(letter.locator(".case__docst")).toHaveText(/review · 9 \/ 12/i);
+      await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
       await letter.getByRole("button", { name: "Download", exact: true }).click();
       await expect(letter.getByRole("menuitem")).toHaveCount(3);
       const download = page.waitForEvent("download");
@@ -553,8 +561,10 @@ test("Draft both queues the resume, then the letter as its own run (U-5)", async
   phase = "letter";
   await expect(letter.locator(".mat-tl")).toBeVisible({ timeout: 20_000 });
   phase = "done";
-  await expect(section.locator('[data-doc="resume"] .case__docst')).toHaveText(/fail · 6 \/ 12/i, { timeout: 20_000 });
-  await expect(letter.locator(".case__docst")).toHaveText(/review · 9 \/ 12/i);
+  /* The verdict lands on the grade button; the pill keeps the document's state. */
+  await expect(section.locator('[data-doc="resume"] [data-score-open]')).toHaveAttribute("data-grade", "F", { timeout: 20_000 });
+  await expect(section.locator('[data-doc="resume"] .case__docst')).toHaveText(/^ready$/i);
+  await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
   expect(seen.requests, "one request: the server chains the letter").toHaveLength(1);
   expectHermetic(fence, seen, testInfo);
 });

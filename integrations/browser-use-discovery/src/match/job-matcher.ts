@@ -5,11 +5,12 @@ import {
   resolveWorkerChatProvider,
 } from "../ai/chat-provider.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
+import { splitExcludeKeywordScopes } from "../normalize/lead-normalizer.ts";
 
 type AnyRecord = Record<string, unknown>;
 type FetchImpl = typeof fetch;
 
-const AI_MATCH_PROMPT_VERSION = "job-match-v1";
+const AI_MATCH_PROMPT_VERSION = "job-match-v2";
 const REMOTE_PATTERN =
   /\b(remote|remote-first|remote first|distributed|work from home|wfh|anywhere)\b/i;
 const HYBRID_PATTERN = /\bhybrid\b/i;
@@ -259,6 +260,8 @@ type TargetProfile = {
   targetRoles: string[];
   includeKeywords: string[];
   excludeKeywords: string[];
+  /** HOLES R1: the "anywhere:" exclude keywords, which also read the description. */
+  excludeAnywhere: string[];
   locations: string[];
   remotePolicy: string;
   seniority: string;
@@ -291,7 +294,7 @@ export function scoreListingMatch(
   );
   const detailExcludeMatches = findMatchedPhrases(
     job.detailHaystack,
-    target.excludeKeywords,
+    target.excludeAnywhere,
   ).filter((entry) => !titleExcludeMatches.includes(entry));
 
   const hardRejectReason = titleExcludeMatches.length
@@ -469,14 +472,15 @@ function buildTargetProfile(run: DiscoveryRun): TargetProfile {
     ...run.config.includeKeywords,
     ...run.config.companies.flatMap((company) => company.includeKeywords || []),
   ]);
-  const excludeKeywords = tokenizeKeywords([
+  const excludeScopes = splitExcludeKeywordScopes([
     ...run.config.excludeKeywords,
     ...run.config.companies.flatMap((company) => company.excludeKeywords || []),
   ]);
   return {
     targetRoles: tokenizeKeywords(run.config.targetRoles),
     includeKeywords,
-    excludeKeywords,
+    excludeKeywords: excludeScopes.headline,
+    excludeAnywhere: excludeScopes.anywhere,
     locations: tokenizeKeywords(run.config.locations),
     remotePolicy: cleanText(run.config.remotePolicy),
     seniority: cleanText(run.config.seniority),
@@ -524,11 +528,18 @@ function buildAiMatchPrompt(
   run: DiscoveryRun,
   baseline: MatchDecision,
 ): string {
+  const excludeScopes = splitExcludeKeywordScopes(run.config.excludeKeywords);
+  const titleOnlyExcludes = excludeScopes.headline.filter(
+    (keyword) => !excludeScopes.anywhere.includes(keyword),
+  );
   return [
     `Company target set: ${run.config.companies.map((company) => company.name).join(", ")}`,
     `Target roles: ${joinOrAny(run.config.targetRoles)}`,
     `Include keywords: ${joinOrAny(run.config.includeKeywords)}`,
-    `Exclude keywords: ${joinOrAny(run.config.excludeKeywords)}`,
+    `Exclude keywords (job title only): ${joinOrAny(titleOnlyExcludes)}`,
+    ...(excludeScopes.anywhere.length
+      ? [`Exclude keywords (title or description): ${excludeScopes.anywhere.join(", ")}`]
+      : []),
     `Locations: ${joinOrAny(run.config.locations)}`,
     `Remote policy: ${run.config.remotePolicy || "any"}`,
     `Seniority: ${run.config.seniority || "any"}`,

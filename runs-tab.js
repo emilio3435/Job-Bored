@@ -28,6 +28,7 @@
     "scheduled-github": true,
     "scheduled-cloudflare": true,
     "scheduled-appsscript": true,
+    "scheduled-hunt": true, // HOLES HUNT-FE: INTERFACE-HUNTS.md §8
   };
   var LOCAL_JOB_DISCOVERY_STATUSES = {
     pending: true,
@@ -585,7 +586,16 @@
     }
   }
 
-  function clearStoredJobDiscoveryRun() {
+  function clearStoredJobDiscoveryRun(runId) {
+    // HOLES DISCO D12: the run tracker owns this key. Clearing through it
+    // drops its in-memory copy too, so its next write can't bring the run
+    // back; a tracker holding a newer run is left alone.
+    var rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+    var tracker = rt && rt.discoveryRunTracker;
+    if (tracker && typeof tracker.clear === "function" && typeof tracker.getState === "function") {
+      if (String(tracker.getState().runId || "") === String(runId || "")) tracker.clear();
+      return;
+    }
     try {
       if (typeof localStorage === "undefined" || !localStorage) return;
       localStorage.removeItem(JOB_DISCOVERY_RUN_STORAGE_KEY);
@@ -679,10 +689,29 @@
     );
   }
 
+  // HOLES DISCO D7: a run the worker is still running (its last status poll
+  // answered) can be cancelled from its live row.
+  function cancelRunButtonHtml(run) {
+    return run && run.runId && run.statusPath && !run.statusUnavailable &&
+      (run.status === "pending" || run.status === "running")
+      ? ' <button type="button" class="jb-btn jb-btn--secondary jb-btn--sm" data-runs-cancel-run="' +
+          escapeHtml(run.runId) + '">Cancel run</button>'
+      : "";
+  }
+
   function retryWriteButtonHtml(run) {
     return run && run.runId && (run.workerStatus === "write_failed" || run.status === "write_failed")
       ? ' <button type="button" class="jb-btn jb-btn--secondary jb-btn--sm" data-runs-retry-write="' +
           escapeHtml(run.runId) + '">Retry write</button>'
+      : "";
+  }
+
+  // HOLES HUNT-FE: the "Save as hunt" switch; hunts-ui.js renders it from the
+  // saved hunts and omits it for rows without a worker run id.
+  function saveHuntToggleHtml(run, detailId) {
+    var huntsUi = window.JobBoredHuntsUI;
+    return huntsUi && typeof huntsUi.runToggleHtml === "function"
+      ? huntsUi.runToggleHtml(run, null, { describedBy: detailId + "-toggle" })
       : "";
   }
 
@@ -759,7 +788,7 @@
             runAtToggleHtml(r.runAt, detailId, { open: open, key: key }) +
             "<td>" + statusBadge(r.status) + "</td>" +
             newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
-            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r)) +
+            whyCellHtml(r.status, r.error, retryWriteButtonHtml(r) + saveHuntToggleHtml(r, detailId)) +
           "</tr>" +
           filterHintRowHtml(filterHintText(r.filterStats)) +
           detailRowHtml(detailId, details[key] || renderCoarseDetailHtml(r), open)
@@ -810,7 +839,11 @@
         (leadsWritten > 0
           ? newRolesCellHtml(leadsWritten, "")
           : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
-        whyCellHtml(terminal ? status : "", errorText, retryWriteButtonHtml(run)) +
+        whyCellHtml(
+          terminal ? status : "",
+          errorText,
+          retryWriteButtonHtml(run) + (terminal ? "" : cancelRunButtonHtml(run)),
+        ) +
       "</tr>" +
       (terminal ? filterHintRowHtml(filterHintText(run && run.filterStats)) : "") +
       (progressCell
@@ -927,6 +960,7 @@
       // DISCAT D9: the summary's filterStats (absent on runs from before
       // DISCAT) drive the filter hint under the run's row.
       filterStats: s.filterStats && typeof s.filterStats === "object" ? s.filterStats : null,
+      searchKey: String(s.searchKey || ""), // HOLES HUNT-FE: INTERFACE-HUNTS §8
     };
   }
 
@@ -969,6 +1003,7 @@
         statusPath: w.statusPath,
         workerStatus: w.workerStatus,
         filterStats: w.filterStats,
+        searchKey: w.searchKey,
         origin: "both",
       });
       if (w.runAt) merged.runAt = w.runAt;
@@ -1814,8 +1849,9 @@
         }
         applyHistoryView(view);
         if (state.liveJobRun && hasTerminalSheetMatchForLiveRun(state.liveJobRun, state.rawRuns)) {
+          var settledRunId = state.liveJobRun.runId;
           state.liveJobRun = null;
-          clearStoredJobDiscoveryRun();
+          clearStoredJobDiscoveryRun(settledRunId);
         }
         if (result.reason === "missing_tab" || result.reason === "empty") {
           if (state.ghostRun || state.liveJobRun) {
@@ -2021,6 +2057,20 @@
           loadDetail(retry.getAttribute("data-runs-detail-retry") || "", true);
           return;
         }
+        var cancelRun = target.closest("[data-runs-cancel-run]");
+        if (cancelRun) {
+          var cancelApi = statusApi();
+          if (!cancelApi || typeof cancelApi.cancelDiscoveryRun !== "function") return;
+          cancelRun.disabled = true;
+          cancelApi
+            .cancelDiscoveryRun(cancelRun.getAttribute("data-runs-cancel-run") || "")
+            .then(function (res) {
+              if (!res || !res.ok) cancelRun.disabled = false;
+            }, function () {
+              cancelRun.disabled = false;
+            });
+          return;
+        }
         var retryWrite = target.closest("[data-runs-retry-write]");
         if (retryWrite) {
           var runId = retryWrite.getAttribute("data-runs-retry-write") || "";
@@ -2047,6 +2097,14 @@
             setStatus(statusEl, "warn", "Write retry failed — reopen the dashboard and try again.");
             retryWrite.disabled = false;
           });
+          return;
+        }
+        var saveHunt = target.closest("[data-runs-save-hunt]");
+        if (saveHunt) {
+          var huntsUi = window.JobBoredHuntsUI;
+          if (huntsUi && typeof huntsUi.toggleRunHunt === "function") {
+            huntsUi.toggleRunHunt(saveHunt.getAttribute("data-runs-save-hunt") || "", saveHunt);
+          }
           return;
         }
         var more = target.closest("[data-runs-more]");

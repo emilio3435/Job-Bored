@@ -151,7 +151,50 @@
       JSON.stringify(next),
     );
     applyConfigOverridesToWindowConfig(next);
+    postConfigChanged();
     return next;
+  }
+
+  /**
+   * A16: every tab shares this browser's override store but keeps its own
+   * live COMMAND_CENTER_CONFIG, so a tab opened before a save went on acting
+   * on — and writing back — its old copy. Each write now posts a bare notice
+   * on "jb-config"; the other tabs re-read the store and tell their page with
+   * a jb:config:changed event. No values cross the channel.
+   */
+  const CONFIG_CHANNEL_NAME = "jb-config";
+  let configChannel = null;
+
+  function initConfigChannel() {
+    if (configChannel || typeof BroadcastChannel !== "function") return;
+    try {
+      configChannel = new BroadcastChannel(CONFIG_CHANNEL_NAME);
+      configChannel.onmessage = (event) => {
+        if (!event || !event.data || event.data.type !== "overrides-changed") return;
+        applyStoredConfigOverrides();
+        try {
+          if (typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+            window.dispatchEvent(
+              new CustomEvent("jb:config:changed", { detail: { source: "other-tab" } }),
+            );
+          }
+        } catch (_) {
+          /* the live config is already current */
+        }
+      };
+      // Node's channel would hold a test process open; browsers have no unref.
+      if (typeof configChannel.unref === "function") configChannel.unref();
+    } catch (_) {
+      configChannel = null;
+    }
+  }
+
+  function postConfigChanged() {
+    try {
+      if (configChannel) configChannel.postMessage({ type: "overrides-changed" });
+    } catch (_) {
+      /* a closed channel only costs the other tabs this notice */
+    }
   }
 
   function mergeStoredConfigOverridePatch(patch) {
@@ -592,6 +635,9 @@
       /* best-effort — openDb recreates an empty schema */
     }
     try {
+      // A13: the Google token lives in sessionStorage now, not localStorage;
+      // a cold start must not keep it.
+      sessionStorage.removeItem("command_center_oauth_runtime");
       // Clear the session-only "Later" snooze (whats-next-banner.js
       // SESSION_SNOOZE_KEY) so a snoozed setup bar doesn't survive a "fresh"
       // greenfield reset within the same tab.
@@ -624,6 +670,7 @@
     }
   }
 
+  initConfigChannel();
   maybeApplyGreenfieldUrlReset();
   applyStoredConfigOverrides();
 

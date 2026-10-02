@@ -98,9 +98,11 @@
 
   // UX01 C22 (SS-03): opened from Settings, the guide used to inherit the
   // Settings focus trap's `inert` and sit UNDER the Settings overlay, so
-  // every button was dead and the first click closed Settings. Lift it
-  // above Settings, un-inert it, own Escape, and hand focus back on close.
-  let scraperReturnFocus = null;
+  // every button was dead and the first click closed Settings. It paints
+  // above Settings and owns Escape; the shared dialog stack
+  // (JobBoredA11y.dialog) inerts Settings behind it and hands focus back on
+  // close.
+  let scraperDialogHandle = null;
   let scraperEscapeHandler = null;
 
   function openScraperSetupModal() {
@@ -111,10 +113,6 @@
       result.className = "scraper-test-result";
     }
     if (!modal) return;
-    scraperReturnFocus =
-      typeof document !== "undefined" ? document.activeElement : null;
-    modal.inert = false;
-    modal.removeAttribute("inert");
     const settings = document.getElementById("settingsModal");
     if (settings && settings.style.display === "flex") {
       let z = 0;
@@ -124,8 +122,6 @@
         z = 0;
       }
       modal.style.zIndex = String(Math.max(z + 1, 2001));
-      // Settings is behind us now; keep it out of the tab order and AT.
-      settings.inert = true;
       modal.dataset.liftedOverSettings = "true";
     }
     modal.style.display = "flex";
@@ -137,19 +133,35 @@
         e.preventDefault();
         closeScraperSetupModal();
       };
-      // Capture phase so the Settings Escape handler never sees this press.
+      // Capture phase so the Settings Escape handler, jb-a11y.js's dialog
+      // Escape and materials-feature.js's never see this press.
       document.addEventListener("keydown", scraperEscapeHandler, true);
     }
-    document.getElementById("scraperSetupDoneBtn")?.focus();
+    // Re-opening an open guide must not push a second stack entry.
+    if (scraperDialogHandle) return;
+    const a11y = window.JobBoredA11y;
+    if (a11y && a11y.dialog && typeof a11y.dialog.open === "function") {
+      scraperDialogHandle = a11y.dialog.open(modal, {
+        initialFocus: "#scraperSetupDoneBtn",
+        onClose: teardownScraperSetupModal,
+      });
+      // The primitive focuses with preventScroll, and Done sits below the
+      // fold of this long guide: scroll it into view as a plain focus() did.
+      document
+        .getElementById("scraperSetupDoneBtn")
+        ?.scrollIntoView?.({ block: "nearest" });
+    } else {
+      document.getElementById("scraperSetupDoneBtn")?.focus();
+    }
   }
 
-  function closeScraperSetupModal() {
+  /** Hide the guide and undo the lift; safe to run more than once. */
+  function teardownScraperSetupModal() {
+    scraperDialogHandle = null;
     const modal = document.getElementById("scraperSetupModal");
     if (modal) {
       modal.style.display = "none";
       if (modal.dataset.liftedOverSettings === "true") {
-        const settings = document.getElementById("settingsModal");
-        if (settings) settings.inert = false;
         modal.style.zIndex = "";
         delete modal.dataset.liftedOverSettings;
       }
@@ -158,15 +170,15 @@
       document.removeEventListener("keydown", scraperEscapeHandler, true);
       scraperEscapeHandler = null;
     }
-    const back = scraperReturnFocus;
-    scraperReturnFocus = null;
-    if (back && typeof back.focus === "function" && document.contains(back)) {
-      try {
-        back.focus({ preventScroll: true });
-      } catch (_) {
-        /* best-effort */
-      }
-    }
+  }
+
+  function closeScraperSetupModal() {
+    // Null the handle first so onClose cannot re-enter; closing it releases
+    // inert and restores focus, then onClose tears the guide down.
+    const handle = scraperDialogHandle;
+    scraperDialogHandle = null;
+    if (handle) handle.close();
+    teardownScraperSetupModal();
   }
 
   function copyTextToClipboard(text) {

@@ -13,7 +13,9 @@ const CASES = [
   ["gemini-flash", "gemini-flash-latest"],
   ["gemini-3.7-flash", "gemini-flash-latest"],
   ["gemini-2.5-pro", "gemini-2.5-pro"],
-  ["gemini-flash-lite", "gemini-flash-lite"],
+  // HOLES PROV P3: family names reach Google as their -latest aliases.
+  ["gemini-flash-lite", "gemini-flash-lite-latest"],
+  ["gemini-pro", "gemini-pro-latest"],
   ["gemini-3.5-flash", "gemini-3.5-flash"],
   ["gemini-3.7-flash-preview", "gemini-3.7-flash-preview"],
 ] as const;

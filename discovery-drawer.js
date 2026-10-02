@@ -1193,6 +1193,64 @@ function openDiscoveryDrawer() {
 }
 
 /**
+ * D7 (and D5/D6): what the live run card offers. A run the worker is still
+ * running can be cancelled; a run the browser can no longer watch can be
+ * dismissed.
+ */
+let drawerCancellingRunId = "";
+
+const LIVE_RUN_ACTION_HTML = {
+  cancel:
+    '<button type="button" class="btn-modal-secondary" data-discovery-run-action="cancel">Cancel run</button>',
+  cancelling:
+    '<button type="button" class="btn-modal-secondary" disabled aria-busy="true">Cancelling…</button>',
+  dismiss:
+    '<button type="button" class="btn-modal-secondary" data-discovery-run-action="dismiss">Dismiss</button>',
+};
+
+function liveRunActionKey(rt) {
+  const tracker = rt && rt.discoveryRunTracker;
+  if (!tracker || typeof tracker.getState !== "function") return "";
+  if (typeof tracker.isSettled === "function" && tracker.isSettled()) return "dismiss";
+  const state = tracker.getState() || {};
+  const running =
+    !!state.runId &&
+    !!state.statusPath &&
+    ["pending", "running", "polling_error"].includes(state.status);
+  if (!running) return "";
+  return drawerCancellingRunId === state.runId ? "cancelling" : "cancel";
+}
+
+function handleLiveRunActionClick(target) {
+  const button =
+    typeof target.closest === "function" ? target.closest("[data-discovery-run-action]") : null;
+  if (!button) return false;
+  void runLiveRunAction(button.getAttribute("data-discovery-run-action"));
+  return true;
+}
+
+async function runLiveRunAction(action) {
+  const discovery = window.JobBoredDiscovery || {};
+  const statusApi = discovery.status;
+  const tracker = discovery.runTracker && discovery.runTracker.discoveryRunTracker;
+  if (!statusApi || !tracker) return;
+  if (action === "dismiss") {
+    statusApi.dismissDiscoveryRun();
+  } else if (action === "cancel") {
+    const runId = String(tracker.getState().runId || "");
+    if (!runId || drawerCancellingRunId) return;
+    drawerCancellingRunId = runId;
+    syncDiscoveryDrawerLiveRun();
+    try {
+      await statusApi.cancelDiscoveryRun(runId);
+    } finally {
+      drawerCancellingRunId = "";
+    }
+  }
+  syncDiscoveryDrawerLiveRun();
+}
+
+/**
  * UXD-FE: reopening the drawer mid-run shows that run above the form, so the
  * button that started it never leads to a page that forgets it. Renders the
  * tracker's shared view (discovery-run-tracker.js); ticks once a second only
@@ -1232,8 +1290,27 @@ function syncDiscoveryDrawerLiveRun() {
     }
     mount.hidden = false;
     // Markup comes from renderLiveRunProgressHtml, which escapes every
-    // worker-supplied string.
-    mount.innerHTML = rt.renderLiveRunProgressHtml(view, { variant: "card" });
+    // worker-supplied string. D7: the Cancel/Dismiss button sits beside it;
+    // the one-second repaint swaps only the progress, so the button (and
+    // its focus) survives until the action itself changes.
+    const progressHtml = rt.renderLiveRunProgressHtml(view, { variant: "card" });
+    const actionKey = liveRunActionKey(rt);
+    const body =
+      typeof mount.querySelector === "function"
+        ? mount.querySelector("[data-live-run-body]")
+        : null;
+    if (body && mount.getAttribute("data-live-run-actions") === actionKey) {
+      body.innerHTML = progressHtml;
+    } else {
+      mount.setAttribute("data-live-run-actions", actionKey);
+      mount.innerHTML =
+        "<div data-live-run-body>" +
+        progressHtml +
+        "</div>" +
+        (actionKey
+          ? '<div class="dp-live-run__actions">' + LIVE_RUN_ACTION_HTML[actionKey] + "</div>"
+          : "");
+    }
   }
   const wantTick = live && isDiscoveryDrawerOpen();
   if (wantTick && !discoveryDrawerLiveTick) {
@@ -1766,6 +1843,7 @@ const DISCOVERY_SUBTAB_ORDER = [
   "automation",
   "connection",
   "history",
+  "hunts", // HOLES HUNT-FE: hunts-ui.js mounts #dd-panel-hunts
 ];
 let activeDiscoverySubtab = "search";
 
@@ -1866,6 +1944,7 @@ function initDiscoveryDrawer() {
   drawer.addEventListener("click", (e) => {
     const target = e.target;
     if (!(target instanceof Element)) return;
+    if (handleLiveRunActionClick(target)) return;
     if (target.dataset && target.dataset.action === "close-discovery-drawer") {
       closeDiscoveryDrawer();
       return;
@@ -2157,8 +2236,16 @@ function initDiscoveryDrawer() {
       let payload;
       try {
         const readinessApi = window.JobBoredDiscovery.readiness;
+        // D16: re-sending a dispatch that may already have started keeps its
+        // variation key, so the preview shows the request that ships.
+        const orchestration = window.JobBoredDiscovery.runOrchestration;
+        const redelivery =
+          orchestration && typeof orchestration.getPendingRedeliveryIdentity === "function"
+            ? orchestration.getPendingRedeliveryIdentity()
+            : null;
         payload = await readinessApi.buildDiscoveryWebhookPayload(undefined, {
           trigger: "manual",
+          ...(redelivery ? { variationKey: redelivery.variationKey } : {}),
         });
       } catch (err) {
         h("showToast", err && err.message ? err.message : String(err), "error", true);
@@ -2210,12 +2297,21 @@ function initDiscoveryDrawer() {
         openBtn.disabled = true;
         openBtn.classList.add("loading");
       }
-      await h("triggerDiscoveryRun", { trigger: "manual", payload });
-      closeDiscoveryDrawer();
-      if (openBtn) {
-        openBtn.classList.remove("loading");
+      // D10: the button always comes back, and only a run that started
+      // closes the drawer — a refusal keeps the user's context (and, for
+      // run_active, the live card of the run that is already going).
+      let result = null;
+      try {
+        result = await h("triggerDiscoveryRun", { trigger: "manual", payload });
+      } catch (err) {
+        h("showToast", err && err.message ? err.message : String(err), "error", true);
+      } finally {
+        if (openBtn) {
+          openBtn.classList.remove("loading");
+        }
+        h("syncDiscoveryButtonState", );
       }
-      h("syncDiscoveryButtonState", );
+      if (result && result.ok) closeDiscoveryDrawer();
     });
   }
 }

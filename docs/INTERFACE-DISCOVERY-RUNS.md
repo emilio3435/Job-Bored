@@ -66,12 +66,14 @@ Every discovery run MUST record one of these values in column B. The worker infe
 | `scheduled-cloudflare` | Cloudflare Cron sends the webhook payload with `trigger:"scheduled-cloudflare"`. |
 | `scheduled-appsscript` | Apps Script time trigger sends the webhook payload with `trigger:"scheduled-appsscript"`. |
 | `cli` | Direct CLI invocation — a one-off `curl` or `npm run ...`. Default for legacy `mode:"refresh"` profile refreshes when no `trigger` field is present. |
+| `hunt` | A saved hunt run now (`POST /hunts/:id/run`, or a queued run-now the hunt scheduler starts). See docs/INTERFACE-HUNTS.md. |
+| `scheduled-hunt` | The worker's in-process hunt scheduler fires a saved hunt's schedule slot. |
 
 **Request contract extension:** add a top-level optional string field to `DiscoveryProfileRequestV1`:
 
 ```ts
 /** Who/what initiated this run. Omit for UI-initiated runs (worker defaults to "manual"). */
-trigger?: "manual" | "scheduled-browser" | "scheduled-local" | "scheduled-github" | "scheduled-cloudflare" | "scheduled-appsscript" | "cli";
+trigger?: "manual" | "scheduled-browser" | "scheduled-local" | "scheduled-github" | "scheduled-cloudflare" | "scheduled-appsscript" | "cli" | "hunt" | "scheduled-hunt";
 ```
 
 The three OS installer scripts (`templates/launchd/*.plist`, `scripts/windows/refresh.ps1`, `templates/systemd/*.service`) route through `scripts/run-scheduled-discovery.mjs` with `--trigger scheduled-local` so the log reflects the origin accurately. The GitHub Actions template passes `--trigger scheduled-github`.
@@ -165,6 +167,6 @@ Any change to this spec during implementation: stop, ping the orchestrator, wait
 
 ## 8. RUNHIST worker history and statistics
 
-`GET /runs?limit=25&before=<opaque cursor>` returns newest-first worker summaries and `nextBefore` (null at the end). The limit is 1–100. Hosted workers require `x-discovery-secret` for the list and return a `statusPath` per summary with the run's status token; local workers use the existing Host/origin guard. A summary also carries `filterStats` when the run recorded `lifecycle.filterStats` (DISCAT D9); the Runs panel reads its filter hint from it. `GET /runs/:id` returns the durable full status. The worker prunes terminal snapshots at boot after 90 days or beyond the newest 500; active runs stay.
+`GET /runs?limit=25&before=<opaque cursor>` returns newest-first worker summaries and `nextBefore` (null at the end). The limit is 1–100. Hosted workers require `x-discovery-secret` for the list and return a `statusPath` per summary with the run's status token; local workers use the existing Host/origin guard. A summary also carries `filterStats` when the run recorded `lifecycle.filterStats` (DISCAT D9); the Runs panel reads its filter hint from it. HOLES HUNT adds optional summary fields: `searchPlan` and `searchKey` (the plan a terminal run executed and its normalized key), `yield` (`explorationShare` and the `explore`/`exploit` split from `lifecycle.exploration`) and `awaitingSheetWrite` (`{ leads }` on a `write_failed` run still holding leads); docs/INTERFACE-HUNTS.md §5–§7 defines them. `GET /runs/:id` returns the durable full status. The worker prunes terminal snapshots at boot after 90 days or beyond the newest 500; active runs stay.
 
 Terminal discovery statuses may include `runStats` ([schema](../schemas/run-status.v1.schema.json), [example](../examples/run-status.v1.json)): measured funnel counts, candidate fit distribution on 0–10 (histogram buckets 0–10), grouped source counts and timeouts, phase timing, matcher calls, and sanitized searched labels. Every metric is optional; missing means not measured. `duplicatesVsSheet` is currently absent because `writeResult.skippedDuplicates` combines multiple causes. Stats failures never affect matching, writes, or run outcome. The Sheet history remains usable when a worker snapshot is unavailable.

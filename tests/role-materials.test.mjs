@@ -17,6 +17,8 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(repoRoot, "role-materials.js"), "utf8");
+/* HOLES SCORE: the grade button comes from materials-score.js, as index.html loads it. */
+const scoreSource = readFileSync(join(repoRoot, "materials-score.js"), "utf8");
 /* Trap 2: jb-text.js before role-case-model.js, or the model throws and
    CASE_DOC_TYPES is missing — the rows would silently degrade to the panel. */
 const caseSources = ["jb-text.js", "role-case-model.js"].map((f) => ({
@@ -196,6 +198,7 @@ before(() => {
   if (!windowEl.JobBoredCase?.model?.CASE_DOC_TYPES?.length) {
     throw new Error("role-case-model.js did not expose CASE_DOC_TYPES");
   }
+  vm.runInContext(scoreSource, ctx, { filename: "materials-score.js" });
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
   api = windowEl.JobBoredRoleMaterials;
   if (!api) throw new Error("role-materials.js did not expose JobBoredRoleMaterials");
@@ -448,7 +451,8 @@ describe("renderManifest", () => {
     assert.match(html, /\/files\/cover-letter\.html"/, "HTML preview should remain available without download=1");
   });
 
-  it("does not render a download button when a document has no PDF file", () => {
+  /* U17 (HOLES SCORE): a document with no PDF still downloads its HTML. */
+  it("downloads the HTML when a document has no PDF file", () => {
     const brief = makeBrief();
     api.renderManifest(brief, {
       slug: "acme-growth-marketer",
@@ -469,8 +473,8 @@ describe("renderManifest", () => {
     }, "http://127.0.0.1:3847");
 
     const html = renderedHtml(brief);
-    assert.doesNotMatch(html, /data-action="materials-download"/);
-    assert.doesNotMatch(html, /\?download=1/);
+    assert.match(html, /files\/cover-letter\.html\?download=1[^"]*" download data-action="materials-download" data-filename="cover-letter\.html">Download HTML</);
+    assert.doesNotMatch(html, /Download PDF/);
     assert.match(html, /data-action="materials-preview"/);
   });
 
@@ -611,7 +615,9 @@ describe("renderManifest", () => {
     const html = brief.children[0].innerHTML || "";
     assert.match(html, /data-status="needs_review"/);
     assert.match(html, /Review/);
-    assert.match(html, /Second page has 126 words/);
+    /* HOLES SCORE (§0.3): the critique line is the grade button; the flag opens in the modal. */
+    assert.doesNotMatch(html, /Second page has 126 words/);
+    assert.match(html, /class="jb-grade"[^>]*data-score-open data-feature="resume"/);
     assert.match(html, /data-action="materials-repair"/);
     assert.match(html, /data-feature="resume"/);
   });
@@ -680,7 +686,8 @@ describe("materials rows in the case mount", () => {
 
   function rowFor(host, type) {
     const html = rowsHtml(host);
-    const re = new RegExp('<div class="case__doc case__doc--[a-z]+" data-doc="' + type + '">([\\s\\S]*?)<\\/div><\\/div>');
+    /* HOLES SCORE: a graded row also carries case__doc--graded. */
+    const re = new RegExp('<div class="case__doc case__doc--[a-z]+(?: case__doc--[a-z]+)*" data-doc="' + type + '"[^>]*>([\\s\\S]*?)<\\/div><\\/div>');
     const m = re.exec(html);
     return m ? m[0] : "";
   }

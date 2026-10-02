@@ -6,6 +6,8 @@
  * - Keys come from the llm.json pin only; nothing here reads the environment.
  * - The Gemini key travels in the `x-goog-api-key` header, never the URL.
  * - Every call merges the caller's signal with a timeout (AbortSignal.any).
+ * - A 429 or 5xx retries at most twice inside that timeout (HOLES PROV P8).
+ * - Every endpoint passes the provider URL guard (HOLES PROV S1).
  * - Every failure is a ProviderApiError whose message never carries the
  *   upstream body.
  *
@@ -13,7 +15,9 @@
  * provider lives here. The worker's chat-provider re-exports this module.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import { outputBudget, geminiThinkingConfig, openAIUsesMaxCompletionTokens as usesCompletionTokens } from "../llm-output-budget.mjs";
+import { PROVIDER_URL_BLOCKED, isProviderUrlBlocked, providerFetch } from "../provider-url-guard.mjs";
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} ProviderName */
 /** @typedef {{ role: "system" | "user" | "assistant", content: string }} ChatMessage */
@@ -71,6 +75,11 @@ export const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 export const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 /* Generic interactive routes stay bounded; long workflows set a scoped budget. */
 export const DEFAULT_ROUTE_DEADLINE_MS = 45_000;
+/** Retries after the first attempt, for a 429 or 5xx only (P8). */
+export const MAX_PROVIDER_RETRIES = 2;
+const RETRY_BASE_MS = 500;
+/** A retry needs this much of the call's budget left after its wait. */
+const MIN_RETRY_WINDOW_MS = 1_000;
 
 /** @param {unknown} raw */
 function canonicalToken(raw) {
@@ -334,6 +343,8 @@ export function providerHttpError(provider, upstreamStatus, payload) {
   const code = extractProviderCode(payload);
   const status = Number.isInteger(upstreamStatus) ? upstreamStatus : undefined;
   const rateLimited = status === 429 || (code ? RATE_LIMIT_CODES.has(code) : false);
+  // OpenAI answers an exhausted balance with 429 insufficient_quota: no wait fixes it.
+  const final = code === "insufficient_quota";
   return new ProviderApiError(
     status ? `${providerDisplayName(provider)} HTTP ${status}` : `${providerDisplayName(provider)} request failed`,
     {
@@ -341,9 +352,64 @@ export function providerHttpError(provider, upstreamStatus, payload) {
       upstreamStatus: status,
       providerCode: code,
       classification: rateLimited ? "rate_limit" : "upstream",
-      retryable: isRetryableStatus(status) || (code ? RETRYABLE_CODES.has(code) : false),
+      retryable: !final && (isRetryableStatus(status) || (code ? RETRYABLE_CODES.has(code) : false)),
     },
   );
+}
+
+/**
+ * The provider's Retry-After in ms (delta-seconds or an HTTP date), or 0
+ * when it sent none we can use.
+ * @param {unknown} headers
+ * @param {number} [nowMs]
+ */
+export function retryAfterMs(headers, nowMs = Date.now()) {
+  const get = headers && typeof headers === "object" && "get" in headers ? headers.get : null;
+  const raw = typeof get === "function" ? String(get.call(headers, "retry-after") ?? "").trim() : "";
+  if (!raw) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return Math.round(Number(raw) * 1000);
+  const at = Date.parse(raw);
+  return Number.isFinite(at) ? Math.max(0, at - nowMs) : 0;
+}
+
+/**
+ * Equal-jitter exponential backoff: 250–500 ms before the first retry,
+ * 500–1000 ms before the second.
+ * @param {number} attempt the attempt that just failed, from 0
+ * @param {() => number} [random]
+ */
+export function providerBackoffMs(attempt, random = Math.random) {
+  const ceiling = RETRY_BASE_MS * 2 ** attempt;
+  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+}
+
+/**
+ * How long to wait before retrying a failed attempt, or -1 to give up. Only a
+ * 429 or 5xx retries, never a final one; the wait honours Retry-After and
+ * never runs past the call's deadline.
+ * @param {ProviderApiError} error
+ * @param {number} attempt
+ * @param {unknown} headers
+ * @param {number} deadline epoch ms
+ */
+function retryWaitMs(error, attempt, headers, deadline) {
+  const status = error.upstreamStatus;
+  const transient = status === 429 || (typeof status === "number" && status >= 500 && status <= 599);
+  if (!transient || !error.retryable) return -1;
+  const wait = Math.max(providerBackoffMs(attempt), retryAfterMs(headers));
+  return Date.now() + wait + MIN_RETRY_WINDOW_MS <= deadline ? wait : -1;
+}
+
+/** @param {unknown} value */
+function retryLimit(value) {
+  const n = Number(value);
+  if (value === undefined || value === null || !Number.isFinite(n)) return MAX_PROVIDER_RETRIES;
+  return Math.min(MAX_PROVIDER_RETRIES, Math.max(0, Math.trunc(n)));
+}
+
+/** @param {number} ms @param {AbortSignal} [signal] */
+function waitMs(ms, signal) {
+  return delay(ms, undefined, signal ? { signal } : undefined);
 }
 
 /** @param {unknown} cause */
@@ -385,6 +451,22 @@ export function providerRequestError(provider, cause, callerSignal) {
     providerCode: timedOut ? "timeout" : "network_error",
     classification: "upstream",
     retryable: true,
+    cause,
+  });
+}
+
+/**
+ * The guard refused the endpoint (S1): a configuration problem, never retried.
+ * @param {ProviderName | ""} provider
+ * @param {unknown} cause
+ */
+function providerUrlBlockedError(provider, cause) {
+  const message = cause instanceof Error ? cause.message : "That provider address is not allowed.";
+  return new ProviderApiError(message, {
+    provider,
+    providerCode: PROVIDER_URL_BLOCKED,
+    classification: "config",
+    retryable: false,
     cause,
   });
 }
@@ -466,9 +548,10 @@ export function toGeminiSchema(schema) {
   return project(toStructuredOutputSchema(schema));
 }
 
-/** xAI's Chat Completions endpoint supports structured output; other compatible endpoints vary. */
+/** OpenRouter and xAI's Chat Completions endpoint support structured output; other compatible endpoints vary. */
 function supportsStrictSchema(/** @type {ResolvedProvider} */ resolved) {
   if (resolved.provider === "openai") return openAISupportsStrictSchema(resolved.model);
+  if (resolved.provider === "openrouter") return true;
   if (resolved.provider !== "openai_compatible") return false;
   try { return new URL(resolved.baseUrl).hostname === "api.x.ai"; } catch { return false; }
 }
@@ -572,6 +655,8 @@ function splitSystem(messages) {
  * @property {string} [endpoint] overrides the resolved endpoint (worker configs carry their own)
  * @property {{ mimeType: string, filename?: string, data: string }} [document] original document input; currently native PDF blocks only
  * @property {boolean} [retriedTruncation] internal one-time retry marker
+ * @property {number} [maxRetries] 429/5xx retries, 0–2 (default 2); 0 for a caller that runs its own retry loop
+ * @property {(ms: number, signal?: AbortSignal) => Promise<unknown>} [sleep] the wait between retries (a test seam)
  */
 
 /**
@@ -669,10 +754,12 @@ export async function chat(input) {
     // keeps the server and worker wire identical.
     headers = { "content-type": "application/json" };
     if (resolved.apiKey) headers.authorization = `Bearer ${resolved.apiKey}`;
-    const limitKey = provider === "openai" && openAIUsesMaxCompletionTokens(model) ? "max_completion_tokens" : "max_tokens";
+    // OpenAI's reasoning models (gpt-5, o-series) reject any temperature (P7).
+    const reasoningModel = openAIUsesMaxCompletionTokens(model);
+    const limitKey = provider === "openai" && reasoningModel ? "max_completion_tokens" : "max_tokens";
     /** @type {Record<string, unknown> | undefined} */
     let responseFormat;
-    if (schema && (provider === "openai" || provider === "openai_compatible")) {
+    if (schema) {
       responseFormat = supportsStrictSchema(resolved)
         ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema: toStructuredOutputSchema(schema) } }
         : { type: "json_object" };
@@ -698,37 +785,55 @@ export async function chat(input) {
         })),
       ],
       ...(responseFormat ? { response_format: responseFormat } : {}),
-      temperature,
+      ...(reasoningModel ? {} : { temperature }),
       ...(maxTokens === undefined ? {} : { [limitKey]: maxTokens }),
     };
   }
 
   const fetchImpl = input.fetchImpl || globalThis.fetch;
+  // One budget covers every attempt and wait, so a retry never outlives the
+  // timeout the caller asked for.
+  const deadline = Date.now() + clampTimeoutMs(input.timeoutMs, input.timeoutCeilingMs);
+  const maxRetries = retryLimit(input.maxRetries);
+  const sleep = typeof input.sleep === "function" ? input.sleep : waitMs;
+  /** @type {Response} */
   let resp;
-  try {
-    resp = await fetchImpl(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: composeSignal(input.signal, input.timeoutMs, input.timeoutCeilingMs),
-    });
-  } catch (error) {
-    throw providerRequestError(provider, error, input.signal);
-  }
   /** @type {unknown} */
   let payload = null;
-  try {
-    // json() first: test doubles and some fetch shims implement only json().
-    if (typeof resp.json === "function") {
-      payload = await resp.json();
-    } else if (typeof (/** @type {{ text?: unknown }} */ (resp)).text === "function") {
-      const raw = await resp.text();
-      payload = raw ? JSON.parse(raw) : null;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      resp = await providerFetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: composeSignal(input.signal, Math.max(1, deadline - Date.now()), input.timeoutCeilingMs),
+      }, { fetchImpl });
+    } catch (error) {
+      if (isProviderUrlBlocked(error)) throw providerUrlBlockedError(provider, error);
+      throw providerRequestError(provider, error, input.signal);
     }
-  } catch {
     payload = null;
+    try {
+      // json() first: test doubles and some fetch shims implement only json().
+      if (typeof resp.json === "function") {
+        payload = await resp.json();
+      } else if (typeof (/** @type {{ text?: unknown }} */ (resp)).text === "function") {
+        const raw = await resp.text();
+        payload = raw ? JSON.parse(raw) : null;
+      }
+    } catch {
+      payload = null;
+    }
+    if (resp.ok) break;
+    const failure = providerHttpError(provider, resp.status, payload);
+    const wait = attempt < maxRetries ? retryWaitMs(failure, attempt, resp.headers, deadline) : -1;
+    if (wait < 0) throw failure;
+    try {
+      await sleep(wait, input.signal);
+    } catch (cause) {
+      throw providerRequestError(provider, cause, input.signal);
+    }
   }
-  if (!resp.ok) throw providerHttpError(provider, resp.status, payload);
   const record = payload && typeof payload === "object" ? /** @type {Record<string, unknown>} */ (payload) : {};
   const candidates = Array.isArray(record.candidates) ? record.candidates : [];
   const choices = Array.isArray(record.choices) ? record.choices : [];

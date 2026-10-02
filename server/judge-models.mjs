@@ -1,5 +1,7 @@
 import { loadStoredLlmConfig } from "./llm-config.mjs";
-import { GEMINI_API_BASE, geminiHeaders, normalizeProvider } from "./ai/provider.mjs";
+import { GEMINI_API_BASE, geminiHeaders, normalizeProvider, routeDeadlineSignal } from "./ai/provider.mjs";
+import { pickStableGeminiFlash } from "./model-family.mjs";
+import { isProviderUrlBlocked, providerFetch } from "./provider-url-guard.mjs";
 
 const XAI_MODELS_URL = "https://api.x.ai/v1/models";
 const XAI_BASE_URL = "https://api.x.ai/v1";
@@ -10,6 +12,8 @@ const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434";
 /** A runaway cursor never costs more than five upstream lists. */
 const MAX_CATALOG_PAGES = 5;
+/** One deadline for the whole walk, every page included (P4). */
+const CATALOG_TIMEOUT_MS = 20_000;
 
 /** @typedef {Record<string, unknown>} CatalogModel */
 
@@ -70,7 +74,7 @@ function takeXai(model) {
 function takeOpenRouter(model) {
   const id = string(model.id);
   if (!id.includes("/")) return null;
-  return { id, label: string(model.name) || id, created: 0 };
+  return { id, label: string(model.name) || id, created: createdValue(model.created) };
 }
 
 /** @type {TakeRow} */
@@ -112,7 +116,7 @@ function takeLocal(model) {
  * @property {(apiKey: string) => Record<string, string>} headers
  * @property {TakeRow} take
  * @property {boolean} newestFirst
- * @property {(models: Array<{ id: string }>) => string | null} recommend
+ * @property {(models: Array<{ id: string, created: number }>) => string | null} recommend
  * @property {(url: string, payload: unknown) => string} nextUrl the next page's URL, or "" when done
  */
 
@@ -132,6 +136,17 @@ function ollamaTagsUrl(baseUrl) {
 /** @param {Array<{ id: string }>} models @param {RegExp} cheap @returns {string | null} */
 function recommendCheapOrFirst(models, cheap) {
   return models.find((model) => cheap.test(model.id))?.id || models[0]?.id || null;
+}
+
+/**
+ * The newest model whose id matches: created stamp first, then a
+ * version-aware id, so the pick never depends on the provider's list order.
+ * @param {Array<{ id: string, created: number }>} models @param {RegExp} pattern @returns {string | null}
+ */
+function newestMatching(models, pattern) {
+  return models
+    .filter((model) => pattern.test(model.id))
+    .sort((a, b) => b.created - a.created || b.id.localeCompare(a.id, undefined, { numeric: true }))[0]?.id || null;
 }
 
 /** @type {Record<string, CatalogSpec>} */
@@ -160,9 +175,8 @@ const CATALOGS = {
     },
     take: takeOpenRouter,
     newestFirst: false,
-    recommend: (models) => models.some((model) => model.id === "openai/gpt-4o-mini")
-      ? "openai/gpt-4o-mini"
-      : models[0]?.id || null,
+    // A cheap grader by default: the newest OpenAI mini route (P16).
+    recommend: (models) => newestMatching(models, /^openai\/gpt-[^/:]*-mini$/i) || newestMatching(models, /./),
     nextUrl: () => "",
   },
   openai: {
@@ -207,7 +221,10 @@ const CATALOGS = {
     headers: (apiKey) => geminiHeaders(apiKey),
     take: takeGemini,
     newestFirst: false,
-    recommend: (models) => recommendCheapOrFirst(models, /flash/i),
+    // The newest stable Flash, not whichever flash the API lists first (P16).
+    recommend: (models) => pickStableGeminiFlash(models.map((model) => model.id))
+      || newestMatching(models, /flash/i)
+      || newestMatching(models, /./),
     nextUrl: (url, payload) => {
       const token = string(pageObject(payload)?.nextPageToken);
       if (!token) return "";
@@ -277,12 +294,53 @@ function savedJudgeKey(provider, env) {
   return string(judge.apiKey);
 }
 
+/**
+ * The provider's error code, type, status and reasons, lower-cased. Read to
+ * classify a failure only; the upstream body never reaches the reply.
+ * @param {unknown} payload @returns {string[]}
+ */
+function upstreamErrorCodes(payload) {
+  const root = pageObject(payload);
+  const error = (root && pageObject(root.error)) || root;
+  if (!error) return [];
+  const details = Array.isArray(error.details) ? error.details : [];
+  return [error.code, error.type, error.status, ...details.map((detail) => pageObject(detail)?.reason)]
+    .map((value) => string(value).toLowerCase())
+    .filter(Boolean);
+}
+
+/** @param {{ json?: () => Promise<unknown> }} upstream */
+async function upstreamPayload(upstream) {
+  try {
+    return typeof upstream.json === "function" ? await upstream.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A first-page failure in plain words (P12): a refused key says so instead
+ * of "try again", and a key with no credit names billing.
+ * @param {CatalogSpec} spec @param {number} status @param {unknown} payload
+ * @returns {{ status: number, error: string }}
+ */
+function catalogFailure(spec, status, payload) {
+  const codes = upstreamErrorCodes(payload);
+  if (status === 401 || status === 403 || (status === 400 && codes.some((code) => code === "api_key_invalid" || code === "invalid_api_key"))) {
+    return { status: 401, error: `That key didn't work: ${spec.keyWords}.` };
+  }
+  if (codes.includes("insufficient_quota")) {
+    return { status: 402, error: `That key has no credit left: check billing on ${spec.label}.` };
+  }
+  return { status: 502, error: `Couldn't load ${spec.label} models: try again.` };
+}
+
 /** POST /api/llm-config/judge-models. Keys are used for the upstream request only. */
 /**
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {NodeJS.ProcessEnv} [env]
- * @param {{ fetchImpl?: typeof fetch }} [options]
+ * @param {{ fetchImpl?: typeof fetch, timeoutMs?: number }} [options] timeoutMs is a test seam for the catalog deadline
  * @returns {Promise<void>}
  */
 export async function handlePostJudgeModels(req, res, env = process.env, options = {}) {
@@ -312,6 +370,7 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   }
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const signal = routeDeadlineSignal(req, res, options.timeoutMs ?? CATALOG_TIMEOUT_MS);
   // The first page failing is an error; a later page failing returns the
   // partial list — a shorter working list beats a dead dropdown.
   /** @type {unknown[]} */
@@ -320,23 +379,28 @@ export async function handlePostJudgeModels(req, res, env = process.env, options
   for (let page = 0; page < MAX_CATALOG_PAGES && url; page += 1) {
     let upstream;
     try {
-      upstream = await fetchImpl(url, {
+      // The local list's address is caller-supplied: the guard applies (P11).
+      upstream = await providerFetch(url, {
         method: "GET",
         headers: spec.headers(apiKey),
-      });
-    } catch {
+        signal,
+      }, { fetchImpl });
+    } catch (error) {
       if (page > 0) break;
-      res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
+      if (isProviderUrlBlocked(error)) {
+        res.status(400).json({ error: error instanceof Error ? error.message : "That address can't be used." });
+      } else if (signal.aborted && signal.reason && signal.reason.name === "TimeoutError") {
+        res.status(504).json({ error: `${spec.label} didn't answer in time: try again.` });
+      } else {
+        res.status(502).json({ error: `Couldn't reach ${spec.label}: try again.` });
+      }
       return;
     }
 
-    if (upstream.status === 401 && page === 0) {
-      res.status(401).json({ error: `That key didn't work: ${spec.keyWords}.` });
-      return;
-    }
     if (!upstream.ok) {
       if (page > 0) break;
-      res.status(502).json({ error: `Couldn't load ${spec.label} models: try again.` });
+      const failure = catalogFailure(spec, upstream.status, await upstreamPayload(upstream));
+      res.status(failure.status).json({ error: failure.error });
       return;
     }
 

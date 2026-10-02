@@ -380,11 +380,22 @@ describe("cache key and degraded runs (P-8)", () => {
   }
 
   let dir;
+  let home;
+  let priorHome;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "jb-l2-pipeline-"));
+    /* Hermetic: the pipeline reads voice.md, intel and logos under
+     * JOBBORED_HOME, and a real ~/.jobbored/profile/voice.md adds
+     * +voice:<hash> to the cache key. */
+    home = await mkdtemp(join(tmpdir(), "jb-l2-home-"));
+    priorHome = process.env.JOBBORED_HOME;
+    process.env.JOBBORED_HOME = home;
   });
   afterEach(async () => {
+    if (priorHome === undefined) delete process.env.JOBBORED_HOME;
+    else process.env.JOBBORED_HOME = priorHome;
     await rm(dir, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   });
 
   const base = () => ({

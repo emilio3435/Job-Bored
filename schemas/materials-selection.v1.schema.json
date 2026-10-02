@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-selection.v1.schema.json",
   "title": "materials.selection.v1",
-  "description": "Recorded claim selection for one run. Written before any prose exists. A claim absent from `kept` cannot appear in the draft; an omitted employer must appear in `omittedEmployers` to avoid an omission_justified failure.",
+  "description": "Recorded claim selection for one run. Written before any prose exists. A claim absent from `kept` cannot appear in the draft. Every employer the run does not feature appears in `omittedEmployers` with the reason its claims' drop records give; `justified` is false when no reason is on record.",
   "type": "object",
   "required": ["contract", "jdHash", "ledgerHash", "budget", "kept"],
   "additionalProperties": false,

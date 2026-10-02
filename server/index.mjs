@@ -16,6 +16,7 @@ import {
   toScrapeFailureResponse,
 } from "./shared/job-scraper-core.mjs";
 import {
+  createDashboardOriginVerifier,
   normalizeAllowedBrowserOrigins,
   redactSecrets,
   resolveAllowedBrowserOrigin,
@@ -50,6 +51,7 @@ import {
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { registerCompanyLogoRoute } from "./company-logo-route.mjs";
 import { refreshLogosFromLedger } from "./materials-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
@@ -95,6 +97,9 @@ import { handlePostJudgeModels } from "./judge-models.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
 import { leadsChatHandler } from "./leads-chat.mjs";
+import { createRouteLimiter, limitFromEnv } from "./route-limits.mjs";
+import { atsFailureResponse } from "./ats-route-errors.mjs";
+import { deepHealth } from "./health-deep.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -104,9 +109,6 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
     process.env.CORS_ALLOWED_ORIGINS ||
     process.env.ALLOWED_ORIGINS ||
     "",
-  {
-    listenHost: HOST,
-  },
 );
 const app = express();
 
@@ -131,7 +133,7 @@ function withApiErrorEnvelope(status, body) {
   if (status < 400 || !body || typeof body !== "object" || Array.isArray(body)) {
     return body;
   }
-  const record = /** @type {Record<string, unknown>} */ (body);
+  const record = redactErrorRecord(/** @type {Record<string, unknown>} */ (body));
   const code =
     apiErrorText(record.code) ||
     apiErrorText(record.reason) ||
@@ -159,6 +161,23 @@ function withApiErrorEnvelope(status, body) {
   };
 }
 
+/* HOLES S3/S12: an error body never names a server path or carries a secret.
+ * Every top-level string passes through redactFsPaths(redactSecrets()) and
+ * the path-valued fields are dropped. Nested structured data (validation
+ * errors with JSON-pointer instancePaths, template lists) is left as is. */
+const ERROR_PATH_FIELDS = new Set(["path", "savedIn", "templateRoot", "absolutePath"]);
+
+/** @param {Record<string, unknown>} record */
+function redactErrorRecord(record) {
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (ERROR_PATH_FIELDS.has(key)) continue;
+    out[key] = typeof value === "string" ? redactFsPaths(redactSecrets(value)) : value;
+  }
+  return out;
+}
+
 app.use((_req, res, next) => {
   const sendJson = res.json.bind(res);
   res.json = (body) => sendJson(withApiErrorEnvelope(res.statusCode, body));
@@ -179,6 +198,11 @@ const API_TRUSTED_HOSTS = String(process.env.JOBBORED_API_ALLOWED_HOSTS || "")
 const API_ACCESS_TOKEN = String(
   process.env.JOBBORED_API_TOKEN || process.env.API_ACCESS_TOKEN || "",
 ).trim();
+/* HOLES S7: with no configured origins, a loopback API trusts the local
+ * dashboard's :8080 origins only while JobBored's dashboard answers there,
+ * never any app that happens to hold the port. */
+const verifyDashboardOrigin =
+  !REQUIRE_API_AUTH && ALLOWED_BROWSER_ORIGINS.length === 0 ? createDashboardOriginVerifier() : null;
 
 /**
  * @param {unknown} value
@@ -253,39 +277,6 @@ function requireApiAuth(req, res, next) {
   return next();
 }
 
-/** @param {unknown} error */
-function getAtsProviderErrorMetadata(error) {
-  if (!error || typeof error !== "object") return null;
-  const record = /** @type {Record<string, unknown>} */ (error);
-  const provider = typeof record.provider === "string" ? record.provider : "";
-  const upstreamStatus =
-    typeof record.upstreamStatus === "number" && Number.isInteger(record.upstreamStatus)
-    ? record.upstreamStatus
-    : null;
-  const retryable =
-    typeof record.retryable === "boolean" ? record.retryable : null;
-  const classification =
-    typeof record.classification === "string" ? record.classification : "";
-  const providerCode =
-    typeof record.providerCode === "string" ? record.providerCode : "";
-  if (
-    !provider &&
-    upstreamStatus == null &&
-    retryable == null &&
-    !classification &&
-    !providerCode
-  ) {
-    return null;
-  }
-  return {
-    provider: provider || null,
-    upstreamStatus,
-    retryable,
-    classification: classification || null,
-    providerCode: providerCode || null,
-  };
-}
-
 // BEAUDIT E1: a DNS-rebound page reaches this loopback listener with its own
 // name in Host. Refuse any Host outside {127.0.0.1, localhost, [::1]}:PORT
 // (plus JOBBORED_API_ALLOWED_HOSTS) before CORS, auth or a route can see it.
@@ -305,15 +296,18 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const { requestOrigin, requestHost, requestProtocol } = trustedRequestOriginParts(req);
-  const allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
+  let allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
     allowedOrigins: ALLOWED_BROWSER_ORIGINS,
     requestHost,
     requestProtocol,
     loopbackPort: REQUIRE_API_AUTH ? undefined : req.socket.localPort,
     trustedHosts: API_TRUSTED_HOSTS,
   });
+  if (!allowOrigin && requestOrigin && verifyDashboardOrigin && (await verifyDashboardOrigin(requestOrigin))) {
+    allowOrigin = requestOrigin;
+  }
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader(
@@ -344,14 +338,32 @@ app.use((req, res, next) => {
   return express.json({ limit: "2mb" })(req, res, next);
 });
 
-app.get("/health", (_req, res) => {
+app.get("/health", (req, res, next) => {
   const ats = getAtsConfigStatus();
-  res.json({
+  const shallow = {
     ok: true,
     service: "command-center-job-scraper",
     atsProvider: ats.provider,
     atsConfigured: ats.configured,
     ...(ats.configured ? {} : { atsConfigError: ats.reason }),
+  };
+  if (String(req.query.deep || "") !== "1") return res.json(shallow);
+  /* HOLES: readiness names what this host has installed, so a hosted
+   * listener asks for the token; shallow /health stays public. */
+  return requireApiAuth(req, res, () => {
+    deepHealth().then((deep) => {
+      if (deep.ok) return res.json({ ...shallow, checks: deep.checks });
+      const failed = Object.entries(deep.checks)
+        .filter(([name, check]) => !check.ok && ["schemas", "templates", "fonts"].includes(name))
+        .map(([name]) => name);
+      return res.status(503).json({
+        ...shallow,
+        ok: false,
+        error: `Not ready: ${failed.join(", ")} unavailable on this host.`,
+        retryable: false,
+        checks: deep.checks,
+      });
+    }, next);
   });
 });
 
@@ -360,14 +372,48 @@ app.use((req, res, next) => {
   return requireApiAuth(req, res, next);
 });
 
+/* HOLES S4: the LLM and Chromium routes share a per-process budget (60 a
+ * minute, 8 at once by default); past either, 429 retryable. Mounted after
+ * the token gate, so refused callers never spend it. */
+app.use(
+  createRouteLimiter({
+    perMinute: limitFromEnv(process.env.JOBBORED_ROUTE_RATE_PER_MINUTE, 60),
+    concurrency: limitFromEnv(process.env.JOBBORED_ROUTE_CONCURRENCY, 8),
+  }),
+);
+
 // Opt-in static file serving for local dev and e2e tests. Off by default so
 // production deployments don't accidentally expose the repo root.
 // Enable with: JOBBORED_SERVE_STATIC=1 or JOBBORED_STATIC_ROOT=/path/to/dir
+// HOLES S13: it serves the dashboard's public allowlist (the dev server's
+// static-path-guard), never everything under the root. The guard ships with
+// the repo, not the server image, so it is loaded only when serving is on.
 if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
   const staticRoot = process.env.JOBBORED_STATIC_ROOT
     ? String(process.env.JOBBORED_STATIC_ROOT)
     : join(import.meta.dirname || ".", "..");
-  app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
+  const guard = /** @type {{ resolvePublicFile: (urlPath: string, options: { root: string }) => Promise<{ ok: boolean, filePath?: string }> }} */ (
+    await import(new URL("../scripts/lib/static-path-guard.mjs", import.meta.url).href)
+  );
+  /**
+   * @param {import("express").Request} req
+   * @param {import("express").Response} res
+   * @param {import("express").NextFunction} next
+   */
+  const servePublicFile = async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent(req.path);
+    } catch {
+      return next();
+    }
+    const resolved = await guard.resolvePublicFile(urlPath, { root: staticRoot });
+    if (!resolved.ok || !resolved.filePath) return next();
+    // No express typings are installed; JSDoc resolves Response to the DOM type.
+    return /** @type {{ sendFile: (path: string) => void }} */ (/** @type {unknown} */ (res)).sendFile(resolved.filePath);
+  };
+  app.use(servePublicFile);
 }
 
 app.get("/api/llm-config", (req, res) =>
@@ -413,7 +459,19 @@ app.post("/api/ats-scorecard", async (req, res) => {
         requestId,
       });
     }
-    const payload = normalizeAtsRequestPayload(req.body);
+    /** @type {ReturnType<typeof normalizeAtsRequestPayload>} */
+    let payload;
+    try {
+      payload = normalizeAtsRequestPayload(req.body);
+    } catch {
+      // Only contract validation is a client error; downstream failures are not.
+      return res.status(400).json({
+        error: "The ATS request does not match the scorecard contract.",
+        code: "invalid_request",
+        retryable: false,
+        requestId,
+      });
+    }
     // E11: a closed tab aborts the provider call instead of running to its timeout.
     const scorecard = await analyzeAtsScorecard(payload, { signal: routeDeadlineSignal(req, res) });
     res.json(scorecard);
@@ -421,37 +479,11 @@ app.post("/api/ats-scorecard", async (req, res) => {
       `[ats-scorecard] requestId=${requestId} ok model=${scorecard.model} overallScore=${scorecard.overallScore}`,
     );
   } catch (e) {
-    const metadata = getAtsProviderErrorMetadata(e);
-    const rawMsg = errorMessage(e, "ATS scorecard failed");
-    const status = metadata
-      ? 502
-      : /required|invalid|must be/i.test(rawMsg)
-        ? 400
-        : 502;
-    const publicError = metadata
-      ? "Upstream provider request failed"
-      : redactSecrets(rawMsg);
-    const responseBody = {
-      error: publicError,
-      code: status === 400 ? "invalid_request" : "upstream_error",
-      requestId,
-      ...(metadata && metadata.provider ? { provider: metadata.provider } : {}),
-      ...(metadata && metadata.upstreamStatus != null
-        ? { upstreamStatus: metadata.upstreamStatus }
-        : {}),
-      ...(metadata && metadata.retryable != null
-        ? { retryable: metadata.retryable }
-        : {}),
-      ...(metadata && metadata.classification
-        ? { errorClass: metadata.classification }
-        : {}),
-      ...(metadata && metadata.providerCode
-        ? { providerCode: metadata.providerCode }
-        : {}),
-    };
-    res.status(status).json(responseBody);
+    // HOLES P9: each failure class has its own status, code and next step.
+    const failure = atsFailureResponse(e);
+    res.status(failure.status).json({ ...failure.body, requestId });
     console.warn(
-      `[ats-scorecard] requestId=${requestId} status=${status} error=${redactSecrets(rawMsg)}`,
+      `[ats-scorecard] requestId=${requestId} status=${failure.status} code=${failure.body.code} error=${redactSecrets(errorMessage(e, "ATS scorecard failed"))}`,
     );
   }
 });
@@ -728,7 +760,8 @@ app.delete("/profile/voice", guardSave(async (_req, res) => {
 app.get("/api/brand-logos", async (_req, res) => {
   try {
     const result = await listLogos();
-    res.json({ ok: true, ...result });
+    /* HOLES S3: the logo store's server path is not the browser's business. */
+    res.json({ ok: true, logos: result.logos });
   } catch (e) {
     sendAppError(res, e);
   }
@@ -754,6 +787,7 @@ app.post("/api/brand-logos/:slug", async (req, res) => {
     sendAppError(res, e);
   }
 });
+registerCompanyLogoRoute(app);
 
 /* F21: the claim ledger, built from resume.txt + profile.json on each
  * profile save (see POST /profile) and read by the materials pipeline.
@@ -768,7 +802,9 @@ app.get("/profile/ledger", async (_req, res) => {
     return res.json({
       ok: true,
       ledger: result.ledger,
-      savedIn: result.path || resolveLedgerPath(),
+      /* HOLES S3: "Saved in" is the local user's own path; a hosted API
+       * never names its container paths. */
+      ...(REQUIRE_API_AUTH ? {} : { savedIn: result.path || resolveLedgerPath() }),
       usedBy: ["materials"],
     });
   } catch (err) {
@@ -978,7 +1014,8 @@ app.post("/profile/rescore", async (req, res) => {
   } catch (err) {
     sendEvent({
       kind: "error",
-      message: errorMessage(err, err),
+      // HOLES S3: the stream's error event is an error body too.
+      message: redactFsPaths(redactSecrets(errorMessage(err, err))),
     });
   } finally {
     endRouteRescore();
@@ -1008,7 +1045,9 @@ function sendAppError(res, err) {
   const message = errorMessage(err, "Application materials error");
   /** @type {{ error: string, code?: string, retryable?: boolean, validTemplates?: string[] }} */
   const body = { error: message };
-  if (error && typeof error.code === "string" && error.code) {
+  /* HOLES S3: an fs error's own code (ENOENT, ENOTDIR) is internal detail and
+   * not an api-error.v1 code; the envelope then derives one from the status. */
+  if (error && typeof error.code === "string" && /^[a-z][a-z0-9_]*$/.test(error.code)) {
     body.code = error.code;
   }
   if (error && typeof error.retryable === "boolean") {
@@ -1186,7 +1225,8 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
       source: body.source,
       jobUrl: body.jobUrl || body.job_url,
     });
-    res.json({ ok: true, ...result });
+    /* HOLES S3: report the write, not where on the server it landed. */
+    res.json({ ok: true, bytesWritten: result.bytesWritten, source: result.source });
   } catch (e) {
     sendAppError(res, e);
   }
@@ -1332,6 +1372,12 @@ app.put("/api/applications/:slug/checklist", async (req, res) => {
   }
 });
 
+/* HOLES S14: a drafted document opened in a tab must not run in the API's
+ * origin. The renderer inlines its styles and data: fonts and logos, and
+ * emits no script. PDFs get no sandbox: Chrome's viewer refuses it. */
+const MATERIALS_HTML_CSP =
+  "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'";
+
 app.get("/api/applications/:slug/files/:filename", async (req, res) => {
   try {
     const meta = await resolveFile(req.params.slug, req.params.filename);
@@ -1339,6 +1385,10 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
     res.setHeader("Content-Length", String(meta.size));
     res.setHeader("Last-Modified", meta.modifiedAt);
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (meta.contentType.startsWith("text/html")) {
+      res.setHeader("Content-Security-Policy", MATERIALS_HTML_CSP);
+    }
     /* PDFs default to inline (browsers know how to preview), HTML renders
      * in a new tab, and Markdown is served as text/markdown so the
      * dashboard can fetch + render it. The "download" intent is the

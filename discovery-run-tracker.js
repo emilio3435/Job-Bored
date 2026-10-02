@@ -12,7 +12,22 @@
   const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
   const MAX_POLL_ERRORS = 3;
   const DEFAULT_PER_POLL_TIMEOUT_MS = 8000;
-  const DEFAULT_OVERALL_POLL_DEADLINE_MS = 15 * 60 * 1000;
+  // §0.4/§0.11: the scrape is massive, so the browser watches a run for as
+  // long as the worker may run it — the worker's default maxRunDurationMs —
+  // plus a grace that covers the worker's own safety timer (at most 30 s past
+  // the budget) and a few polls to read the terminal status it writes.
+  const DEFAULT_MAX_RUN_DURATION_MS = 3 * 60 * 60 * 1000;
+  const RUN_DEADLINE_GRACE_MS = 5 * 60 * 1000;
+  const DEFAULT_OVERALL_POLL_DEADLINE_MS =
+    DEFAULT_MAX_RUN_DURATION_MS + RUN_DEADLINE_GRACE_MS;
+  // D13 (§1b.9): the one channel tabs use to share a discovery run.
+  const DISCOVERY_RUN_CHANNEL = "jb-discovery-run";
+  const DISCOVERY_RUN_TAB_ID =
+    typeof crypto !== "undefined" && crypto && typeof crypto.getRandomValues === "function"
+      ? Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("")
+      : Math.random().toString(16).slice(2);
 
   function createAbortablePollSession() {
     let generation = 0;
@@ -87,7 +102,8 @@
             { once: true },
           );
         }
-        return { signal: controller.signal, generation };
+        // done(): the poll answered — drop its timer so it cannot fire late.
+        return { signal: controller.signal, generation, done: cleanup };
       },
       startOverallDeadline(timeoutMs) {
         if (overallController) {
@@ -191,6 +207,11 @@
 
   function cleanRunProgressCount(value) {
     return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  function positiveMs(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
   }
 
   const FILTER_STATS_MAX_KEYWORDS = 20;
@@ -379,7 +400,9 @@
     if (status === "polling_error") {
       health = s.statusEndpointTerminal
         ? { key: "lost", text: "Discovery can't report this run." }
-        : Number(s.pollErrorCount) >= MAX_POLL_ERRORS
+        : s.deadlineExceeded
+          ? { key: "lost", text: "This run went past its time limit. Check Runs for the outcome." }
+          : Number(s.pollErrorCount) >= MAX_POLL_ERRORS
           ? {
               key: "lost",
               text: "We stopped getting updates. The search may still be running.",
@@ -390,7 +413,9 @@
     if (!progress) {
       if (!health) {
         health =
-          status === "pending"
+          status === "pending" && s.dispatchUnconfirmed
+            ? { key: "unknown", text: "The worker didn't confirm this run. Check Runs." }
+            : status === "pending"
             ? { key: "starting", text: "Starting the search…" }
             : s.statusUnavailable
               ? { key: "unknown", text: "This setup can't send live updates." }
@@ -585,9 +610,16 @@
       try {
         const raw = localStorage.getItem(this._key);
         if (!raw) return this._idle();
-        const parsed = JSON.parse(raw);
+        return this._hydrate(JSON.parse(raw));
+      } catch (_) {
+        return this._idle();
+      }
+    }
+
+    /** Re-hydrate a stored (or another tab's) snapshot with defaults. */
+    _hydrate(parsed) {
+      try {
         if (!parsed || typeof parsed !== "object") return this._idle();
-        // Re-hydrate with defaults for missing fields
         return {
           status: parsed.status || "idle",
           runId: parsed.runId || "",
@@ -625,6 +657,9 @@
           progressObservedAt: parsed.progressObservedAt || "",
           progressHeartbeatSeen: !!parsed.progressHeartbeatSeen,
           filterStats: sanitizeFilterStats(parsed.filterStats),
+          maxRunDurationMs: positiveMs(parsed.maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
+          deadlineExceeded: !!parsed.deadlineExceeded,
+          dispatchUnconfirmed: !!parsed.dispatchUnconfirmed,
         };
       } catch (_) {
         return this._idle();
@@ -638,6 +673,67 @@
         /* storage full or unavailable — run state is best-effort */
       }
       dispatchDiscoveryRunTrackerEvent(state);
+      this.postChannelMessage({ type: "state", state });
+    }
+
+    /**
+     * D13: tabs share one run over the jb-discovery-run BroadcastChannel.
+     * Every state change goes out; another tab's change is adopted here
+     * (its sender already persisted it), and listeners (the status handoff's
+     * poll election) see every message.
+     */
+    connectChannel() {
+      if (this._channel !== undefined) return this._channel;
+      this._channel = null;
+      this._channelListeners = [];
+      if (typeof BroadcastChannel !== "function") return null;
+      try {
+        this._channel = new BroadcastChannel(DISCOVERY_RUN_CHANNEL);
+        this._channel.onmessage = (event) => this._onChannelMessage(event && event.data);
+      } catch (_) {
+        this._channel = null;
+      }
+      return this._channel;
+    }
+
+    onChannelMessage(listener) {
+      if (this.connectChannel() && typeof listener === "function") {
+        this._channelListeners.push(listener);
+      }
+    }
+
+    postChannelMessage(message) {
+      if (!this._channel) return;
+      try {
+        this._channel.postMessage({ ...message, tabId: DISCOVERY_RUN_TAB_ID });
+      } catch (_) {
+        /* best-effort, like storage */
+      }
+    }
+
+    _onChannelMessage(message) {
+      if (!message || typeof message !== "object") return;
+      if (message.tabId === DISCOVERY_RUN_TAB_ID) return;
+      if (message.type === "state" && message.state && typeof message.state === "object") {
+        const next = this._hydrate(message.state);
+        // Adopt another tab's update of the run this tab follows, or any run
+        // when this tab follows none. Never let a different (or empty) run
+        // replace a live one here: that would abort this tab's poll and
+        // forget the run it is watching.
+        if (next.runId !== this._state.runId) {
+          if (this._state.runId && this.isActive()) return;
+          this._pollSession.abortAll();
+        }
+        this._state = next;
+        dispatchDiscoveryRunTrackerEvent(this._state);
+      }
+      for (const listener of this._channelListeners) {
+        try {
+          listener(message);
+        } catch (_) {
+          /* one listener never breaks another */
+        }
+      }
     }
 
     _idle() {
@@ -670,6 +766,9 @@
         progressObservedAt: "",
         progressHeartbeatSeen: false,
         filterStats: null,
+        maxRunDurationMs: DEFAULT_MAX_RUN_DURATION_MS,
+        deadlineExceeded: false,
+        dispatchUnconfirmed: false,
       };
     }
 
@@ -695,6 +794,7 @@
       variationKey = "",
       requestedAt = "",
       statusUnavailable = false,
+      maxRunDurationMs = DEFAULT_MAX_RUN_DURATION_MS,
     }) {
       if (this._pollSession) this._pollSession.abortAll();
       const pollGeneration = this._pollSession
@@ -729,13 +829,44 @@
         progressObservedAt: "",
         progressHeartbeatSeen: false,
         filterStats: null,
+        maxRunDurationMs: positiveMs(maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS),
+        deadlineExceeded: false,
+        dispatchUnconfirmed: false,
       };
+      this._persist(this._state);
+      return this;
+    }
+
+    /**
+     * D16: the dispatch POST timed out, so the worker may or may not have
+     * the run. Only its identity is kept (never the payload, which can carry
+     * a Google token) so the next attempt re-sends it and the worker answers
+     * with the original run instead of starting a second one.
+     */
+    markDispatchUnconfirmed({ webhookUrl = "", trigger = "manual", variationKey = "", requestedAt = "" }) {
+      this.beginTracking({ runId: "", webhookUrl, trigger, variationKey, requestedAt, statusUnavailable: true });
+      const requestedMs = Date.parse(this._state.requestedAt);
+      if (Number.isFinite(requestedMs)) {
+        this._state.initiatedAt = new Date(requestedMs).toISOString();
+      }
+      this._state.dispatchUnconfirmed = true;
       this._persist(this._state);
       return this;
     }
 
     _now() {
       return Date.now();
+    }
+
+    /**
+     * D4: an AbortSignal for one status poll. It fires after `timeoutMs`, and
+     * at once when beginTracking starts another run (D2).
+     */
+    createPollSignal(timeoutMs) {
+      if (typeof AbortController !== "function" || typeof setTimeout !== "function") {
+        return null;
+      }
+      return this._pollSession.createPollSignal(timeoutMs);
     }
 
     /**
@@ -786,6 +917,7 @@
       this._state.lastPollAt = new Date().toISOString();
       this._state.statusUnavailable = false;
       this._state.statusEndpointTerminal = false;
+      this._state.deadlineExceeded = false;
       const isTerminal = !!statusData.terminal;
       const runStatus = String(statusData.status || "").toLowerCase();
       const request = statusData.request && typeof statusData.request === "object"
@@ -838,8 +970,9 @@
         this._persist(this._state);
         return this;
       }
-      // Non-terminal: ensure we're in running, not stuck in pending
-      if (this._state.status === "pending") {
+      // Non-terminal: ensure we're in running, not stuck in pending — or in
+      // polling_error after the status endpoint answered again (D1).
+      if (this._state.status === "pending" || this._state.status === "polling_error") {
         this._state.status = "running";
       }
       this._state.pollErrorCount = 0; // reset on successful poll
@@ -847,9 +980,16 @@
       return this;
     }
 
-    /** Called when polling itself fails (network error, timeout, non-2xx). */
-    markPollError(errorMessage = "") {
-      this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
+    /**
+     * Called when polling itself fails (network error, timeout, non-2xx).
+     * §0.4: a status GET that only timed out is a slow worker, not a lost
+     * one — pass { timedOut: true } and it never counts toward
+     * MAX_POLL_ERRORS; the run deadline decides when watching stops.
+     */
+    markPollError(errorMessage = "", options) {
+      if (!(options && options.timedOut)) {
+        this._state.pollErrorCount = (this._state.pollErrorCount || 0) + 1;
+      }
       this._state.lastPollAt = new Date().toISOString();
       this._state.errorMessage = String(errorMessage || "Polling failed");
       this._state.statusUnavailable = true;
@@ -907,6 +1047,7 @@
       this._state.pollErrorCount = 0;
       this._state.statusUnavailable = false;
       this._state.statusEndpointTerminal = false;
+      this._state.deadlineExceeded = false;
       this._persist(this._state);
       return this;
     }
@@ -959,12 +1100,79 @@
         localStorage.removeItem(this._key);
       } catch (_) {}
       dispatchDiscoveryRunTrackerEvent(this._state);
+      this.postChannelMessage({ type: "state", state: this._state });
       return this;
     }
 
-    /** True when there is an in-progress run that should show UI feedback. */
+    /**
+     * D4: the browser stops watching a run once it is past
+     * maxRunDurationMs + grace from its start — unless the worker is still
+     * reporting progress, which is never cut short (§0.4).
+     */
+    isPastDeadline(nowMs) {
+      const s = this._state;
+      const startMs = Date.parse(s.startedAt || s.initiatedAt || "");
+      if (!Number.isFinite(startMs)) return false;
+      const budget = positiveMs(s.maxRunDurationMs, DEFAULT_MAX_RUN_DURATION_MS);
+      return nowMs > startMs + budget + RUN_DEADLINE_GRACE_MS;
+    }
+
+    hasFreshProgress(nowMs) {
+      const observedMs = Date.parse(this._state.progressObservedAt || "");
+      return Number.isFinite(observedMs) && nowMs - observedMs <= RUN_PROGRESS_STALL_MS;
+    }
+
+    /** D4: the run outlived its budget without reporting an end. */
+    markDeadlineExceeded() {
+      this._state.status = "polling_error";
+      this._state.deadlineExceeded = true;
+      this._state.pollErrorCount = Math.max(this._state.pollErrorCount || 0, MAX_POLL_ERRORS);
+      this._state.lastPollAt = new Date().toISOString();
+      this._state.errorMessage =
+        "This run went past its time limit without reporting an end. Check Runs for the outcome.";
+      this._state.statusUnavailable = true;
+      this._persist(this._state);
+      return this;
+    }
+
+    /**
+     * D5/D6: the browser has stopped watching this run, or never could — no
+     * status path, polling gave up, the endpoint disowned it, or it outlived
+     * its deadline. Its outcome is unknown, it blocks nothing, and the user
+     * may dismiss it.
+     */
+    isSettled(state) {
+      const s = state || this._state;
+      if (s.status === "pending") return !!s.statusUnavailable && !s.statusPath;
+      if (s.status === "polling_error") {
+        return !!(
+          s.statusEndpointTerminal ||
+          s.deadlineExceeded ||
+          Number(s.pollErrorCount) >= MAX_POLL_ERRORS
+        );
+      }
+      return false;
+    }
+
+    /** True when there is an in-progress run the browser is still watching. */
     isActive() {
-      return ["pending", "running", "polling_error"].includes(this._state.status);
+      return (
+        ["pending", "running", "polling_error"].includes(this._state.status) &&
+        !this.isSettled()
+      );
+    }
+
+    /**
+     * D3 across tabs: the live run another tab already stored, read from
+     * localStorage — its jb-discovery-run message may still be on its way.
+     * "" when storage holds no run anyone is still watching.
+     */
+    storedActiveRunId() {
+      const stored = this._load();
+      const live =
+        ["pending", "running", "polling_error"].includes(stored.status) &&
+        !this.isSettled(stored);
+      return live ? String(stored.runId || "") : "";
     }
 
     /** True when the run has reached a terminal state. */
@@ -989,6 +1197,13 @@
       else if (status === "partial") logStatus = "partial";
       else if (status === "failed" || status === "write_failed") logStatus = "failure";
       else logStatus = "partial";
+      // D18: the run's real duration, worker clock first, then ours.
+      const endMs = Date.parse(this._state.completedAt || this._state.terminalAt || "");
+      const startMs = Date.parse(this._state.startedAt || this._state.initiatedAt || "");
+      const durationS =
+        Number.isFinite(endMs) && Number.isFinite(startMs) && endMs >= startMs
+          ? Math.round((endMs - startMs) / 1000)
+          : 0;
       return {
         runAt:
           this._state.completedAt ||
@@ -997,7 +1212,7 @@
           "",
         trigger: this._state.trigger || "manual",
         status: logStatus,
-        durationS: 0,
+        durationS,
         companiesSeen: this._state.companiesSeen || 0,
         leadsWritten: this._state.leadsWritten || 0,
         leadsUpdated: this._state.leadsUpdated || 0,
@@ -1011,12 +1226,17 @@
 
   /** Shared singleton — initialized once at module load */
   const discoveryRunTracker = new DiscoveryRunTracker();
+  discoveryRunTracker.connectChannel();
 
   Object.assign(runTracker, {
     DISCOVERY_RUN_TRACKER_KEY,
     MAX_POLL_ERRORS,
     DEFAULT_PER_POLL_TIMEOUT_MS,
     DEFAULT_OVERALL_POLL_DEADLINE_MS,
+    DEFAULT_MAX_RUN_DURATION_MS,
+    RUN_DEADLINE_GRACE_MS,
+    DISCOVERY_RUN_CHANNEL,
+    DISCOVERY_RUN_TAB_ID,
     DiscoveryRunTracker,
     discoveryRunTracker,
     dispatchDiscoveryRunTrackerEvent,

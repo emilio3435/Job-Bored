@@ -279,7 +279,11 @@ export async function writeLlmConfig(config, env) {
  * @returns {LlmConfig}
  */
 function pinFromAtsEnv(env) {
-  const provider = asString(env.ATS_PROVIDER).toLowerCase() || "gemini";
+  // The shared enum, as ats-scorecard.mjs reads ATS_PROVIDER: "ollama" and
+  // "local" are openai_compatible (P15), and anything unknown stays gemini.
+  // The raw spelling rides along so normalizeLlmConfig keeps it as the alias.
+  const spelling = asString(env.ATS_PROVIDER).toLowerCase() || "gemini";
+  const provider = normalizeProvider(spelling) || "gemini";
   if (provider === "openai") {
     return {
       provider,
@@ -309,7 +313,7 @@ function pinFromAtsEnv(env) {
   }
   if (provider === "openai_compatible") {
     return {
-      provider,
+      provider: spelling,
       model: asString(env.ATS_OPENAI_COMPATIBLE_MODEL || env.ATS_OPENAI_COMPAT_MODEL),
       apiKey: asString(env.ATS_OPENAI_COMPATIBLE_API_KEY || env.ATS_OPENAI_COMPAT_API_KEY),
       baseUrl: asString(env.ATS_OPENAI_COMPATIBLE_BASE_URL || env.ATS_OPENAI_COMPAT_BASE_URL),
@@ -374,6 +378,19 @@ export function redactLlmConfig(config) {
 }
 
 /**
+ * Two pins call the same endpoint: one provider and one base URL. Only then
+ * may a key cross from one to the other.
+ * @param {{ provider?: unknown, baseUrl?: unknown } | null | undefined} a
+ * @param {{ provider?: unknown, baseUrl?: unknown } | null | undefined} b
+ */
+function sameEndpoint(a, b) {
+  return Boolean(a && b)
+    && normalizeProvider(asString(a && a.provider)) !== ""
+    && normalizeProvider(asString(a && a.provider)) === normalizeProvider(asString(b && b.provider))
+    && resolveProvider(a).baseUrl.replace(/\/+$/, "") === resolveProvider(b).baseUrl.replace(/\/+$/, "");
+}
+
+/**
  * @param {LlmConfig} config
  * @returns {Promise<ActivePin>}
  */
@@ -392,7 +409,8 @@ export async function resolveActivePin(config) {
   if (judge) pin.judge = {
     provider: judge.provider,
     model: judge.model,
-    apiKey: judge.apiKey || "",
+    // LlmFallbackTarget: an omitted key reuses the writer's on the same endpoint (P18).
+    apiKey: judge.apiKey || (sameEndpoint(judge, pin) ? pin.apiKey : ""),
     baseUrl: judge.baseUrl || "",
     resolvedModel: judge.provider === "gemini" ? resolveGeminiFlashWireModel(judge.model) : judge.model,
   };
@@ -591,6 +609,8 @@ export async function handleJudgeTest(req, res, env = process.env, options = {})
       && stored.judge.provider === provider
       && asString(stored.judge.baseUrl).replace(/\/+$/, "") === baseUrl.replace(/\/+$/, "");
     apiKey = sameTarget && stored?.judge ? asString(stored.judge.apiKey) : "";
+    // Then the writer's key, the way resolveActivePin hands it to the judge (P18).
+    if (!apiKey && sameEndpoint({ provider, baseUrl }, stored)) apiKey = asString(stored?.apiKey);
   }
   const pin = {
     provider,

@@ -59,9 +59,9 @@ describe("G10 · the permission table has the optional Apps Script row", () => {
 });
 
 describe("G17 · the blank-sheet path lists the starter headers", () => {
-  it("SETUP.md carries all 26 headers, in order, from app-config-core.js", () => {
+  it("SETUP.md carries all 29 headers (A–AC), in order, from app-config-core.js", () => {
     const list = headers();
-    assert.equal(list.length, 26);
+    assert.equal(list.length, 29);
     assert.ok(setup().includes(list.join("\t")), "one tab-separated row, pasteable into row 1");
   });
 
@@ -99,7 +99,7 @@ describe("G18 · G19 · G20 · G22 · the sheet section", () => {
   it("G22: says where the sign-in and the Client ID are kept", () => {
     assert.ok(
       setup().includes(
-        "Your sign-in lasts for this tab only; your\nClient ID and Sheet link are saved in this browser",
+        "JobBored keeps your Google access token in\nthis tab only; new tabs sign you in again quietly. Your Client ID and Sheet\nlink are saved in this browser",
       ),
     );
   });

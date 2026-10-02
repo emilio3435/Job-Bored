@@ -192,7 +192,9 @@
         "scheduled-github",
         "scheduled-cloudflare",
         "scheduled-appsscript",
-        "cli"
+        "cli",
+        "hunt",
+        "scheduled-hunt"
       ],
       "description": "Optional run-origin label recorded in DiscoveryRuns."
     },

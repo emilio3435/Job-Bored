@@ -10,8 +10,8 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "cheerio": "^1.0.0",
-    "cors": "^2.8.5",
     "dotenv": "^18",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "playwright-core": "^1.63.0"
   }
 }

@@ -332,7 +332,7 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
     checkpoints.some(
       (checkpoint) =>
         checkpoint.phase === "scout" &&
-        checkpoint.budget?.totalMs === 60 * 60 * 1000 &&
+        checkpoint.budget?.totalMs === 3 * 60 * 60 * 1000 &&
         typeof checkpoint.budget.remainingMs === "number",
     ),
     "scout checkpoints should persist the active run budget",
@@ -1830,7 +1830,7 @@ test("runDiscovery uses the resolved browser_only default grounded timeout for c
 
   const result = await runDiscovery(makeGroundedTimeoutRequest(), "manual", dependencies);
 
-  assert.equal(result.run.config.groundedSearchTuning.maxRuntimeMs, 300000);
+  assert.equal(result.run.config.groundedSearchTuning.maxRuntimeMs, 900000);
   assert.equal(result.lifecycle.state, "completed");
   assert.equal(result.lifecycle.normalizedLeadCount, 1);
   assert.equal(writtenLeads.length, 1);

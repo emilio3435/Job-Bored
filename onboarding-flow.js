@@ -144,6 +144,8 @@
   let resumePillEl = null;
   /** Bumped on every account switch: beats drop their in-memory state and late answers from an older scope. */
   let scopeGeneration = 0;
+  /** A14: a refused progress save is said once per page, not once per save. */
+  let saveFailureToldUser = false;
 
   function cloneState(raw) {
     return {
@@ -298,6 +300,17 @@
         return state;
       } catch (e) {
         console.warn("[JobBored] one-flow: could not save flow state:", e);
+        // A14: the flow keeps going in memory, but the user is told their
+        // progress won't outlive this tab instead of finding out on reload.
+        if (!saveFailureToldUser) {
+          saveFailureToldUser = true;
+          toast(
+            "JobBored couldn't save your setup progress in this browser, so it " +
+              "lasts only while this tab is open. Finish setup now, or allow " +
+              "site data for this page and reload.",
+            "warning",
+          );
+        }
       }
     }
     // No store (or a failed write): keep the in-memory machine moving so a

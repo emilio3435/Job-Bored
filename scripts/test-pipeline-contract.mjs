@@ -74,17 +74,17 @@ function extractPriorityKeysFromAppJs(appJs) {
   return keys;
 }
 
-function parseReadmePipelineHeaders(readme) {
+function parseReadmePipelineHeaders(readme, expectedCount) {
   const start = readme.indexOf("### Pipeline (main tracker)");
   if (start === -1) throw new Error("### Pipeline (main tracker) not found in README");
   const after = readme.slice(start);
   const end = after.indexOf("\n## ");
   const section = end === -1 ? after : after.slice(0, end);
   const byLetter = {};
-  // Match all pipeline column letters (A through Z, covering base A-T plus
-  // extension columns U:Search Match, V:Favorite, W:Dismissed At, X:Approval Status,
-  // Y:Edit Lock and Z:Work Mode).
-  const lineRe = /^\| ([A-Z]):\s*([^|]+?)\s*\|/gm;
+  // Match all pipeline column letters: base A-T plus extension columns
+  // U:Search Match, V:Favorite, W:Dismissed At, X:Approval Status, Y:Edit Lock,
+  // Z:Work Mode, AA:Scorer, AB:Last Seen and AC:Possible Duplicate.
+  const lineRe = /^\| ([A-Z]{1,2}):\s*([^|]+?)\s*\|/gm;
   let m;
   while ((m = lineRe.exec(section))) {
     const letter = m[1];
@@ -95,10 +95,10 @@ function parseReadmePipelineHeaders(readme) {
     byLetter[letter] = label;
   }
   const letters = Object.keys(byLetter).sort();
-  // A-T base columns plus U-Z extensions.
-  if (letters.length !== 26) {
+  // A-T base columns plus the U-AC extensions: one row per schema column.
+  if (letters.length !== expectedCount) {
     throw new Error(
-      `README Pipeline table: expected 26 rows A–Z, got ${letters.length}`,
+      `README Pipeline table: expected ${expectedCount} rows (one per schema column), got ${letters.length}`,
     );
   }
   return byLetter;
@@ -173,7 +173,7 @@ if (schema.tabName !== "Pipeline") {
   process.exit(1);
 }
 
-const readmeByLetter = parseReadmePipelineHeaders(readme);
+const readmeByLetter = parseReadmePipelineHeaders(readme, schema.columns.length);
 
 for (const c of schema.columns) {
   const fromReadme = readmeByLetter[c.letter];

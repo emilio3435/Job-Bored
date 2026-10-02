@@ -15,7 +15,7 @@
     const name = bare(model);
     const family = String(provider || "").toLowerCase();
     if (family === "gemini" || name.startsWith("gemini-")) {
-      if (/^gemini-(?:3(?:[.\-]|$)|2\.5(?:[.\-]|$)|flash-latest$)/.test(name)) return 65536;
+      if (/^gemini-(?:3(?:[.\-]|$)|2\.5(?:[.\-]|$)|(?:flash|pro|flash-lite)-latest$)/.test(name)) return 65536;
       if (/^gemini-(?:2\.0|1\.5)(?:[.\-]|$)/.test(name)) return 8192;
       return undefined;
     }

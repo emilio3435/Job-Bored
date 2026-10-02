@@ -3,8 +3,10 @@
    ------------------------------------------------------------
    Pure view helpers for the materials rows role-materials.js paints:
 
-     U-1  quality scorecard: the verdict pill, rubric rows as pips,
-          degraded AI steps in plain words, a "why" banner with the fix
+     U-1  the verdict's readers: disposition, issue groups, the judge
+          line, degraded AI steps in plain words, the fixes it points at
+          (HOLES SCORE: materials-score.js draws them in the score modal;
+          no row paints a scorecard inline)
      U-4  stage timeline: pending.json's structured stages mapped onto
           seven named steps (Read the job … Check quality)
      U-3  the Download menu and the in-page FAIL confirm
@@ -299,10 +301,6 @@
     return qaVersion(qa) ? qa : null;
   }
 
-  function v2Score(qa) {
-    return qa && qa.quality && typeof qa.quality.score === "number" ? qa.quality.score : null;
-  }
-
   function dispositionOf(qualityDoc) {
     var qa = qaOf(qualityDoc);
     if (qa && qa.disposition) return String(qa.disposition).toUpperCase();
@@ -315,19 +313,6 @@
   /* The Download gate: a FAIL verdict (or a failing audit) asks first. */
   function isFail(qualityDoc) {
     return dispositionOf(qualityDoc) === "FAIL";
-  }
-
-  function pillText(qualityDoc) {
-    var qa = qaOf(qualityDoc);
-    var d = dispositionOf(qualityDoc);
-    if (!d) return "";
-    if (qaVersion(qa) === 2) {
-      var score = v2Score(qa);
-      return d + (score == null ? "" : " · " + score + " / 100");
-    }
-    return d + (qa && typeof qa.rubric.score === "number" && typeof qa.rubric.max === "number"
-      ? " · " + qa.rubric.score + " / " + qa.rubric.max
-      : "");
   }
 
   var DETAILS_CODES = /experience_missing|underfill|omission|summary_missing|statement_missing|education_missing|ledger|transfer_overclaim|invented_employer|frozen_fact|metric_dropped|proof_density|outcome_coverage/;
@@ -366,81 +351,6 @@
     return out;
   }
 
-  function actionsHtml(list) {
-    return list.map(function (a, i) {
-      return '<button type="button" class="case__doc-btn ' + (i === 0 ? "case__doc-btn--primary" : "case__doc-btn--ghost") + '"'
-        + ' data-action="' + esc(a.action) + '"'
-        + (a.focus ? ' data-focus="' + esc(a.focus) + '"' : "")
-        + (a.feature ? ' data-feature="' + esc(a.feature) + '"' : "")
-        + ">" + esc(a.label) + "</button>";
-    }).join("");
-  }
-
-  function pipsHtml(score, max) {
-    var s = Math.max(0, Math.min(Number(score) || 0, Number(max) || 0));
-    var m = Math.max(1, Math.min(Number(max) || 1, 10));
-    var out = "";
-    for (var i = 0; i < m; i++) out += '<i class="mat-pip' + (i < s ? " mat-pip--on" : "") + '"></i>';
-    return '<span class="mat-pips" aria-hidden="true">' + out + "</span>";
-  }
-
-  function rubricHtml(qa, open) {
-    var rows = Array.isArray(qa.rubric.rows) ? qa.rubric.rows : [];
-    if (!rows.length) return "";
-    var items = rows.map(function (r) {
-      var below = r.score < r.max;
-      return '<li class="mat-rubric__row' + (below ? " mat-rubric__row--below" : "") + '" data-rubric="' + esc(r.id) + '">'
-        + '<span class="mat-rubric__label">' + esc(rubricLabel(r.id)) + "</span>"
-        + pipsHtml(r.score, r.max)
-        + '<span class="mat-rubric__n">' + esc(r.score + " / " + r.max) + "</span>"
-        + (below && r.note ? '<span class="mat-rubric__note">' + esc(r.note) + "</span>" : "")
-        + "</li>";
-    }).join("");
-    return '<details class="mat-rubric"' + (open ? " open" : "") + ">"
-      + "<summary>Quality check · " + esc(qa.rubric.score + " of " + qa.rubric.max) + "</summary>"
-      + '<ul class="mat-rubric__rows">' + items + "</ul></details>";
-  }
-
-  /**
-   * The scorecard for one document row. qualityDoc is the manifest's
-   * quality.documents[type]; returns "" when there is no verdict to show.
-   */
-  function scorecardHtml(qualityDoc, type) {
-    var qa = qaOf(qualityDoc);
-    if (!qa) return "";
-    if (qaVersion(qa) === 2) return scorecardV2Html(qualityDoc, qa, type);
-    var d = dispositionOf(qualityDoc);
-    var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : "ready");
-    var banner = "";
-    if (tone !== "ready") {
-      var degraded = Array.isArray(qa.degraded) ? qa.degraded.filter(Boolean) : [];
-      var why = plainDisposition(qa);
-      var list = degraded.length
-        ? '<p class="mat-banner__sub">' + esc(degraded.length + " AI step" + (degraded.length === 1 ? "" : "s") + " fell back to rules:") + "</p>"
-          + '<ul class="mat-banner__list">' + degraded.map(function (x) { return "<li>" + esc(plainDegraded(x)) + "</li>"; }).join("") + "</ul>"
-        : "";
-      var repaired = qa.repair && qa.repair.attempted
-        ? '<p class="mat-banner__sub">We already ran one automatic repair' + (qa.repair.before
-          ? " (it was " + esc(qa.repair.before.score + " / " + qa.repair.before.max) + " before)." : ".") + "</p>"
-        : "";
-      var actions = actionsHtml(fixActions(qualityDoc, type));
-      banner = '<div class="mat-banner mat-banner--' + tone + '" role="note">'
-        + '<p class="mat-banner__head">' + (tone === "fail"
-          ? "This " + esc(docWords(type)) + " failed its quality check."
-          : "This " + esc(docWords(type)) + " needs a look before you send it.") + "</p>"
-        + (why ? '<p class="mat-banner__why">' + esc(why) + "</p>" : "")
-        + list + repaired
-        + (actions ? '<div class="mat-banner__acts">' + actions + "</div>" : "")
-        + "</div>";
-    }
-    return '<div class="mat-score mat-score--' + tone + '" data-qa-disposition="' + esc(d) + '" data-qa-contract="v1">'
-      + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
-      + '<p class="mat-score__old">Graded by the old checker. Draft it again for the grading model\u2019s read and Repair.</p>'
-      + banner
-      + rubricHtml(qa, tone === "fail")
-      + "</div>";
-  }
-
   /* -------------------- D1 · the judge's scorecard (materials.qa.v2) -------------------- */
 
   var JUDGE_DIMENSIONS = [
@@ -451,11 +361,6 @@
     { id: "economy", label: "No padding" },
   ];
   var ISSUE_KIND_WORDS = { fact: "Fact", scope: "Scope", voice: "Voice", relevance: "Relevance", clarity: "Clarity", format: "Format" };
-  var ISSUE_GROUPS = [
-    { id: "facts", head: "Factual blockers", sub: "Fix these before you send it: nothing in your background or the posting supports them." },
-    { id: "check", head: "Facts to confirm", sub: "The grading model couldn\u2019t confirm these from your background or the posting." },
-    { id: "writing", head: "Writing feedback", sub: "" },
-  ];
 
   /* Every issue as the scorecard and the Repair dialog show it, sorted into
      "facts" (hard: a sentence nothing supports, or a failed hard gate),
@@ -506,25 +411,6 @@
     return ISSUE_KIND_WORDS[kind] || cap(String(kind || "").replace(/_/g, " "));
   }
 
-  function issueItemHtml(it) {
-    return '<li class="mat-issue mat-issue--' + (it.group === "facts" ? "hard" : "soft") + '"' + (it.id ? ' data-issue="' + esc(it.id) + '"' : "") + ">"
-      + (it.kind ? '<span class="mat-issue__kind">' + esc(kindWord(it.kind)) + "</span>" : "")
-      + it.quotes.map(function (q) { return '<q class="mat-issue__quote">' + esc(q) + "</q>"; }).join("")
-      + (it.reason ? '<span class="mat-issue__why">' + esc(it.reason) + "</span>" : "")
-      + "</li>";
-  }
-
-  function issueGroupsHtml(items) {
-    return ISSUE_GROUPS.map(function (g) {
-      var list = items.filter(function (it) { return it.group === g.id; });
-      if (!list.length) return "";
-      return '<section class="mat-issues mat-issues--' + g.id + '" data-group="' + g.id + '" aria-label="' + esc(g.head) + '">'
-        + '<p class="mat-issues__head">' + esc(g.head) + " \u00b7 " + list.length + "</p>"
-        + (g.sub ? '<p class="mat-issues__sub">' + esc(g.sub) + "</p>" : "")
-        + '<ul class="mat-issues__list">' + list.map(issueItemHtml).join("") + "</ul></section>";
-    }).join("");
-  }
-
   /* Who graded it: an independent grading model by name, the writer's own
      model, or nobody — and then why, from the record's errorCode (BE2),
      with Try again (the draft retry path) and Change grading model
@@ -566,63 +452,6 @@
       };
     }
     return { kind: "independent", text: "Graded by " + (j.model || j.provider || "an independent model"), acts: [] };
-  }
-
-  function judgeLineHtml(judge) {
-    var acts = judge.acts.map(function (a) {
-      return '<button type="button" class="case__link mat-verdict__judge-act" data-action="' + esc(a.action) + '"'
-        + (a.feature ? ' data-feature="' + esc(a.feature) + '"' : "")
-        + ">" + esc(a.label) + "</button>";
-    }).join(" ");
-    return '<p class="mat-verdict__judge" data-judge="' + judge.kind + '">' + esc(judge.text)
-      + (acts ? ' <span class="mat-verdict__judge-acts">' + acts + "</span>" : "") + "</p>";
-  }
-
-  function dimensionsHtml(qa, open) {
-    var ratings = qa.quality && Array.isArray(qa.quality.ratings) ? qa.quality.ratings : [];
-    var score = v2Score(qa);
-    var rows = JUDGE_DIMENSIONS.map(function (dim) {
-      var r = ratings.filter(function (x) { return x && x.dimension === dim.id; })[0];
-      if (!r) return "";
-      var n = Math.max(0, Math.min(4, Number(r.score) || 0));
-      return '<li class="mat-dim' + (n < 3 ? " mat-dim--low" : "") + '" data-dimension="' + esc(dim.id) + '">'
-        + '<span class="mat-dim__label">' + esc(dim.label) + "</span>"
-        + pipsHtml(n, 4)
-        + '<span class="mat-dim__n">' + esc(n + " / 4") + "</span>"
-        + (r.reason ? '<span class="mat-dim__why">' + esc(r.reason) + "</span>" : "")
-        + "</li>";
-    }).join("");
-    if (!rows) return "";
-    return '<details class="mat-dims"' + (open ? " open" : "") + ">"
-      + "<summary>Writing quality" + (score == null ? "" : " \u00b7 " + esc(score + " / 100")) + "</summary>"
-      + '<ul class="mat-dims__rows">' + rows + "</ul></details>";
-  }
-
-  function gapsHtml(qa) {
-    var gaps = (Array.isArray(qa.qualificationGaps) ? qa.qualificationGaps : []).map(function (g) { return String(g || "").trim(); }).filter(Boolean);
-    if (!gaps.length) return "";
-    return '<details class="mat-gaps" data-group="gaps">'
-      + "<summary>Gaps in your background for this role \u00b7 " + gaps.length + "</summary>"
-      + '<p class="mat-gaps__hint">What the posting asks for that your background doesn\u2019t show. This is information for you, not a problem with the writing.</p>'
-      + '<ul class="mat-gaps__list">' + gaps.map(function (g) { return "<li>" + esc(g) + "</li>"; }).join("") + "</ul></details>";
-  }
-
-  function scorecardV2Html(qualityDoc, qa, type) {
-    var d = dispositionOf(qualityDoc);
-    var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : "ready");
-    var reason = String(qa.dispositionReason || "").trim();
-    var judge = judgeLine(qa, type);
-    return '<div class="mat-score mat-score--' + tone + ' mat-score--v2" data-qa-disposition="' + esc(d) + '" data-qa-contract="v2">'
-      + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
-      + '<div class="mat-verdict mat-verdict--' + tone + '">'
-      + (reason ? '<p class="mat-verdict__why">' + esc(reason) + "</p>" : "")
-      + (judge ? judgeLineHtml(judge) : "")
-      + "</div>"
-      + issueGroupsHtml(qaIssues(qa))
-      + dimensionsHtml(qa, tone !== "ready")
-      + gapsHtml(qa)
-      + '<div class="mat-score__acts">' + actionsHtml(fixActions(qualityDoc, type)) + "</div>"
-      + "</div>";
   }
 
   /* -------------------- D3 · the Repair dialog -------------------- */
@@ -737,12 +566,13 @@
   /* -------------------- U-3 download menu -------------------- */
 
   var FILE_NAMES = {
-    resume: { pdf: "resume.pdf", txt: "resume.txt", docx: "resume.docx" },
-    cover_letter: { pdf: "cover-letter.pdf", txt: "cover-letter.txt", docx: "cover-letter.docx" },
+    resume: { pdf: "resume.pdf", html: "resume.html", txt: "resume.txt", docx: "resume.docx" },
+    cover_letter: { pdf: "cover-letter.pdf", html: "cover-letter.html", txt: "cover-letter.txt", docx: "cover-letter.docx" },
   };
 
   /**
-   * opts: { type, pdfHref, txtHref, docxHref, linkedin: bool, fail: bool }
+   * opts: { type, pdfHref, htmlHref, txtHref, docxHref, linkedin: bool, fail: bool }
+   * htmlHref stands in for a PDF that never rendered (U17).
    * Every entry keeps data-action="materials-download" (or the copy action)
    * so role-materials.js can gate it on a FAIL verdict.
    */
@@ -757,6 +587,7 @@
         + '<span class="mat-dl__title">' + esc(title) + '</span><span class="mat-dl__sub">' + esc(sub) + "</span></a>");
     }
     if (opts.pdfHref) link(opts.pdfHref, names.pdf, "PDF", names.pdf);
+    else if (opts.htmlHref) link(opts.htmlHref, names.html, "Web page", names.html + " \u00b7 print it to save a PDF");
     if (opts.txtHref) link(opts.txtHref, names.txt, "ATS plain text", names.txt);
     if (opts.docxHref) link(opts.docxHref, names.docx, "Word document", names.docx);
     if (opts.linkedin) {
@@ -808,18 +639,6 @@
     return out;
   }
 
-  /* cov: scribe.keywordCoverage's { matched, missing, total }. */
-  function coverageHtml(cov, type) {
-    if (!cov || !cov.total) return "";
-    var missing = Array.isArray(cov.missing) ? cov.missing : [];
-    var line = '<span class="mat-kw__n"><b>' + esc(cov.matched.length + " / " + cov.total) + "</b> role terms</span>";
-    var chips = missing.length
-      ? '<details class="mat-kw__miss"><summary>' + esc(missing.length + " missing") + "</summary>"
-        + '<span class="mat-kw__chips">' + missing.map(function (t) { return '<span class="mat-kw__chip">' + esc(t) + "</span>"; }).join("") + "</span></details>"
-      : '<span class="mat-kw__all">covers every term the posting names</span>';
-    return '<div class="mat-kw" data-coverage-for="' + esc(type) + '">' + line + chips + "</div>";
-  }
-
   /* -------------------- U-6 version history -------------------- */
 
   function shortDate(iso) {
@@ -841,16 +660,13 @@
   function historyHtml(runs, type) {
     var list = runsFor(runs, type);
     if (!list.length) return '<p class="mat-hist__empty">No earlier versions of this ' + esc(docWords(type)) + " yet.</p>";
+    /* HOLES SCORE (§0.3): each version's grade is in the score modal's
+       History; this list is for switching and comparing versions. */
     var rows = list.map(function (r) {
-      var v = r.verdicts && r.verdicts[type];
-      var d = v && v.disposition ? String(v.disposition).toUpperCase() : "";
-      var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : (d ? "ready" : ""));
-      var score = v && typeof v.score === "number" && typeof v.max === "number" ? v.score + " / " + v.max : "";
       var active = Array.isArray(r.active) && r.active.indexOf(type) >= 0;
       return '<li class="mat-hist__run" data-run="' + esc(r.runId) + '">'
         + '<span class="mat-hist__when">' + esc(shortDate(r.date) || r.runId) + "</span>"
         + '<span class="mat-hist__tpl">' + esc(r.template ? cap(r.template) : "") + (r.source === "regenerate" ? " · regenerated" : "") + "</span>"
-        + (d ? '<span class="mat-pill mat-pill--' + tone + '">' + esc(d + (score ? " · " + score : "")) + "</span>" : "<span></span>")
         + (active
           ? '<span class="mat-hist__active">In use</span>'
           : '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-promote" data-run="' + esc(r.runId) + '" data-feature="' + esc(type) + '">Use this version</button>')
@@ -1002,6 +818,13 @@
     K7_TIMELINE_STEPS: K7_TIMELINE_STEPS,
     RUBRIC_LABELS: RUBRIC_LABELS,
     JUDGE_DIMENSIONS: JUDGE_DIMENSIONS,
+    /* HOLES SCORE: the score modal (materials-score.js) reads the judge's
+       record through these. */
+    qaIssues: qaIssues,
+    judgeLine: judgeLine,
+    kindWord: kindWord,
+    rubricLabel: rubricLabel,
+    shortDate: shortDate,
     qaVersion: qaVersion,
     canRepair: canRepair,
     repairTargets: repairTargets,
@@ -1017,13 +840,10 @@
     timelineHtml: timelineHtml,
     dispositionOf: dispositionOf,
     isFail: isFail,
-    pillText: pillText,
     fixActions: fixActions,
-    scorecardHtml: scorecardHtml,
     downloadMenuHtml: downloadMenuHtml,
     failConfirmHtml: failConfirmHtml,
     termsFromExtract: termsFromExtract,
-    coverageHtml: coverageHtml,
     historyHtml: historyHtml,
     diffHtml: diffHtml,
   };

@@ -115,15 +115,15 @@ describe("runPreFilter", () => {
     assert.equal(result.pass, true);
   });
 
-  test("acceptableLocations rejects out-of-list onsite listings", () => {
+  test("D4: acceptableLocations rejects clearly foreign onsite listings", () => {
     const result = runPreFilter(
       makeListing({
         remoteBucket: "onsite",
-        location: "Boise, ID",
+        location: "Berlin, Germany",
       }),
       makeProfile({
         workMode: "onsite_ok",
-        acceptableLocations: ["Denver", "Philadelphia"],
+        acceptableLocations: ["US"],
       }),
     );
     assert.equal(result.pass, false);

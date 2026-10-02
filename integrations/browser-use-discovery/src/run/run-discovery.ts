@@ -11,6 +11,7 @@ import type {
   DiscoveryPhase,
   DiscoveryRejectionSample,
   DiscoveryRejectionSummary,
+  DiscoveryRunExploration,
   DiscoveryRunLifecycle,
   DiscoveryRunLogRow,
   DiscoveryRunTrigger,
@@ -30,7 +31,7 @@ import type {
   StoredWorkerConfig,
   SupportedSourceId,
 } from "../contracts.ts";
-import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
+import { ATS_SOURCE_IDS, DISCOVERY_RUN_TRIGGERS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
 import {
   type DiscoveryRunsLogger,
   resolveDiscoveryRunLogError,
@@ -129,19 +130,28 @@ import {
   planAtsCompanyOrder,
 } from "./ats-yield-steering.ts";
 import {
+  noveltyFacetLabel,
+  planRunNovelty,
+  resolveExplorationShare,
+  summarizeNoveltyYield,
+  type NoveltyMemory,
+  type NoveltyPlan,
+} from "./novelty-explorer.ts";
+import {
   buildRunFilterStats,
   recordFilterSignals,
   selectNearMissListings,
   type RejectedListingRef,
 } from "./filter-stats.ts";
 
-// Default maximum run duration: 60 minutes. Async discovery runs are background
-// work; source and matcher timeouts still keep individual lanes bounded.
-const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
-// Default per-source (adapter) timeout: 60 seconds
-const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
-// Default per-matcher timeout: 30 seconds
-const DEFAULT_MATCHER_TIMEOUT_MS = 30 * 1000;
+// Default maximum run duration: 3 hours (HOLES §0.11), the same ceiling as
+// config.ts and the webhook. Async discovery runs are background work; source
+// and matcher timeouts still keep individual lanes bounded.
+export const DEFAULT_RUN_DISCOVERY_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
+// Default per-source (adapter) timeout: 3 minutes (HOLES §0.11)
+export const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+// Default per-matcher timeout: 90 seconds (HOLES §0.11)
+export const DEFAULT_MATCHER_TIMEOUT_MS = 90 * 1000;
 
 function isAtsSourceId(sourceId: string): sourceId is AtsSourceId {
   return ATS_SOURCE_IDS.some((candidate) => candidate === sourceId);
@@ -197,6 +207,16 @@ export type RunDiscoveryDependencies = {
    * outer timeout or F1-B cancel can stop in-flight browser/fetch/provider work.
    */
   abortSignal?: AbortSignal;
+  /**
+   * HOLES HUNT (docs/INTERFACE-HUNTS.md §6): the exploration ledger. With it,
+   * never-tried companies fill the reserved share and every slot's yield is
+   * recorded; without it the run only reports its slots.
+   */
+  noveltyMemory?: NoveltyMemory | null;
+  /** The worker's exploration share (0-1); 0.3 when absent. */
+  explorationShare?: number | null;
+  /** A hunt run's own share; null falls back to explorationShare. */
+  explorationShareForRun?(runId: string): number | null;
 };
 
 export { TimeoutError } from "./run-abort.ts";
@@ -425,7 +445,7 @@ export async function runDiscovery(
     }
   }
   const maxRunDurationMs =
-    dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+    dependencies.maxRunDurationMs ?? DEFAULT_RUN_DISCOVERY_MAX_DURATION_MS;
   const runAbort = createRunAbortController(
     dependencies.abortSignal,
     maxRunDurationMs,
@@ -914,17 +934,21 @@ export async function runDiscovery(
   const listedAtsBoards = new Set<string>();
   const skippedAtsBoards: string[] = [];
   let mergedAtsTargets = 0;
+  let noveltyPlan: NoveltyPlan | null = null;
+  let noveltyCooledDown: CompanyTarget[] = [];
   if (hasAtsLanes) {
     const mergedAts = mergeAtsCompanyTargets(atsCompaniesToSearch);
     mergedAtsTargets = mergedAts.mergedCount;
     // DISCAT C2 (D6): highest past yield first; proven zero-yield
-    // companies cool down, one of them explored per run.
+    // companies cool down. The novelty planner supplies unseen exploration.
     const atsPlan = planAtsCompanyOrder(
       mergedAts.companies,
       buildCompanyYieldStats(memorySnapshot?.intentCoverage || []),
       dependencies.now().getTime(),
+      { allowCooldownExploration: false },
     );
     atsCompaniesToSearch = atsPlan.companies;
+    noveltyCooledDown = atsPlan.cooledDown;
     loopCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
     if (atsPlan.cooledDown.length > 0) {
       dependencies.log?.("discovery.run.ats_company_cooldown", {
@@ -936,6 +960,42 @@ export async function runDiscovery(
       });
       progressCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
     }
+  }
+  // HOLES HUNT (INTERFACE-HUNTS §6): reserve the exploration share of these
+  // slots for never-tried companies, surfaces and providers. A failed plan
+  // leaves the D6 order as it is.
+  try {
+    noveltyPlan = planRunNovelty({
+      memory: dependencies.noveltyMemory,
+      companies: hasAtsLanes ? atsCompaniesToSearch : [],
+      atsEnabled: hasAtsLanes,
+      cooledDown: noveltyCooledDown,
+      configuredCompanies: configuredAtsCompanies,
+      snapshot: memorySnapshot,
+      share: resolveExplorationShare(
+        dependencies.explorationShareForRun?.(runId),
+        resolveExplorationShare(dependencies.explorationShare),
+      ),
+      sheetId: config.sheetId,
+      now: dependencies.now().toISOString(),
+      facet: { key: memoryIntentKey, label: noveltyFacetLabel(config) },
+      scope: {
+        companyAllowlist:
+          config.allowlistResolution?.mode === "restricted"
+            ? request.companyAllowlist
+            : [],
+        companyBlocklist: request.companyBlocklist,
+        negativeCompanyKeys: storedConfig.negativeCompanyKeys,
+      },
+    });
+    atsCompaniesToSearch = noveltyPlan.companies;
+  } catch (error) {
+    dependencies.log?.("discovery.run.novelty_plan_failed", {
+      runId,
+      error: formatError(error),
+    });
+  }
+  if (hasAtsLanes) {
     progressCounters.companiesTotal = atsCompaniesToSearch.length;
     progressCounters.companiesDone = 0;
     progressCounters.boardsDetected = 0;
@@ -2024,6 +2084,57 @@ export async function runDiscovery(
         leadWriteFates.get(backlogPromotion.leads[index])?.status === "written",
     );
   };
+  // HOLES HUNT (INTERFACE-HUNTS §6): what each explore and exploit slot
+  // yielded on the ATS lanes, recorded so the next run knows it was tried.
+  let exploration: DiscoveryRunExploration | undefined;
+  if (noveltyPlan) {
+    const listingsSeenByCompany = new Map<string, number>();
+    for (const [key, counts] of companyLaneCounts) {
+      const separator = key.indexOf("\0");
+      if (separator < 0) continue;
+      if (determineSourceLaneFromId(key.slice(0, separator)) !== "ats_provider") continue;
+      const companyKey = key.slice(separator + 1);
+      listingsSeenByCompany.set(
+        companyKey,
+        (listingsSeenByCompany.get(companyKey) || 0) + counts.seen,
+      );
+    }
+    const leadsWrittenByCompany = new Map<string, number>();
+    let totalLeadsWritten = 0;
+    for (const lead of leadsToWrite) {
+      if (leadWriteFates.get(lead)?.status !== "written") continue;
+      totalLeadsWritten += 1;
+      if (determineSourceLaneFromId(lead.sourceId) !== "ats_provider") continue;
+      const companyKey = normalizeCompanyKey(lead.company || "");
+      if (!companyKey) continue;
+      leadsWrittenByCompany.set(
+        companyKey,
+        (leadsWrittenByCompany.get(companyKey) || 0) + 1,
+      );
+    }
+    const novelty = summarizeNoveltyYield(noveltyPlan, {
+      listingsSeenByCompany,
+      leadsWrittenByCompany,
+      totalListingsSeen: listingCount,
+      totalLeadsWritten,
+    });
+    exploration = novelty.exploration;
+    if (dependencies.noveltyMemory) {
+      try {
+        dependencies.noveltyMemory.recordNoveltySlots({
+          runId,
+          recordedAt: dependencies.now().toISOString(),
+          share: noveltyPlan.share,
+          slots: novelty.slots,
+        });
+      } catch (error) {
+        dependencies.log?.("discovery.run.novelty_record_failed", {
+          runId,
+          error: formatError(error),
+        });
+      }
+    }
+  }
   dependencies.log?.("discovery.run.write_completed", {
     runId,
     sheetId: config.sheetId,
@@ -2530,6 +2641,8 @@ export async function runDiscovery(
         rejectionSummaryBySource.values(),
         listingCount,
       ),
+      // HOLES HUNT: the run's explore and exploit slots and their yield.
+      ...(exploration ? { exploration } : {}),
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
@@ -3275,10 +3388,10 @@ async function runGroundedWebDiscovery(
     };
   }
 
-  // Honor groundedSearchTuning.maxRuntimeMs for grounded_web collection — the
-  // browser_only preset resolves this to 300_000ms (see config.ts:199) to give
+  // Honor groundedSearchTuning.maxRuntimeMs for grounded_web collection — every
+  // preset resolves this to 900_000ms (HOLES §0.11, config.ts) to give
   // multi-query fan-out + per-page Browser Use calls room to finish. Fall back to
-  // the shared sourceTimeoutMs (60_000ms) for other presets or when tuning is
+  // the shared sourceTimeoutMs (180_000ms) when tuning is
   // absent. The outer run-budget at dependencies.maxRunDurationMs still bounds
   // the whole run if this grounded timeout exceeds it.
   const sourceTimeoutMs =
@@ -4160,15 +4273,11 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set([
-  "manual",
-  "scheduled-browser",
-  "scheduled-local",
-  "scheduled-github",
-  "scheduled-cloudflare",
-  "scheduled-appsscript",
-  "cli",
-]);
+// Derived from the contract list so a new trigger (HUNT: `hunt`,
+// `scheduled-hunt`) is never logged under a fallback label.
+const VALID_DISCOVERY_RUN_TRIGGERS: ReadonlySet<DiscoveryRunTrigger> = new Set(
+  DISCOVERY_RUN_TRIGGERS,
+);
 
 /**
  * Pick the trigger label to record in the DiscoveryRuns sheet tab.

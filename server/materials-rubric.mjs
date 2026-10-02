@@ -8,8 +8,9 @@ import { countPdfPages } from "./materials-quality.mjs";
 import { hashRenderedText, splitSentences as splitJudgeSentences } from "./materials-judge.mjs";
 import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
 import { voiceTells } from "./materials-voice-tells.mjs";
+import { SHORT_TERMS } from "./materials-claim-score.mjs";
 
-/** @typedef {{ id?: string, text?: string, metrics?: Array<{ token?: string }>, employerId?: string }} Claim */
+/** @typedef {{ id?: string, text?: string, verified?: boolean, metrics?: Array<{ token?: string }>, employerId?: string }} Claim */
 /** @typedef {{ claims?: Claim[], employers?: Array<{ id?: string, name?: string }> }} Ledger */
 /** @typedef {{ contract?: string, statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} Draft */
 /** @typedef {Array<{ sentence?: string, claimIds?: string[] }>} SourceRefs */
@@ -52,7 +53,7 @@ export function resumeFill(/** @type {{ measurement?: { lastTextBottom?: number,
  */
 export function runHardGates({ document, finalText, draft = {}, ledger = {}, posting = "", sourceRefs = [], artifacts = {}, protected: protectedFacts = {}, textHash }) {
   const body = String(finalText || "");
-  const claimTexts = (ledger.claims || []).map((claim) => String(claim.text || ""));
+  const claimTexts = (ledger.claims || []).filter((claim) => claim.verified !== false).map((claim) => String(claim.text || ""));
   const named = TOOL_LEXICON.filter((tool) => toolPattern(tool).test(body));
   const unsupported = named.filter((tool) => !claimTexts.some((claim) => toolPattern(tool).test(claim)));
   /** @param {string} id @param {boolean} pass @param {string} reason @returns {Gate} */
@@ -100,7 +101,7 @@ export function advisoryEvidence({ document, finalText, ledger = {}, draft = {},
     const upgrades = scopeUpgrades(sentence.text, claimTexts);
     if (upgrades.length) out.push({ id: `scope:${sentence.id}`, kind: "scope", sentenceIds: [sentence.id], detail: describeUpgrades(upgrades) });
   }
-  const words = (/** @type {string} */ value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4);
+  const words = (/** @type {string} */ value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4 || SHORT_TERMS.has(word));
   const postingWords = new Set(words(postingText));
   const bodyWords = new Set(words(body));
   if (postingWords.size) {

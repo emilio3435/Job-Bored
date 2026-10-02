@@ -3,16 +3,18 @@
    ------------------------------------------------------------
    Renders the v2 horizontal sticker board into
      <section data-region="pipeline">.
-   Read-only consumer of legacy DOM via
-     window.JobBoredDawn.data.getPipelineViewModel().
+   Reads the loaded rows through
+     window.JobBoredDawn.data.getPipelineViewModel() (dawn-data.js).
 
    Activates only when document.body has class "jb-v2".
    - Does NOT mutate any DOM outside region:pipeline.
-   - Does NOT write to the Sheet directly (droid 2.F handles that).
-   - Stage moves dispatch CustomEvent "jb:pipeline:move" with
-       detail: { jobKey, fromStage, toStage }.
+   - Does NOT write to the Sheet directly: stage moves go through
+       window.JobBoredPipelineTransitionAdapter.move (the CustomEvent
+       "jb:pipeline:move" { jobKey, fromStage, toStage } is the fallback
+       when the adapter is absent).
      Optimistic DOM move; rolls back on "jb:write:failed".
-   - Card click sets location.hash = "#letter=<jobKey>".
+   - Card click opens the role through window.JobBoredFlowing.openRole,
+     which syncs location.hash to "#role=<jobKey>" (flowing-store.js).
    - Drag uses vanilla pointer events with setPointerCapture
      (no third-party DnD libraries).
    ============================================================ */
@@ -91,7 +93,19 @@
   /* C19 (TR-08 / MP-09): below 760 px the board is a grouped list with a
      Board toggle; the choice is remembered per device. */
   var VIEW_STORAGE_KEY = "jb_pipelineView";
-  var LIST_VIEW_QUERY = "(max-width: 760px)";
+  /* B16: the list switch sits on --jb-bp-md (tokens-v2.css), the width the
+     board sheets use; the literal is the fallback before the token loads. */
+  var LIST_VIEW_BP_FALLBACK = "760px";
+  var LIST_VIEW_QUERY = "(max-width: " + (function () {
+    try {
+      var cs = root.getComputedStyle && document.documentElement && root.getComputedStyle(document.documentElement);
+      var v = cs && cs.getPropertyValue("--jb-bp-md");
+      v = v ? String(v).trim() : "";
+      return /^\d+px$/.test(v) ? v : LIST_VIEW_BP_FALLBACK;
+    } catch (_) {
+      return LIST_VIEW_BP_FALLBACK;
+    }
+  })() + ")";
   // Per-company visible cap (helpers live in company-cap.js so dawn/lattice/
   // app.js share the same rules). The local fallback below keeps pipeline.js
   // self-sufficient if the shared script ever fails to load.
@@ -99,6 +113,22 @@
     ? root.JobBoredCompanyCap
     : null;
   var COMPANY_VISIBLE_CAP = capModule ? capModule.CAP : 3;
+  // B6: search re-renders once typing pauses (the legacy board waits 200 ms too).
+  var SEARCH_DEBOUNCE_MS = 200;
+  /* R5: the cap keeps one company from flooding the triage columns. A role
+     in a later stage is a commitment, so those columns always show every
+     role; a capped column offers Show all. */
+  var CAPPED_STAGES = { "new": true, "researching": true };
+
+  /* B3 (consumes SHEETS' jb:data:* events, spec §1b.10): loading
+     {generation}, loaded {generation, rowCount}, failed {generation, status,
+     message}; jb:data:load-failed is today's name for failed. An event from
+     a generation older than the newest one seen is stale. */
+  var dataLoad = { state: "unknown", generation: null };
+  var LOAD_COPY = {
+    loading: "Loading your pipeline…",
+    failed: "Your pipeline didn't load. An empty board here does not mean you have no roles: retry from the banner above.",
+  };
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -378,9 +408,19 @@
     return Number.isFinite(n) ? n : -Infinity;
   }
 
+  // Local fallback — the same R18 normalization as company-cap.js.
+  var LEGAL_SUFFIX = /\s+(?:inc|incorporated|llc|llp|lp|ltd|limited|corp|corporation|co|company|gmbh|plc|ag|sa|bv|nv|pty|pte)$/;
+
   function companyKey(card) {
     if (capModule) return capModule.companyKey(card);
-    return String((card && card.company) || "").trim().toLowerCase();
+    var base = String((card && card.company) || "")
+      .toLowerCase()
+      .replace(/[.,]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    var key = base;
+    while (LEGAL_SUFFIX.test(key)) key = key.replace(LEGAL_SUFFIX, "");
+    return key || base;
   }
 
   function fitScoreOf(card) {
@@ -631,9 +671,9 @@
       card.setAttribute("data-favorite", favorite ? "true" : "false");
     });
     var buttons = region.querySelectorAll(btnSelector);
+    // B11: the name stays put; aria-pressed (and the visual tooltip) flip.
     buttons.forEach(function (btn) {
       btn.setAttribute("aria-pressed", favorite ? "true" : "false");
-      btn.setAttribute("aria-label", label);
       btn.setAttribute("title", label);
       var mark = btn.querySelector(".pipe-sticker__favorite-mark");
       if (mark) mark.textContent = favorite ? "★" : "☆";
@@ -888,9 +928,32 @@
     resetUrlModal(region, prefill);
     els.modal.hidden = false;
     document.body.classList.add("pipe-url-modal-open");
+    /* B4: a real dialog. Focus moves to the URL field, the page behind goes
+       inert, Escape closes it, and focus returns to whatever opened it (often
+       the top bar's Add job, which clicks this board's button). */
+    var A11y = root.JobBoredA11y;
+    if (A11y && A11y.dialog && typeof A11y.dialog.open === "function") {
+      if (!region.__pipeUrlDialog) {
+        region.__pipeUrlDialog = A11y.dialog.open(els.modal, {
+          initialFocus: els.input,
+          onClose: function (reason) {
+            region.__pipeUrlDialog = null;
+            if (reason === "escape") closeJobUrlModal(region);
+          },
+        });
+      }
+      return;
+    }
     setTimeout(function () {
       if (els.input) els.input.focus();
     }, 0);
+  }
+
+  /** Release the URL dialog: lifts the inert background and returns focus. */
+  function releaseUrlDialog(region) {
+    var dialog = region.__pipeUrlDialog;
+    region.__pipeUrlDialog = null;
+    if (dialog) dialog.close();
   }
 
   function closeJobUrlModal(region) {
@@ -902,6 +965,7 @@
     // the whole board and ate every click — including the favorite
     // stars on both Pipeline and Lattice (Lattice shares the layout).
     setUrlModalBusy(region, false);
+    releaseUrlDialog(region);
     els.modal.hidden = true;
     document.body.classList.remove("pipe-url-modal-open");
     setUrlModalError(region, "");
@@ -1039,8 +1103,10 @@
 
   /* ----------------------------- DOM builders -------------------------- */
 
-  /** Build a single sticker card element for a stage column. */
-  function StickerCard(card, opts) {
+  /** Everything a sticker card renders from, plus a signature of it. Two
+   *  renders with the same signature draw the same card, so renderCards can
+   *  keep the node it already has (B6). */
+  function stickerParts(card, opts) {
     opts = opts || {};
     var stageKey = opts.stage || "researching";
     var selected = !!opts.selected;
@@ -1063,23 +1129,18 @@
     var metaLine = [location, salary].filter(Boolean).join(" · ");
     var materials = materialsBadgeData(card, job);
 
-    var el = document.createElement("article");
-    el.className = "pipe-sticker" + (isFavorite ? " pipe-sticker--favorited" : "");
-    el.setAttribute("data-stable-key", cardKey);
-    el.setAttribute("data-stage", stageKey);
-    el.setAttribute("data-favorite", isFavorite ? "true" : "false");
-    el.setAttribute("data-selected", selected ? "true" : "false");
-    el.setAttribute("data-expanded", selected ? "true" : "false");
-    if (selected) el.setAttribute("aria-current", "true");
-    if (flag) el.setAttribute("data-flag", flag);
     /* AX-13 / TR-23: the article is no longer a role=button wrapping eleven
        buttons. The role title is the real "Open dossier" button; the article
        keeps data-stable-key and its drag + click-anywhere behaviour. */
-    var openLabel = "Open dossier: " + (card.role || "Untitled role") +
-      (card.company ? " at " + card.company : "");
+    var who = (card.role || "Untitled role") + (card.company ? " at " + card.company : "");
+    var openLabel = "Open dossier: " + who;
+    /* B11: every card control names the role it acts on, and the favorite
+       toggle keeps one name while aria-pressed carries its state. */
+    var editLabel = "Edit role details: " + who;
+    var favoriteLabel = "Favorite: " + who;
 
     var appliedAgeHtml = appliedAgeBadgeHtml(job);
-    el.innerHTML = [
+    var html = [
       flag
         ? '<span class="pipe-sticker__flag" data-flag="' + escapeHtml(flag) + '">' + escapeHtml(flag) + '</span>'
         : '',
@@ -1096,7 +1157,7 @@
       '  </span>',
       '  <button type="button" class="pipe-sticker__edit" data-card-action="edit-open"',
       '          data-key="' + escapeHtml(cardKey) + '"',
-      '          aria-label="Edit role details" title="Edit role details">',
+      '          aria-label="' + escapeHtml(editLabel) + '" title="Edit role details">',
       '    <svg viewBox="0 0 24 24" width="14" height="14" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">',
       '      <path d="M12 20h9"></path>',
       '      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"></path>',
@@ -1104,12 +1165,12 @@
       '  </button>',
       '  <button type="button" class="pipe-sticker__favorite" data-card-action="toggle-favorite"',
       '          data-key="' + escapeHtml(cardKey) + '"',
-      '          aria-label="' + (isFavorite ? "Unfavorite" : "Favorite") + '"',
+      '          aria-label="' + escapeHtml(favoriteLabel) + '"',
       '          aria-pressed="' + (isFavorite ? "true" : "false") + '"',
       '          title="' + (isFavorite ? "Unfavorite" : "Favorite") + '">',
       '    <span class="pipe-sticker__favorite-mark" aria-hidden="true">' + (isFavorite ? "★" : "☆") + '</span>',
       '  </button>',
-      '  <span class="pipe-sticker__fit" aria-label="Fit ' + (fitNum == null ? "unknown" : fitNum + " of 10") + '">',
+      '  <span class="pipe-sticker__fit" role="img" aria-label="Fit ' + (fitNum == null ? "unknown" : fitNum + " of 10") + '">',
       '    <svg viewBox="0 0 36 36" width="36" height="36" focusable="false" aria-hidden="true">',
       '      <circle class="pipe-sticker__fit-track" cx="18" cy="18" r="15.5" pathLength="100"></circle>',
       '      <circle class="pipe-sticker__fit-fill" cx="18" cy="18" r="15.5" pathLength="100"',
@@ -1134,6 +1195,40 @@
         appliedAgeHtml +
         '</footer>' : '',
     ].join("");
+    var recruiter = {
+      jobKey: card.jobKey,
+      contact: job && job.contact,
+      lastHeardFrom: job && job.lastHeardFrom,
+      replied: job && job.responseFlag,
+      followUpDate: job && job.followUpDate,
+    };
+    return {
+      stageKey: stageKey,
+      selected: selected,
+      cardKey: cardKey,
+      isFavorite: isFavorite,
+      flag: flag,
+      html: html,
+      recruiter: recruiter,
+      sig: [stageKey, isFavorite ? "1" : "0", flag, html, JSON.stringify(recruiter)].join("\u0001"),
+    };
+  }
+
+  /** Build a single sticker card element for a stage column. opts.parts
+   *  reuses parts renderCards already computed for the signature check. */
+  function StickerCard(card, opts) {
+    var parts = (opts && opts.parts) || stickerParts(card, opts);
+    var selected = parts.selected;
+    var el = document.createElement("article");
+    el.className = "pipe-sticker" + (parts.isFavorite ? " pipe-sticker--favorited" : "");
+    el.setAttribute("data-stable-key", parts.cardKey);
+    el.setAttribute("data-stage", parts.stageKey);
+    el.setAttribute("data-favorite", parts.isFavorite ? "true" : "false");
+    el.setAttribute("data-selected", selected ? "true" : "false");
+    el.setAttribute("data-expanded", selected ? "true" : "false");
+    if (selected) el.setAttribute("aria-current", "true");
+    if (parts.flag) el.setAttribute("data-flag", parts.flag);
+    el.innerHTML = parts.html;
 
     /* P0-D hand-off: the compact recruiter strip. Feature-detected — the
        board renders exactly as before when recruiter-strip.js is not in the
@@ -1143,17 +1238,12 @@
         typeof root.JobBoredRecruiterStrip.renderCompact === "function") {
       var recruiterMount = document.createElement("div");
       recruiterMount.className = "pipe-sticker__recruiter-mount";
-      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, {
-        jobKey: card.jobKey,
-        contact: job && job.contact,
-        lastHeardFrom: job && job.lastHeardFrom,
-        replied: job && job.responseFlag,
-        followUpDate: job && job.followUpDate,
-      });
+      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, parts.recruiter);
       el.appendChild(recruiterMount);
     }
 
-    attachStageMenu(el, card, stageKey);
+    attachStageMenu(el, card, parts.stageKey);
+    el.__pipeSig = parts.sig;
 
     return el;
   }
@@ -1199,15 +1289,23 @@
     return '<p class="pipe-col__empty">' + escapeHtml(EMPTY_COPY[stageKey] || "Drop a role here.") + '</p>';
   }
 
-  function buildHiddenAffordance(hidden) {
+  /** R5: the cap's note is a Show all / Show fewer toggle for its column.
+   *  The column's existing toggle node is reused so focus survives renders. */
+  function hiddenToggle(body, stageKey, hidden, expanded) {
     var label = hidden
       .map(function (entry) { return "+" + entry.hidden + " from " + entry.company; })
       .join(" · ");
-    var el = document.createElement("p");
-    el.className = "pipe-col__hidden";
-    el.setAttribute("aria-label", "Hidden by per-company cap: " + label);
-    el.setAttribute("title", label + " — hidden so one company can’t dominate this column. Star a role or search to see all.");
-    el.textContent = label + " hidden";
+    var el = body.querySelector("[data-show-all]");
+    if (!el) {
+      el = document.createElement("button");
+      el.setAttribute("type", "button");
+      el.className = "pipe-col__hidden";
+      el.setAttribute("data-show-all", stageKey);
+      el.setAttribute("aria-controls", "pipe-col-body-" + stageKey);
+    }
+    el.setAttribute("aria-expanded", expanded ? "true" : "false");
+    el.setAttribute("title", "Up to " + COMPANY_VISIBLE_CAP + " roles per company show here, so one company can’t dominate this column.");
+    el.textContent = expanded ? "Show fewer" : "Show all (" + label + " hidden)";
     return el;
   }
 
@@ -1371,6 +1469,7 @@
   function buildShell(state) {
     return [
       buildToolbar(state),
+      '<p class="pipe-status" data-pipeline-status role="status" hidden></p>',
       '<div class="pipe-shell">',
         buildBoardSkeleton(),
       '</div>',
@@ -1381,22 +1480,66 @@
 
   /* ----------------------------- render -------------------------------- */
 
+  /* B13: an optimistic move sits in region.__pipePending until its write
+     settles, while the view-model still holds the row in its old stage. Each
+     render applies the pending moves first, so a sort, search, filter or view
+     change never snaps a dropped card back to where it came from. */
+  function stageLists(vm, pending) {
+    var lists = {};
+    (vm.stages || []).forEach(function (s) { lists[s.key] = (s.cards || []).slice(); });
+    lists["new"] = (vm.untriaged || []).slice();
+    (pending || []).forEach(function (move) {
+      var key = String(move.jobKey);
+      var moved = null;
+      Object.keys(lists).forEach(function (stageKey) {
+        var list = lists[stageKey];
+        for (var i = list.length - 1; i >= 0; i--) {
+          if (String(list[i].jobKey) === key) moved = list.splice(i, 1)[0];
+        }
+      });
+      if (moved && lists[move.toStage]) lists[move.toStage].push(moved);
+    });
+    return lists;
+  }
+
+  function reusableCards(body) {
+    var out = Object.create(null);
+    body.querySelectorAll(".pipe-sticker[data-stable-key]").forEach(function (node) {
+      if (node.__pipeSig) out[node.getAttribute("data-stable-key")] = node;
+    });
+    return out;
+  }
+
+  /** Put exactly `nodes`, in order, under `parent`. Dropped nodes go first,
+   *  so a kept node only moves when its order really changed: an untouched
+   *  card (or the Show all toggle) keeps its node and any focus in it (B6). */
+  function syncChildren(parent, nodes) {
+    for (var j = parent.childNodes.length - 1; j >= 0; j--) {
+      var child = parent.childNodes[j];
+      if (nodes.indexOf(child) < 0) parent.removeChild(child);
+    }
+    for (var i = 0; i < nodes.length; i++) {
+      var at = parent.childNodes[i] || null;
+      if (at !== nodes[i]) parent.insertBefore(nodes[i], at);
+    }
+  }
+
   function renderCards(region, vm, state) {
-    var stageMap = {};
-    (vm.stages || []).forEach(function (s) { stageMap[s.key] = s.cards || []; });
+    var lists = stageLists(vm, region.__pipePending);
 
     STAGES.forEach(function (s) {
       var body = region.querySelector('[data-stage-body="' + s.key + '"]');
       var col = region.querySelector('.pipe-col[data-stage="' + s.key + '"]');
       if (!body || !col) return;
-      body.innerHTML = "";
-      var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
+      var cards = lists[s.key] || [];
       var searchActive = hasActiveSearch(state);
       var filtered = filterCardsBySearch(cards, state);
       // When the user is searching, do not hide hits behind the cap — search
       // is an explicit "show me everything matching" gesture and the column's
       // "X matches" header would otherwise lie.
-      var capped = searchActive
+      var capsColumn = CAPPED_STAGES[s.key] === true && !searchActive;
+      var showAll = !!(state.showAll && state.showAll[s.key]);
+      var cappedView = !capsColumn
         ? filtered
         : capCardsByFit(filtered, function (card) {
             if (!card) return false;
@@ -1407,9 +1550,10 @@
             var job = getPipelineJobByKey(card.jobKey);
             return !!(job && job.favorite);
           });
+      var capped = showAll ? filtered : cappedView;
       var ordered = sortCards(capped, state.sort);
-      var hiddenSummary = (root.JobBoredCompanyCap && !searchActive)
-        ? root.JobBoredCompanyCap.summarizeHidden(filtered, capped)
+      var hiddenSummary = (root.JobBoredCompanyCap && capsColumn)
+        ? root.JobBoredCompanyCap.summarizeHidden(filtered, cappedView)
         : [];
       var searchMatch = searchActive && ordered.length > 0;
       state.counts = state.counts || {};
@@ -1417,17 +1561,20 @@
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
       } else {
-        var frag = document.createDocumentFragment();
-        ordered.forEach(function (c) {
-          frag.appendChild(StickerCard(c, {
+        // B6: rebuild only the cards whose inputs changed; keep the rest.
+        var reusable = reusableCards(body);
+        var nodes = ordered.map(function (c) {
+          var parts = stickerParts(c, {
             stage: s.key,
             selected: String(c.jobKey) === String(state.selectedJobKey),
-          }));
+          });
+          var prior = reusable[parts.cardKey];
+          return prior && prior.__pipeSig === parts.sig ? prior : StickerCard(c, { parts: parts });
         });
         if (hiddenSummary.length) {
-          frag.appendChild(buildHiddenAffordance(hiddenSummary));
+          nodes.push(hiddenToggle(body, s.key, hiddenSummary, showAll));
         }
-        body.appendChild(frag);
+        syncChildren(body, nodes);
       }
       col.setAttribute("data-search-active", searchActive ? "true" : "false");
       col.setAttribute("data-search-match", searchMatch ? "true" : "false");
@@ -1479,9 +1626,18 @@
     rerender(region, state);
   }
 
+  /* B1: one AbortController per mount. Every listener a mount binds, on the
+     region and on document, rides its signal; clearRegion aborts it. The
+     <section> outlives an unmount, so without this each remount (a
+     body.jb-v2 flip, the v2 boot contract) stacked another full set. */
+  function mountListenerOptions(region) {
+    return region.__pipeAbort ? { signal: region.__pipeAbort.signal } : undefined;
+  }
+
   function ensureShell(region, state) {
     if (region.__pipeMounted) return;
     region.__pipeMounted = true;
+    region.__pipeAbort = typeof root.AbortController === "function" ? new root.AbortController() : null;
     region.innerHTML = buildShell(state);
     applyCollapsedState(region, state);
     applyView(region, state);
@@ -1509,12 +1665,44 @@
   function rerender(region, state) {
     var vm = safeVm();
     if (!vm) return;
+    region.__pipeEmpty = !!vm.empty;
     if (vm.empty) {
       // Render empty board with placeholders only.
       renderCards(region, { stages: STAGES.map(function (s) { return { key: s.key, cards: [] }; }), untriaged: [] }, state);
-      return;
+    } else {
+      renderCards(region, vm, state);
     }
-    renderCards(region, vm, state);
+    applyLoadState(region);
+  }
+
+  /** B3: an empty board says whether it is still loading or failed to load;
+   *  a board with rows stays quiet (the sync banner owns a failed refresh). */
+  function applyLoadState(region) {
+    var empty = region.__pipeEmpty !== false;
+    var shown = empty && (dataLoad.state === "loading" || dataLoad.state === "failed") ? dataLoad.state : "";
+    if (shown) region.setAttribute("data-load-state", shown);
+    else region.removeAttribute("data-load-state");
+    var board = region.querySelector(".pipe-board");
+    if (board) {
+      if (shown === "loading") board.setAttribute("aria-busy", "true");
+      else board.removeAttribute("aria-busy");
+    }
+    var status = region.querySelector("[data-pipeline-status]");
+    if (status) {
+      status.hidden = !shown;
+      status.textContent = shown ? LOAD_COPY[shown] : "";
+    }
+  }
+
+  function onDataEvent(kind, e) {
+    var d = (e && e.detail) || {};
+    var gen = typeof d.generation === "number" && isFinite(d.generation) ? d.generation : null;
+    if (gen != null && dataLoad.generation != null && gen < dataLoad.generation) return;
+    if (gen != null) dataLoad.generation = gen;
+    dataLoad.state = kind;
+    var region = getRegion();
+    if (region && region.__pipeMounted) applyLoadState(region);
+    scheduleRender();
   }
 
   function focusSearch(opts) {
@@ -1540,6 +1728,7 @@
   /* ------------------------------ events -------------------------------- */
 
   function bindToolbar(region, state) {
+    var on = mountListenerOptions(region);
     // The favorite star toggles from BOTH the native click and a pointerup
     // fallback. Some environments eat the synthetic click that follows
     // pointerup on these draggable cards — the card-open handler already
@@ -1562,7 +1751,7 @@
       if (e.button !== 0) return;
       var favoriteBtn = e.target.closest('[data-card-action="toggle-favorite"]');
       if (favoriteBtn) toggleFavoriteByKey(favoriteBtn.getAttribute("data-key"));
-    });
+    }, on);
 
     region.addEventListener("click", function (e) {
       var toggle = e.target.closest('.pipe-col__toggle[data-stage-toggle]');
@@ -1570,6 +1759,15 @@
         e.preventDefault();
         var stageKey = toggle.getAttribute("data-stage-toggle");
         if (stageKey) toggleColumn(region, state, stageKey);
+        return;
+      }
+      var showAllBtn = e.target.closest("[data-show-all]");
+      if (showAllBtn) {
+        e.preventDefault();
+        var showStage = showAllBtn.getAttribute("data-show-all");
+        state.showAll = state.showAll || {};
+        state.showAll[showStage] = !state.showAll[showStage];
+        rerender(region, state);
         return;
       }
       var viewBtn = e.target.closest("[data-pipeline-view]");
@@ -1640,38 +1838,46 @@
         closeJobUrlModal(region);
         return;
       }
-    });
+    }, on);
 
     region.addEventListener("submit", function (e) {
       var form = e.target && e.target.closest && e.target.closest("[data-pipeline-url-form]");
       if (!form) return;
       e.preventDefault();
       submitJobUrlModal(region);
-    });
+    }, on);
 
     region.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
+      // B4: an open JobBoredA11y dialog owns Escape (and closes only itself).
+      if (region.__pipeUrlDialog) return;
       var els = getUrlModalEls(region);
       if (!els.modal || els.modal.hidden) return;
       e.preventDefault();
       closeJobUrlModal(region);
-    });
+    }, on);
 
+    /* B6: one render once typing pauses, not one per keystroke. The field is
+       left as typed (writing the trimmed query back ate the space between
+       words); setSearchInputState only syncs it on mount. */
     region.addEventListener("input", function (e) {
       var input = e.target && e.target.closest && e.target.closest("[data-pipeline-search]");
       if (!input) return;
       state.search = String(input.value || "").trim();
-      rerender(region, state);
-      setSearchInputState(region, state);
-    });
+      if (region.__pipeSearchTimer) clearTimeout(region.__pipeSearchTimer);
+      region.__pipeSearchTimer = setTimeout(function () {
+        region.__pipeSearchTimer = null;
+        rerender(region, state);
+      }, SEARCH_DEBOUNCE_MS);
+    }, on);
   }
 
   function bindRegion(region, state) {
-    // Idempotent guard. If the region was re-bound (e.g. re-mount after
-    // body.jb-v2 flicker, or after clearRegion()), we replace the
-    // previous handlers rather than stacking them.
+    // Idempotent guard within one mount. clearRegion() aborts the mount's
+    // listeners (B1) before it resets this flag, so a re-mount binds once.
     if (region.__pipeBound) return;
     region.__pipeBound = true;
+    var on = mountListenerOptions(region);
 
     function openRoleAndScroll(key, stageKey) {
       if (!key) return;
@@ -1710,7 +1916,7 @@
       state.filters = normalizePipelineFilters(e && e.detail);
       setFilterChipState(region, state);
       scheduleRender();
-    });
+    }, on);
 
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.focusSearch = focusSearch;
@@ -1761,7 +1967,7 @@
         if (key) openRoleAndScroll(key, stageKey);
         return;
       }
-    });
+    }, on);
 
     // Belt-and-suspenders: some environments (Safari touch, nested scroll
     // containers, browser extensions that swallow click) eat the synthetic
@@ -1784,11 +1990,11 @@
           openRoleAndScroll(key, stageKey);
         }
       }, 60);
-    });
+    }, on);
     region.addEventListener("click", function (e) {
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker) sticker.__pipeTapPending = false;
-    });
+    }, on);
 
     // Keyboard: Enter / Space on a sticker = open role.
     region.addEventListener("keydown", function (e) {
@@ -1800,7 +2006,7 @@
       var key = sticker.getAttribute("data-stable-key");
       var stageKey = sticker.getAttribute("data-stage");
       if (key) openRoleAndScroll(key, stageKey);
-    });
+    }, on);
 
     // Drag and drop via pointer events.
     bindPointerDrag(region, state);
@@ -1813,10 +2019,10 @@
       if (jobKey == null || jobKey === "") return;
       var pendingList = region.__pipePending || [];
       for (var i = pendingList.length - 1; i >= 0; i--) {
-        if (pendingList[i].jobKey === jobKey) pendingList.splice(i, 1);
+        if (String(pendingList[i].jobKey) === String(jobKey)) pendingList.splice(i, 1);
       }
       scheduleRender();
-    });
+    }, on);
 
     document.addEventListener("jb:write:failed", function (e) {
       var detail = e && e.detail ? e.detail : {};
@@ -1857,7 +2063,7 @@
           retryMove(region, rolledBack);
         },
       });
-    });
+    }, on);
   }
 
   /** Re-issue a failed drag as a fresh move through the same planner. */
@@ -1927,31 +2133,17 @@
     }, 900);
   }
 
-  /** Toast with an optional action; the shared a11y toast when present. */
-  function notify(region, msg, type, action) {
+  /** B12: every board toast goes through window.JobBoredFlowing.toast
+   *  (flowing-writes.js), which keeps the action even with no app renderer.
+   *  The board's own .pipe-toast region is gone. */
+  function notify(_region, msg, type, action) {
+    var opts = action ? { action: action } : {};
+    var flowing = root.JobBoredFlowing;
+    if (flowing && typeof flowing.toast === "function") return flowing.toast(msg, type || "info", opts);
+    // flowing-writes.js absent (unit harnesses): the shared primitive directly.
     var A11y = root.JobBoredA11y;
-    if (A11y && typeof A11y.toast === "function") {
-      A11y.toast(msg, type || "info", action ? { action: action } : {});
-      return;
-    }
-    showToast(region, msg);
-  }
-
-  function showToast(region, msg) {
-    var t = region.querySelector(".pipe-toast");
-    if (!t) {
-      t = document.createElement("div");
-      t.className = "pipe-toast";
-      t.setAttribute("role", "status");
-      t.setAttribute("aria-live", "polite");
-      region.appendChild(t);
-    }
-    t.textContent = msg;
-    t.classList.add("is-shown");
-    if (region.__pipeToastTimer) clearTimeout(region.__pipeToastTimer);
-    region.__pipeToastTimer = setTimeout(function () {
-      t.classList.remove("is-shown");
-    }, 2400);
+    if (A11y && typeof A11y.toast === "function") return A11y.toast(msg, type || "info", opts);
+    return null;
   }
 
   function cssEscape(s) {
@@ -1963,6 +2155,7 @@
 
   function bindPointerDrag(region, _state) {
     var drag = null; // { card, ghost, fromStage, jobKey, pointerId, startX, startY, moved }
+    var on = mountListenerOptions(region);
 
     region.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
@@ -1988,7 +2181,7 @@
         moved: false,
         captured: false,
       };
-    });
+    }, on);
 
     region.addEventListener("pointermove", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2008,7 +2201,7 @@
         drag.ghost.style.transform = "translate(" + (e.clientX - drag.offsetX) + "px," + (e.clientY - drag.offsetY) + "px)";
         highlightDropTarget(region, e.clientX, e.clientY);
       }
-    });
+    }, on);
 
     region.addEventListener("pointerup", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2034,7 +2227,7 @@
       // If !drag.moved, this was a tap — do nothing; the click event will
       // fire naturally and the delegated click handler will navigate.
       drag = null;
-    });
+    }, on);
 
     region.addEventListener("pointercancel", function (e) {
       if (!drag || e.pointerId !== drag.pointerId) return;
@@ -2047,7 +2240,7 @@
         setTimeout(function () { cancelled.__pipeJustDragged = false; }, 150);
       }
       drag = null;
-    });
+    }, on);
   }
 
   function startGhost(region, drag) {
@@ -2094,6 +2287,10 @@
 
   function optimisticMove(region, drag, toStage) {
     var card = drag.card;
+    // B13: a render during the drag may have replaced the node under the pointer.
+    if (!region.contains(card)) {
+      card = region.querySelector('.pipe-sticker[data-stable-key="' + cssEscape(drag.jobKey) + '"]') || card;
+    }
     var fromBody = region.querySelector('[data-stage-body="' + drag.fromStage + '"]');
     var toBody = region.querySelector('[data-stage-body="' + toStage + '"]');
     if (!toBody) return;
@@ -2169,11 +2366,18 @@
   function clearRegion() {
     var region = getRegion();
     if (!region) return;
+    if (region.__pipeUrlDialog) {
+      releaseUrlDialog(region);
+      document.body.classList.remove("pipe-url-modal-open");
+    }
+    if (region.__pipeAbort) region.__pipeAbort.abort();
+    region.__pipeAbort = null;
     region.innerHTML = "";
     region.__pipeMounted = false;
     region.__pipeBound = false;
-    region.__pipeHtml = "";
     region.__pipePending = [];
+    if (region.__pipeSearchTimer) clearTimeout(region.__pipeSearchTimer);
+    region.__pipeSearchTimer = null;
   }
 
   function observeLegacy() {
@@ -2184,8 +2388,13 @@
     // render, and a subtree observer would re-trigger scheduleRender forever
     // (a render loop that silently rebuilds every card each idle frame). Only
     // the body's class attribute is watched, for the jb-v2 flag.
+    // B6: other classes flip all the time (detail-open, pipe-url-modal-open);
+    // only the jb-v2 flag itself mounts or clears the board.
+    var running = shouldRun();
     var bodyMo = new MutationObserver(function () {
-      if (!shouldRun()) {
+      if (shouldRun() === running) return;
+      running = shouldRun();
+      if (!running) {
         clearRegion();
         return;
       }
@@ -2196,8 +2405,7 @@
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline._observers = { bodyMo: bodyMo };
 
-    // Hash listener for navigation away from #letter (no-op here, just wired).
-    // Drop targets / write failures handled inside bindRegion.
+    // Drop targets / write failures are handled inside bindRegion.
   }
 
   function refreshMaterialsIndex(opts) {
@@ -2207,17 +2415,37 @@
     });
   }
 
+  /* B6: jb-v2-boot-contract.js remounts on EVERY body class flip. A board
+     that is already mounted has nothing to do then; data changes arrive
+     through scheduleRender. */
+  function mountBoard() {
+    var region = getRegion();
+    if (region && region.__pipeMounted) return;
+    scheduleRender();
+  }
+
+  function registerWithBootContract() {
+    var boot = root.JobBoredV2Boot;
+    if (!boot || typeof boot.register !== "function") return false;
+    boot.register({ pipeline: { mount: mountBoard, unmount: clearRegion } });
+    return true;
+  }
+
   function init() {
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.scheduleRender = scheduleRender;
     root.JobBoredPipeline.clearRegion = clearRegion;
     root.JobBoredPipeline.focusSearch = focusSearch;
     root.JobBoredPipeline.focusJob = focusJob;
-    if (root.JobBoredV2Boot && typeof root.JobBoredV2Boot.register === "function") {
-      root.JobBoredV2Boot.register({
-        pipeline: { mount: scheduleRender, unmount: clearRegion },
-      });
+    // The boot contract loads after this file, so register once it exists.
+    if (!registerWithBootContract()) {
+      document.addEventListener("DOMContentLoaded", registerWithBootContract, { once: true });
     }
+    // B3: bound once at load; the first read can start before body.jb-v2.
+    document.addEventListener("jb:data:loading", function (e) { onDataEvent("loading", e); });
+    document.addEventListener("jb:data:loaded", function (e) { onDataEvent("loaded", e); });
+    document.addEventListener("jb:data:failed", function (e) { onDataEvent("failed", e); });
+    document.addEventListener("jb:data:load-failed", function (e) { onDataEvent("failed", e); });
     // Wire the materials index once. Cards render without badges
     // until the catalog resolves; we re-render on success.
     document.addEventListener("jb:materials:changed", function () {
