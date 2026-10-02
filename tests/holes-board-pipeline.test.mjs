@@ -121,3 +121,149 @@ describe("B1 · a remount does not stack listeners (one AbortController per moun
     assert.deepEqual(board.calls.ingest, ["https://boards.example.com/jobs/1"], "one submit is one ingest");
   });
 });
+
+function card(board, key) {
+  return board.region.querySelector(`.pipe-sticker[data-stable-key="${key}"]`);
+}
+
+function stageOf(board, key) {
+  const node = card(board, key);
+  const body = node && node.closest("[data-stage-body]");
+  return body ? body.getAttribute("data-stage-body") : null;
+}
+
+function typeSearch(board, value) {
+  const input = board.region.querySelector("[data-pipeline-search]");
+  input.value = value;
+  board.fire(input, "input");
+  return input;
+}
+
+/** Drag a card onto a column through the board's own pointer handlers. */
+function dragTo(board, key, toStage) {
+  const target = board.region.querySelector(`.pipe-col[data-stage="${toStage}"]`);
+  board.document.elementsFromPoint = () => [target];
+  const node = card(board, key);
+  board.fire(node, "pointerdown", { props: { button: 0, pointerId: 7, clientX: 10, clientY: 10 } });
+  board.fire(node, "pointermove", { props: { button: 0, pointerId: 7, clientX: 60, clientY: 60 } });
+  board.fire(node, "pointerup", { props: { button: 0, pointerId: 7, clientX: 60, clientY: 60 } });
+}
+
+const inFlightAdapter = () => {
+  const moves = [];
+  return { moves, move: (m) => { moves.push(m); return new Promise(() => {}); } };
+};
+
+describe("B6 · scoped rebuilds and a debounced search", () => {
+  it("should not rebuild the board when an unrelated body class flips", () => {
+    const board = mountBoard();
+    const before = card(board, "0");
+    const vmCalls = board.calls.vm;
+    board.document.body.classList.add("detail-open");
+    board.document.body.classList.add("pipe-url-modal-open");
+    board.flush();
+    assert.equal(board.calls.vm, vmCalls, "a non-jb-v2 class flip must not re-read the view-model");
+    assert.ok(card(board, "0") === before, "the card node survives");
+  });
+
+  it("should still unmount and remount when body.jb-v2 itself flips", () => {
+    const board = mountBoard();
+    board.document.body.classList.remove("jb-v2");
+    board.flush();
+    assert.ok(card(board, "0") === null, "the board clears when v2 turns off");
+    board.document.body.classList.add("jb-v2");
+    board.flush();
+    assert.ok(card(board, "0"), "and renders again when it turns back on");
+  });
+
+  it("should coalesce a burst of keystrokes into one rerender", () => {
+    const board = mountBoard({ jobs: [job({ title: "Senior Engineer" }), job({ title: "Designer" })] });
+    const vmCalls = board.calls.vm;
+    typeSearch(board, "s");
+    typeSearch(board, "se");
+    typeSearch(board, "sen");
+    assert.equal(board.calls.vm, vmCalls, "no rerender while the person is still typing");
+    board.advance(400);
+    assert.equal(board.calls.vm, vmCalls + 1, "one rerender once typing pauses");
+    assert.ok(card(board, "0"), "the match stays");
+    assert.ok(card(board, "1") === null, "the miss is filtered out");
+  });
+
+  it("should leave the typed text alone so a space can start the next word", () => {
+    const board = mountBoard();
+    const input = typeSearch(board, "senior ");
+    board.advance(400);
+    assert.equal(input.value, "senior ", "the field keeps the trailing space the person typed");
+  });
+
+  it("should reuse an unchanged card's node when another row changes", () => {
+    const board = mountBoard({ jobs: [job({ title: "Staff Engineer" })] });
+    const before = card(board, "0");
+    board.state.jobs.push(job({ title: "Platform Engineer", company: "Globex", stage: "applied" }));
+    board.api.scheduleRender();
+    board.flush();
+    assert.ok(card(board, "1"), "the new row renders");
+    assert.ok(card(board, "0") === before, "the untouched card keeps its node (and any focus inside it)");
+  });
+
+  it("should rebuild a card whose row changed", () => {
+    const board = mountBoard({ jobs: [job({ title: "Staff Engineer" })] });
+    const before = card(board, "0");
+    board.state.jobs[0].title = "Principal Engineer";
+    board.api.scheduleRender();
+    board.flush();
+    assert.ok(card(board, "0") !== before, "a changed row gets a fresh card");
+    assert.match(card(board, "0").textContent, /Principal Engineer/);
+  });
+});
+
+describe("B13 · a pending drag survives a rerender", () => {
+  it("should keep a dropped card in its new column when the sort changes before the write lands", () => {
+    const adapter = inFlightAdapter();
+    const board = mountBoard({ adapter });
+    dragTo(board, "0", "applied");
+    assert.equal(stageOf(board, "0"), "applied", "the drop moves the card optimistically");
+    assert.equal(adapter.moves.length, 1);
+    board.region.querySelector('.pipe-tool__chip[data-sort="fit"]').click();
+    assert.equal(stageOf(board, "0"), "applied", "a sort must not snap the card back while its write is in flight");
+  });
+
+  it("should keep a dropped card in its new column when a search rerenders", () => {
+    const board = mountBoard({ adapter: inFlightAdapter() });
+    dragTo(board, "0", "applied");
+    typeSearch(board, "engineer");
+    board.advance(400);
+    assert.equal(stageOf(board, "0"), "applied");
+  });
+
+  it("should settle a pending move whose success event carries a numeric jobKey", () => {
+    const board = mountBoard({ adapter: inFlightAdapter() });
+    dragTo(board, "0", "applied");
+    board.state.jobs[0].stage = "applied";
+    board.fire(board.document, "jb:write:succeeded", { detail: { kind: "pipeline:move", jobKey: 0 } });
+    board.flush();
+    assert.equal((board.region.__pipePending || []).length, 0, "the pending entry clears");
+    board.state.jobs.push(job({ title: "New role", company: "Initech" }));
+    board.api.scheduleRender();
+    board.flush();
+    assert.ok(card(board, "1"), "later renders are no longer blocked by a stuck pending move");
+  });
+});
+
+describe("B6 · the v2 boot contract does not rebuild a mounted board", () => {
+  it("should not re-read the board when the boot contract sees an unrelated class flip", () => {
+    const board = mountBoard();
+    vm.runInNewContext(read("jb-v2-boot-contract.js"), board.w, { filename: "jb-v2-boot-contract.js" });
+    board.fire(board.document, "DOMContentLoaded");
+    board.flush();
+    const before = card(board, "0");
+    const vmCalls = board.calls.vm;
+    board.document.body.classList.add("detail-open");
+    board.flush();
+    assert.equal(board.calls.vm, vmCalls, "a remount on a mounted board is a no-op");
+    assert.ok(card(board, "0") === before);
+    board.document.body.classList.remove("jb-v2");
+    board.flush();
+    assert.ok(card(board, "0") === null, "the contract still unmounts when v2 turns off");
+  });
+});

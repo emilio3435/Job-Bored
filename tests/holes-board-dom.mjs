@@ -190,6 +190,15 @@ class Node extends Target {
     this.parentNode = null;
     this.childNodes = [];
   }
+  /** Short, finite output for assertion messages (the real graph is circular). */
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    if (this.nodeType === 1) {
+      const attrs = [...this.attributes].map(([k, v]) => ` ${k}="${v}"`).join("");
+      return `<${this.tagName.toLowerCase()}${attrs.slice(0, 160)}>`;
+    }
+    if (this.nodeType === 3) return `#text ${JSON.stringify(this.data.slice(0, 40))}`;
+    return `#node(${this.nodeType})`;
+  }
   get children() { return this.childNodes.filter((n) => n.nodeType === 1); }
   get firstChild() { return this.childNodes[0] || null; }
   get firstElementChild() { return this.children[0] || null; }

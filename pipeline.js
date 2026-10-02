@@ -101,6 +101,8 @@
     ? root.JobBoredCompanyCap
     : null;
   var COMPANY_VISIBLE_CAP = capModule ? capModule.CAP : 3;
+  // B6: search re-renders once typing pauses (the legacy board waits 200 ms too).
+  var SEARCH_DEBOUNCE_MS = 200;
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -1051,8 +1053,10 @@
 
   /* ----------------------------- DOM builders -------------------------- */
 
-  /** Build a single sticker card element for a stage column. */
-  function StickerCard(card, opts) {
+  /** Everything a sticker card renders from, plus a signature of it. Two
+   *  renders with the same signature draw the same card, so renderCards can
+   *  keep the node it already has (B6). */
+  function stickerParts(card, opts) {
     opts = opts || {};
     var stageKey = opts.stage || "researching";
     var selected = !!opts.selected;
@@ -1075,15 +1079,6 @@
     var metaLine = [location, salary].filter(Boolean).join(" · ");
     var materials = materialsBadgeData(card, job);
 
-    var el = document.createElement("article");
-    el.className = "pipe-sticker" + (isFavorite ? " pipe-sticker--favorited" : "");
-    el.setAttribute("data-stable-key", cardKey);
-    el.setAttribute("data-stage", stageKey);
-    el.setAttribute("data-favorite", isFavorite ? "true" : "false");
-    el.setAttribute("data-selected", selected ? "true" : "false");
-    el.setAttribute("data-expanded", selected ? "true" : "false");
-    if (selected) el.setAttribute("aria-current", "true");
-    if (flag) el.setAttribute("data-flag", flag);
     /* AX-13 / TR-23: the article is no longer a role=button wrapping eleven
        buttons. The role title is the real "Open dossier" button; the article
        keeps data-stable-key and its drag + click-anywhere behaviour. */
@@ -1091,7 +1086,7 @@
       (card.company ? " at " + card.company : "");
 
     var appliedAgeHtml = appliedAgeBadgeHtml(job);
-    el.innerHTML = [
+    var html = [
       flag
         ? '<span class="pipe-sticker__flag" data-flag="' + escapeHtml(flag) + '">' + escapeHtml(flag) + '</span>'
         : '',
@@ -1146,6 +1141,40 @@
         appliedAgeHtml +
         '</footer>' : '',
     ].join("");
+    var recruiter = {
+      jobKey: card.jobKey,
+      contact: job && job.contact,
+      lastHeardFrom: job && job.lastHeardFrom,
+      replied: job && job.responseFlag,
+      followUpDate: job && job.followUpDate,
+    };
+    return {
+      stageKey: stageKey,
+      selected: selected,
+      cardKey: cardKey,
+      isFavorite: isFavorite,
+      flag: flag,
+      html: html,
+      recruiter: recruiter,
+      sig: [stageKey, isFavorite ? "1" : "0", flag, html, JSON.stringify(recruiter)].join("\u0001"),
+    };
+  }
+
+  /** Build a single sticker card element for a stage column. opts.parts
+   *  reuses parts renderCards already computed for the signature check. */
+  function StickerCard(card, opts) {
+    var parts = (opts && opts.parts) || stickerParts(card, opts);
+    var selected = parts.selected;
+    var el = document.createElement("article");
+    el.className = "pipe-sticker" + (parts.isFavorite ? " pipe-sticker--favorited" : "");
+    el.setAttribute("data-stable-key", parts.cardKey);
+    el.setAttribute("data-stage", parts.stageKey);
+    el.setAttribute("data-favorite", parts.isFavorite ? "true" : "false");
+    el.setAttribute("data-selected", selected ? "true" : "false");
+    el.setAttribute("data-expanded", selected ? "true" : "false");
+    if (selected) el.setAttribute("aria-current", "true");
+    if (parts.flag) el.setAttribute("data-flag", parts.flag);
+    el.innerHTML = parts.html;
 
     /* P0-D hand-off: the compact recruiter strip. Feature-detected — the
        board renders exactly as before when recruiter-strip.js is not in the
@@ -1155,17 +1184,12 @@
         typeof root.JobBoredRecruiterStrip.renderCompact === "function") {
       var recruiterMount = document.createElement("div");
       recruiterMount.className = "pipe-sticker__recruiter-mount";
-      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, {
-        jobKey: card.jobKey,
-        contact: job && job.contact,
-        lastHeardFrom: job && job.lastHeardFrom,
-        replied: job && job.responseFlag,
-        followUpDate: job && job.followUpDate,
-      });
+      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, parts.recruiter);
       el.appendChild(recruiterMount);
     }
 
-    attachStageMenu(el, card, stageKey);
+    attachStageMenu(el, card, parts.stageKey);
+    el.__pipeSig = parts.sig;
 
     return el;
   }
@@ -1393,16 +1417,54 @@
 
   /* ----------------------------- render -------------------------------- */
 
+  /* B13: an optimistic move sits in region.__pipePending until its write
+     settles, while the view-model still holds the row in its old stage. Each
+     render applies the pending moves first, so a sort, search, filter or view
+     change never snaps a dropped card back to where it came from. */
+  function stageLists(vm, pending) {
+    var lists = {};
+    (vm.stages || []).forEach(function (s) { lists[s.key] = (s.cards || []).slice(); });
+    lists["new"] = (vm.untriaged || []).slice();
+    (pending || []).forEach(function (move) {
+      var key = String(move.jobKey);
+      var moved = null;
+      Object.keys(lists).forEach(function (stageKey) {
+        var list = lists[stageKey];
+        for (var i = list.length - 1; i >= 0; i--) {
+          if (String(list[i].jobKey) === key) moved = list.splice(i, 1)[0];
+        }
+      });
+      if (moved && lists[move.toStage]) lists[move.toStage].push(moved);
+    });
+    return lists;
+  }
+
+  function reusableCards(body) {
+    var out = Object.create(null);
+    body.querySelectorAll(".pipe-sticker[data-stable-key]").forEach(function (node) {
+      if (node.__pipeSig) out[node.getAttribute("data-stable-key")] = node;
+    });
+    return out;
+  }
+
+  /** Put exactly `nodes`, in order, under `parent`, moving only what is out of
+   *  place: an untouched card keeps its node, and any focus inside it (B6). */
+  function syncChildren(parent, nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      var at = parent.childNodes[i] || null;
+      if (at !== nodes[i]) parent.insertBefore(nodes[i], at);
+    }
+    while (parent.childNodes.length > nodes.length) parent.removeChild(parent.childNodes[nodes.length]);
+  }
+
   function renderCards(region, vm, state) {
-    var stageMap = {};
-    (vm.stages || []).forEach(function (s) { stageMap[s.key] = s.cards || []; });
+    var lists = stageLists(vm, region.__pipePending);
 
     STAGES.forEach(function (s) {
       var body = region.querySelector('[data-stage-body="' + s.key + '"]');
       var col = region.querySelector('.pipe-col[data-stage="' + s.key + '"]');
       if (!body || !col) return;
-      body.innerHTML = "";
-      var cards = s.key === "new" ? (vm.untriaged || []) : (stageMap[s.key] || []);
+      var cards = lists[s.key] || [];
       var searchActive = hasActiveSearch(state);
       var filtered = filterCardsBySearch(cards, state);
       // When the user is searching, do not hide hits behind the cap — search
@@ -1429,17 +1491,20 @@
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
       } else {
-        var frag = document.createDocumentFragment();
-        ordered.forEach(function (c) {
-          frag.appendChild(StickerCard(c, {
+        // B6: rebuild only the cards whose inputs changed; keep the rest.
+        var reusable = reusableCards(body);
+        var nodes = ordered.map(function (c) {
+          var parts = stickerParts(c, {
             stage: s.key,
             selected: String(c.jobKey) === String(state.selectedJobKey),
-          }));
+          });
+          var prior = reusable[parts.cardKey];
+          return prior && prior.__pipeSig === parts.sig ? prior : StickerCard(c, { parts: parts });
         });
         if (hiddenSummary.length) {
-          frag.appendChild(buildHiddenAffordance(hiddenSummary));
+          nodes.push(buildHiddenAffordance(hiddenSummary));
         }
-        body.appendChild(frag);
+        syncChildren(body, nodes);
       }
       col.setAttribute("data-search-active", searchActive ? "true" : "false");
       col.setAttribute("data-search-match", searchMatch ? "true" : "false");
@@ -1679,12 +1744,18 @@
       closeJobUrlModal(region);
     }, on);
 
+    /* B6: one render once typing pauses, not one per keystroke. The field is
+       left as typed (writing the trimmed query back ate the space between
+       words); setSearchInputState only syncs it on mount. */
     region.addEventListener("input", function (e) {
       var input = e.target && e.target.closest && e.target.closest("[data-pipeline-search]");
       if (!input) return;
       state.search = String(input.value || "").trim();
-      rerender(region, state);
-      setSearchInputState(region, state);
+      if (region.__pipeSearchTimer) clearTimeout(region.__pipeSearchTimer);
+      region.__pipeSearchTimer = setTimeout(function () {
+        region.__pipeSearchTimer = null;
+        rerender(region, state);
+      }, SEARCH_DEBOUNCE_MS);
     }, on);
   }
 
@@ -1835,7 +1906,7 @@
       if (jobKey == null || jobKey === "") return;
       var pendingList = region.__pipePending || [];
       for (var i = pendingList.length - 1; i >= 0; i--) {
-        if (pendingList[i].jobKey === jobKey) pendingList.splice(i, 1);
+        if (String(pendingList[i].jobKey) === String(jobKey)) pendingList.splice(i, 1);
       }
       scheduleRender();
     }, on);
@@ -2117,6 +2188,10 @@
 
   function optimisticMove(region, drag, toStage) {
     var card = drag.card;
+    // B13: a render during the drag may have replaced the node under the pointer.
+    if (!region.contains(card)) {
+      card = region.querySelector('.pipe-sticker[data-stable-key="' + cssEscape(drag.jobKey) + '"]') || card;
+    }
     var fromBody = region.querySelector('[data-stage-body="' + drag.fromStage + '"]');
     var toBody = region.querySelector('[data-stage-body="' + toStage + '"]');
     if (!toBody) return;
@@ -2197,8 +2272,9 @@
     region.innerHTML = "";
     region.__pipeMounted = false;
     region.__pipeBound = false;
-    region.__pipeHtml = "";
     region.__pipePending = [];
+    if (region.__pipeSearchTimer) clearTimeout(region.__pipeSearchTimer);
+    region.__pipeSearchTimer = null;
   }
 
   function observeLegacy() {
@@ -2209,8 +2285,13 @@
     // render, and a subtree observer would re-trigger scheduleRender forever
     // (a render loop that silently rebuilds every card each idle frame). Only
     // the body's class attribute is watched, for the jb-v2 flag.
+    // B6: other classes flip all the time (detail-open, pipe-url-modal-open);
+    // only the jb-v2 flag itself mounts or clears the board.
+    var running = shouldRun();
     var bodyMo = new MutationObserver(function () {
-      if (!shouldRun()) {
+      if (shouldRun() === running) return;
+      running = shouldRun();
+      if (!running) {
         clearRegion();
         return;
       }
@@ -2231,16 +2312,31 @@
     });
   }
 
+  /* B6: jb-v2-boot-contract.js remounts on EVERY body class flip. A board
+     that is already mounted has nothing to do then; data changes arrive
+     through scheduleRender. */
+  function mountBoard() {
+    var region = getRegion();
+    if (region && region.__pipeMounted) return;
+    scheduleRender();
+  }
+
+  function registerWithBootContract() {
+    var boot = root.JobBoredV2Boot;
+    if (!boot || typeof boot.register !== "function") return false;
+    boot.register({ pipeline: { mount: mountBoard, unmount: clearRegion } });
+    return true;
+  }
+
   function init() {
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.scheduleRender = scheduleRender;
     root.JobBoredPipeline.clearRegion = clearRegion;
     root.JobBoredPipeline.focusSearch = focusSearch;
     root.JobBoredPipeline.focusJob = focusJob;
-    if (root.JobBoredV2Boot && typeof root.JobBoredV2Boot.register === "function") {
-      root.JobBoredV2Boot.register({
-        pipeline: { mount: scheduleRender, unmount: clearRegion },
-      });
+    // The boot contract loads after this file, so register once it exists.
+    if (!registerWithBootContract()) {
+      document.addEventListener("DOMContentLoaded", registerWithBootContract, { once: true });
     }
     // Wire the materials index once. Cards render without badges
     // until the catalog resolves; we re-render on success.
