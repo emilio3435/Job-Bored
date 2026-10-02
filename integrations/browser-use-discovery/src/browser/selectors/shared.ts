@@ -61,6 +61,14 @@ export function sanitizeCompensationText(input: string): string {
   return text;
 }
 
+/** A numeric entity outside Unicode decodes to nothing instead of throwing,
+ * so one malformed description cannot abandon the rest of a source. */
+function safeCodePoint(code: number): string {
+  return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+    ? String.fromCodePoint(code)
+    : "";
+}
+
 export function stripHtml(input: string): string {
   return String(input || "")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -73,10 +81,10 @@ export function stripHtml(input: string): string {
     .replace(/&quot;/gi, '"')
     .replace(/&apos;|&#39;/gi, "'")
     .replace(/&#(\d+);/g, (_, code: string) =>
-      String.fromCodePoint(Number.parseInt(code, 10)),
+      safeCodePoint(Number.parseInt(code, 10)),
     )
     .replace(/&#x([0-9a-f]+);/gi, (_, code: string) =>
-      String.fromCodePoint(Number.parseInt(code, 16)),
+      safeCodePoint(Number.parseInt(code, 16)),
     )
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
