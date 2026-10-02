@@ -3,6 +3,7 @@ import { normalizeCompanyKey } from "../discovery/company-keys.ts";
 
 // B18: re-exported from the single home so existing importers keep working.
 export { normalizeCompanyKey };
+export { inferRemoteBucket, normalizeLocationText } from "../../../../server/shared/listing-prefilter.mjs";
 
 import {
   DEFAULT_STATUS,
@@ -15,6 +16,15 @@ import {
   sanitizeCompensationText,
   toPlainText,
 } from "../browser/selectors/shared.ts";
+// HOLES R2: remote inference lives in the pre-filter module the server's
+// rescore imports too, so both paths read a job's work mode the same way.
+import {
+  HYBRID_LOCATION_PATTERN,
+  inferRemoteBucket,
+  normalizeLocationText,
+  ONSITE_LOCATION_PATTERN,
+  REMOTE_LOCATION_PATTERN,
+} from "../../../../server/shared/listing-prefilter.mjs";
 import {
   computeProfileAwareFitScore,
   buildProfileFitAssessment,
@@ -237,10 +247,11 @@ export async function normalizeLeadWithDiagnostics(
   const detailHaystack = descriptionText.toLowerCase();
   const haystack = [headlineHaystack, detailHaystack].filter(Boolean).join(" ");
 
-  const matchedExcludeKeywords = findMatchedKeywords(
-    haystack,
-    configuredExcludeKeywords,
-  );
+  const excludeScopes = splitExcludeKeywordScopes(configuredExcludeKeywords);
+  const matchedExcludeKeywords = dedupeStrings([
+    ...findMatchedKeywords(headlineHaystack, excludeScopes.headline),
+    ...findMatchedKeywords(detailHaystack, excludeScopes.anywhere),
+  ]);
   if (enforceRelevanceFilters && matchedExcludeKeywords.length > 0) {
     return {
       lead: null,
@@ -339,6 +350,8 @@ export async function normalizeLeadWithDiagnostics(
 
   const userProfile = run.config.userProfile;
   const profileRuntimeConfig = run.config.runtimeConfig;
+  // HOLES R7: the Scorer column (AA) records which scorer produced fitScore.
+  let scorer = "heuristic";
 
   if (userProfile && profileRuntimeConfig) {
     const outcome = await scoreListingForProfile(rawListing, userProfile, {
@@ -353,6 +366,7 @@ export async function normalizeLeadWithDiagnostics(
       // scores for off-target listings. Keyword `fitScore` stays available via
       // `priority` / `tags` for debugging.
       effectiveFitScore = outcome.score.fitScore;
+      scorer = `llm:${outcome.modelId}`;
       fitAssessment = buildLlmFitAssessment(
         outcome.score,
         scoreApplicationComplexityLabel(rawListing),
@@ -450,6 +464,7 @@ export async function normalizeLeadWithDiagnostics(
       url,
       compensationText,
       fitScore: effectiveFitScore,
+      scorer,
       // Only finalizeMatchDecision in run-discovery.ts can supply Search Match.
       matchScore: null,
       favorite,
@@ -540,6 +555,28 @@ function tokenizeKeywords(values: string[]): string[] {
   );
 }
 
+// HOLES R1: an exclude keyword matches the headline (title, company,
+// location, tags); a boilerplate mention in the description is no reason to
+// drop a lead. "anywhere: <keyword>" opts that keyword into the description.
+const ANYWHERE_EXCLUDE_PREFIX = /^anywhere\s*:\s*/i;
+
+export function splitExcludeKeywordScopes(keywords: string[]): {
+  /** Every exclude keyword, prefix removed; each matches the headline. */
+  headline: string[];
+  /** The "anywhere:" keywords, prefix removed; these also match the description. */
+  anywhere: string[];
+} {
+  const headline: string[] = [];
+  const anywhere: string[] = [];
+  for (const keyword of tokenizeKeywords(keywords)) {
+    const bare = keyword.replace(ANYWHERE_EXCLUDE_PREFIX, "").trim();
+    if (!bare) continue;
+    headline.push(bare);
+    if (ANYWHERE_EXCLUDE_PREFIX.test(keyword)) anywhere.push(bare);
+  }
+  return { headline: dedupeStrings(headline), anywhere: dedupeStrings(anywhere) };
+}
+
 export function findMatchedKeywords(haystack: string, keywords: string[]): string[] {
   const normalizedHaystack = normalizeWhitespace(haystack).toLowerCase();
   return tokenizeKeywords(keywords).filter((keyword) =>
@@ -552,7 +589,10 @@ function matchesAnyKeyword(haystack: string, keywords: string[]): boolean {
 }
 
 function keywordMatchesHaystack(haystack: string, keyword: string): boolean {
-  const normalizedKeyword = normalizeWhitespace(keyword).toLowerCase();
+  // An "anywhere:" exclude keyword still matches as itself (R1).
+  const normalizedKeyword = normalizeWhitespace(
+    keyword.replace(ANYWHERE_EXCLUDE_PREFIX, ""),
+  ).toLowerCase();
   if (!normalizedKeyword) return false;
   if (!/[a-z0-9]/.test(normalizedKeyword)) {
     return haystack.includes(normalizedKeyword);
@@ -571,21 +611,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const REMOTE_LOCATION_PATTERN =
-  /\b(remote|remote-first|distributed|work from home|wfh|anywhere)\b/i;
-const HYBRID_LOCATION_PATTERN = /\bhybrid\b/i;
-const ONSITE_LOCATION_PATTERN =
-  /\b(on[\s-]?site|in[\s-]?office|office-based)\b/i;
-
-export function normalizeLocationText(input: string): string {
-  return normalizeWhitespace(input)
-    .toLowerCase()
-    .replace(/\bu\.?s\.?a?\b/g, "united states")
-    .replace(/\bu\.?k\.?\b/g, "united kingdom")
-    .replace(/\bnyc\b/g, "new york")
-    .replace(/[|/]+/g, " ");
-}
-
 export function normalizeSemanticIdentityText(input: string): string {
   return normalizeWhitespace(toPlainText(input))
     .normalize("NFKD")
@@ -595,35 +620,6 @@ export function normalizeSemanticIdentityText(input: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-export function inferRemoteBucket(input: {
-  remoteBucket?: RemoteBucket | string;
-  location?: string;
-  descriptionText?: string;
-  fitAssessment?: string;
-  title?: string;
-}): RemoteBucket {
-  const explicit = normalizeRemoteBucket(input.remoteBucket);
-  if (explicit !== "unknown") return explicit;
-
-  const haystack = normalizeLocationText(
-    [
-      input.location,
-      input.descriptionText,
-      input.fitAssessment,
-      input.title,
-    ]
-      .map((value) => toPlainText(value || ""))
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  if (!haystack) return "unknown";
-  if (REMOTE_LOCATION_PATTERN.test(haystack)) return "remote";
-  if (HYBRID_LOCATION_PATTERN.test(haystack)) return "hybrid";
-  if (ONSITE_LOCATION_PATTERN.test(haystack)) return "onsite";
-  return "unknown";
 }
 
 export function buildLeadSemanticKey(input: LeadFingerprintInput): string {
@@ -984,16 +980,6 @@ function normalizeExternalJobId(input: string): string {
   return normalizeWhitespace(toPlainText(input))
     .toLowerCase()
     .replace(/\s+/g, "");
-}
-
-function normalizeRemoteBucket(input: RemoteBucket | string | undefined): RemoteBucket {
-  const normalized = normalizeWhitespace(String(input || "")).toLowerCase();
-  if (normalized === "remote") return "remote";
-  if (normalized === "hybrid") return "hybrid";
-  if (normalized === "onsite" || normalized === "on-site" || normalized === "on site") {
-    return "onsite";
-  }
-  return "unknown";
 }
 
 function buildDescriptionFragment(input: string): string {

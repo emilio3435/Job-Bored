@@ -40,6 +40,7 @@ export type JobAvailabilityClassification = {
     | "network_error"
     | "timeout"
     | "invalid_url"
+    | "redirect"
     | "ambiguous";
   httpStatus?: number;
   finalUrl?: string;
@@ -245,6 +246,63 @@ function matchMarker(
   return null;
 }
 
+// Path segments that name a kind of page rather than one posting.
+const GENERIC_PATH_SEGMENTS = new Set([
+  "job", "jobs", "career", "careers", "position", "positions", "opening", "openings",
+  "posting", "postings", "view", "apply", "details", "detail", "en", "en-us", "index.html",
+]);
+const JOB_ID_PARAMS = new Set([
+  "gh_jid", "jobid", "job_id", "jid", "id", "jk", "req", "reqid", "requisitionid", "postingid",
+]);
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * The part of a Link that names its posting: a job-id query value, else the
+ * last 4+ digit run in the path (it survives slug changes), else the last
+ * path segment that is not a page kind.
+ */
+function postingToken(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return "";
+  }
+  for (const [key, value] of url.searchParams) {
+    if (JOB_ID_PARAMS.has(key.toLowerCase()) && value.trim()) return value.trim().toLowerCase();
+  }
+  const segments = url.pathname
+    .split("/")
+    .map((segment) => safeDecode(segment).trim().toLowerCase())
+    .filter((segment) => segment && !GENERIC_PATH_SEGMENTS.has(segment));
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const runs = segments[i].match(/\d{4,}/g);
+    if (runs) return runs.reduce((a, b) => (b.length > a.length ? b : a));
+  }
+  return segments.at(-1) || "";
+}
+
+/** True when the Link's final hop no longer names the posting it was saved for. */
+function redirectedAwayFromPosting(rawUrl: string, finalUrl?: string): boolean {
+  if (!finalUrl || finalUrl === rawUrl) return false;
+  const token = postingToken(rawUrl);
+  if (!token) return false;
+  let final: URL;
+  try {
+    final = new URL(finalUrl);
+  } catch {
+    return false;
+  }
+  return !safeDecode(`${final.pathname}${final.search}`).toLowerCase().includes(token);
+}
+
 export function classifyJobPostingAvailability(input: {
   url: string;
   httpStatus?: number;
@@ -288,7 +346,26 @@ export function classifyJobPostingAvailability(input: {
     };
   }
 
+  // A Link that now lands somewhere that no longer names the posting is never
+  // proof the posting is open. Greenhouse sends a closed job to its board root
+  // with error=true.
+  const redirected = redirectedAwayFromPosting(input.url, input.finalUrl);
+  if (redirected && /[?&]error=true\b/i.test(String(input.finalUrl))) {
+    return {
+      status: "expired",
+      reason: "Posting URL redirects to the job board with an error flag",
+      evidence: `redirected to ${input.finalUrl}`.slice(0, 180),
+      confidence: "high",
+      source: "redirect",
+      httpStatus: httpStatus || undefined,
+      finalUrl: input.finalUrl,
+    };
+  }
+
   const text = htmlToSearchText(input.body || "");
+  if (!text && redirected) {
+    return redirectedForReview(input.finalUrl, httpStatus);
+  }
   if (!text) {
     return {
       status: "unknown",
@@ -315,6 +392,35 @@ export function classifyJobPostingAvailability(input: {
   }
 
   const closed = matchMarker(text, CLOSED_MARKERS);
+  const open = matchMarker(text, OPEN_MARKERS);
+  if (redirected && closed) {
+    return {
+      status: "expired",
+      reason: `Posting URL redirects to a page with closed-posting marker: ${closed.id}`,
+      evidence: `redirected to ${input.finalUrl}; ${closed.evidence}`.slice(0, 180),
+      confidence: "high",
+      source: "redirect",
+      httpStatus: httpStatus || undefined,
+      finalUrl: input.finalUrl,
+    };
+  }
+  if (redirected) {
+    return redirectedForReview(input.finalUrl, httpStatus);
+  }
+
+  // A closed phrase only wins when nothing on the page says the posting is
+  // open; a "position filled" in a related-jobs list is not proof.
+  if (closed && open) {
+    return {
+      status: "unknown",
+      reason: `Closed marker ${closed.id} and open marker ${open.id} both present`,
+      evidence: `${closed.evidence} / ${open.evidence}`.slice(0, 180),
+      confidence: "none",
+      source: "ambiguous",
+      httpStatus: httpStatus || undefined,
+      finalUrl: input.finalUrl,
+    };
+  }
   if (closed) {
     return {
       status: "expired",
@@ -327,7 +433,6 @@ export function classifyJobPostingAvailability(input: {
     };
   }
 
-  const open = matchMarker(text, OPEN_MARKERS);
   if (open) {
     return {
       status: "open",
@@ -348,6 +453,21 @@ export function classifyJobPostingAvailability(input: {
     source: "ambiguous",
     httpStatus: httpStatus || undefined,
     finalUrl: input.finalUrl,
+  };
+}
+
+function redirectedForReview(
+  finalUrl: string | undefined,
+  httpStatus: number,
+): JobAvailabilityClassification {
+  return {
+    status: "unknown",
+    reason: "Posting URL redirects to a page that no longer names the posting",
+    evidence: `redirected to ${finalUrl}`.slice(0, 180),
+    confidence: "none",
+    source: "redirect",
+    httpStatus: httpStatus || undefined,
+    finalUrl,
   };
 }
 
@@ -503,13 +623,17 @@ export function describeAvailabilityReason(
       return "the page took too long to load";
     case "invalid_url":
       return "the link in the row is not a valid URL";
+    case "redirect":
+      return classification.status === "expired"
+        ? "the job link now redirects away from the posting, to a page that shows it is gone"
+        : "the job link now redirects somewhere else, so we could not confirm the posting is still open";
     case "ambiguous":
     default:
       return "the page loaded but it did not clearly say the job is open or closed";
   }
 }
 
-function buildAuditLine(params: {
+export function buildAuditLine(params: {
   timestamp: string;
   previousStatus: string;
   classification: JobAvailabilityClassification;
@@ -517,7 +641,7 @@ function buildAuditLine(params: {
   return `[JobBored ${shortDate(params.timestamp)}] Marked Expired because ${describeAvailabilityReason(params.classification)}. Was: ${plainStatus(params.previousStatus)}.`;
 }
 
-function buildNeedsReviewAuditLine(params: {
+export function buildNeedsReviewAuditLine(params: {
   timestamp: string;
   classification: JobAvailabilityClassification;
 }): string {

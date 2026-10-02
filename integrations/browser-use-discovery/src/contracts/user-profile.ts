@@ -116,7 +116,7 @@ export type ProfileHardConstraints = {
   /** City or metro names. Ignored when workMode = "remote_only". */
   acceptableLocations?: string[];
   workAuth?: WorkAuth;
-  /** Case-insensitive title substrings that hard-reject before LLM scoring. */
+  /** Case-insensitive whole-word title phrases (plural and "-ship" forms too) that hard-reject before LLM scoring. */
   skipTitles?: string[];
 };
 

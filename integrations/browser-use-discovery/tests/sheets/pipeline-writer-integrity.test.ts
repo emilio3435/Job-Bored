@@ -24,7 +24,7 @@ function dataRows(sheet: ReturnType<typeof createFakeSheets>): string[][] {
 }
 
 function isPipelineDataRead(range: string): boolean {
-  return range.startsWith("Pipeline!") && !/^Pipeline!A1:/.test(range);
+  return range.startsWith("Pipeline!") && !/^Pipeline![A-Z]+1(?::|$)/.test(range);
 }
 
 test("D1: two concurrent writes of one URL leave exactly one Pipeline row (p01)", async () => {
@@ -126,7 +126,7 @@ test("D4: re-discovery keeps user-edited Source, Priority, Tags and Talking Poin
   const sheet = createFakeSheets({ Pipeline: [HEADER, userRow] });
   const w = createPipelineWriter(runtimeConfig, { fetchImpl: sheet.fetchImpl, ...FAST });
   await w.write("fake-sheet", [
-    lead({ url, fitScore: 6, priority: "⚡", tags: ["backend"], fitAssessment: "LLM: decent fit", talkingPoints: "LLM talking points", logoUrl: "https://logo.example/a.png" }),
+    lead({ url, fitScore: 6, scorer: "llm:fixture", priority: "⚡", tags: ["backend"], fitAssessment: "LLM: decent fit", talkingPoints: "LLM talking points", logoUrl: "https://logo.example/a.png" }),
   ]);
   const after = dataRows(sheet)[0];
   assert.equal(after[5], "Manual", "Source");
@@ -158,11 +158,11 @@ test("D2/D4: a merge writes only the cells that changed, never the whole A:Z row
   const url = "https://boards.greenhouse.io/acme/jobs/1";
   const sheet = createFakeSheets({ Pipeline: [HEADER, pipelineRow({ date: "2026-09-01", title: "Engineer", company: "Acme", location: "Remote", link: url, source: "Greenhouse", fit: "5", status: "Applied", notes: "keep" })] });
   const w = createPipelineWriter(runtimeConfig, { fetchImpl: sheet.fetchImpl, ...FAST });
-  await w.write("fake-sheet", [lead({ url, fitScore: 8, priority: "", tags: [], fitAssessment: "", talkingPoints: "", matchScore: null })]);
+  await w.write("fake-sheet", [lead({ url, fitScore: 8, scorer: "llm:fixture", priority: "", tags: [], fitAssessment: "", talkingPoints: "", matchScore: null })]);
   const update = sheet.calls.find((c) => c.kind === "values.batchUpdate");
   assert.ok(update, "the Fit Score change is written");
   const ranges: string[] = JSON.parse(update!.body).data.map((d: { range: string }) => d.range);
-  assert.deepEqual(ranges, ["Pipeline!H2", "Pipeline!Z2"]);
+  assert.deepEqual(ranges, ["Pipeline!H2", "Pipeline!Z2", "Pipeline!AA2", "Pipeline!AB2"]);
 });
 
 test("D5: posting text that starts like a formula is written as text (p06)", async () => {
@@ -210,9 +210,9 @@ test("D17: a write reads identity columns, not the full A2:Z range (p11)", async
     .filter((c) => c.kind === "values.get" || c.kind === "values.batchGet")
     .flatMap((c) => (c.kind === "values.get" ? [c.range] : c.ranges));
   assert.ok(!readRanges.includes("Pipeline!A2:Z"), `full-sheet read found: ${readRanges.join(" ")}`);
-  // Only the matched row is fetched in full.
-  const fullRowReads = readRanges.filter((r) => /^Pipeline!A\d+:Z\d+$/.test(r) && r !== "Pipeline!A1:Z1");
-  assert.deepEqual(fullRowReads, ["Pipeline!A5:Z5"]);
+  // Only the matched row is fetched in full (A..AC since HOLES added AA–AC).
+  const fullRowReads = readRanges.filter((r) => /^Pipeline!A\d+:AC\d+$/.test(r) && r !== "Pipeline!A1:AC1");
+  assert.deepEqual(fullRowReads, ["Pipeline!A5:AC5"]);
 });
 
 test("D12: a failed update phase still appends brand-new leads (p12-1)", async () => {

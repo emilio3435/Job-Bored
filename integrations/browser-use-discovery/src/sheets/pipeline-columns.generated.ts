@@ -39,4 +39,7 @@ export const PIPELINE_COLUMNS: readonly PipelineColumn[] = [
   { id: "approvalStatus", letter: "X", headerLabel: "Approval Status", sheetIndex: 23, discoveryMerge: "fillIfEmpty" },
   { id: "editLock", letter: "Y", headerLabel: "Edit Lock", sheetIndex: 24, discoveryMerge: "preserve" },
   { id: "workMode", letter: "Z", headerLabel: "Work Mode", sheetIndex: 25, discoveryMerge: "fillIfEmpty" },
+  { id: "scorer", letter: "AA", headerLabel: "Scorer", sheetIndex: 26, discoveryMerge: "overwrite" },
+  { id: "lastSeen", letter: "AB", headerLabel: "Last Seen", sheetIndex: 27, discoveryMerge: "overwrite" },
+  { id: "possibleDuplicate", letter: "AC", headerLabel: "Possible Duplicate", sheetIndex: 28, discoveryMerge: "preserve" },
 ];

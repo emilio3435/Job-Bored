@@ -365,12 +365,13 @@ test("createPipelineWriter rejects a sheet with the wrong Pipeline headers", asy
 });
 
 test("Work Mode Z header is written alone when blank, preserved when occupied", async () => {
-  for (const [zHeader, expectedWidth, expectedHeaderWrites] of [
-    ["", 26, ["Pipeline!Z1"]],
-    ["Work Mode", 26, []],
-    ["Custom", 25, []],
+  // HOLES: rows are now A..AC wide; a custom Z is left blank, not cut off.
+  for (const [zHeader, expectedHeaderWrites] of [
+    ["", ["Pipeline!Z1"]],
+    ["Work Mode", []],
+    ["Custom", []],
   ] as const) {
-    const headers = [...PIPELINE_HEADER_ROW.slice(0, 25), zHeader];
+    const headers = [...PIPELINE_HEADER_ROW.slice(0, 25), zHeader, ...PIPELINE_HEADER_ROW.slice(26)];
     const { fetchImpl, calls, sheet } = createMockFetch({
       headerRows: [headers], dataRows: [], responses: [],
     });
@@ -382,8 +383,9 @@ test("Work Mode Z header is written alone when blank, preserved when occupied", 
     assert.deepEqual(headerWrites, expectedHeaderWrites);
     assert.equal(sheet.tabs.get("Pipeline")[0][25], zHeader || "Work Mode");
     const append = writes(calls).find((call) => /:append/.test(call.url));
-    assert.equal(JSON.parse(append.body).values[0].length, expectedWidth);
-    assert.match(decodeURIComponent(append.url), new RegExp(`Pipeline!A:${expectedWidth === 26 ? "Z" : "Y"}:append`));
+    assert.equal(JSON.parse(append.body).values[0].length, COLUMN_COUNT);
+    assert.equal(JSON.parse(append.body).values[0][25], zHeader === "Custom" ? "" : "hybrid");
+    assert.match(decodeURIComponent(append.url), /Pipeline!A:AC:append/);
   }
 });
 
@@ -459,7 +461,7 @@ test("createPipelineWriter skips incoming leads whose URL is in the Blacklist ta
   assert.equal(result.updated, 0);
   assert.equal(result.skippedBlacklist, 1);
   assert.equal(result.skippedDuplicates, 0);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.equal(calls.some((call) => call.method === "POST"), false);
 });
 
@@ -531,7 +533,7 @@ test("createPipelineWriter treats an existing Pipeline row with non-empty column
   assert.equal(result.updated, 0);
   assert.equal(result.appended, 0);
   assert.equal(result.skippedBlacklist, 1);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.equal(calls.some((call) => call.method === "POST"), false);
 });
 
@@ -554,7 +556,7 @@ test("createPipelineWriter handles missing Blacklist tab gracefully", async () =
 
   assert.equal(result.appended, 1);
   assert.equal(result.skippedBlacklist, 0);
-  assert.match(calls[1].url, /values\/Blacklist!A2%3AA/);
+  assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
 });
 
 test("createPipelineWriter upgrades blank trailing optional headers", async () => {
@@ -607,10 +609,10 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   ]);
 
   // Grid-width ensure runs before the first legacy header write.
-  assert.equal(calls[1].method, "GET");
-  assert.match(calls[1].url, /\/v4\/spreadsheets\/sheet_123\?fields=/);
-  assert.equal(calls[2].method, "POST");
-  const headerUpgradeBody = JSON.parse(calls[2].body);
+  assert.equal(calls[2].method, "GET");
+  assert.match(calls[2].url, /\/v4\/spreadsheets\/sheet_123\?fields=/);
+  assert.equal(calls[3].method, "POST");
+  const headerUpgradeBody = JSON.parse(calls[3].body);
   assert.equal(
     headerUpgradeBody.data[0].range,
     "Pipeline!A1:Y1",
@@ -618,10 +620,16 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   const expectedUpgrade = PIPELINE_HEADER_ROW.slice(0, 25);
   expectedUpgrade[20] = "";
   assert.deepEqual(headerUpgradeBody.data[0].values[0], expectedUpgrade);
-  assert.equal(JSON.parse(calls[3].body).data[0].range, "Pipeline!U1");
-  assert.equal(JSON.parse(calls[4].body).data[0].range, "Pipeline!Z1");
-  assert.deepEqual(JSON.parse(calls[4].body).data[0].values, [["Work Mode"]]);
-  assert.match(calls[5].url, /values\/Blacklist!A2%3AA/);
+  assert.equal(JSON.parse(calls[4].body).data[0].range, "Pipeline!U1");
+  assert.equal(JSON.parse(calls[5].body).data[0].range, "Pipeline!Z1");
+  assert.deepEqual(JSON.parse(calls[5].body).data[0].values, [["Work Mode"]]);
+  // HOLES: AA–AC are re-read, then their blank headers are written.
+  assert.match(calls[6].url, /values\/Pipeline!AA1%3AAC1/);
+  assert.deepEqual(
+    JSON.parse(calls[7].body).data.map((entry) => [entry.range, entry.values[0][0]]),
+    [["Pipeline!AA1", "Scorer"], ["Pipeline!AB1", "Last Seen"], ["Pipeline!AC1", "Possible Duplicate"]],
+  );
+  assert.match(calls[8].url, /values\/Blacklist!A2%3AA/);
   assert.match(
     writes(calls).at(-1).url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
@@ -691,9 +699,10 @@ test("createPipelineWriter refreshes a Google OAuth token when no service accoun
   assert.equal(calls[0].method, "POST");
   assert.match(
     calls[1].url,
-    new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
+    /values\/Pipeline!A1%3AZ1/,
   );
-  assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
+  assert.match(calls[2].url, /values\/Pipeline!AA1%3AAC1/);
+  assert.match(calls[3].url, /values\/Blacklist!A2%3AA/);
   assert.equal(calls[1].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[2].headers.authorization, "Bearer refreshed-token");
   assert.equal(calls[3].headers.authorization, "Bearer refreshed-token");
@@ -951,7 +960,7 @@ test("mergeExistingRow preserves a locked Title while still updating Fit Score o
   // The core regression for the reported bug: locked identity survives, but
   // discovery-improved fields (Fit Score) must keep getting better.
   const existingRow = existingMatchRow({ 24: "title", [IDX.fitScore]: "5" });
-  const merged = await mergedRowFor(existingRow, rediscoveredLead({ fitScore: 9 }));
+  const merged = await mergedRowFor(existingRow, rediscoveredLead({ fitScore: 9, scorer: "llm:fixture" }));
 
   assert.equal(merged[IDX.title], "User Renamed Title", "locked title must be preserved");
   assert.equal(
@@ -965,6 +974,7 @@ test("re-discovery writes Fit Score and current assessment together, clearing st
   const existing = existingMatchRow({ 7: "5", 10: "Old fit (score: 5/10).", 20: "8" });
   const refreshed = await mergedRowFor(existing, rediscoveredLead({
     fitScore: 9,
+    scorer: "llm:fixture",
     fitAssessment: "Strong fit (score: 9/10). New reasons.",
     matchScore: null,
   }));
@@ -974,6 +984,7 @@ test("re-discovery writes Fit Score and current assessment together, clearing st
 
   const noReasons = await mergedRowFor(existing, rediscoveredLead({
     fitScore: 4,
+    scorer: "llm:fixture",
     fitAssessment: "",
     matchScore: null,
   }));
@@ -1044,11 +1055,11 @@ test("buildLeadRow uses the local calendar day when discovery happens at 23:50 i
   }
 });
 
-test("buildLeadRow emits 26 cells with Edit Lock at Y and Work Mode at Z", async () => {
+test("buildLeadRow emits 29 cells with Edit Lock at Y, Work Mode at Z and AA–AC after", async () => {
   // buildLeadRow is private; we observe its output via the append path (a
   // brand-new lead with no existing match). The appended row must be exactly
   // COLUMN_COUNT wide with Edit Lock at Y and Work Mode at Z.
-  assert.equal(COLUMN_COUNT, 26, "header must widen to 26 columns (Work Mode = Z)");
+  assert.equal(COLUMN_COUNT, 29, "header widens to 29 columns (Scorer, Last Seen, Possible Duplicate = AA–AC)");
 
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
@@ -1068,7 +1079,7 @@ test("buildLeadRow emits 26 cells with Edit Lock at Y and Work Mode at Z", async
   assert.equal(
     appendedRow.length,
     COLUMN_COUNT,
-    "an appended lead row must be COLUMN_COUNT (26) wide",
+    "an appended lead row must be COLUMN_COUNT (29) wide",
   );
   assert.equal(
     appendedRow[24],

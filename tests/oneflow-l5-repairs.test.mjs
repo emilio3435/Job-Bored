@@ -188,7 +188,7 @@ describe("ONEFLOW L5 Phase 0 repairs", () => {
     );
   });
 
-  it("documents the same 26 Pipeline columns that the starter-sheet code creates", () => {
+  it("documents the same 29 Pipeline columns that the starter-sheet code creates", () => {
     const appConfigSource = readRepoFile("app-config-core.js");
     const headerArray = appConfigSource.match(
       /const STARTER_PIPELINE_HEADERS = (\[[\s\S]*?\n\s*\]);/,
@@ -197,8 +197,8 @@ describe("ONEFLOW L5 Phase 0 repairs", () => {
     const starterHeaders = Array.from(vm.runInNewContext(headerArray[1]));
 
     const setup = readRepoFile("SETUP.md");
-    assert.match(setup, /Pipeline.*26.*columns \(A.Z\)/);
-    const documentedHeaders = [...setup.matchAll(/^\| [A-Z] +\| ([^|]+?) +\|/gm)].map(
+    assert.match(setup, /Pipeline.*29.*columns \(A.AC\)/);
+    const documentedHeaders = [...setup.matchAll(/^\| [A-Z]{1,2} +\| ([^|]+?) +\|/gm)].map(
       (match) => match[1].trim(),
     );
     assert.deepEqual(documentedHeaders, starterHeaders);

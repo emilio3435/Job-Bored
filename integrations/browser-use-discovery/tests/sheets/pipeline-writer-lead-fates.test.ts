@@ -19,7 +19,7 @@ import {
 const FAST = { retryBaseMs: 1 };
 
 function isPipelineDataRead(range: string): boolean {
-  return range.startsWith("Pipeline!") && !/^Pipeline!A1:/.test(range);
+  return range.startsWith("Pipeline!") && !/^Pipeline![A-Z]+1(?::|$)/.test(range);
 }
 
 test("should report appended and updated links as written and blacklisted links as skipped", async () => {
@@ -75,7 +75,7 @@ test("should report a lead another writer appended after the snapshot as a skipp
   assert.deepEqual(result.skippedLinks, [{ url, reason: "duplicate" }]);
 });
 
-test("should report a semantic identity collision as a skipped identity_collision", async () => {
+test("R3: a semantic collision is written and flagged as a possible duplicate", async () => {
   const sheet = createFakeSheets({
     Pipeline: [
       HEADER,
@@ -92,10 +92,11 @@ test("should report a semantic identity collision as a skipped identity_collisio
   const result = await w.write("fake-sheet", [
     lead({ title: "Backend Engineer", company: "Acme", location: "Remote", url: incoming }),
   ]);
-  assert.equal(result.appended, 0);
+  assert.equal(result.appended, 1);
   assert.equal(result.updated, 0);
-  assert.deepEqual(result.writtenLinks, []);
-  assert.deepEqual(result.skippedLinks, [{ url: incoming, reason: "identity_collision" }]);
+  assert.deepEqual(result.writtenLinks, [incoming]);
+  assert.deepEqual(result.skippedLinks, []);
+  assert.equal(sheet.tabs.get("Pipeline")![2][28], "https://acme.example/careers/backend-engineer");
 });
 
 test("should carry only the appended links as written when the update phase fails", async () => {

@@ -100,6 +100,10 @@ export const PIPELINE_HEADER_ROW = [
   // discovery overwrites identity fields exactly as before.
   "Edit Lock",
   "Work Mode",
+  // HOLES R7/R16/R3: score provenance, last sighting, and the duplicate flag.
+  "Scorer",
+  "Last Seen",
+  "Possible Duplicate",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];
@@ -687,6 +691,11 @@ export type NormalizedLead = {
   url: string;
   compensationText: string;
   fitScore: number | null;
+  /**
+   * HOLES R7: which scorer produced fitScore, written to the Scorer column
+   * (AA): "llm:<model>" or "heuristic". Absent for placeholder scores.
+   */
+  scorer?: string;
   /**
    * 0–10 score from the Gemini job-matcher's overallScore (0–1 multiplied by
    * 10 and rounded). Distinct from profile-aware fitScore. Populated only by finalizeMatchDecision in

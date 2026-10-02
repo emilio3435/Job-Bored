@@ -130,7 +130,7 @@ describe("F4: overlapping rescores", () => {
       if (
         url.hostname === "sheets.googleapis.com" &&
         (init.method || "GET") === "GET" &&
-        decodeURIComponent(url.pathname).endsWith("!A2:X")
+        /!A2:[A-Z]+$/.test(decodeURIComponent(url.pathname))
       ) {
         snapshotTaken = true;
         // A sort lands between the snapshot and the writes: row 4 now

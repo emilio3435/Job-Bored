@@ -207,7 +207,12 @@ const REJECTED = [
   listing("Globex", "Senior PHP Developer", "91", "Maintain php monolith. Remote."),
 ];
 // Same job as Acme #1 under a second URL: collapsed by semantic dedupe.
-const DUPLICATE = listing("Acme", "Backend Engineer", "1-copy");
+// HOLES R8: the copy carries no Greenhouse job id (the employer's own page);
+// a second Greenhouse id would be a second opening and is kept.
+const DUPLICATE = {
+  ...listing("Acme", "Backend Engineer", "1"),
+  url: "https://careers.acme.example/backend-engineer",
+};
 
 test("should catalog rejected, duplicate, capped and written leads with their statuses", async () => {
   const { raw, store, close } = openStore();
