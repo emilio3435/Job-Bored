@@ -447,6 +447,60 @@ describe("R5 · the view-model reaches the board uncapped (pipeline-render.js)",
   });
 });
 
+describe("R5 · the opt-out kanban's \"+N hidden\" is a Show all toggle (pipeline-render.js)", () => {
+  function mountLegacy(rows) {
+    const env = createBoardEnv({ bodyClass: "", html: '<div id="jobCards"></div><div id="emptyState"></div><span id="roleCount"></span>' });
+    const w = env.window;
+    w.JobBoredApp = {
+      core: {
+        getPipelineData: () => rows,
+        getViewedJobKeys: () => new Set(),
+        getExpandedStages: () => new Set(),
+        getCurrentSearch: () => "",
+        getCurrentSort: () => "fit",
+        getShowDismissed: () => false,
+        getFavoritesOnly: () => false,
+        getDataLoadFailed: () => false,
+        host: { escapeHtml: (v) => String(v), isSignedIn: () => true },
+      },
+      companyLogo: { renderLogoHtml: () => "" },
+      expiredReview: { renderExpiredReviewButton() {} },
+    };
+    for (const f of ["jb-text.js", "stage-registry.js", "company-cap.js", "pipeline-render.js"]) {
+      vm.runInNewContext(read(f), w, { filename: f });
+    }
+    const render = w.JobBoredApp.pipelineRender;
+    render.renderPipeline();
+    const lane = (stage) => env.document.querySelector(`.stage-lane[data-stage="${stage}"]`);
+    return { ...env, render, lane };
+  }
+  const figma = (status, n) => Array.from({ length: n }, (_, i) => ({ title: `${status} ${i}`, company: "Figma", status, fitScore: 5 }));
+
+  it("should render the note as a button that expands and collapses the lane, keeping focus on it", () => {
+    const l = mountLegacy(figma("Researching", 5));
+    const cards = () => l.lane("Researching").querySelectorAll(".kanban-card").length;
+    const toggle = () => l.document.querySelector('[data-action="toggle-show-all"]');
+    assert.equal(cards(), 3, "capped to three per company");
+    assert.ok(toggle() && toggle().tagName.toLowerCase() === "button", "the note is a button");
+    assert.equal(toggle().getAttribute("aria-expanded"), "false");
+    assert.match(toggle().textContent, /Show all \(\+2 from Figma hidden\)/);
+    toggle().focus();
+    l.fire(toggle(), "click");
+    assert.equal(cards(), 5, "Show all shows every role");
+    assert.equal(toggle().getAttribute("aria-expanded"), "true");
+    assert.equal(toggle().textContent, "Show fewer");
+    assert.ok(l.document.activeElement === toggle(), "focus is on the rebuilt toggle");
+    l.fire(toggle(), "click");
+    assert.equal(cards(), 3);
+  });
+
+  it("should show no toggle on a later-stage lane", () => {
+    const l = mountLegacy(figma("Applied", 5));
+    assert.equal(l.lane("Applied").querySelectorAll(".kanban-card").length, 5);
+    assert.equal(l.document.querySelector('[data-action="toggle-show-all"]'), null);
+  });
+});
+
 describe("B3 · the board says when the pipeline is loading or failed to load", () => {
   const status = (board) => board.region.querySelector("[data-pipeline-status]");
 
