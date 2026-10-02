@@ -719,7 +719,7 @@ async function classifyLines({ lines, numbers, withheld, metadataHeaders, pin, f
         payload = await bounded(async () => {
           if (typeof callStage === "function") return callStage({ pin, stage: RESUME_CLASSIFY_STAGE, systemPrompt: CLASSIFY_PROMPT, userText, temperature: 0, jsonMode: true, maxOutputTokens: STRUCTURE_STAGE_MAX_TOKENS, fetchImpl, timeoutMs: remaining, signal: requestSignal });
           const response = await chat({ pin: { ...pin, model: pin.resolvedModel || pin.model }, messages: [{ role: "system", content: CLASSIFY_PROMPT }, { role: "user", content: userText }], temperature: 0, jsonMode: true,
-            fetchImpl: observedFetch, timeoutMs: remaining, signal: requestSignal, retriedTruncation: true });
+            fetchImpl: observedFetch, timeoutMs: remaining, signal: requestSignal, retriedTruncation: true, maxRetries: 0 });
           return { raw: response.text, providerPayload: response.payload };
         });
       } catch (error) {
@@ -1040,7 +1040,7 @@ export async function structureResume({ lsrc, pin, fetchImpl, callStage, timeout
         for (let attempt = 0; attempt < 3; attempt += 1) {
           if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError");
           retryAfter = null;
-          try { response = await chat({ pin: { ...pin, model: pin?.resolvedModel || pin?.model }, messages: [{ role: "system", content: READ_PROMPT }, { role: "user", content: userText }], fetchImpl: observedFetch, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}), temperature: 0.1, jsonMode: true }); break; }
+          try { response = await chat({ pin: { ...pin, model: pin?.resolvedModel || pin?.model }, messages: [{ role: "system", content: READ_PROMPT }, { role: "user", content: userText }], fetchImpl: observedFetch, ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}), temperature: 0.1, jsonMode: true, maxRetries: 0 }); break; }
           catch (error) {
             if (attempt === 2 || !retryableReadError(error) || signal?.aborted) throw error;
             const backoff = [1000, 3000][attempt] * (0.8 + Math.random() * 0.4);

@@ -486,7 +486,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
     }
   });
 
-  it("does not retry provider HTTP errors", async () => {
+  it("retries a provider 429 at most twice, then reports the rate limit (HOLES PROV P8)", async () => {
     const restoreEnv = setTestProviderEnv();
     const originalFetch = globalThis.fetch;
     let calls = 0;
@@ -511,7 +511,7 @@ describe("analyzeAtsScorecard provider parsing", () => {
         assert.equal(error?.retryable, true);
         return true;
       });
-      assert.equal(calls, 1);
+      assert.equal(calls, 3);
     } finally {
       globalThis.fetch = originalFetch;
       restoreEnv();
@@ -547,7 +547,8 @@ describe("analyzeAtsScorecard provider parsing", () => {
         assert.equal(error?.retryable, true);
         return true;
       });
-      assert.equal(calls, 1);
+      // HOLES PROV P8: a 5xx is retried at most twice before it surfaces.
+      assert.equal(calls, 3);
     } finally {
       globalThis.fetch = originalFetch;
       restoreEnv();
