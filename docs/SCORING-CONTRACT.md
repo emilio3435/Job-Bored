@@ -134,7 +134,7 @@ On worker boot, if `~/.jobbored/profile.json` is absent AND `~/.hermes/job-hunt/
 5. Write canonical JSON. Touch `~/.jobbored/.migrated.v1`.
 6. Leave the legacy files in place. They are now read-only and ignored.
 
-A `Rescore all` button in Settings POSTs to `/profile/rescore` which iterates Pipeline rows and re-scores via the LLM. Default behavior is **opt-in** — new discoveries score automatically, but old rows only re-score when the user clicks.
+A `Rescore all` button in Settings POSTs to `/profile/rescore` which iterates Pipeline rows and re-scores via the LLM. Default behavior is **opt-in** — new discoveries score automatically, but old rows only re-score when the user clicks. Rescore covers active rows only (Status blank, New or Researching, and no Dismissed At), newest Date Found first; the 500-row cap counts those rows. Applied and later stages, closed rows and dismissed rows keep their score.
 
 ## 10. Cross-slice ownership
 

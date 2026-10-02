@@ -281,6 +281,7 @@ function providerFetchSignal(externalSignal) {
 
 // Column indices (0-based within the row array, matching PIPELINE_HEADER_ROW).
 const COL = {
+  DATE_FOUND: 0, // A
   TITLE: 1,
   COMPANY: 2,
   LOCATION: 3,
@@ -288,9 +289,15 @@ const COL = {
   SALARY: 6,
   FIT_SCORE: 7, // H
   FIT_ASSESSMENT: 10, // K
+  STATUS: 12, // M
   TALKING_POINTS: 16, // Q
+  DISMISSED_AT: 22, // W
   WORK_MODE: 25, // Z
 };
+
+// HOLES R6: rescore refreshes leads still in triage. Applied and later
+// stages, closed rows and dismissed rows keep the score they were judged on.
+const ACTIVE_STATUS_KEYS = new Set(["", "new", "researching"]);
 
 // HOLES R2/R9/R10: runPreFilter and parseSalaryMax come from
 // shared/listing-prefilter.mjs, the same gate discovery runs.
@@ -1265,7 +1272,26 @@ function classifyRowForRescore(row) {
   const title = String(row[COL.TITLE] || "").trim();
   const company = String(row[COL.COMPANY] || "").trim();
   if (!title && !company) return { kind: "skip", reason: "blank_row" };
+  if (!ACTIVE_STATUS_KEYS.has(String(row[COL.STATUS] || "").trim().toLowerCase())) {
+    return { kind: "skip", reason: "not_active" };
+  }
+  if (String(row[COL.DISMISSED_AT] || "").trim()) return { kind: "skip", reason: "dismissed" };
   return { kind: "rescore", url };
+}
+
+/**
+ * Newest first: by Date Found, then by sheet position (discovery appends at
+ * the bottom). Rows without a readable date go last.
+ * @param {{ rowNumber: number, row: unknown[] }} a
+ * @param {{ rowNumber: number, row: unknown[] }} b
+ */
+function newestFirst(a, b) {
+  const aTime = Date.parse(String(a.row[COL.DATE_FOUND] || "").trim());
+  const bTime = Date.parse(String(b.row[COL.DATE_FOUND] || "").trim());
+  const aKey = Number.isFinite(aTime) ? aTime : -Infinity;
+  const bKey = Number.isFinite(bTime) ? bTime : -Infinity;
+  if (aKey !== bKey) return bKey - aKey;
+  return b.rowNumber - a.rowNumber;
 }
 
 /* ─── Public entry point ───────────────────────────────────────────────── */
@@ -1326,18 +1352,17 @@ export async function rescoreAllPipelineRows({
     typeof maxRows === "number" && Number.isInteger(maxRows) && maxRows > 0
       ? Math.min(maxRows, MAX_ROWS)
       : MAX_ROWS;
-  const counted = rows.slice(0, effectiveMax);
   /** @type {Array<{ rowNumber: number, row: unknown[], expectedUrl: string }>} */
-  const candidates = [];
+  const eligible = [];
   let skipped = 0;
-  for (let i = 0; i < counted.length; i += 1) {
-    const cls = classifyRowForRescore(counted[i]);
+  for (let i = 0; i < rows.length; i += 1) {
+    const cls = classifyRowForRescore(rows[i]);
     const rowNumber = i + HEADER_ROW_COUNT + 1; // header is row 1; data starts row 2
     if (cls.kind === "rescore") {
-      candidates.push({
+      eligible.push({
         rowNumber,
-        row: counted[i],
-        expectedUrl: String(counted[i][COL.LINK] || "").trim(),
+        row: rows[i],
+        expectedUrl: String(rows[i][COL.LINK] || "").trim(),
       });
     } else {
       skipped += 1;
@@ -1349,6 +1374,8 @@ export async function rescoreAllPipelineRows({
       });
     }
   }
+  // The cap counts rows that will be scored, newest first.
+  const candidates = eligible.sort(newestFirst).slice(0, effectiveMax);
 
   if (dryRun) {
     const result = {
