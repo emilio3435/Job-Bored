@@ -296,11 +296,45 @@
     return JSON.stringify(bundle, null, 0);
   }
 
+  /* Provider deadlines. A local model on a CPU can take minutes per draft. */
+  const CLOUD_TIMEOUT_MS = 180_000;
+  const LOCAL_TIMEOUT_MS = 300_000;
+
+  /**
+   * The caller's signal plus a deadline. Without AbortSignal.timeout, or
+   * with a caller signal but no AbortSignal.any, the caller's signal is
+   * returned unchanged.
+   */
+  function withDeadline(signal, ms) {
+    if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") {
+      return signal;
+    }
+    if (!signal) return AbortSignal.timeout(ms);
+    return typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, AbortSignal.timeout(ms)])
+      : signal;
+  }
+
+  function timeoutError(who, ms, advice) {
+    return new Error(`${who} didn't answer within ${ms / 1000} seconds. ${advice}`);
+  }
+
+  function localTimeoutError(base) {
+    return timeoutError(
+      `The local model server at ${base}`,
+      LOCAL_TIMEOUT_MS,
+      "Local models can be slow on this computer; try again, or pick a smaller model.",
+    );
+  }
+
   /**
    * OpenAI/Anthropic APIs do not send CORS headers for browser `fetch` from
    * arbitrary origins, so the request fails with TypeError: Failed to fetch.
    */
   function wrapFetchFailure(err, label, corsBlocked) {
+    if (err && err.name === "TimeoutError") {
+      return timeoutError(label, CLOUD_TIMEOUT_MS, "Try again, or pick a faster model.");
+    }
     const m = err && err.message ? String(err.message) : "";
     if (err && err.name === "TypeError" && /fail|fetch|network/i.test(m)) {
       if (corsBlocked) {
@@ -337,6 +371,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify(body),
+        signal: withDeadline(undefined, CLOUD_TIMEOUT_MS),
       });
     } catch (e) {
       throw wrapFetchFailure(e, "Gemini", false);
@@ -424,10 +459,11 @@
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: opts?.signal,
+        signal: withDeadline(opts?.signal, label === "local" ? LOCAL_TIMEOUT_MS : CLOUD_TIMEOUT_MS),
       });
     } catch (e) {
       if (label === "local") {
+        if (e && e.name === "TimeoutError") throw localTimeoutError(base);
         let serverHost = "127.0.0.1:11434";
         try {
           serverHost = new URL(base).host || serverHost;
@@ -468,7 +504,7 @@
     try {
       resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        signal: opts?.signal,
+        signal: withDeadline(opts?.signal, CLOUD_TIMEOUT_MS),
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
@@ -491,7 +527,7 @@
     try {
       resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        signal: opts?.signal,
+        signal: withDeadline(opts?.signal, CLOUD_TIMEOUT_MS),
         headers: {
           "Content-Type": "application/json",
           "x-api-key": apiKey,
@@ -594,7 +630,7 @@
     try {
       resp = await fetch(url, {
         method: "POST",
-        signal: opts?.signal,
+        signal: withDeadline(opts?.signal, CLOUD_TIMEOUT_MS),
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
@@ -780,6 +816,7 @@
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: withDeadline(undefined, CLOUD_TIMEOUT_MS),
       });
     } catch (e) {
       throw wrapFetchFailure(e, "OpenAI", true);
@@ -846,6 +883,7 @@
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(body),
+          signal: withDeadline(undefined, CLOUD_TIMEOUT_MS),
         });
       } catch (e) {
         throw wrapFetchFailure(e, "OpenRouter", false);
@@ -896,8 +934,10 @@
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        signal: withDeadline(undefined, LOCAL_TIMEOUT_MS),
       });
     } catch (e) {
+      if (e && e.name === "TimeoutError") throw localTimeoutError(base);
       const m = e && e.message ? String(e.message) : "";
       if (e && e.name === "TypeError" && /fail|fetch|network/i.test(m)) {
         let serverHost = "127.0.0.1:11434";
@@ -940,6 +980,7 @@
           system,
           messages: [{ role: "user", content: user }],
         }),
+        signal: withDeadline(undefined, CLOUD_TIMEOUT_MS),
       });
     } catch (e) {
       throw wrapFetchFailure(e, "Anthropic", true);
@@ -963,11 +1004,20 @@
       event: "command-center.resume-generation",
       ...bundle,
     };
-    const resp = await fetch(hookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    let resp;
+    try {
+      resp = await fetch(hookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: withDeadline(undefined, CLOUD_TIMEOUT_MS),
+      });
+    } catch (e) {
+      if (e && e.name === "TimeoutError") {
+        throw timeoutError("Your webhook", CLOUD_TIMEOUT_MS, "Check that it is running, then try again.");
+      }
+      throw e;
+    }
     const textRaw = await resp.text();
     if (!resp.ok) {
       throw new Error(textRaw.slice(0, 200) || `HTTP ${resp.status}`);
