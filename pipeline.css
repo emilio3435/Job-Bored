@@ -436,7 +436,7 @@ body.jb-v2 [data-region="pipeline"] .pipe-url-modal input[disabled] {
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 600px) { /* --jb-bp-sm */
   body.jb-v2 [data-region="pipeline"] .pipe-url-modal__actions {
     align-items: stretch;
     flex-direction: column-reverse;

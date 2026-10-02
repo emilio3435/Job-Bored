@@ -396,7 +396,7 @@ body.jb-v2 .flow-section__inner {
 }
 
 /* ---- Mobile collapse ≤768px ----------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 760px) { /* --jb-bp-md */
   body.jb-v2 .page-top {
     padding-block: 12px;
     padding-inline: var(--jb-flow-gutter, 18px);
@@ -934,6 +934,6 @@ body.jb-v2 .jb-shelf .jb-shelf__cta-key {
   font-size: 11px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) { /* --jb-bp-md */
   body.jb-v2 .jb-shelf .jb-shelf__hints { grid-template-columns: 1fr; }
 }
