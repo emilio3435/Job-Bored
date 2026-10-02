@@ -365,11 +365,35 @@ app.use(
 // Opt-in static file serving for local dev and e2e tests. Off by default so
 // production deployments don't accidentally expose the repo root.
 // Enable with: JOBBORED_SERVE_STATIC=1 or JOBBORED_STATIC_ROOT=/path/to/dir
+// HOLES S13: it serves the dashboard's public allowlist (the dev server's
+// static-path-guard), never everything under the root. The guard ships with
+// the repo, not the server image, so it is loaded only when serving is on.
 if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
   const staticRoot = process.env.JOBBORED_STATIC_ROOT
     ? String(process.env.JOBBORED_STATIC_ROOT)
     : join(import.meta.dirname || ".", "..");
-  app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
+  const guard = /** @type {{ resolvePublicFile: (urlPath: string, options: { root: string }) => Promise<{ ok: boolean, filePath?: string }> }} */ (
+    await import(new URL("../scripts/lib/static-path-guard.mjs", import.meta.url).href)
+  );
+  /**
+   * @param {import("express").Request} req
+   * @param {import("express").Response} res
+   * @param {import("express").NextFunction} next
+   */
+  const servePublicFile = async (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent(req.path);
+    } catch {
+      return next();
+    }
+    const resolved = await guard.resolvePublicFile(urlPath, { root: staticRoot });
+    if (!resolved.ok || !resolved.filePath) return next();
+    // No express typings are installed; JSDoc resolves Response to the DOM type.
+    return /** @type {{ sendFile: (path: string) => void }} */ (/** @type {unknown} */ (res)).sendFile(resolved.filePath);
+  };
+  app.use(servePublicFile);
 }
 
 app.get("/api/llm-config", (req, res) =>
