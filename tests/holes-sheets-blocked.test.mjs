@@ -106,6 +106,16 @@ describe("R13 · listBlockedRoles and restoreBlockedRole", () => {
     assert.equal((await env.sw.listBlockedRoles()).length, 0);
   });
 
+  it("Restore clears W even when this tab loaded the role before it was dismissed", async () => {
+    const fake = blockedSheet();
+    const env = loadWriteback(fake);
+    env.load();
+    env.state.data.forEach((job) => (job.dismissedAt = null));
+    const [eng] = await env.sw.listBlockedRoles();
+    assert.equal(await env.sw.restoreBlockedRole(eng), true);
+    assert.equal(rowByLink(fake, GH_MOVED)[COL.dismissedAt], "");
+  });
+
   it("Restore lifts every block for the role and un-dismisses its Pipeline row", async () => {
     const fake = blockedSheet();
     const env = loadWriteback(fake);

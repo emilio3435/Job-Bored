@@ -98,6 +98,32 @@ describe("A8 / R12 · dismiss writes now and never half-commits", () => {
     assert.equal(undo.dismissed, true, "the Undo toast is withdrawn");
   });
 
+  it("the rollback re-finds the role when a row was inserted above it", { timeout: 2000 }, async () => {
+    const t = setup();
+    const OTHER = "https://jobs.lever.co/hooli/other-1";
+    t.fake.intercept(async (req) => {
+      if (isAppend(req)) {
+        t.fake.rows("Pipeline").splice(1, 0, pipelineRow({ title: "Other", company: "Hooli", link: OTHER }));
+      }
+      return null;
+    });
+    t.fake.failWhen(isAppend, 503, "Backend unavailable");
+    assert.equal(await t.env.sw.dismissJob(t.idx), false);
+    assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], "", "W rolled back on the role's own row");
+    assert.equal(rowByLink(t.fake, OTHER)[COL.dismissedAt], "", "the inserted row is untouched");
+  });
+
+  it("a Sheet switch during the identity check writes nothing", { timeout: 2000 }, async () => {
+    const t = setup();
+    t.fake.intercept(async (req) => {
+      if (req.method === "GET") t.env.host.getActiveSheetId = () => "sheet-other";
+      return null;
+    });
+    assert.equal(await t.env.sw.dismissJob(t.idx), false);
+    assert.equal(t.fake.requests.filter(isPipelineWrite).length, 0);
+    assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], "");
+  });
+
   it("a failed W write leaves the Blacklist untouched", { timeout: 2000 }, async () => {
     const t = setup();
     t.fake.failWhen(isPipelineWrite, 500, "Internal error");

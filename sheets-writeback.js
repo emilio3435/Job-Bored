@@ -336,9 +336,16 @@ async function updateMultipleCells(updates, isRetry, opts) {
   // opts.guard (A4): which job each row is for is read HERE, before any
   // await — a caller may edit the job optimistically right after this call.
   if (opts && opts.guard && !isRetry) {
-    const targets = targetsForUpdates(updates);
+    const targets = opts.targets || targetsForUpdates(updates);
+    const sid = sheetId();
     const notes = await guardUpdates(updates, targets, silent);
     if (!notes) return false;
+    if (sheetId() !== sid) {
+      // The person switched Sheets while the row was checked: the verified
+      // row belongs to the old Sheet, so write nowhere.
+      console.warn("[JobBored] Sheet write dropped: the active Sheet changed");
+      return false;
+    }
     const ok = await updateMultipleCells(updates, false, { silent });
     if (ok) recordNotesWritten(notes);
     return ok;
@@ -823,8 +830,14 @@ async function toggleFavorite(stableKey) {
    keeps discovery from re-adding the role. They land together or not at
    all: W goes first, and if the Blacklist half then fails, W is put back.
    Restore runs the same halves in reverse. Both resolve true or false. */
-async function putBack(range, value) {
-  if (await updateMultipleCells([{ range, value }], false, { silent: true })) return;
+async function putBack(range, value, target) {
+  // The row is checked again (A4): a row inserted since the first half
+  // landed must not take the rollback meant for this role.
+  const m = PIPELINE_ROW_RANGE.exec(range);
+  const targets = m ? [Object.assign({}, target, { row: Number(m[2]) })] : undefined;
+  if (await updateMultipleCells([{ range, value }], false, { silent: true, guard: true, targets })) {
+    return;
+  }
   console.error("[JobBored] rollback failed; the Sheet may hold half a change at", range);
   host().showToast(
     "Couldn’t undo the half that saved — refresh to check your Sheet",
@@ -848,7 +861,7 @@ async function persistDismiss(target, at, prevW) {
     return true;
   } catch (err) {
     console.error("[JobBored] dismiss: Blacklist write failed; putting W back", err);
-    await putBack(w.range, prevW || "");
+    await putBack(w.range, prevW || "", target);
     return false;
   }
 }
@@ -865,7 +878,7 @@ async function persistRestore(target, prevW, also) {
     return true;
   } catch (err) {
     console.error("[JobBored] restore: Blacklist delete failed; putting W back", err);
-    await putBack(w.range, prevW || "");
+    await putBack(w.range, prevW || "", target);
     return false;
   }
 }
@@ -960,8 +973,10 @@ async function restoreBlockedRole(entry) {
   const urls = entry.url ? [entry.url] : [];
   const providerKeys = entry.providerKey ? [entry.providerKey] : [];
   const data = host().getPipelineData() || [];
+  // This tab's copy may predate the dismiss, so match the role whether or
+  // not it shows as dismissed here; W is cleared either way.
   const idx = data.findIndex((job) => {
-    if (!job || !job.dismissedAt) return false;
+    if (!job) return false;
     const link = normalizeLeadUrlClient(job.link || "");
     const key = providerKeyForUrl(link);
     return (!!link && urls.includes(link)) || (!!key && providerKeys.includes(key));
@@ -976,7 +991,7 @@ async function restoreBlockedRole(entry) {
       return false;
     }
   }
-  const prev = target.job.dismissedAt;
+  const prev = target.job.dismissedAt || entry.dismissedAt || null;
   setDismissedAt(target, null);
   if (await persistRestore(target, prev, { urls, providerKeys })) return true;
   setDismissedAt(target, prev);
