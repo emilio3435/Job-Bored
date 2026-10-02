@@ -232,6 +232,9 @@
     // JOBQA: the key (or base URL) field's own error, drawn beside the field
     // from state so the shell's repaints keep it; "" when none.
     fieldError: "",
+    // A5: what the provider fields held before the first unverified check;
+    // null once a check settles. See holdRollback().
+    rollback: null,
   };
 
   const FIELD_ERROR_ID = "oneFlowAiFieldError";
@@ -870,6 +873,50 @@
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
   }
 
+  /**
+   * A5: the checker reads the live config, so a key is saved before its
+   * check — and a failed check must not leave a typo in charge of a provider
+   * that worked. This keeps what each field held before the first unverified
+   * try (a later try adds only fields it touches first).
+   */
+  function providerFields(def) {
+    return ["resumeProvider", def.baseUrlField || def.keyField, def.modelField].filter(Boolean);
+  }
+
+  function holdRollback(def) {
+    const cfg = liveConfig();
+    if (!state.rollback) state.rollback = {};
+    for (const key of providerFields(def)) {
+      if (!Object.prototype.hasOwnProperty.call(state.rollback, key)) {
+        state.rollback[key] = cfg[key] == null ? "" : cfg[key];
+      }
+    }
+  }
+
+  function restoreFields(keys) {
+    const patch = {};
+    for (const key of keys) patch[key] = state.rollback[key];
+    if (!Object.keys(patch).length) return;
+    call("mergeStoredConfigOverridePatch", patch);
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
+  }
+
+  /** The check failed: every field goes back to its last verified value. */
+  function rollbackUnverified() {
+    if (!state.rollback) return;
+    restoreFields(Object.keys(state.rollback));
+    state.rollback = null;
+  }
+
+  /** The check passed: keep its fields; undo any an abandoned try left. */
+  function keepVerified(def) {
+    if (!state.rollback) return;
+    const kept = providerFields(def);
+    restoreFields(Object.keys(state.rollback).filter((key) => !kept.includes(key)));
+    state.rollback = null;
+  }
+
   /** @returns {Promise<boolean>} whether ~/.jobbored/llm.json took the pin */
   async function postLlmConfigPin(def, value) {
     const model = resolveModel(def);
@@ -943,7 +990,6 @@
     // footer, is history before the check runs.
     setFieldError("");
     if (ctx && typeof ctx.setMessage === "function") ctx.setMessage("", "info");
-    persistProviderConfig(def, value);
 
     const verify = verifier();
     if (!verify) {
@@ -955,6 +1001,8 @@
       );
       return;
     }
+    holdRollback(def);
+    persistProviderConfig(def, value);
 
     const run = (state.checkRun += 1);
     state.stalled = false;
@@ -987,6 +1035,7 @@
     });
 
     if (!result || !result.ok) {
+      rollbackUnverified();
       state.stages = [];
       if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
       state.lastFailure = {
@@ -1004,6 +1053,7 @@
     }
 
     state.lastFailure = null;
+    keepVerified(def);
     const model = String((result && result.model) || "").trim();
     setStages(ctx, [
       { label: "Checking your key…", state: "done" },
