@@ -58,8 +58,11 @@ export function normalizeLocationText(input) {
 }
 
 // D4: a location mismatch is a rejection only when both countries resolve.
-// Country-code collisions alone (CA, IN, DE) supply no country evidence.
+// Country-code collisions alone (CA, IN, DE) supply no country evidence;
+// a City, ST position or full state name supplies US evidence before countries.
 const US_STATE_CODE_PATTERN = /\b(?:al|ak|az|ar|co|ct|fl|ga|hi|ia|id|il|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|dc)\b/i;
+const US_STATE_NAME_PATTERN = /\b(?:alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia)\b/i;
+const US_CITY_STATE_PATTERN = /\b[a-z][a-z .'-]*,\s*(?:al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|dc)\b/i;
 const COUNTRY_NAMES = [
   "united states", "united kingdom", "india", "germany", "canada", "france",
   "australia", "japan", "kenya", "china", "singapore", "mexico", "brazil",
@@ -83,13 +86,18 @@ function resolveLocationCountry(location) {
     .filter((part) => part.trim() && normalizeRemoteBucket(part) === "unknown");
   if (components.length > 1) return undefined;
   const normalized = normalizeLocationText(location);
-  const countries = new Set(COUNTRY_NAMES.filter((name) => matchesPhrase(normalized, name)));
+  const countries = new Set();
+  if (US_STATE_NAME_PATTERN.test(location) || US_CITY_STATE_PATTERN.test(location) || US_STATE_CODE_PATTERN.test(location)) {
+    countries.add("united states");
+  }
+  for (const name of COUNTRY_NAMES) {
+    if (matchesPhrase(normalized, name)) countries.add(name);
+  }
   for (const [country, cities] of COUNTRY_CITY_HINTS) {
     const remainder = normalized.replace(cities, "").replace(country, "")
       .replace(/\b[a-z]{2}\b|\d+|[\s,.-]+/g, "");
     if (cities.test(normalized) && !remainder) countries.add(country);
   }
-  if (US_STATE_CODE_PATTERN.test(location)) countries.add("united states");
   return countries.size === 1 ? [...countries][0] : undefined;
 }
 
