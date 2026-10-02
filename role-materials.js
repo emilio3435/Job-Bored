@@ -2442,8 +2442,6 @@
     var entry = null;
     try { entry = state.getScorecardForJob(job); } catch (e) { entry = null; }
     if (!entry || !entry.result) return null;
-    /* "" (U3): the role-match score alone, whichever document it rated. */
-    if (feature === "") return entry;
     return entry.feature === ATS_FEATURE[feature] ? entry : null;
   }
 

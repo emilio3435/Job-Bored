@@ -266,32 +266,12 @@ describe("ATS analysis follows draft modal lifecycle", () => {
     );
   });
 
-  it("retry-ats-scorecard button uses current active draft text", () => {
-    /* HOLES SCORE (U11): Retry lives in the header grade slot now. */
-    const handlersStart = resumeGenerationJs.indexOf(
-      'const atsCard = document.getElementById("resumeGenerateAtsCard");\n    if (atsCard) {',
-    );
-    assert.notEqual(handlersStart, -1, "ATS retry handler block must exist");
-    const handlerEnd = resumeGenerationJs.indexOf("if (draftNotesModal)", handlersStart);
-    assert.notEqual(handlerEnd, -1, "ATS retry handler block must be readable");
-    const handlerBody = resumeGenerationJs.slice(handlersStart, handlerEnd);
-
-    // Should use getResumeGenerateDraftTextForInsights to get current text OR read from ta.value
-    assert.ok(
-      handlerBody.includes("getResumeGenerateDraftTextForInsights") ||
-        handlerBody.includes('resumeGenerateOutput"') ||
-        handlerBody.includes("ta.value"),
-      "retry-ats-scorecard should get current active draft text from the modal",
-    );
-
-    // Should use session.job for current job context
-    assert.ok(
-      handlerBody.includes("const session = lastResumeGenerationSession") &&
-        handlerBody.includes("session.job") &&
-        handlerBody.includes("buildAtsScorecardRequestPayload") &&
-        handlerBody.includes("renderResumeGenerateInsights(draft, session.job)"),
-      "retry-ats-scorecard should use the current session job context",
-    );
+  /* GRADE (SPEC-GRADE A2): the draft modal has no quality check, so HOLES'
+     header grade slot — and the Retry it carried — is gone; nothing in the
+     modal shows the ATS scorecard any more. */
+  it("the draft modal carries no ATS grade slot and no Retry for it", () => {
+    assert.equal(resumeGenerationJs.indexOf('getElementById("resumeGenerateAtsCard")'), -1, "no grade slot is read");
+    assert.equal(resumeGenerationJs.indexOf("retry-ats-scorecard"), -1, "no Retry for a score it never shows");
   });
 });
 
