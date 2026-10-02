@@ -64,7 +64,8 @@ let silentRefreshPromise = null;
  * A7/A17: GIS answers every request through one callback, so a reply that
  * outlives its wait arrives with no pending op. This names the silent op it
  * answers ("silent-refresh" | "silent-restore"), or "signed-out" when the
- * user signed out since, in which case the reply is dropped.
+ * session it belonged to has since ended (sign-out, Clear settings), in
+ * which case the reply is dropped.
  */
 let unansweredSilentOp = null;
 
@@ -268,11 +269,17 @@ function clearPersistedRuntimeOAuthSession() {
 /** Drop auth state after expiry or failed refresh (does not revoke the token server-side). */
 function clearSessionAuthState() {
   clearScheduledTokenRefresh();
+  const abandoned = oauthPendingOp;
   // A1: settle a refresh still in flight, so its shared promise never
-  // outlives the session it was refreshing.
-  if (oauthPendingOp?.kind === "silent-refresh" && oauthPendingOp.finish) {
-    oauthPendingOp.finish(false);
+  // outlives the session it was refreshing; an interactive caller too.
+  if (abandoned?.kind === "silent-refresh" && abandoned.finish) {
+    abandoned.finish(false);
+  } else if (abandoned?.kind === "interactive" && abandoned.finish) {
+    abandoned.finish({ ok: false, reason: "cancelled" });
   }
+  // A3: Google may still answer that request; the answer must not sign the
+  // user back in (Clear settings ends the session here, not via signOut).
+  if (abandoned) unansweredSilentOp = "signed-out";
   accessToken = null;
   userEmail = null;
   userPictureUrl = null;
@@ -865,8 +872,12 @@ function initAuth() {
             }
             return;
           }
+          const hadInteractive = oauthPendingOp?.kind === "interactive";
           settleInteractiveSignIn(err);
           oauthPendingOp = null;
+          // A6: no sign-in was waiting and the tab is signed in — a late
+          // silent token already answered it, so this window is moot.
+          if (!hadInteractive && accessToken) return;
           if (isOAuthOriginClientFailure(err)) {
             showOriginClientFailureToast(openGoogleOriginDetour());
             return;

@@ -195,6 +195,22 @@ describe("A3 · sign-out reaches every open tab over jb-session", () => {
     assert.equal(b.sessionStorage.getItem(RUNTIME_KEY), null);
   });
 
+  it("keeps a cleared session cleared when a reply it abandoned arrives (Clear settings)", async () => {
+    const origin = makeOrigin();
+    const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await signInInteractively(tab, "tok-1");
+    void tab.auth.refreshAccessTokenSilently(); // a 401 retry's refresh, in flight
+
+    tab.auth.clearSessionAuthState(); // settings-modal.js "Clear settings" calls this directly
+    tab.gis.reply({ access_token: "tok-abandoned" });
+    await flush();
+
+    assert.equal(tab.auth.isSignedIn(), false, "the abandoned reply does not sign back in");
+    assert.equal(tab.sessionStorage.getItem(RUNTIME_KEY), null);
+    assert.equal(origin.localStorage.getItem(MARKER_KEY), null);
+  });
+
   it("never puts the token or the email on the channel", async () => {
     const { origin, a } = await twoSignedInTabs();
     a.auth.signOut();
@@ -227,6 +243,33 @@ describe("A6 · closing Google's window ends the sign-in at once", () => {
     assert.match(last, /popup/i);
     assert.match(last, /closed/i);
     assert.doesNotMatch(last, /couldn.t open/i);
+  });
+
+  it("stays quiet when the window closes after its sign-in already finished", async () => {
+    // The restore wait ran out, the user pressed Sign in, and the late
+    // silent token answered first; closing the leftover window is no error.
+    const origin = makeOrigin();
+    origin.localStorage.setItem(
+      MARKER_KEY,
+      JSON.stringify({
+        hasOauthSession: true,
+        expiresAt: Date.UTC(2026, 9, 2, 13, 0, 0),
+        oauthClientId: CLIENT_ID,
+      }),
+    );
+    const tab = loadAuthTab(origin, { sheetId: "sheet-1" });
+    tab.auth.initAuth();
+    await tab.clock.advance(8_000);
+    void tab.auth.signIn();
+    tab.gis.reply({ access_token: "tok-late-restore" });
+    await flush();
+    assert.equal(tab.auth.isSignedIn(), true);
+    const before = tab.toasts.length;
+
+    tab.gis.fail({ type: "popup_closed", message: "Popup window closed" });
+
+    assert.deepEqual(tab.toasts.slice(before), [], "no error toast on a signed-in tab");
+    assert.equal(tab.auth.isSignedIn(), true);
   });
 
   it("settles a successful sign-in with ok:true", async () => {
