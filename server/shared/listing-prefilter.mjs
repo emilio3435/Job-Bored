@@ -57,17 +57,34 @@ export function normalizeLocationText(input) {
     .replace(/[|/]+/g, " ");
 }
 
-// Country shorthand also accepts US city/state locations, as the discovery
-// matcher does. Require a state at the end of a location component so words
-// such as "or" in "Berlin or Munich" are not mistaken for Oregon.
+// State tokens may precede ZIPs or work-mode labels. Keep raw casing and
+// separators: lowercase prose such as "Berlin or Munich" is not a state code.
 const US_STATE_PATTERN =
-  /\b(?:al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|dc|alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia)\b(?=\s*(?:$|[,;/|]))/i;
+  /\b(?:al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|dc|alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia)\b/gi;
+
+// These ISO country codes collide with state abbreviations. Country names
+// disambiguate the entire string; city hints cover common country-only forms.
+const FOREIGN_COUNTRY_PATTERN = /\b(?:india|germany|canada)\b/i;
+const FOREIGN_CITY_BY_CODE = new Map([
+  ["in", /\b(?:bangalore|bengaluru)\b/i],
+  ["de", /\bberlin\b/i],
+  ["ca", /\btoronto\b/i],
+]);
 
 /** @param {string} location @param {string} acceptable */
 function matchesLocation(location, acceptable) {
   const needle = normalizeLocationText(acceptable);
-  if (matchesPhrase(location, needle)) return true;
-  return needle === "united states" && !matchesPhrase(location, "canada") && US_STATE_PATTERN.test(location);
+  const normalized = normalizeLocationText(location);
+  if (matchesPhrase(normalized, needle)) return true;
+  if (needle !== "united states" || FOREIGN_COUNTRY_PATTERN.test(location)) return false;
+  return location.replace(/\bnyc\b/gi, "New York").split(/[;/|]+/).some((component) =>
+    [...component.matchAll(US_STATE_PATTERN)].some((match) => {
+      const token = match[0];
+      if (token.length > 2) return true;
+      if (/^(?:in|or|me|hi|ok|id)$/.test(token) && component.trim() !== token && !/,\s*$/.test(component.slice(0, match.index))) return false;
+      return !FOREIGN_CITY_BY_CODE.get(token.toLowerCase())?.test(location);
+    }),
+  );
 }
 
 /**
@@ -103,7 +120,12 @@ export function inferRemoteBucket(input) {
   );
 
   if (!haystack) return "unknown";
-  if (REMOTE_LOCATION_PATTERN.test(haystack)) return "remote";
+  // Remove denied signals without hiding a separate positive remote clause.
+  const remoteSignal = REMOTE_LOCATION_PATTERN.source;
+  const unnegated = haystack
+    .replace(new RegExp(`\\b(?:no|not|never|without)(?:\\s+(?:a|an|any|fully|entirely)){0,3}\\s+${remoteSignal}`, "gi"), " ")
+    .replace(new RegExp(`${remoteSignal}(?:\\s+(?:work|working|position|role))?\\s+(?:is|are)\\s+(?:not|never)\\b`, "gi"), " ");
+  if (REMOTE_LOCATION_PATTERN.test(unnegated)) return "remote";
   if (HYBRID_LOCATION_PATTERN.test(haystack)) return "hybrid";
   if (ONSITE_LOCATION_PATTERN.test(haystack)) return "onsite";
   return "unknown";
@@ -267,7 +289,7 @@ export function runPreFilter(rawListing, profile) {
       .map((entry) => String(entry || "").trim().toLowerCase())
       .filter(Boolean);
     if (acceptable.length > 0) {
-      const location = normalizeLocationText(String(rawListing.location || ""));
+      const location = String(rawListing.location || "");
       const matches = acceptable.some((loc) => matchesLocation(location, loc));
       if (!matches) {
         return {

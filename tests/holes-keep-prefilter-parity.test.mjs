@@ -63,7 +63,7 @@ function outcome(result) {
 
 describe("R2: rescore infers remote the way discovery does", () => {
   for (const c of fixture.remoteBucket) {
-    const name = `${c.location || "(blank)"} / ${c.title}${c.description ? " / description" : ""}${c.workMode ? ` / Z=${c.workMode}` : ""}`;
+    const name = `${c.location || "(blank)"} / ${c.title}${c.description ? ` / ${c.description}` : ""}${c.workMode ? ` / Z=${c.workMode}` : ""}`;
     it(`${name} -> ${c.expected}`, () => {
       assert.equal(
         inferRemoteBucket({
@@ -117,7 +117,7 @@ describe("R10: skip titles and acceptable locations match whole words", () => {
     });
   }
   for (const c of fixture.acceptableLocations) {
-    it(`accept ${JSON.stringify(c.acceptable)} vs ${JSON.stringify(c.location)} -> ${c.expected}`, () => {
+    it(`accept ${JSON.stringify(c.acceptable)} vs ${JSON.stringify(c.location)}${c.description ? ` / ${c.description}` : ""} -> ${c.expected}`, () => {
       for (const workMode of ["hybrid_ok", "onsite_ok"]) {
         const hc = { workMode, acceptableLocations: c.acceptable };
         assert.equal(outcome(discoveryDecision({ location: c.location, descriptionText: c.description, remoteBucket: c.workMode }, hc)), c.expected, `scorer ${workMode}`);
