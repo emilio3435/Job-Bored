@@ -1201,6 +1201,10 @@ async function maybeFetchDescription(rawListing) {
       title: rawListing.title,
       company: rawListing.company,
     });
+    // HOLES R15: a SerpApi "title_company" pick is a different posting by
+    // the same company (another city, another req). Scoring the row against
+    // it is worse than scoring on the row's own fields.
+    if (scraped && scraped.matchKind === "title_company") return "";
     const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
     const text = String(
       (scraped && (scraped.description || scrapeOutput.bodyText)) ||
