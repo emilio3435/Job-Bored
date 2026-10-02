@@ -1339,6 +1339,12 @@ app.put("/api/applications/:slug/checklist", async (req, res) => {
   }
 });
 
+/* HOLES S14: a drafted document opened in a tab must not run in the API's
+ * origin. The renderer inlines its styles and data: fonts and logos, and
+ * emits no script. PDFs get no sandbox: Chrome's viewer refuses it. */
+const MATERIALS_HTML_CSP =
+  "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'";
+
 app.get("/api/applications/:slug/files/:filename", async (req, res) => {
   try {
     const meta = await resolveFile(req.params.slug, req.params.filename);
@@ -1346,6 +1352,10 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
     res.setHeader("Content-Length", String(meta.size));
     res.setHeader("Last-Modified", meta.modifiedAt);
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (meta.contentType.startsWith("text/html")) {
+      res.setHeader("Content-Security-Policy", MATERIALS_HTML_CSP);
+    }
     /* PDFs default to inline (browsers know how to preview), HTML renders
      * in a new tab, and Markdown is served as text/markdown so the
      * dashboard can fetch + render it. The "download" intent is the
