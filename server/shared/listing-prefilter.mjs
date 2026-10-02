@@ -51,10 +51,23 @@ export const ONSITE_LOCATION_PATTERN = /\b(on[\s-]?site|in[\s-]?office|office-ba
 export function normalizeLocationText(input) {
   return normalizeWhitespace(input)
     .toLowerCase()
-    .replace(/\bu\.?s\.?a?\b/g, "united states")
+    .replace(/\bu\.?s\.?(?:a\.?)?(?![a-z0-9])/g, "united states")
     .replace(/\bu\.?k\.?\b/g, "united kingdom")
     .replace(/\bnyc\b/g, "new york")
     .replace(/[|/]+/g, " ");
+}
+
+// Country shorthand also accepts US city/state locations, as the discovery
+// matcher does. Require a state at the end of a location component so words
+// such as "or" in "Berlin or Munich" are not mistaken for Oregon.
+const US_STATE_PATTERN =
+  /\b(?:al|ak|az|ar|ca|co|ct|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|dc|alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia)\b(?=\s*(?:$|[,;/|]))/i;
+
+/** @param {string} location @param {string} acceptable */
+function matchesLocation(location, acceptable) {
+  const needle = normalizeLocationText(acceptable);
+  if (matchesPhrase(location, needle)) return true;
+  return needle === "united states" && !matchesPhrase(location, "canada") && US_STATE_PATTERN.test(location);
 }
 
 /**
@@ -235,13 +248,8 @@ export function runPreFilter(rawListing, profile) {
 
   // 2. remote_only needs an explicit or inferred "remote"; "unknown" fails
   //    and says so rather than reading as "onsite".
+  const remoteBucket = inferRemoteBucket(rawListing);
   if (hc.workMode === "remote_only") {
-    const remoteBucket = inferRemoteBucket({
-      remoteBucket: rawListing.remoteBucket,
-      location: rawListing.location,
-      title: rawListing.title,
-      descriptionText: rawListing.descriptionText,
-    });
     if (remoteBucket !== "remote") {
       return {
         pass: false,
@@ -252,15 +260,15 @@ export function runPreFilter(rawListing, profile) {
     }
   }
 
-  // 3. hybrid_ok / onsite_ok with acceptableLocations: a whole-word match on
-  //    normalized place names ("NYC" reads as "new york").
-  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
+  // 3. Location constrains non-remote roles; remote roles remain eligible.
+  //    Place names use whole words; US aliases also accept city/state text.
+  if (remoteBucket !== "remote" && (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok")) {
     const acceptable = (hc.acceptableLocations || [])
       .map((entry) => String(entry || "").trim().toLowerCase())
       .filter(Boolean);
     if (acceptable.length > 0) {
       const location = normalizeLocationText(String(rawListing.location || ""));
-      const matches = acceptable.some((loc) => matchesPhrase(location, normalizeLocationText(loc)));
+      const matches = acceptable.some((loc) => matchesLocation(location, loc));
       if (!matches) {
         return {
           pass: false,

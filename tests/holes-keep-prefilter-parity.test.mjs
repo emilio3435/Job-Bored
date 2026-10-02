@@ -120,8 +120,8 @@ describe("R10: skip titles and acceptable locations match whole words", () => {
     it(`accept ${JSON.stringify(c.acceptable)} vs ${JSON.stringify(c.location)} -> ${c.expected}`, () => {
       for (const workMode of ["hybrid_ok", "onsite_ok"]) {
         const hc = { workMode, acceptableLocations: c.acceptable };
-        assert.equal(outcome(discoveryDecision({ location: c.location }, hc)), c.expected, `scorer ${workMode}`);
-        assert.equal(outcome(rescoreDecision({ location: c.location }, "", hc)), c.expected, `rescore ${workMode}`);
+        assert.equal(outcome(discoveryDecision({ location: c.location, descriptionText: c.description, remoteBucket: c.workMode }, hc)), c.expected, `scorer ${workMode}`);
+        assert.equal(outcome(rescoreDecision({ location: c.location, workMode: c.workMode }, c.description, hc)), c.expected, `rescore ${workMode}`);
       }
     });
   }
