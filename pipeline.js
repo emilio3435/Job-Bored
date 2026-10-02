@@ -378,9 +378,19 @@
     return Number.isFinite(n) ? n : -Infinity;
   }
 
+  // Local fallback — the same R18 normalization as company-cap.js.
+  var LEGAL_SUFFIX = /\s+(?:inc|incorporated|llc|llp|lp|ltd|limited|corp|corporation|co|company|gmbh|plc|ag|sa|bv|nv|pty|pte)$/;
+
   function companyKey(card) {
     if (capModule) return capModule.companyKey(card);
-    return String((card && card.company) || "").trim().toLowerCase();
+    var base = String((card && card.company) || "")
+      .toLowerCase()
+      .replace(/[.,]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    var key = base;
+    while (LEGAL_SUFFIX.test(key)) key = key.replace(LEGAL_SUFFIX, "");
+    return key || base;
   }
 
   function fitScoreOf(card) {
