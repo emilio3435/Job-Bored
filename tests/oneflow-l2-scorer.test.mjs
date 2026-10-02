@@ -45,10 +45,10 @@ describe("ONEFLOW L2 — profile-rescore prefilter mirrors discovery scoring", (
     assert.equal(result.pass, true);
   });
 
-  it("L2-SCORER-MJS-LOCATION-GATE: hybrid and onsite modes still enforce acceptable locations", () => {
+  it("L2-SCORER-MJS-LOCATION-GATE: hybrid and onsite modes reject clearly foreign locations", () => {
     for (const workMode of ["hybrid_ok", "onsite_ok"]) {
       const result = runPreFilter(
-        listing(),
+        listing({ location: "Berlin, Germany" }),
         profile({ workMode, acceptableLocations: ["Denver"] }),
       );
       assert.equal(result.pass, false);

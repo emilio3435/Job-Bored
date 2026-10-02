@@ -61,7 +61,7 @@ test("should map every other prefilter decision to its own precise reason", () =
   );
   assert.equal(
     reasonFor(
-      raw({ location: "Denver, CO" }),
+      raw({ location: "Berlin, Germany" }),
       profile({ workMode: "hybrid_ok", acceptableLocations: ["Chicago"] }),
     ).reason,
     "location_mismatch",
