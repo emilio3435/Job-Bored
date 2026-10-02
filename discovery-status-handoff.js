@@ -707,7 +707,11 @@ async function fetchWorkerJson(path, options) {
     return { ok: false, reason: "unauthorized" };
   }
   if (response.status === 404) return { ok: false, reason: "not_found" };
-  if (!response.ok) return { ok: false, reason: `http_${response.status}` };
+  if (!response.ok) {
+    // D7: a 409 from POST /runs/:id/cancel carries the run's real outcome.
+    const body = await response.json().catch(() => null);
+    return { ok: false, reason: `http_${response.status}`, body };
+  }
   try {
     return { ok: true, body: await response.json() };
   } catch (_) {
@@ -769,6 +773,56 @@ async function retryRunWrite(runId, googleAccessToken) {
   return res.body && res.body.ok && res.body.run
     ? { ok: true, run: res.body.run }
     : { ok: false, reason: "invalid" };
+}
+
+/**
+ * D7: stop a run through the worker's POST /runs/:id/cancel. The worker
+ * holds the answer for up to 15 s while the run unwinds, so the wait is
+ * longer than that. A settled answer (cancelled, or it had already finished)
+ * becomes the tracker's terminal state; anything else leaves the run being
+ * watched and says why.
+ */
+const RUN_CANCEL_TIMEOUT_MS = 30000;
+
+async function cancelDiscoveryRun(runId) {
+  const tracker = runTracker();
+  const id = String(runId || tracker.getState().runId || "").trim();
+  if (!id) return { ok: false, reason: "no_run" };
+  const res = await fetchWorkerJson(`/runs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    withSecret: true,
+    timeoutMs: RUN_CANCEL_TIMEOUT_MS,
+  });
+  const body = res.body && typeof res.body === "object" ? res.body : {};
+  const run = body.run && typeof body.run === "object" ? body.run : null;
+  if (run && (res.ok || body.code === "run_already_terminal")) {
+    if (tracker.getState().runId === id) {
+      stopDiscoveryStatusPolling();
+      tracker.updateFromStatusResponse(run);
+      await refreshPipelineAfterDiscoveryRun(tracker.getState());
+      renderDiscoveryRunStatus();
+      if (typeof tracker.acknowledgeTerminalOutcome === "function") {
+        tracker.acknowledgeTerminalOutcome();
+      }
+    }
+    return { ok: true, cancelled: !!body.cancelled, run };
+  }
+  const toast = (message, tone) => {
+    if (typeof host().showToast === "function") host().showToast(message, tone);
+  };
+  if (res.reason === "timeout" || res.reason === "aborted") {
+    toast("Discovery is still stopping the run — this page keeps watching it.", "info");
+    return { ok: false, reason: "timeout" };
+  }
+  if (res.reason === "unreachable" || res.reason === "no_worker" || res.reason === "http_503") {
+    toast("Couldn't reach discovery to cancel the run. Try again.", "warning");
+    return { ok: false, reason: "unreachable" };
+  }
+  toast(
+    "This run can't be cancelled from here — it will finish on its own. Check Runs for the outcome.",
+    "warning",
+  );
+  return { ok: false, reason: "not_cancellable" };
 }
 
 /**
@@ -1377,6 +1431,12 @@ function renderDiscoveryRunStatus(options) {
       statusTone = "warning";
       break;
     case "failed":
+      // D7: a run the user cancelled ends "failed" with this exact error.
+      if (/^cancelled by user\.?$/i.test(String(state.errorMessage || "").trim())) {
+        statusMessage = "Discovery run cancelled.";
+        statusTone = "info";
+        break;
+      }
       statusMessage =
         "Discovery didn't finish. " +
         (why ? why + ". " : "") +
@@ -1815,6 +1875,7 @@ function resetPostAccessBootstrap() {
     fetchRunHistoryPage: fetchRunHistoryPage,
     fetchRunDetail: fetchRunDetail,
     retryRunWrite: retryRunWrite,
+    cancelDiscoveryRun: cancelDiscoveryRun,
     collectRunRejectionCounts: collectRunRejectionCounts,
     surfacePreFilterRejectionsFromStatus: surfacePreFilterRejectionsFromStatus,
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,
