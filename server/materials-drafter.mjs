@@ -27,6 +27,7 @@ import {
 } from "./materials-resume-source.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import { readProfile, resolveProfilePath } from "./user-profile.mjs";
+import { redactSecrets } from "./security-boundaries.mjs";
 
 /* Keep the selected source whole until ensureLedger can refuse its length.
  * The shared upload/snapshot normalizer still has a legacy input cap. */
@@ -809,8 +810,10 @@ export function createMaterialsDrafter(deps = {}) {
   async function failJob(job, err) {
     const failure = failureFor(err);
     // Raw detail stays server-side for debugging; pending.json is UI surface.
+    // HOLES S17: never the error object itself (a provider error can carry
+    // request headers and the upstream body): its message or stack, redacted.
     // eslint-disable-next-line no-console
-    console.error(`[materials] slug=${job.payload.slug} ${failure.code}:`, /^(?:ingest_|stale_ledger|resume_too_long)/u.test(failure.code) ? { code: failure.code } : err);
+    console.error(`[materials] slug=${job.payload.slug} ${failure.code}:`, /^(?:ingest_|stale_ledger|resume_too_long)/u.test(failure.code) ? { code: failure.code } : redactSecrets(err instanceof Error ? err.stack || err.message : String(/** @type {{ message?: unknown } | null | undefined} */ (err)?.message ?? err)));
     const record = withPhase(job.record, "failed", failure.message, failure.code);
     if (failure.code === "ingest_incomplete") {
       /** @type {any} */ (record).missingEmployers = /** @type {any} */ (err)?.missingEmployers || [];
