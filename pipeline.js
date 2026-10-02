@@ -93,7 +93,19 @@
   /* C19 (TR-08 / MP-09): below 760 px the board is a grouped list with a
      Board toggle; the choice is remembered per device. */
   var VIEW_STORAGE_KEY = "jb_pipelineView";
-  var LIST_VIEW_QUERY = "(max-width: 760px)";
+  /* B16: the list switch sits on --jb-bp-md (tokens-v2.css), the width the
+     board sheets use; the literal is the fallback before the token loads. */
+  var LIST_VIEW_BP_FALLBACK = "760px";
+  var LIST_VIEW_QUERY = "(max-width: " + (function () {
+    try {
+      var cs = root.getComputedStyle && document.documentElement && root.getComputedStyle(document.documentElement);
+      var v = cs && cs.getPropertyValue("--jb-bp-md");
+      v = v ? String(v).trim() : "";
+      return /^\d+px$/.test(v) ? v : LIST_VIEW_BP_FALLBACK;
+    } catch (_) {
+      return LIST_VIEW_BP_FALLBACK;
+    }
+  })() + ")";
   // Per-company visible cap (helpers live in company-cap.js so dawn/lattice/
   // app.js share the same rules). The local fallback below keeps pipeline.js
   // self-sufficient if the shared script ever fails to load.

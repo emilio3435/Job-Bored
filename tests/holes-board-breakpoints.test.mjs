@@ -75,3 +75,14 @@ describe("B16 · one breakpoint scale for the board sheets", () => {
     );
   });
 });
+
+describe("B16 · the board's list view switches on --jb-bp-md", () => {
+  it("should read --jb-bp-md for LIST_VIEW_QUERY, with a fallback equal to the token", () => {
+    const js = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
+    const md = breakpointTokens().get("--jb-bp-md");
+    assert.match(js, /getPropertyValue\("--jb-bp-md"\)/, "pipeline.js reads the token");
+    const fallback = js.match(/LIST_VIEW_BP_FALLBACK = "([^"]+)"/);
+    assert.ok(fallback, "pipeline.js names its fallback width");
+    assert.equal(fallback[1], md, "the fallback is the token's value");
+  });
+});
