@@ -153,22 +153,29 @@ async function resolveTargets(targets) {
 /* A9: notes merge, never overwrite from a stale copy. `base` is the cell as
    loaded (or what this tab last meant to write, see recordNotesWritten),
    `mine` what this write wants, `theirs` the cell now. When nobody
-   else touched it, `mine` is written as is; otherwise each line someone
-   added since the load is kept: on top when they prepended (the dated,
-   newest-first entries), else at the end. */
+   else touched it, `mine` is written as is; otherwise a loaded line they
+   deleted (or edited) stays gone, and each line someone added since the
+   load is kept: on top when they prepended (the dated, newest-first
+   entries), else at the end. */
 function mergeNotes(base, mine, theirs) {
   const b = base == null ? "" : String(base);
   const m = mine == null ? "" : String(mine);
   const t = theirs == null ? "" : String(theirs);
   if (t === b || t === m) return m;
-  const known = new Set(b.split("\n").concat(m.split("\n")).map((line) => line.trim()));
+  const baseLines = new Set(b.split("\n").map((line) => line.trim()));
   const theirLines = t.split("\n");
+  const theirSet = new Set(theirLines.map((line) => line.trim()));
+  const kept = m
+    .split("\n")
+    .filter((line) => !(line.trim() && baseLines.has(line.trim()) && !theirSet.has(line.trim())));
+  const known = new Set([...baseLines, ...kept.map((line) => line.trim())]);
   const added = theirLines.filter((line) => line.trim() && !known.has(line.trim()));
-  if (!added.length) return m;
-  if (!m.trim()) return added.join("\n");
+  const ours = kept.join("\n");
+  if (!added.length) return ours;
+  if (!ours.trim()) return added.join("\n");
   return theirLines[0].trim() === added[0].trim()
-    ? `${added.join("\n")}\n${m}`
-    : `${m}\n${added.join("\n")}`;
+    ? `${added.join("\n")}\n${ours}`
+    : `${ours}\n${added.join("\n")}`;
 }
 
 function refreshFromSheet() {

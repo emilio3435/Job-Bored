@@ -64,6 +64,20 @@ describe("A9 · notes re-read the cell and merge", () => {
     assert.ok(t.env.toasts.some((x) => x.message === "Notes saved"));
   });
 
+  it("a line deleted in the Sheet since the load stays deleted", async () => {
+    const t = setup("Secret note\nCall script");
+    t.setSheetNotes("Call script");
+    await t.env.sw.updateJobNotes(t.idx, "Secret note\nCall script\nPrep: STAR stories");
+    assert.equal(t.sheetNotes(), "Call script\nPrep: STAR stories");
+  });
+
+  it("a line edited in the Sheet since the load keeps only the edit", async () => {
+    const t = setup("Secret note\nCall script");
+    t.setSheetNotes("Secret note\nCall script — Wed");
+    await t.env.sw.updateJobNotes(t.idx, "Secret note\nCall script");
+    assert.equal(t.sheetNotes(), "Secret note\nCall script — Wed");
+  });
+
   it("a cleared note still keeps someone else's newer line", async () => {
     const t = setup();
     t.setSheetNotes("Old note\nOffer call Friday");
