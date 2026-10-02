@@ -332,3 +332,19 @@ test("HUNT-FE-STORE-10: loadHunts() refreshes only the saved list, so Runs rows 
   const offline = makeStore({ routes: {} });
   assert.equal(await offline.store.loadHunts(), false);
 });
+
+test("HUNT-FE-STORE-11: a 400 invalid_hunt shows the field the worker names in `detail`", async () => {
+  const { store } = makeStore({
+    routes: {
+      "POST /hunts": json(400, {
+        ok: false,
+        code: "invalid_hunt",
+        message: "The hunt is not valid.",
+        detail: "explorationShare must be a number from 0 to 1.",
+      }),
+    },
+  });
+  const res = await store.saveHunt({ fromRunId: "run_x", explorationShare: 3 });
+  assert.equal(res.code, "invalid_hunt");
+  assert.equal(res.message, "The hunt is not valid. explorationShare must be a number from 0 to 1.");
+});

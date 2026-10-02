@@ -271,7 +271,13 @@
                   offline: false,
                   status: response.status,
                   code: clean(payload.code, 80),
-                  message: clean(payload.message, 400),
+                  // api-error.v1: `detail` names the failing field.
+                  message: [clean(payload.message, 400), clean(
+                    typeof payload.detail === "string" ? payload.detail : "",
+                    400,
+                  )]
+                    .filter(Boolean)
+                    .join(" "),
                   body: payload,
                   reason:
                     response.status === 401 || response.status === 403
