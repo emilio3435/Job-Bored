@@ -1100,6 +1100,13 @@
       else if (status === "partial") logStatus = "partial";
       else if (status === "failed" || status === "write_failed") logStatus = "failure";
       else logStatus = "partial";
+      // D18: the run's real duration, worker clock first, then ours.
+      const endMs = Date.parse(this._state.completedAt || this._state.terminalAt || "");
+      const startMs = Date.parse(this._state.startedAt || this._state.initiatedAt || "");
+      const durationS =
+        Number.isFinite(endMs) && Number.isFinite(startMs) && endMs >= startMs
+          ? Math.round((endMs - startMs) / 1000)
+          : 0;
       return {
         runAt:
           this._state.completedAt ||
@@ -1108,7 +1115,7 @@
           "",
         trigger: this._state.trigger || "manual",
         status: logStatus,
-        durationS: 0,
+        durationS,
         companiesSeen: this._state.companiesSeen || 0,
         leadsWritten: this._state.leadsWritten || 0,
         leadsUpdated: this._state.leadsUpdated || 0,

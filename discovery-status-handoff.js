@@ -1135,6 +1135,21 @@ function stopDiscoveryStatusPolling() {
 const TERMINAL_RUN_STATUSES = ["completed", "empty", "partial", "failed", "write_failed"];
 
 /**
+ * D15: what a finished run added, worded as "3 new roles · 2 updated" — an
+ * updated row is never counted as a new role.
+ */
+function describeRunYield(state) {
+  const written = Math.max(0, Math.floor(Number(state && state.leadsWritten) || 0));
+  const updated = Math.max(0, Math.floor(Number(state && state.leadsUpdated) || 0));
+  return {
+    written,
+    updated,
+    newRoles: `${written} new ${written === 1 ? "role" : "roles"}`,
+    updatedSuffix: updated ? ` · ${updated} updated` : "",
+  };
+}
+
+/**
  * Surface a persisted terminal run outcome exactly once after a reload —
  * sticky for failed/partial/write_failed (with the stored error), transient for
  * completed/empty — refresh the pipeline for lead-bearing outcomes, then
@@ -1150,11 +1165,16 @@ function surfaceStoredTerminalRunOutcomeOnce(state) {
   let tone = "info";
   let sticky = false;
   switch (state.status) {
-    case "completed":
+    case "completed": {
+      const runYield = describeRunYield(state);
       message =
-        "Last discovery run finished — new roles are in your pipeline.";
+        "Last discovery run finished — " +
+        (runYield.written ? runYield.newRoles : "no new roles") +
+        runYield.updatedSuffix +
+        ".";
       tone = "success";
       break;
+    }
     case "empty":
       message = "Last discovery run finished — no new roles were found.";
       break;
@@ -1310,8 +1330,7 @@ function renderDiscoveryRunStatus(options) {
 
   // UX01 C9 (FD-11, SS-24): plain words — no run IDs, no "worker logs",
   // Pipeline rather than "sheet", and a count when the run reports one.
-  const foundCount =
-    (Number(state.leadsWritten) || 0) + (Number(state.leadsUpdated) || 0);
+  const runYield = describeRunYield(state);
   const why = String(state.errorMessage || "").trim().replace(/[.\s]+$/, "");
   switch (state.status) {
     case "pending":
@@ -1339,10 +1358,11 @@ function renderDiscoveryRunStatus(options) {
       statusTone = "warning";
       break;
     case "completed":
-      statusMessage =
-        foundCount > 0
-          ? `Found ${foundCount} new ${foundCount === 1 ? "role" : "roles"}.`
-          : "Discovery finished — new roles are in your Pipeline.";
+      statusMessage = runYield.written
+        ? `Found ${runYield.newRoles}${runYield.updatedSuffix}.`
+        : runYield.updated
+          ? `No new roles this run${runYield.updatedSuffix}.`
+          : "Discovery finished — no new roles this run.";
       statusTone = "success";
       break;
     case "empty":
