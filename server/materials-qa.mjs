@@ -28,6 +28,11 @@ function legacyView(value) {
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, legacyView(item)]));
   return value;
 }
+/** Keep legacy repair truth without exposing retired totals. @param {any} value */
+function legacyRepairSnapshot(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "score" && key !== "max"));
+}
 /** @param {"letter" | "resume"} document */
 export function qaFileName(document) { return document === "letter" ? "qa.letter.json" : "qa.resume.json"; }
 
@@ -128,7 +133,7 @@ export function readQaVerdict(record) {
   return legacyView({ ...base, textHash: /^sha256:[0-9a-f]{64}$/.test(record.textHash || "") ? record.textHash : base.textHash, legacy: "old_checker", disposition,
     reasons: stub ? base.reasons : decisive.map(c => ({ checkId: c.id, text: c.detail })), checks: stub ? base.checks : checks,
     gates: record.gates || [], sentences: record.sentences || [], issues: record.issues || [], ratings: (record.quality?.ratings || []).map((/** @type {any} */ r) => ({ dimension: r.dimension, score: r.score, reason: legacyText(r.reason || "", "Old checker rating"), sentenceIds: r.sentenceIds || [] })),
-    reviews: [], qualificationGaps: record.qualificationGaps || [], degraded: record.degraded || [], repair: { ...base.repair, ...record.repair, before: typeof record.repair?.before === "object" ? record.repair.before : null, after: typeof record.repair?.after === "object" ? record.repair.after : null } });
+    reviews: [], qualificationGaps: record.qualificationGaps || [], degraded: record.degraded || [], repair: { ...base.repair, ...record.repair, before: legacyRepairSnapshot(record.repair?.before), after: legacyRepairSnapshot(record.repair?.after) } });
 }
 
 /** @param {any[]} records */

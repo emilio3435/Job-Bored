@@ -36,6 +36,7 @@ import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-m
 import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
 import { runHardGates } from "./materials-rubric.mjs";
 import { numerals } from "./materials-metric-tag.mjs";
+import { deriveNodes } from "./materials-nodes.mjs";
 import { letterWordBand, resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -66,16 +67,91 @@ async function readJson(path) {
 
 /** Carry the source run's links into its snapshot and merge only its documents at root.
  * @param {string} sourceDir @param {string} dir @param {string} runDir
- * @param {Array<"resume"|"cover_letter">} documents */
-export async function carryWriterSources(sourceDir, dir, runDir, documents) {
+ * @param {Array<"resume"|"cover_letter">} documents
+ * @param {{model?: import('./materials-render.mjs').RenderModel, ops?: any[]}} [edit] */
+export async function carryWriterSources(sourceDir, dir, runDir, documents, edit = {}) {
   if (!existsSync(sourceDir)) return;
   const writerSources = await readJson(await resolveContainedFile(sourceDir, "writer-sources.json", { optional: true }));
   if (!writerSources) return;
+  if (edit.model) {
+    const originalRefs = structuredClone(writerSources);
+    const original = await readJson(await resolveContainedFile(sourceDir, "render-model.json", { optional: true }));
+    rebindWriterSources(writerSources, original, edit.model, documents, edit.ops);
+    for (const key of documents) {
+      const name = key === "cover_letter" ? "draft.cover_letter.json" : "draft.resume.json";
+      const saved = await readJson(await resolveContainedFile(sourceDir, name, { optional: true }));
+      const draft = rebindDraft(saved, originalRefs[key] || [], writerSources[key] || []);
+      if (!draft) continue;
+      const rootPath = await resolveContainedFile(dir, name, { optional: true });
+      const runPath = await resolveContainedFile(runDir, name, { optional: true });
+      await writeFile(rootPath, JSON.stringify(draft, null, 2) + "\n");
+      await writeFile(runPath, JSON.stringify(draft, null, 2) + "\n");
+    }
+  }
   const publishedSources = await readJson(await resolveContainedFile(dir, "writer-sources.json", { optional: true })) || {};
   await resolveContainedFile(runDir, "writer-sources.json", { optional: true });
   for (const key of documents) if (Array.isArray(writerSources[key])) publishedSources[key] = writerSources[key];
   await writeFile(await resolveContainedFile(runDir, "writer-sources.json", { optional: true }), JSON.stringify(writerSources, null, 2) + "\n");
   await writeFile(await resolveContainedFile(dir, "writer-sources.json", { optional: true }), JSON.stringify(publishedSources, null, 2) + "\n");
+}
+
+/** Readdress existing associations; approval and metric values still come from
+ * the original claims. Never assign an inserted or unrelated sentence a claim.
+ * @param {Record<string, any>} refs @param {any} original
+ * @param {import('./materials-render.mjs').RenderModel} model
+ * @param {Array<"resume"|"cover_letter">} documents @param {any[]} [ops] */
+function rebindWriterSources(refs, original, model, documents, ops = []) {
+  if (!validateRenderModel(original).ok) return;
+  const key = (/** @type {string} */ text) => String(text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const words = (/** @type {string} */ text) => new Set((text.toLowerCase().match(/\p{L}{3,}/gu) || []).filter(w => !["the", "and", "for", "with", "was", "were", "that", "this", "our", "from"].includes(w)));
+  const originalNodes = deriveNodes(original), nextNodes = deriveNodes(model);
+  for (const documentKey of documents) {
+    if (!Array.isArray(refs[documentKey])) continue;
+    const document = documentKey === "cover_letter" ? "letter" : "resume";
+    const before = splitSentences(documentBody(original, document), document);
+    const after = splitSentences(documentBody(model, document), document);
+    refs[documentKey] = refs[documentKey].map((/** @type {any} */ ref) => {
+      if (typeof ref.sentence !== "string" || after.some(s => key(s.text) === key(ref.sentence))) return ref;
+      const positions = before.flatMap((s, index) => key(s.text) === key(ref.sentence) ? [index] : []);
+      if (positions.length !== 1) return ref;
+      /** @type {string | undefined} */
+      let candidate = after[positions[0]]?.text;
+      // A replaced node supplies a narrower address when other nodes moved.
+      const targets = originalNodes.filter(n => ops.some(op => op.op === "replace" && op.node === n.id)
+        && splitSentences(n.text, document).some(s => key(s.text) === key(ref.sentence)));
+      if (targets.length === 1) {
+        const node = targets[0], next = nextNodes.find(n => n.id === node.id);
+        const index = splitSentences(node.text, document).findIndex(s => key(s.text) === key(ref.sentence));
+        candidate = next ? splitSentences(next.text, document)[index]?.text : undefined;
+      }
+      if (!candidate) return ref;
+      const oldWords = words(ref.sentence), newWords = words(candidate);
+      const overlap = [...oldWords].filter(w => newWords.has(w)).length;
+      return overlap >= 2 && overlap / Math.max(oldWords.size, newWords.size) >= 0.5 ? { ...ref, sentence: candidate } : ref;
+    });
+  }
+}
+
+/** Hard gates also check the saved draft's sentence links. Keep its
+ * existing slots aligned with the same accepted edits, without new claims.
+ * @param {any} draft @param {unknown} before @param {unknown} after */
+function rebindDraft(draft, before, after) {
+  if (!Array.isArray(before) || !Array.isArray(after)) return draft;
+  const key = (/** @type {string} */ text) => String(text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const changed = before.flatMap((ref, index) => typeof ref.sentence === "string" && after[index]?.sentence !== ref.sentence
+    ? [{ from: key(ref.sentence), to: after[index].sentence }] : []);
+  if (!draft || !changed.length) return draft;
+  const out = structuredClone(draft);
+  const replace = (/** @type {string} */ text) => {
+    if (typeof text !== "string") return text;
+    const parts = splitSentences(text, "letter");
+    if (!parts.some(s => changed.some(c => c.from === key(s.text)))) return text;
+    return parts.map(s => changed.find(c => c.from === key(s.text))?.to || s.text).join(" ");
+  };
+  out.statement = replace(out.statement);
+  for (const entry of [...(out.bullets || []), ...(out.earlier || [])]) entry.text = replace(entry.text);
+  for (const beat of Object.keys(out.letter || {})) out.letter[beat] = replace(out.letter[beat]);
+  return out;
 }
 
 /** @param {import("./materials-render.mjs").RenderModel} model @param {"resume" | "letter"} document */
@@ -166,11 +242,19 @@ async function containedQaRecords(dir) {
 /** Reuse only identical prose; otherwise judge using the shared packet.
  * @param {{ sourceDir: string, stagingDir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, model: import("./materials-render.mjs").RenderModel,
  * runId: string, issues: Array<{code?:string,message?:string,severity?:string}>, notes: string[], jdText: string,
- * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps, force?: boolean }} input */
-export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps, force = false }) {
+ * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps, force?: boolean, editOps?: any[] }} input */
+export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps, force = false, editOps = [] }) {
   /** @param {string} name */
-  const sourcePath = name => force ? resolveContainedFile(sourceDir, name, { optional: true }) : Promise.resolve(join(sourceDir, name));
+  const sourcePath = name => force || existsSync(sourceDir) ? resolveContainedFile(sourceDir, name, { optional: true }) : Promise.resolve(join(sourceDir, name));
   const documents = /** @type {Array<"resume"|"letter">} */ ([...(typeof rendered.resumeHtml === "string" ? ["resume"] : []), ...(typeof rendered.letterHtml === "string" ? ["letter"] : [])]);
+  const refs = await readJson(await sourcePath("writer-sources.json"));
+  const originalRefs = structuredClone(refs);
+  if (refs && !force) {
+    const original = await readJson(await sourcePath("render-model.json"));
+    rebindWriterSources(refs, original, model, documents.map(d => d === "letter" ? "cover_letter" : "resume"), editOps);
+    // Capture before publication can replace the source model at root.
+    await writeFile(join(stagingDir, "writer-sources.json"), JSON.stringify(refs, null, 2) + "\n");
+  }
   const tools = { runHardGates, judgeMaterials, buildQaRecord, splitSentences, ...deps.qaTools };
   const storedLedger = await readLedger();
   const ledger = storedLedger?.ok ? storedLedger.ledger : null;
@@ -191,14 +275,17 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
     const hash = textHash(body);
     const localIssues = issues.filter(i => ["both", document].includes(issueDocument(i)));
     const context = await readJudgeContext(sourceDir, document, fallback, await sourcePath(`judge-context.${document}.json`));
+    const draftName = document === "letter" ? "draft.cover_letter.json" : "draft.resume.json";
+    const savedDraft = await readJson(await sourcePath(draftName));
+    const documentKey = document === "letter" ? "cover_letter" : "resume";
+    const draft = force ? savedDraft : rebindDraft(savedDraft, originalRefs?.[documentKey] || [], refs?.[documentKey] || []);
+    if (draft && !force) await writeFile(join(stagingDir, draftName), JSON.stringify(draft, null, 2) + "\n");
     let qa;
     if (!force && raw?.contract !== "materials.qa.v1" && old && old.state !== "not_rescored" && old.textHash === hash && !localIssues.length) {
       qa = { ...old, runId, state: "carried_over", carriedFrom: { runId: old.runId, date: String(inheritedRun?.finishedAt || inheritedRun?.requestedAt || "") } };
     } else if ((!force && raw?.contract === "materials.qa.v1") || !canJudge) {
       qa = buildQaRecord({ document, runId, finalText: body, textHash: hash, state: "not_rescored", gates: localIssues.map(i => ({ id: i.code || "version_issue", kind: "hard", pass: false, reason: i.message || "Version issue", sentenceIds: [] })) });
     } else {
-      const draft = await readJson(await sourcePath(document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
-      const refs = await readJson(await sourcePath("writer-sources.json"));
       const sourceRefs = refs?.[document === "letter" ? "cover_letter" : "resume"];
       if (!Array.isArray(sourceRefs) || !sourceRefs.length) context.reducedEvidence = true;
       // Older saved packets lack metric metadata. Rebuild it from their own
@@ -559,7 +646,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
       ...(rendered.fit.resume?.model?.documents.resume ? { resume: rendered.fit.resume.model.documents.resume } : {}),
       ...(rendered.fit.coverLetter?.model?.documents.coverLetter ? { coverLetter: rendered.fit.coverLetter.model.documents.coverLetter } : {}),
     } };
-    const judged = await writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps });
+    const judged = await writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps, editOps: edit?.ops });
 
     /** @type {Record<string, number>} */
     const pages = {};
@@ -571,14 +658,17 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     ];
     const measured = Boolean(rendered.fit.resume?.measured || rendered.fit.coverLetter?.measured);
     const overflow = rendered.issues.some((i) => i.code === "layout_overflow");
+    for (const name of ["draft.resume.json", "draft.cover_letter.json"]) {
+      if (existsSync(join(stagingDir, name))) await resolveContainedFile(dir, name, { optional: true });
+    }
     await deps.assertBase?.();
     if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
     if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
     if (rendered.pdf.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));
     if (rendered.pdf.coverLetter) await copyFile(coverLetterPdfPath, join(dir, "cover-letter.pdf"));
     if (judged) {
-      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md", "judge-context.resume.json", "judge-context.letter.json"]) {
-        if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), join(dir, name));
+      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md", "judge-context.resume.json", "judge-context.letter.json", "draft.resume.json", "draft.cover_letter.json"]) {
+        if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), await resolveContainedFile(dir, name, { optional: true }));
       }
     }
     const status = judged?.status || await writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady: true });
@@ -616,7 +706,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         ],
       },
     });
-    await carryWriterSources(sourceDir, dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])]);
+    await carryWriterSources(stagingDir, dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])]);
     return { ok: true, slug, runId, ...(regeneratedFrom ? { regeneratedFrom } : {}), template: record.template, status };
   } finally {
     await rm(stagingDir, { recursive: true, force: true });

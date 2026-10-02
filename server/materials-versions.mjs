@@ -345,7 +345,7 @@ export function createMaterialsVersionService(deps = {}) {
             { stage: "publish", status: "ok", llm: false },
           ],
         } });
-        await carryWriterSources(join(dir, RUNS_DIR, input.parentRunId), dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])]);
+        await carryWriterSources(join(dir, RUNS_DIR, input.parentRunId), dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])], { model, ops: edit?.ops });
         return { runId, pdf: "stale", stale: true };
       }
     });
