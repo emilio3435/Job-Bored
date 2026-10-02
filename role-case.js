@@ -464,7 +464,15 @@
        this design's missing/high-severity color — a 94/100 painted crimson
        reads as bad news. The number is named for what it is, and only a low
        score gets the alarm color. */
-    if (n.ats) {
+    /* HOLES SCORE (§0.3): the tile's value is the grade button; the number,
+       its dimensions and its critique open in the score modal. */
+    var gradeBtn = scoreButton(m, "tile");
+    if (gradeBtn) {
+      var gDoc = n.ats ? (n.ats.doc || "draft") : (m.score.feature === "cover_letter" ? "cover letter" : "resume");
+      var gKey = gDoc === "draft" ? "Draft score" : (gDoc.charAt(0).toUpperCase() + gDoc.slice(1) + " draft score");
+      var gSub = n.ats ? "scored " + gDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "") : "";
+      tiles.push(tile("ats", gKey, src("ai"), gradeBtn, esc(gSub), "ai"));
+    } else if (n.ats) {
       var atsLow = Number(n.ats.value) < 70;
       /* C13 (TA-13): the score names the document it rates, and which
          version on which day, so it can never pass for the PDF you send.
@@ -657,7 +665,27 @@
       fitUi.openKey = "";
     }
   }
+  /* HOLES SCORE: a grade button outside the materials rows (the ATS tile,
+     "You have") opens the score modal; the rows' own buttons are
+     role-materials.js's. */
+  function closestGrade(node) {
+    var grade = null;
+    for (var t = node; t && typeof t.getAttribute === "function"; t = t.parentNode) {
+      if (t.getAttribute("data-mount") === "materials" || /\bbrief-materials\b/.test(String(t.getAttribute("class") || ""))) return null;
+      if (!grade && t.getAttribute("data-score-open") != null) grade = t;
+    }
+    return grade;
+  }
   function onBoardClick(mount, event) {
+    var grade = closestGrade(event && event.target);
+    if (grade) {
+      var rm = root.JobBoredRoleMaterials;
+      if (rm && typeof rm.openScore === "function") {
+        if (event && typeof event.preventDefault === "function") event.preventDefault();
+        rm.openScore(grade.getAttribute("data-feature") || "", grade);
+      }
+      return;
+    }
     var button = closestToggle(event && event.target);
     if (!button) return;
     if (button.getAttribute("data-action") === "toggle-fit-readout") {
@@ -703,8 +731,25 @@
     return '<div class="case__skeleton" aria-busy="true" role="status" aria-live="polite">' + s + "</div>";
   }
 
+  /* The grade button from materials-score.js, or "" when it isn't loaded
+     or there is nothing to grade. */
+  function scoreButton(m, scope) {
+    var ms = root.JobBoredMaterialsScore;
+    if (!m.score || !ms || typeof ms.buttonHtml !== "function") return "";
+    return ms.buttonHtml(m.score.grade, { feature: m.score.feature, scope: scope, stale: m.score.stale });
+  }
+
   function renderYouHave(m) {
     var y = m.youHave;
+    /* HOLES SCORE (§0.3): a scorecard's strengths, evidence, gaps and
+       dimensions are the score modal's now; here, only its grade button. */
+    var gradeBtn = y.source === "scorecard" ? scoreButton(m, "case") : "";
+    if (gradeBtn) {
+      return '<section class="case__section case__section--you">' +
+        sectionHead("You have", src("ai", "ai · scorecard")) +
+        '<p class="case__grade">' + gradeBtn + "</p></section>";
+    }
+    if (y.source === "scorecard") return "";
     /* P0-9 (spec §3): the early return only fired on source "none", but a
        keyword analysis whose terms are all `partial` yields no strengths and
        no gaps — the lane emitted a header and closed. */
