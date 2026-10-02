@@ -541,3 +541,13 @@ describe("GRADE backend pass persistence and adoption", () => {
     assert.ok((await json(join(dir, "runs", "still-failing"), "run.json")).held);
   });
 });
+it("GRADE-B D6: pipeline derives bounded requirements from the posting extraction sections", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "grade-coverage-"));
+  try {
+    const { services, calls } = testServices();
+    await runPipeline(base(dir, services, "cover_letter"));
+    assert.ok(calls.judge[0].sources.requirements.length > 0);
+    assert.ok(calls.judge[0].sources.requirements.every(r => r.id && r.text && POSTING.includes(r.text)));
+    assert.ok(calls.judge[0].sources.requirements.length <= 20);
+  } finally { await rm(dir, {recursive:true,force:true}); }
+});

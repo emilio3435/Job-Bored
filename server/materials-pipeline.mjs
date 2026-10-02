@@ -394,7 +394,11 @@ async function runPipelineBody(input, assertBase) {
   const claims = (groundingLedger.claims || []).filter((/** @type {any} */ claim) => claim && typeof claim.id === "string" && typeof claim.text === "string")
     .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text, verified: claim.verified === true }));
   const researchSources = research.map((fact) => ({ id: fact.id, text: fact.text, url: fact.url }));
-  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources, requirements: (Array.isArray(extract.requirements) ? extract.requirements : []).slice(0, 20).map((/** @type {any} */ r, /** @type {number} */ i) => ({ id: typeof r.id === "string" ? r.id : `req:${i + 1}`, text: typeof r === "string" ? r : String(r.text || r.requirement || "") })).filter((/** @type {any} */ r) => r.text) };
+  // The existing extract has bars/stack, not a requirements field. Use its
+  // section parser to retain the posting's requirement text as coverage targets.
+  const requirementTexts = splitSections(jdText).filter(section => section.kind === "requirements").flatMap(section => section.lines).filter(Boolean).slice(0, 20);
+  const requirements = requirementTexts.map((text, i) => ({ id: `req:${i + 1}`, text }));
+  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources, ...(requirements.length ? { requirements } : {}) };
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
@@ -627,7 +631,7 @@ async function runPipelineBody(input, assertBase) {
       const packet = buildJudgePacket({
         writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }], sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
       });
-      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints });
+      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints, ledger: groundingLedger });
       const judge = llmAvailable ? await deps.judgeMaterials(packet) : { status: "unavailable", meta: { provider: "", model: "", promptVersion: "", latencyMs: 0 } };
       /* Previous packet assembly is centralized above. */
 
