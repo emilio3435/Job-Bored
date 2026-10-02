@@ -776,6 +776,38 @@ async function retryRunWrite(runId, googleAccessToken) {
 }
 
 /**
+ * §0.11: a run is no longer cut short to fit the dashboard's Google sign-in.
+ * One that outlives it ends write_failed with its leads kept, and the worker
+ * says the sign-in expired (pipeline-writer.ts). The tab that watched the run
+ * refreshes the sign-in and retries the write once. The token travels only in
+ * that request, never to storage (§0.7). Any other write failure, or a sign-in
+ * that can't refresh silently, stays for Retry write in Runs.
+ */
+const EXPIRED_SIGN_IN_WRITE = /sign-in from the dashboard expired/i;
+
+async function retryWriteAfterExpiredSignIn(state) {
+  if (!state || state.status !== "write_failed") return false;
+  if (!EXPIRED_SIGN_IN_WRITE.test(`${state.errorMessage || ""} ${state.message || ""}`)) {
+    return false;
+  }
+  const readiness = window.JobBoredDiscovery && window.JobBoredDiscovery.readiness;
+  if (!readiness || typeof readiness.getFreshDiscoveryRequestGoogleAccessToken !== "function") {
+    return false;
+  }
+  let token = "";
+  try {
+    token = await readiness.getFreshDiscoveryRequestGoogleAccessToken({ force: true });
+  } catch (_) {
+    return false;
+  }
+  if (!token) return false;
+  const res = await retryRunWrite(state.runId, token);
+  if (!res.ok || !res.run) return false;
+  runTracker().updateFromStatusResponse(res.run);
+  return true;
+}
+
+/**
  * D7: stop a run through the worker's POST /runs/:id/cancel. The worker
  * holds the answer for up to 15 s while the run unwinds, so the wait is
  * longer than that. A settled answer (cancelled, or it had already finished)
@@ -1230,7 +1262,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     }
     syncDiscoveryLiveProgress();
 
-    const updated = tracker.getState();
+    let updated = tracker.getState();
 
     if (updated.status === "polling_error") {
       if (updated.statusEndpointTerminal) {
@@ -1256,6 +1288,9 @@ async function startDiscoveryStatusPolling(webhookUrl) {
 
     if (tracker.isTerminal()) {
       stepBackFromRun(loop);
+      const rewritten = await retryWriteAfterExpiredSignIn(updated);
+      if (!isCurrent()) return;
+      if (rewritten) updated = tracker.getState();
       await refreshPipelineAfterDiscoveryRun(updated);
       if (!isCurrent()) return;
       renderDiscoveryRunStatus();
