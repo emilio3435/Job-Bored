@@ -7,8 +7,10 @@
     new: true,
     researching: true,
   };
+  // The worker's expired-job cleanup writes "[JobBored YYYY-MM-DD] Please
+  // review this job — <reason>."; the other phrasings are older builds'.
   var REVIEW_NOTE_RE =
-    /\b(needs[-\s]?review|review required|availability review|expired review|http\s*(403|429)|captcha|timeout|network error|temporarily unreachable|ambiguous)\b/i;
+    /\b(please review this job|needs[-\s]?review|review required|availability review|expired review|http\s*(403|429)|captcha|timeout|network error|temporarily unreachable|ambiguous)\b/i;
 
   function normalizeStatus(status) {
     return String(status || "").trim().toLowerCase();
@@ -67,16 +69,34 @@
     };
   }
 
+  // Cleanup lines are stamped "[JobBored YYYY-MM-DD] Marked Expired …" or
+  // "[JobBored YYYY-MM-DD] Please review this job …"; older builds wrote a bare
+  // "[ISO] expired-review: …" stamp.
   var AUDIT_STAMP_RE =
-    /\[(\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?)\][^\n]*(?:expired[-\s]?review|availability|cleanup)/i;
+    /\[(?:JobBored\s+)?(\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?)\][^\n]*(?:expired[-\s]?review|availability|cleanup|marked expired|please review this job)/gi;
+
+  function latestAuditStamp(notes) {
+    var latest = "";
+    var latestMs = -Infinity;
+    var match;
+    AUDIT_STAMP_RE.lastIndex = 0;
+    while ((match = AUDIT_STAMP_RE.exec(notes))) {
+      var stamp = match[1];
+      var ms = Date.parse(stamp.length === 10 ? stamp + "T00:00:00Z" : stamp);
+      if (Number.isFinite(ms) && ms >= latestMs) {
+        latestMs = ms;
+        latest = stamp;
+      }
+    }
+    return latest;
+  }
 
   function getPostingHealth(job, options) {
     if (!job || typeof job !== "object") {
       return { state: "unknown", label: "", detail: "", checkedAt: "" };
     }
     var notes = String(job._rawNotes || job.notes || "");
-    var stamp = AUDIT_STAMP_RE.exec(notes);
-    var checkedAt = stamp ? stamp[1] : "";
+    var checkedAt = latestAuditStamp(notes);
     if (normalizeStatus(job.status) === "expired") {
       return {
         state: "expired",

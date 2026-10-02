@@ -509,7 +509,7 @@ export function describeAvailabilityReason(
   }
 }
 
-function buildAuditLine(params: {
+export function buildAuditLine(params: {
   timestamp: string;
   previousStatus: string;
   classification: JobAvailabilityClassification;
@@ -517,7 +517,7 @@ function buildAuditLine(params: {
   return `[JobBored ${shortDate(params.timestamp)}] Marked Expired because ${describeAvailabilityReason(params.classification)}. Was: ${plainStatus(params.previousStatus)}.`;
 }
 
-function buildNeedsReviewAuditLine(params: {
+export function buildNeedsReviewAuditLine(params: {
   timestamp: string;
   classification: JobAvailabilityClassification;
 }): string {
