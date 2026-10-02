@@ -295,11 +295,13 @@ function mergeExistingRow(
     }
   }
 
-  // HOLES R7: a score that is not from an LLM never replaces one that is;
-  // H, K and AA stay together.
+  // Legacy/unknown provenance is protected too. Only an explicit heuristic
+  // marker in our Scorer column authorizes a non-LLM overwrite of filled H.
   const keepScore =
-    !skipIndexes.has(PIPELINE_COL.scorer) &&
-    isLlmScorer(existingRow[PIPELINE_COL.scorer]) && !isLlmScorer(leadRow[PIPELINE_COL.scorer]);
+    Boolean(existingRow[PIPELINE_COL.fitScore]?.trim()) &&
+    (skipIndexes.has(PIPELINE_COL.scorer) ||
+      !/^heuristic$/i.test(String(existingRow[PIPELINE_COL.scorer] || "").trim())) &&
+    !isLlmScorer(leadRow[PIPELINE_COL.scorer]);
   for (const column of PIPELINE_COLUMNS) {
     const index = column.sheetIndex;
     // A user's own label (or a column this run could not add) is never written.
@@ -732,7 +734,7 @@ export function createPipelineWriter(
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
       for (const index of blankedColumns) {
-        if (index !== PIPELINE_COL.lastSeen) leadRow[index] = "";
+        if (index !== PIPELINE_COL.lastSeen && index !== PIPELINE_COL.scorer) leadRow[index] = "";
       }
       const link = leadRow[PIPELINE_COL.link];
       if (!link) continue;

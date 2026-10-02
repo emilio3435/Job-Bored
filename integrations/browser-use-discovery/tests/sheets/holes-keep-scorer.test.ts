@@ -59,8 +59,8 @@ test("R7: an LLM score replaces a heuristic one and records its model", async ()
   assert.equal(row[SCORER], "llm:gemini-flash");
 });
 
-test("R7: a heuristic score replaces a heuristic or unrecorded one, and says so", async () => {
-  for (const before of ["heuristic", ""]) {
+test("R7: a heuristic score replaces only an explicitly heuristic one, and says so", async () => {
+  for (const before of ["heuristic"]) {
     const row = await rediscover(existingRow({ fit: "4" }, before), { fitScore: 6, scorer: "heuristic" });
     assert.equal(row[7], "6", `scorer before: ${before || "(blank)"}`);
     assert.equal(row[SCORER], "heuristic");
@@ -158,4 +158,34 @@ test("R7: under a custom AA header, re-discovery leaves the user's AA cell alone
   const row = sheet.tabs.get("Pipeline")![1];
   assert.equal(row[7], "8");
   assert.equal(row[SCORER], "call the recruiter Tuesday");
+});
+
+for (const incomingScorer of ["heuristic", "prefilter", undefined]) {
+  test(`R7 review: a filled legacy score with blank AA survives ${incomingScorer || "placeholder"}`, async () => {
+    const row = await rediscover(existingRow({ fit: "8", fitAssessment: "Existing assessment" }, ""),
+      { fitScore: 1, fitAssessment: "Fallback assessment", scorer: incomingScorer });
+    assert.equal(row[7], "8");
+    assert.equal(row[10], "Existing assessment");
+    assert.equal(row[SCORER], "");
+  });
+}
+
+test("R7 review: an LLM may replace a legacy score with blank AA", async () => {
+  const row = await rediscover(existingRow({ fit: "8" }, ""), { fitScore: 6, scorer: "llm:new-model" });
+  assert.equal(row[7], "6");
+  assert.equal(row[SCORER], "llm:new-model");
+});
+
+test("R7 review: an empty H can receive its first heuristic score", async () => {
+  const row = await rediscover(existingRow({ fit: "" }, ""), { fitScore: 6, scorer: "heuristic" });
+  assert.equal(row[7], "6");
+  assert.equal(row[SCORER], "heuristic");
+});
+
+test("R7 review: a custom AA cannot authorize a heuristic overwrite", async () => {
+  const header = [...HEADER]; header[SCORER] = "My notes";
+  const sheet = createFakeSheets({ Pipeline: [header, existingRow({ fit: "8", fitAssessment: "Existing assessment" }, "heuristic")] });
+  await createPipelineWriter(runtimeConfig, { fetchImpl: sheet.fetchImpl, retries: 0 }).write("sheet_1", [lead({ fitScore: 1, scorer: "heuristic" })]);
+  assert.equal(sheet.tabs.get("Pipeline")![1][7], "8");
+  assert.equal(sheet.tabs.get("Pipeline")![1][10], "Existing assessment");
 });

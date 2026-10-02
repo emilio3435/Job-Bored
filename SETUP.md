@@ -415,7 +415,7 @@ safety and score-provenance fields.
 | X      | Approval Status | Apply-gate approval marker; an agent may submit only after this is `Approved`.                                                                          |
 | Y      | Edit Lock       | Optional. Comma-separated identity fields edited in the app; discovery preserves those values.                                                         |
 | Z      | Work Mode       | Optional. `remote`, `hybrid`, or `onsite`; blank means unknown. Discovery fills an empty cell. |
-| AA     | Scorer          | Optional. Which scorer produced the Fit Score: `llm:<model>`, `heuristic`, or `prefilter`. A non-LLM score never replaces an LLM one. |
+| AA     | Scorer          | Optional. Which scorer produced the Fit Score: `llm:<model>`, `heuristic`, or `prefilter`. A non-LLM score replaces a filled Fit Score only when its existing Scorer is explicitly `heuristic`; blank provenance is protected. |
 | AB     | Last Seen       | Optional. The last day discovery found the posting live; an Expired row seen again shows up in Review to reopen. |
 | AC     | Possible Duplicate | Optional. The Link of a row this one resembles (same company, title and location) with no matching URL or job id. Clear it to dismiss the flag. |
 

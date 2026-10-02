@@ -960,7 +960,7 @@ test("mergeExistingRow preserves a locked Title while still updating Fit Score o
   // The core regression for the reported bug: locked identity survives, but
   // discovery-improved fields (Fit Score) must keep getting better.
   const existingRow = existingMatchRow({ 24: "title", [IDX.fitScore]: "5" });
-  const merged = await mergedRowFor(existingRow, rediscoveredLead({ fitScore: 9 }));
+  const merged = await mergedRowFor(existingRow, rediscoveredLead({ fitScore: 9, scorer: "llm:fixture" }));
 
   assert.equal(merged[IDX.title], "User Renamed Title", "locked title must be preserved");
   assert.equal(
@@ -974,6 +974,7 @@ test("re-discovery writes Fit Score and current assessment together, clearing st
   const existing = existingMatchRow({ 7: "5", 10: "Old fit (score: 5/10).", 20: "8" });
   const refreshed = await mergedRowFor(existing, rediscoveredLead({
     fitScore: 9,
+    scorer: "llm:fixture",
     fitAssessment: "Strong fit (score: 9/10). New reasons.",
     matchScore: null,
   }));
@@ -983,6 +984,7 @@ test("re-discovery writes Fit Score and current assessment together, clearing st
 
   const noReasons = await mergedRowFor(existing, rediscoveredLead({
     fitScore: 4,
+    scorer: "llm:fixture",
     fitAssessment: "",
     matchScore: null,
   }));

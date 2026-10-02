@@ -565,6 +565,19 @@ async function prepareScorerColumn(sheetId, token) {
 }
 
 /**
+ * @param {unknown} fitScore
+ * @param {unknown} scorer
+ * @param {boolean} scorerColumn
+ * @returns {"llm_score_preserved" | "existing_score_preserved" | null}
+ */
+function preservedScoreReason(fitScore, scorer, scorerColumn) {
+  if (!String(fitScore ?? "").trim()) return null;
+  const provenance = scorerColumn ? String(scorer || "").trim() : "";
+  if (/^heuristic$/i.test(provenance)) return null;
+  return /^llm:/i.test(provenance) ? "llm_score_preserved" : "existing_score_preserved";
+}
+
+/**
  * F16: re-read one row's Link cell right before writing, so a sort,
  * insert or delete between the snapshot and the write cannot land new
  * scores on a different job.
@@ -1516,21 +1529,24 @@ export async function rescoreAllPipelineRows({
    * superseded this one, the profile moved on, or the row's Link cell
    * no longer holds the snapshotted URL.
    * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string, scorer: string }} cell
-   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift" | "llm_score_preserved">}
+   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift" | "llm_score_preserved" | "existing_score_preserved">}
    */
   async function guardedWrite(cell) {
     if (superseded()) return "aborted";
     if (await profileMovedOn()) return "profile_changed";
     const liveUrl = await readLinkCell(sheetId, token, cell.rowNumber);
     if (liveUrl !== cell.expectedUrl) return "row_drift";
-    if (scorerWritable && cell.scorer === "prefilter") {
-      // An LLM score may have landed since the original snapshot.
+    if (cell.scorer === "prefilter") {
+      // A protected score may have landed since the original snapshot.
+      const range = scorerWritable ? `Pipeline!H${cell.rowNumber}:AA${cell.rowNumber}` : `Pipeline!H${cell.rowNumber}`;
       const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`Pipeline!AA${cell.rowNumber}`)}`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!response.ok) throw new Error(`Scorer re-read failed: HTTP ${response.status}`);
-      if (/^llm:/i.test(String((await response.json()).values?.[0]?.[0] || ""))) return "llm_score_preserved";
+      const cells = (await response.json()).values?.[0] || [];
+      const reason = preservedScoreReason(cells[0], cells[19], scorerWritable);
+      if (reason) return reason;
     }
     await writeRowScoreCells({
       sheetId,
@@ -1580,9 +1596,10 @@ export async function rescoreAllPipelineRows({
       }
       const preFilter = runPreFilter(rawListing, profile);
       if (!preFilter.pass) {
-        if (scorerWritable && /^llm:/i.test(String(row[26] || ""))) {
+        const preserveReason = preservedScoreReason(row[COL.FIT_SCORE], row[26], scorerWritable);
+        if (preserveReason) {
           skipped += 1;
-          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: "llm_score_preserved" });
+          emit({ kind: "progress", row: rowNumber, status: "skipped", reason: preserveReason });
           return;
         }
         const score = {
@@ -1602,7 +1619,7 @@ export async function rescoreAllPipelineRows({
           talkingPoints: "",
           scorer: "prefilter",
         });
-        if (preWrite === "llm_score_preserved") {
+        if (preWrite === "llm_score_preserved" || preWrite === "existing_score_preserved") {
           skipped += 1;
           emit({ kind: "progress", row: rowNumber, status: "skipped", reason: preWrite });
           return;
