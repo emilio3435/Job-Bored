@@ -77,6 +77,13 @@ const COUNTRY_CITY_HINTS = new Map([
   ["georgia", /\btbilisi\b/i],
 ]);
 
+/** @param {string} location */
+function locationComponents(location) {
+  return location.split(/[,/|]/).map((part) =>
+    normalizeLocationText(part.trim().replace(/^u\.?k\.?$/i, "united kingdom")),
+  );
+}
+
 /** @param {string} location @returns {string | undefined} */
 function resolveLocationCountry(location) {
   // Separate place components and conflicting evidence stay eligible. Work
@@ -90,8 +97,9 @@ function resolveLocationCountry(location) {
   if (US_STATE_NAME_PATTERN.test(location) || US_CITY_STATE_PATTERN.test(location) || US_STATE_CODE_PATTERN.test(location)) {
     countries.add("united states");
   }
+  const countryComponents = locationComponents(location);
   for (const name of COUNTRY_NAMES) {
-    if (matchesPhrase(normalized, name)) countries.add(name);
+    if (countryComponents.includes(name)) countries.add(name);
   }
   for (const [country, cities] of COUNTRY_CITY_HINTS) {
     const remainder = normalized.replace(cities, "").replace(country, "")
@@ -103,6 +111,11 @@ function resolveLocationCountry(location) {
 
 /** @param {string} location @param {string[]} acceptable */
 function clearlyOutsideLocations(location, acceptable) {
+  const components = locationComponents(location)
+    .filter((part) => part && normalizeRemoteBucket(part) === "unknown");
+  // A country in city position with an unresolved region (Italy, Tex.) stays
+  // eligible. Only an entire country component can authorize the veto.
+  if (!COUNTRY_NAMES.includes(components.at(-1) || "")) return false;
   const normalized = normalizeLocationText(location);
   if (acceptable.some((entry) => matchesPhrase(normalized, normalizeLocationText(entry)))) return false;
   const country = resolveLocationCountry(location);

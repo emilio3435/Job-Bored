@@ -212,6 +212,23 @@
     {"acceptable": ["US"], "location": "Italy, Texas", "expected": "pass"},
     {"acceptable": ["US"], "location": "China Grove, North Carolina", "expected": "pass"},
     {"acceptable": ["US"], "location": "Las Cruces, New Mexico", "expected": "pass"},
-    {"acceptable": ["US"], "location": "Rio Rancho, New Mexico", "expected": "pass"}
+    {"acceptable": ["US"], "location": "Rio Rancho, New Mexico", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Little Italy, Manhattan", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Little Italy, Chicago", "expected": "pass"},
+    {"acceptable": ["US"], "location": "China Grove", "expected": "pass"},
+    {"acceptable": ["US"], "location": "China Grove, N.C.", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Mexico Beach", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Mexico Beach, Fla.", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Brazil IN", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Brazil (IN)", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Italy, Tex.", "expected": "pass"},
+    {"acceptable": ["US"], "location": "New Mexico", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Germany", "expected": "location_outside_acceptable"},
+    {"acceptable": ["US"], "location": "United Kingdom", "expected": "location_outside_acceptable"},
+    {"acceptable": ["US"], "location": "UK", "expected": "location_outside_acceptable"},
+    {"acceptable": ["US"], "location": "U.K.", "expected": "location_outside_acceptable"},
+    {"acceptable": ["US"], "location": "India", "expected": "location_outside_acceptable"},
+    {"acceptable": ["US"], "location": "Berlin Germany", "expected": "pass"},
+    {"acceptable": ["US"], "location": "Mumbai", "expected": "pass"}
   ]
 }
