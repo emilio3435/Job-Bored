@@ -100,6 +100,25 @@ describe("A15 / B8 · loadAllData is single-flight with a generation counter", (
     const loaded = ofType(env, "jb:data:loaded");
     assert.deepEqual(loaded.map((e) => e.detail.generation), [2]);
   });
+
+  it("a superseding load that finds no Sheet id does not leave loading stuck", async () => {
+    const gateA = deferred();
+    const env = loadReader({
+      fetch: async () => {
+        await gateA.promise;
+        return valuesOk(ROWS_A);
+      },
+    });
+    env.state.sheetId = "sheet-A";
+    const old = env.sr.loadAllData();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(env.sr.getLoadState().loading, true);
+    env.state.sheetId = ""; // Settings cleared the Sheet mid-load
+    assert.equal(await env.sr.loadAllData(), false);
+    gateA.resolve();
+    await old;
+    assert.equal(env.sr.getLoadState().loading, false);
+  });
 });
 
 describe("B2 · loadAllData emits jb:data:loading / loaded / failed (§1b.10)", () => {

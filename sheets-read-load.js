@@ -969,11 +969,13 @@
       h.setDashboardDataHydrated(false);
       h.showSheetAccessGate("signin");
       hideSyncBar();
+      clearLoadBusy();
       return false;
     }
 
     if (!normalizeActiveSheetId(h.getActiveSheetId())) {
       hideSyncBar();
+      clearLoadBusy();
       startupLog("sheets-read:load:missing-sheet-id", {
         hasAccessToken: !!h.getAccessToken(),
         hasOAuthClientId: !!h.getOAuthClientId(),
@@ -1084,12 +1086,17 @@
       h.setDataLoadFailed(true);
       return false;
     } finally {
-      if (!superseded()) {
-        if (refreshBtn) refreshBtn.classList.remove("loading");
-        loadState.loading = false;
-        setSyncBusy(false);
-      }
+      if (!superseded()) clearLoadBusy();
     }
+  }
+
+  /** A superseded load leaves the busy state to the newest load, so every
+   *  path of that load, early returns included, has to clear it. */
+  function clearLoadBusy() {
+    const refreshBtn = document.getElementById("refreshBtn");
+    if (refreshBtn) refreshBtn.classList.remove("loading");
+    loadState.loading = false;
+    setSyncBusy(false);
   }
 
   function showErrorState() {
