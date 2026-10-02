@@ -209,9 +209,9 @@ describe("B14 · GET /api/brand-logos/company", () => {
     assert.doesNotMatch(JSON.stringify(res.body), /EACCES|\/Users|hermes/);
   });
 
-  /* server/index.mjs is HOST's file: the integrator adds the import and the
-     app call, so this stays a todo until they land. */
-  it.todo("should be mounted by server/index.mjs (integrator wires it)", () => {
+  /* server/index.mjs is HOST's file: the integrator wired the import and the
+     app call when HOST merged. */
+  it("should be mounted by server/index.mjs (integrator wires it)", () => {
     const index = readFileSync(join(repoRoot, "server/index.mjs"), "utf8");
     assert.match(index, /^import \{ registerCompanyLogoRoute \} from "\.\/company-logo-route\.mjs";$/m);
     assert.match(index, /^registerCompanyLogoRoute\(app\);$/m);
