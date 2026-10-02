@@ -523,7 +523,11 @@ async function writeJdFile(dir, text, meta = {}) {
  * @property {number} [heartbeatMs] F14: queued-job heartbeat interval
  *   (default 60s; tests use a shorter one)
  * @property {typeof runPipeline} [pipeline] injected for repair contract tests
+ * @property {number} [maxQueued] HOLES S4: how many drafts may wait behind the
+ *   running one (default MAX_QUEUED_DRAFTS)
  */
+
+const MAX_QUEUED_DRAFTS = 20;
 
 /**
  * @param {DrafterDeps} [deps]
@@ -1077,8 +1081,10 @@ export function createMaterialsDrafter(deps = {}) {
 
   /**
    * @param {MaterialsRequestPayload} payload
+   * @param {{ followUp?: boolean }} [options] followUp: a "Draft both" letter,
+   *   which the queue cap never refuses
    */
-  async function enqueue(payload) {
+  async function enqueue(payload, options = {}) {
     const requestedResume = normalizeDraftResume(payload && payload.resume);
     if (!requestedResume) throw resumeRequiredError();
     /* The draft uses the user's current resume: never garbled text, never
@@ -1104,6 +1110,19 @@ export function createMaterialsDrafter(deps = {}) {
         requested_at: existingFlight.record.requested_at,
         accepted: true,
       };
+    }
+    /* HOLES S4: a bounded backlog. Past the cap a new request is a 429 the
+     * browser can retry; the letter a finished "Draft both" resume queues is
+     * part of a request already admitted. */
+    const maxQueued = typeof deps.maxQueued === "number" && deps.maxQueued > 0 ? deps.maxQueued : MAX_QUEUED_DRAFTS;
+    if (!options.followUp && queue.length >= maxQueued) {
+      const full = /** @type {Error & { statusCode: number, code: string, retryable: boolean }} */ (
+        new Error(`The drafting queue is full (${queue.length} waiting). Try again in a few minutes.`)
+      );
+      full.statusCode = 429;
+      full.code = "materials_queue_full";
+      full.retryable = true;
+      throw full;
     }
 
     const requestedAt = isoNow();
@@ -1166,7 +1185,7 @@ export function createMaterialsDrafter(deps = {}) {
     const { then, thenExtras, resumeChoice: _choice, ...rest } = /** @type {MaterialsRequestPayload & { resumeChoice?: unknown }} */ (job.payload);
     if (then !== "cover_letter") return;
     try {
-      await enqueue({ ...rest, feature: then, ...(Array.isArray(thenExtras) && thenExtras.length ? { extras: [...thenExtras] } : {}) });
+      await enqueue({ ...rest, feature: then, ...(Array.isArray(thenExtras) && thenExtras.length ? { extras: [...thenExtras] } : {}) }, { followUp: true });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`[materials] slug=${job.payload.slug} follow-up ${then} not queued:`, err);
