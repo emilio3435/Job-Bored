@@ -97,6 +97,7 @@ import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
 import { leadsChatHandler } from "./leads-chat.mjs";
 import { createRouteLimiter, limitFromEnv } from "./route-limits.mjs";
+import { atsFailureResponse } from "./ats-route-errors.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -274,39 +275,6 @@ function requireApiAuth(req, res, next) {
   return next();
 }
 
-/** @param {unknown} error */
-function getAtsProviderErrorMetadata(error) {
-  if (!error || typeof error !== "object") return null;
-  const record = /** @type {Record<string, unknown>} */ (error);
-  const provider = typeof record.provider === "string" ? record.provider : "";
-  const upstreamStatus =
-    typeof record.upstreamStatus === "number" && Number.isInteger(record.upstreamStatus)
-    ? record.upstreamStatus
-    : null;
-  const retryable =
-    typeof record.retryable === "boolean" ? record.retryable : null;
-  const classification =
-    typeof record.classification === "string" ? record.classification : "";
-  const providerCode =
-    typeof record.providerCode === "string" ? record.providerCode : "";
-  if (
-    !provider &&
-    upstreamStatus == null &&
-    retryable == null &&
-    !classification &&
-    !providerCode
-  ) {
-    return null;
-  }
-  return {
-    provider: provider || null,
-    upstreamStatus,
-    retryable,
-    classification: classification || null,
-    providerCode: providerCode || null,
-  };
-}
-
 // BEAUDIT E1: a DNS-rebound page reaches this loopback listener with its own
 // name in Host. Refuse any Host outside {127.0.0.1, localhost, [::1]}:PORT
 // (plus JOBBORED_API_ALLOWED_HOSTS) before CORS, auth or a route can see it.
@@ -455,37 +423,11 @@ app.post("/api/ats-scorecard", async (req, res) => {
       `[ats-scorecard] requestId=${requestId} ok model=${scorecard.model} overallScore=${scorecard.overallScore}`,
     );
   } catch (e) {
-    const metadata = getAtsProviderErrorMetadata(e);
-    const rawMsg = errorMessage(e, "ATS scorecard failed");
-    const status = metadata
-      ? 502
-      : /required|invalid|must be/i.test(rawMsg)
-        ? 400
-        : 502;
-    const publicError = metadata
-      ? "Upstream provider request failed"
-      : redactSecrets(rawMsg);
-    const responseBody = {
-      error: publicError,
-      code: status === 400 ? "invalid_request" : "upstream_error",
-      requestId,
-      ...(metadata && metadata.provider ? { provider: metadata.provider } : {}),
-      ...(metadata && metadata.upstreamStatus != null
-        ? { upstreamStatus: metadata.upstreamStatus }
-        : {}),
-      ...(metadata && metadata.retryable != null
-        ? { retryable: metadata.retryable }
-        : {}),
-      ...(metadata && metadata.classification
-        ? { errorClass: metadata.classification }
-        : {}),
-      ...(metadata && metadata.providerCode
-        ? { providerCode: metadata.providerCode }
-        : {}),
-    };
-    res.status(status).json(responseBody);
+    // HOLES P9: each failure class has its own status, code and next step.
+    const failure = atsFailureResponse(e);
+    res.status(failure.status).json({ ...failure.body, requestId });
     console.warn(
-      `[ats-scorecard] requestId=${requestId} status=${status} error=${redactSecrets(rawMsg)}`,
+      `[ats-scorecard] requestId=${requestId} status=${failure.status} code=${failure.body.code} error=${redactSecrets(errorMessage(e, "ATS scorecard failed"))}`,
     );
   }
 });
