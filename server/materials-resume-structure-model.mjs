@@ -614,6 +614,7 @@ export async function structureResumeWithModel({ resumeText, pin, fetchImpl, cal
             ...(signal ? { signal } : {}),
             temperature: 0.1,
             jsonMode: true,
+            maxRetries: 0, // The surrounding loop owns the three-attempt budget.
           });
           break;
         } catch (error) {

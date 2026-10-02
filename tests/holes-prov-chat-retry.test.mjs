@@ -8,10 +8,25 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { chat } from "../server/ai/provider.mjs";
+import { structureResumeWithModel } from "../server/materials-resume-structure-model.mjs";
 
 const PIN = { provider: "openai", model: "gpt-4o-mini", apiKey: "fictional-key" };
 const MESSAGES = [{ role: "user", content: "hi" }];
 const OK = { choices: [{ finish_reason: "stop", message: { content: "ok" } }] };
+
+describe("P8 · resume structure owns its three-attempt retry budget", () => {
+  for (const status of [429, 503]) {
+    it(`makes only three transport calls for a persistent ${status}, then fails visibly`, async () => {
+      const { calls, fetchImpl } = scripted([{ status }]);
+      const { waits, sleep } = recordingSleep();
+      const result = await structureResumeWithModel({ resumeText: "Fictional resume", pin: PIN, fetchImpl, sleep });
+      assert.equal(result.status, "failed");
+      assert.equal(result.structure, null);
+      assert.equal(calls.length, 3, "the outer three attempts must not each make three inner requests");
+      assert.deepEqual(waits, [500, 1000]);
+    });
+  }
+});
 
 /** Answers each call with the next scripted reply ({status, body?, headers?}). */
 function scripted(replies) {
