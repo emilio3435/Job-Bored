@@ -886,7 +886,11 @@ async function putBack(range, value, target) {
 
 async function persistDismiss(target, at, prevW) {
   const w = { range: `Pipeline!W${target.row}`, value: at };
-  if (!(await updateMultipleCells([w], false, { guard: true, sid: target.sid }))) return false;
+  // The guard checks this same target and keeps the row it read, so a
+  // rollback restores the W the Sheet held, not this tab's older copy.
+  const opts = { guard: true, sid: target.sid, targets: [target] };
+  if (!(await updateMultipleCells([w], false, opts))) return false;
+  const sheetW = target.found && target.found.cells ? target.found.cells[W_INDEX] : prevW;
   if (!target.link) return true; // nothing to key a block on
   try {
     await appendBlacklistRow({
@@ -898,7 +902,7 @@ async function persistDismiss(target, at, prevW) {
     return true;
   } catch (err) {
     console.error("[JobBored] dismiss: Blacklist write failed; putting W back", err);
-    await putBack(w.range, prevW || "", target);
+    await putBack(w.range, String(sheetW || ""), target);
     return false;
   }
 }

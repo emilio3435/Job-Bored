@@ -158,6 +158,15 @@ describe("A8 / R12 · dismiss writes now and never half-commits", () => {
     assert.deepEqual(blacklistUrls(t.fake), []);
   });
 
+  it("a failed Blacklist half puts back the W the Sheet held, not this tab's stale copy", { timeout: 2000 }, async () => {
+    const t = setup();
+    // Another session dismissed the role after this tab loaded it.
+    rowByLink(t.fake, LINK)[COL.dismissedAt] = STAMP;
+    t.fake.failWhen(isAppend, 503, "Backend unavailable");
+    assert.equal(await t.env.sw.dismissJob(t.idx), false);
+    assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], STAMP, "the earlier dismiss survives");
+  });
+
   it("a failed W write leaves the Blacklist untouched", { timeout: 2000 }, async () => {
     const t = setup();
     t.fake.failWhen(isPipelineWrite, 500, "Internal error");

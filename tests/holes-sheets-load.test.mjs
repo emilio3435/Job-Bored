@@ -151,6 +151,21 @@ describe("A15 / B8 · loadAllData is single-flight with a generation counter", (
       assert.equal(ofType(env, "jb:data:loaded").length, 0);
     });
   }
+
+  it("a first-run load that finds the token gone ends its generation and resolves false", async () => {
+    const env = loadReader({
+      fetch: async () => {
+        env.state.token = ""; // signed out while the rows were fetched
+        return valuesOk(ROWS_A);
+      },
+    });
+    env.state.resolved = false;
+    assert.equal(await env.sr.loadAllData(), false);
+    const failed = ofType(env, "jb:data:failed").map((e) => e.detail);
+    assert.deepEqual(failed.map((d) => d.generation), [1]);
+    assert.equal(ofType(env, "jb:data:load-failed").length, 1);
+    assert.equal(ofType(env, "jb:data:loaded").length, 0);
+  });
 });
 
 describe("B2 · loadAllData emits jb:data:loading / loaded / failed (§1b.10)", () => {
