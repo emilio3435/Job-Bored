@@ -129,7 +129,7 @@ function withApiErrorEnvelope(status, body) {
   if (status < 400 || !body || typeof body !== "object" || Array.isArray(body)) {
     return body;
   }
-  const record = /** @type {Record<string, unknown>} */ (body);
+  const record = redactErrorRecord(/** @type {Record<string, unknown>} */ (body));
   const code =
     apiErrorText(record.code) ||
     apiErrorText(record.reason) ||
@@ -155,6 +155,23 @@ function withApiErrorEnvelope(status, body) {
     ...(nextStep ? { nextStep } : {}),
     retryable,
   };
+}
+
+/* HOLES S3/S12: an error body never names a server path or carries a secret.
+ * Every top-level string passes through redactFsPaths(redactSecrets()) and
+ * the path-valued fields are dropped. Nested structured data (validation
+ * errors with JSON-pointer instancePaths, template lists) is left as is. */
+const ERROR_PATH_FIELDS = new Set(["path", "savedIn", "templateRoot", "absolutePath"]);
+
+/** @param {Record<string, unknown>} record */
+function redactErrorRecord(record) {
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (ERROR_PATH_FIELDS.has(key)) continue;
+    out[key] = typeof value === "string" ? redactFsPaths(redactSecrets(value)) : value;
+  }
+  return out;
 }
 
 app.use((_req, res, next) => {
@@ -734,7 +751,8 @@ app.delete("/profile/voice", guardSave(async (_req, res) => {
 app.get("/api/brand-logos", async (_req, res) => {
   try {
     const result = await listLogos();
-    res.json({ ok: true, ...result });
+    /* HOLES S3: the logo store's server path is not the browser's business. */
+    res.json({ ok: true, logos: result.logos });
   } catch (e) {
     sendAppError(res, e);
   }
@@ -774,7 +792,9 @@ app.get("/profile/ledger", async (_req, res) => {
     return res.json({
       ok: true,
       ledger: result.ledger,
-      savedIn: result.path || resolveLedgerPath(),
+      /* HOLES S3: "Saved in" is the local user's own path; a hosted API
+       * never names its container paths. */
+      ...(REQUIRE_API_AUTH ? {} : { savedIn: result.path || resolveLedgerPath() }),
       usedBy: ["materials"],
     });
   } catch (err) {
@@ -984,7 +1004,8 @@ app.post("/profile/rescore", async (req, res) => {
   } catch (err) {
     sendEvent({
       kind: "error",
-      message: errorMessage(err, err),
+      // HOLES S3: the stream's error event is an error body too.
+      message: redactFsPaths(redactSecrets(errorMessage(err, err))),
     });
   } finally {
     endRouteRescore();
@@ -1014,7 +1035,9 @@ function sendAppError(res, err) {
   const message = errorMessage(err, "Application materials error");
   /** @type {{ error: string, code?: string, retryable?: boolean, validTemplates?: string[] }} */
   const body = { error: message };
-  if (error && typeof error.code === "string" && error.code) {
+  /* HOLES S3: an fs error's own code (ENOENT, ENOTDIR) is internal detail and
+   * not an api-error.v1 code; the envelope then derives one from the status. */
+  if (error && typeof error.code === "string" && /^[a-z][a-z0-9_]*$/.test(error.code)) {
     body.code = error.code;
   }
   if (error && typeof error.retryable === "boolean") {
@@ -1192,7 +1215,8 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
       source: body.source,
       jobUrl: body.jobUrl || body.job_url,
     });
-    res.json({ ok: true, ...result });
+    /* HOLES S3: report the write, not where on the server it landed. */
+    res.json({ ok: true, bytesWritten: result.bytesWritten, source: result.source });
   } catch (e) {
     sendAppError(res, e);
   }
