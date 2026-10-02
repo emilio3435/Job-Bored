@@ -934,17 +934,20 @@ export async function runDiscovery(
   const skippedAtsBoards: string[] = [];
   let mergedAtsTargets = 0;
   let noveltyPlan: NoveltyPlan | null = null;
+  let noveltyCooledDown: CompanyTarget[] = [];
   if (hasAtsLanes) {
     const mergedAts = mergeAtsCompanyTargets(atsCompaniesToSearch);
     mergedAtsTargets = mergedAts.mergedCount;
     // DISCAT C2 (D6): highest past yield first; proven zero-yield
-    // companies cool down, one of them explored per run.
+    // companies cool down. The novelty planner supplies unseen exploration.
     const atsPlan = planAtsCompanyOrder(
       mergedAts.companies,
       buildCompanyYieldStats(memorySnapshot?.intentCoverage || []),
       dependencies.now().getTime(),
+      { allowCooldownExploration: false },
     );
     atsCompaniesToSearch = atsPlan.companies;
+    noveltyCooledDown = atsPlan.cooledDown;
     loopCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
     if (atsPlan.cooledDown.length > 0) {
       dependencies.log?.("discovery.run.ats_company_cooldown", {
@@ -956,39 +959,42 @@ export async function runDiscovery(
       });
       progressCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
     }
-    // HOLES HUNT (INTERFACE-HUNTS §6): reserve the exploration share of these
-    // slots for never-tried companies, surfaces and providers. A failed plan
-    // leaves the D6 order as it is.
-    try {
-      noveltyPlan = planRunNovelty({
-        memory: dependencies.noveltyMemory,
-        companies: atsCompaniesToSearch,
-        cooledDown: atsPlan.cooledDown,
-        configuredCompanies: configuredAtsCompanies,
-        snapshot: memorySnapshot,
-        share: resolveExplorationShare(
-          dependencies.explorationShareForRun?.(runId),
-          resolveExplorationShare(dependencies.explorationShare),
-        ),
-        sheetId: config.sheetId,
-        now: dependencies.now().toISOString(),
-        facet: { key: memoryIntentKey, label: noveltyFacetLabel(config) },
-        scope: {
-          companyAllowlist:
-            config.allowlistResolution?.mode === "restricted"
-              ? request.companyAllowlist
-              : [],
-          companyBlocklist: request.companyBlocklist,
-          negativeCompanyKeys: storedConfig.negativeCompanyKeys,
-        },
-      });
-      atsCompaniesToSearch = noveltyPlan.companies;
-    } catch (error) {
-      dependencies.log?.("discovery.run.novelty_plan_failed", {
-        runId,
-        error: formatError(error),
-      });
-    }
+  }
+  // HOLES HUNT (INTERFACE-HUNTS §6): reserve the exploration share of these
+  // slots for never-tried companies, surfaces and providers. A failed plan
+  // leaves the D6 order as it is.
+  try {
+    noveltyPlan = planRunNovelty({
+      memory: dependencies.noveltyMemory,
+      companies: hasAtsLanes ? atsCompaniesToSearch : [],
+      atsEnabled: hasAtsLanes,
+      cooledDown: noveltyCooledDown,
+      configuredCompanies: configuredAtsCompanies,
+      snapshot: memorySnapshot,
+      share: resolveExplorationShare(
+        dependencies.explorationShareForRun?.(runId),
+        resolveExplorationShare(dependencies.explorationShare),
+      ),
+      sheetId: config.sheetId,
+      now: dependencies.now().toISOString(),
+      facet: { key: memoryIntentKey, label: noveltyFacetLabel(config) },
+      scope: {
+        companyAllowlist:
+          config.allowlistResolution?.mode === "restricted"
+            ? request.companyAllowlist
+            : [],
+        companyBlocklist: request.companyBlocklist,
+        negativeCompanyKeys: storedConfig.negativeCompanyKeys,
+      },
+    });
+    atsCompaniesToSearch = noveltyPlan.companies;
+  } catch (error) {
+    dependencies.log?.("discovery.run.novelty_plan_failed", {
+      runId,
+      error: formatError(error),
+    });
+  }
+  if (hasAtsLanes) {
     progressCounters.companiesTotal = atsCompaniesToSearch.length;
     progressCounters.companiesDone = 0;
     progressCounters.boardsDetected = 0;

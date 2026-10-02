@@ -340,8 +340,8 @@ test("HUNT-W run: cooled-down and blocked candidates never join the run", async 
     noveltyMemory: novelty.memory,
     explorationShare: 1,
     request: { companyBlocklist: ["Wayne Enterprises"] },
-    // Scale AI and Notion qualify for the zero-yield cooldown; Notion was
-    // tried longest ago, so it is the one cooled company admitted.
+    // Both companies qualify for the zero-yield cooldown. Novelty must not
+    // let the older ATS explorer rotate either of them back in.
     discoveryMemoryStore: snapshotStore([
       coverage("scaleai", "run_2", 1015, 0, 1),
       coverage("scaleai", "run_1", 203, 0, 1),
@@ -351,13 +351,15 @@ test("HUNT-W run: cooled-down and blocked candidates never join the run", async 
   });
   const result = await run();
   assert.ok(!detected.includes("Scale AI"), `a cooled company is never re-added (${detected})`);
+  assert.ok(!detected.includes("Notion"), `the legacy exploration slot respects cooldown too (${detected})`);
   assert.ok(!detected.includes("Wayne Enterprises"), `a blocked company is never added (${detected})`);
   assert.ok(detected.includes("Stark Industries"));
   assert.ok(
     (novelty.candidateQueries[0]?.excludeCompanyKeys as string[]).includes("scaleai"),
     "the pool query excludes the cooled company too",
   );
-  assert.equal(result.lifecycle.exploration?.slotCount, 4);
+  assert.ok((novelty.candidateQueries[0]?.excludeCompanyKeys as string[]).includes("notion"));
+  assert.equal(result.lifecycle.exploration?.slotCount, 3);
 });
 
 test("HUNT-W run: a company the user skipped is never explored", async () => {
@@ -407,7 +409,7 @@ test("HUNT-W run: without noveltyMemory the run keeps its order, adds nothing an
   assert.equal(exploration.slots[0]?.listingsSeen, 1);
 });
 
-test("HUNT-W run: a run without ATS lanes omits exploration and records nothing", async () => {
+test("HUNT-W run: a run without ATS lanes reserves and records its facet without adding ATS companies", async () => {
   const novelty = fakeNoveltyMemory({ tried: TRIED_FOUR });
   const { run, detected } = makeRun({
     noveltyMemory: novelty.memory,
@@ -422,9 +424,16 @@ test("HUNT-W run: a run without ATS lanes omits exploration and records nothing"
   });
   const result = await run();
   assert.deepEqual(detected, []);
-  assert.equal(result.lifecycle.exploration, undefined);
-  assert.deepEqual(novelty.triedQueries, []);
-  assert.deepEqual(novelty.recorded, []);
+  const exploration = result.lifecycle.exploration;
+  assert.ok(exploration, "browser-only runs must still report novelty");
+  assert.equal(exploration.reservedSlots, 1);
+  assert.equal(exploration.slotCount, 0);
+  assert.equal(exploration.slots.length, 1);
+  assert.equal(exploration.slots[0].kind, "facet");
+  assert.equal(exploration.slots[0].mode, "explore");
+  assert.deepEqual(novelty.recorded[0]?.slots, exploration.slots);
+  assert.equal(novelty.recorded.length, 1);
+  assert.deepEqual(novelty.candidateQueries, [], "no ATS candidates are admitted into a browser-only run");
 });
 
 test("HUNT-W run: a failing ledger write is logged and never fails the run", async () => {
@@ -436,6 +445,34 @@ test("HUNT-W run: a failing ledger write is logged and never fails the run", asy
   const failure = logs.find(([event]) => event === "discovery.run.novelty_record_failed");
   assert.ok(failure, "the failed ledger write must be logged");
   assert.match(String(failure[1].error), /disk full/);
+});
+
+test("HUNT-W review: browser-only facet history persists and the next run exploits it", async () => {
+  const raw = createDiscoveryMemoryStore(":memory:");
+  try {
+    const options = {
+      noveltyMemory: raw,
+      discoveryMemoryStore: createRunDiscoveryMemoryStore(raw),
+      storedConfig: { enabledSources: ["grounded_web"], sourcePreset: "browser_only" },
+      request: { discoveryProfile: { targetRoles: "Backend Engineer", sourcePreset: "browser_only" } },
+    };
+    const first = makeRun({ ...options, runId: "run_browser_first" });
+    const second = makeRun({ ...options, runId: "run_browser_second" });
+    await first.run();
+    await second.run();
+    assert.deepEqual(first.detected, []);
+    assert.deepEqual(second.detected, []);
+    const firstSlots = raw.listNoveltySlots("run_browser_first");
+    const secondSlots = raw.listNoveltySlots("run_browser_second");
+    assert.equal(firstSlots.length, 1);
+    assert.equal(secondSlots.length, 1);
+    assert.equal(firstSlots[0].kind, "facet");
+    assert.equal(firstSlots[0].mode, "explore");
+    assert.equal(secondSlots[0].key, firstSlots[0].key);
+    assert.equal(secondSlots[0].mode, "exploit");
+  } finally {
+    raw.close();
+  }
 });
 
 test("HUNT-W run: a failing novelty plan is logged and the run keeps its order", async () => {

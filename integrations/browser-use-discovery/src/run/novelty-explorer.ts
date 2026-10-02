@@ -379,6 +379,8 @@ export interface RunNoveltyInput {
   now: string;
   facet: { key: string; label: string };
   scope: NoveltyScope;
+  /** Without ATS lanes, reserve the facet only; never admit ATS candidates. */
+  atsEnabled?: boolean;
 }
 
 /**
@@ -436,7 +438,7 @@ export function planRunNovelty(input: RunNoveltyInput): NoveltyPlan {
     tried.set(kind, memory.listTriedNoveltyKeys(kind, unique(lookups[kind])));
   }
   const reserved = reservedExplorationSlots(input.companies.length, input.share);
-  const candidates = memory.listNoveltyCandidates({
+  const candidates = input.atsEnabled === false ? [] : memory.listNoveltyCandidates({
     sheetId: input.sheetId,
     now: input.now,
     limit: Math.max(MIN_CANDIDATE_POOL, reserved * 4),
@@ -447,6 +449,7 @@ export function planRunNovelty(input: RunNoveltyInput): NoveltyPlan {
   return planNoveltySlots({
     ...base,
     candidates,
+    keepOrder: input.atsEnabled === false,
     isTried: (kind, key) => tried.get(kind)?.has(key) === true,
   });
 }

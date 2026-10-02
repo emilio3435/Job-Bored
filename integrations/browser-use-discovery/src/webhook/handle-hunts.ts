@@ -55,6 +55,8 @@ export interface HuntRunDispatcherDependencies {
   isRunActive?(): boolean;
   /** Hands the hunt's exploration share to the run, keyed by its run id. */
   rememberRunShare?(runId: string, share: number): void;
+  /** The configured worker Sheet, for hunts saved without an explicit id. */
+  resolveSheetId?(): Promise<string>;
 }
 
 const PROFILE_QUERY_KEYS = [
@@ -72,6 +74,7 @@ export function createHuntRunDispatcher(dependencies: HuntRunDispatcherDependenc
       return { ok: false, status: 409, busy: true, message: "A discovery run is active; the hunt stays queued." };
     }
     const requestedAt = dependencies.now().toISOString();
+    const sheetId = hunt.sheetId.trim() || (await dependencies.resolveSheetId?.())?.trim() || "";
     // One key per schedule slot (a re-fire of the same slot is the same run);
     // one per click for run-now.
     const idempotencyKey =
@@ -90,7 +93,7 @@ export function createHuntRunDispatcher(dependencies: HuntRunDispatcherDependenc
     const body = {
       event: DISCOVERY_WEBHOOK_EVENT,
       schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
-      sheetId: hunt.sheetId,
+      sheetId,
       variationKey: `hunt-${hunt.id}-${requestedAt.replace(/[^0-9]/g, "").slice(0, 12)}`,
       requestedAt,
       trigger,
@@ -100,7 +103,7 @@ export function createHuntRunDispatcher(dependencies: HuntRunDispatcherDependenc
     };
     // The webhook handler derives this same id; the share must be in place
     // before the run starts planning.
-    const runId = deriveIdempotentRunId({ sheetId: hunt.sheetId, idempotencyKey });
+    const runId = deriveIdempotentRunId({ sheetId, idempotencyKey });
     if (runId) dependencies.rememberRunShare?.(runId, hunt.explorationShare);
     const response = await dependencies.handleDiscovery({
       method: "POST",
@@ -113,9 +116,11 @@ export function createHuntRunDispatcher(dependencies: HuntRunDispatcherDependenc
     const parsed = parseJsonObject(response.body);
     const ackRunId = typeof parsed?.runId === "string" ? parsed.runId : "";
     const accepted = response.status >= 200 && response.status < 300 && parsed?.ok === true && !!ackRunId;
+    const busy = response.status === 409 && parsed?.reason === "run_active";
     return {
       ok: accepted,
       status: response.status,
+      ...(busy ? { busy: true } : {}),
       ...(ackRunId ? { runId: ackRunId } : {}),
       ...(accepted
         ? {}

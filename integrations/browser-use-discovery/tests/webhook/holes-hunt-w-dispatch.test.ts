@@ -16,6 +16,9 @@ import {
 } from "../../src/webhook/handle-discovery-webhook.ts";
 import { createDiscoveryRunStatusStore } from "../../src/state/run-status-store.ts";
 import type { HuntRecord } from "../../src/state/hunt-store.ts";
+import * as webhook from "../../src/webhook/handle-discovery-webhook.ts";
+import { openHuntStore } from "../../src/state/hunt-store.ts";
+import { createHuntScheduler } from "../../src/scheduler/hunt-scheduler.ts";
 
 const SECRET = "hunt-dispatch-secret";
 const NOW = "2026-10-02T13:00:30.000Z";
@@ -217,4 +220,146 @@ test("HUNT-W: without a Sheet credential a /webhook run is refused, but a hunt r
   assert.equal(summary.runId, outcome.runId);
   assert.equal(summary.status, "write_failed");
   assert.deepEqual(summary.awaitingSheetWrite, { leads: 1 });
+});
+
+test("HUNT-W review: a blank hosted hunt Sheet resolves before deriving the id or posting", async () => {
+  const fixture = webhookDependencies({ allowMissingSheetsCredential: true });
+  fixture.dependencies.runDependencies.runtimeConfig = { ...NO_CREDENTIAL, runMode: "hosted" } as never;
+  const dispatch = createHuntRunDispatcher({
+    webhookSecret: SECRET,
+    now: () => new Date(NOW),
+    resolveSheetId: async () => "sheet_hunt",
+    handleDiscovery: (request) => handleDiscoveryWebhook(request, fixture.dependencies as never),
+  });
+  const outcome = await dispatch({ ...HUNT, sheetId: "" }, "scheduled-hunt", { slotAt: NOW });
+  assert.equal(outcome.ok, true, outcome.message);
+  assert.equal(outcome.runId, deriveIdempotentRunId({ sheetId: "sheet_hunt", idempotencyKey: `hunt:${HUNT.id}:${NOW}` }));
+  assert.equal(fixture.runStatusStore.get(outcome.runId!)?.request.sheetId, "sheet_hunt");
+  assert.equal(fixture.runStatusStore.get(outcome.runId!)?.status, "write_failed");
+});
+
+test("HUNT-W review: preflight admission excludes another hunt, a scheduler tick and a dashboard webhook", async () => {
+  const fixture = webhookDependencies({ allowMissingSheetsCredential: true });
+  const admission = webhook.createDiscoveryRunAdmission(() => false);
+  let releasePreflight!: () => void;
+  let signalEntered!: () => void;
+  const entered = new Promise<void>((resolve) => { signalEntered = resolve; });
+  const held = new Promise<void>((resolve) => { releasePreflight = resolve; });
+  const originalLoad = fixture.dependencies.runDependencies.loadStoredWorkerConfig;
+  fixture.dependencies.runDependencies.loadStoredWorkerConfig = async (sheetId: string) => {
+    signalEntered();
+    await held;
+    return originalLoad(sheetId);
+  };
+  const handler = (request: webhook.WebhookRequestLike) => handleDiscoveryWebhook(request, { ...fixture.dependencies, admission } as never);
+  const dispatch = createHuntRunDispatcher({ webhookSecret: SECRET, now: () => new Date(NOW), handleDiscovery: handler });
+  const first = dispatch(HUNT, "hunt");
+  await entered;
+  const store = openHuntStore(":memory:");
+  store.insert({ ...HUNT, id: "hunt_due" });
+  try {
+    assert.equal(admission.isPending(), true, "preflight owns the admission before any status write");
+    assert.equal(fixture.runStatusStore.list()?.runs.length, 0);
+    const second = await dispatch({ ...HUNT, id: "hunt_second" }, "hunt");
+    assert.equal(second.busy, true, "run-now must queue instead of losing its slot on an admission refusal");
+    const scheduler = createHuntScheduler({ store, dispatch, now: () => new Date(NOW), isRunActive: () => admission.isPending() });
+    assert.deepEqual(await scheduler.tick(), { fired: null, queued: ["hunt_due"] });
+    assert.equal(store.get("hunt_due")?.queuedTrigger, "scheduled-hunt");
+    const ordinary = await handler({ method: "POST", headers: { "x-discovery-secret": SECRET }, bodyText: JSON.stringify({
+      event: DISCOVERY_WEBHOOK_EVENT, schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+      sheetId: "sheet_hunt", variationKey: "dashboard", requestedAt: NOW, trigger: "manual",
+      discoveryProfile: { targetRoles: "Designer" },
+    }) });
+    assert.equal(ordinary.status, 409);
+  } finally {
+    releasePreflight();
+    await first;
+    store.close();
+  }
+  assert.equal(admission.isPending(), false);
+  assert.equal(fixture.runStatusStore.list()?.runs.length, 1);
+});
+
+test("HUNT-W review: admission is released after a refused preflight", async () => {
+  const fixture = webhookDependencies({});
+  const admission = webhook.createDiscoveryRunAdmission(() => false);
+  const dispatch = createHuntRunDispatcher({ webhookSecret: SECRET, now: () => new Date(NOW),
+    handleDiscovery: (request) => handleDiscoveryWebhook(request, { ...fixture.dependencies, admission } as never) });
+  assert.equal((await dispatch(HUNT, "hunt")).status, 409);
+  assert.equal(admission.isPending(), false);
+  fixture.dependencies.allowMissingSheetsCredential = true;
+  assert.equal((await dispatch(HUNT, "hunt")).ok, true);
+});
+
+test("HUNT-W review: async registration takes over admission and permits only an authenticated replay", async () => {
+  const fixture = webhookDependencies({ allowMissingSheetsCredential: true });
+  const admission = webhook.createDiscoveryRunAdmission(() => fixture.runStatusStore.list()!.runs.some((run) => !run.terminal));
+  let releaseRun!: () => void;
+  const held = new Promise<void>((resolve) => { releaseRun = resolve; });
+  const originalRun = fixture.dependencies.runDiscovery;
+  let posted: webhook.WebhookRequestLike | undefined;
+  const dependencies = { ...fixture.dependencies, admission, runSynchronously: false,
+    runDiscovery: async (...args: Parameters<typeof originalRun>) => { await held; return originalRun(...args); } };
+  const handler = (request: webhook.WebhookRequestLike) => handleDiscoveryWebhook(request, dependencies as never);
+  const dispatch = createHuntRunDispatcher({ webhookSecret: SECRET, now: () => new Date(NOW), handleDiscovery: (request) => {
+    posted = request;
+    return handler(request);
+  } });
+  const first = await dispatch(HUNT, "hunt");
+  const originalRequest = posted!;
+  try {
+    assert.equal(first.ok, true);
+    assert.equal(admission.isPending(), false);
+    assert.equal(fixture.runStatusStore.get(first.runId!)?.status, "running");
+    const second = await dispatch({ ...HUNT, id: "hunt_second" }, "hunt");
+    assert.equal(second.busy, true);
+    const replay = await handler(originalRequest);
+    assert.equal(replay.status, 202);
+    assert.equal(JSON.parse(replay.body).runId, first.runId);
+    assert.equal((await handler({ ...originalRequest, headers: {} })).status, 401);
+    assert.equal(fixture.runStatusStore.list()?.runs.length, 1);
+  } finally {
+    releaseRun();
+    for (let i = 0; i < 12; i += 1) await Promise.resolve();
+  }
+});
+
+test("HUNT-W review: a token-authorized hunt keeps its configured budget and checkpointed leads past 50 minutes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fixture = webhookDependencies({ allowMissingSheetsCredential: true });
+  const budget = 3 * 60 * 60 * 1000;
+  let releaseRun!: () => void;
+  let signalStarted!: () => void;
+  let observedBudget: number | undefined;
+  const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+  const held = new Promise<void>((resolve) => { releaseRun = resolve; });
+  const originalRun = fixture.dependencies.runDiscovery;
+  const dependencies = { ...fixture.dependencies, runSynchronously: false, maxRunDurationMs: budget,
+    runDependencies: { ...fixture.dependencies.runDependencies, maxRunDurationMs: budget },
+    runDiscovery: async (request: DiscoveryWebhookRequestV1, trigger: "manual" | "scheduled", deps: Parameters<typeof originalRun>[2] & { maxRunDurationMs?: number }) => {
+      observedBudget = deps.maxRunDurationMs;
+      deps.checkpointSelectedLeads?.(request.sheetId, [lead]);
+      signalStarted();
+      await held;
+      return originalRun(request, trigger, deps);
+    },
+  };
+  const dispatch = createHuntRunDispatcher({ webhookSecret: SECRET, now: () => new Date(NOW),
+    handleDiscovery: (request) => handleDiscoveryWebhook(request, dependencies as never) });
+  const outcome = await dispatch(HUNT, "hunt", { googleAccessToken: "ya29.example-token" });
+  await started;
+  try {
+    assert.equal(observedBudget, budget, "hunt work must not inherit the legacy token lifetime clamp");
+    t.mock.timers.tick(51 * 60 * 1000);
+    assert.equal(fixture.runStatusStore.get(outcome.runId!)?.status, "running", "the watchdog must use the same full budget");
+  } finally {
+    releaseRun();
+    // Drain the async lifecycle without advancing its safety deadline.
+    for (let i = 0; i < 12; i += 1) await Promise.resolve();
+  }
+  const terminal = fixture.runStatusStore.get(outcome.runId!);
+  assert.equal(terminal?.status, "write_failed");
+  assert.deepEqual(terminal?.selectedLeads, [lead]);
+  assert.deepEqual(fixture.runStatusStore.list()?.runs[0]?.awaitingSheetWrite, { leads: 1 });
+  assert.equal(JSON.stringify(terminal).includes("ya29.example-token"), false);
 });

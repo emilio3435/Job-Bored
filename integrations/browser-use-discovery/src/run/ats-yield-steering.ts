@@ -270,6 +270,7 @@ export function planAtsCompanyOrder(
   companies: readonly CompanyTarget[],
   stats: ReadonlyMap<string, CompanyYieldStats>,
   nowMs: number,
+  options: { allowCooldownExploration?: boolean } = {},
 ): AtsCompanyPlan {
   const entries = companies.map((company, index) => ({
     company,
@@ -296,7 +297,7 @@ export function planAtsCompanyOrder(
       );
       return byAge || left.index - right.index;
     })
-    .slice(0, ATS_EXPLORATION_SLOTS);
+    .slice(0, options.allowCooldownExploration === false ? 0 : ATS_EXPLORATION_SLOTS);
   const skipped = new Set(
     cooled
       .filter((entry) => !explorers.includes(entry))

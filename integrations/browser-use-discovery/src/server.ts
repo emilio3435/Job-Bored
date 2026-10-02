@@ -56,6 +56,7 @@ import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-stor
 import { openHuntStore } from "./state/hunt-store.ts";
 import { createHuntScheduler } from "./scheduler/hunt-scheduler.ts";
 import {
+  createDiscoveryRunAdmission,
   handleDiscoveryWebhook,
   type WebhookRequestLike,
 } from "./webhook/handle-discovery-webhook.ts";
@@ -1006,6 +1007,7 @@ function hasNonBlankStringValue(value: unknown): boolean {
 
 // BEAUDIT A21: live async discovery runs that POST /runs/:id/cancel can abort.
 const runCancelRegistry = createRunCancelRegistry();
+const discoveryAdmission = createDiscoveryRunAdmission(isDiscoveryRunActive);
 
 function handleDiscovery(
   request: WebhookRequestLike,
@@ -1022,6 +1024,7 @@ function handleDiscovery(
     createDiscoveryRunsLoggerForRequest,
     includeRunStatusToken: runtimeConfig.runMode === "hosted",
     cancelRegistry: runCancelRegistry,
+    admission: discoveryAdmission,
     log,
     maxRunDurationMs: runtimeConfig.maxRunDurationMs,
     ...(options.allowMissingSheetsCredential ? { allowMissingSheetsCredential: true } : {}),
@@ -1035,6 +1038,7 @@ const huntStore = openHuntStore(runtimeConfig.stateDatabasePath);
 // A live async run is registered for cancel; a sync run only shows as a
 // non-terminal status (boot recovery terminalized every earlier one).
 function isDiscoveryRunActive(): boolean {
+  if (discoveryAdmission.isPending()) return true;
   if (runCancelRegistry.size() > 0) return true;
   return !!runStatusStore
     .list({ limit: 25 })
@@ -1053,6 +1057,7 @@ const dispatchHuntRun = createHuntRunDispatcher({
   now: () => new Date(),
   isRunActive: isDiscoveryRunActive,
   rememberRunShare: rememberHuntRunShare,
+  resolveSheetId: async () => (await loadStoredWorkerConfig(runtimeConfig, "")).sheetId,
 });
 const huntScheduler = createHuntScheduler({
   store: huntStore,
