@@ -1494,14 +1494,38 @@ async function updateJobResponseFlag(dataIndex, value) {
 
   /** Apply F1-A transition patches as ONE Pipeline-tab batch.
    *  patches: [{ column:"M", sheetRow:7, value:"Interviewing" }, ...]
-   *  or planner cells that already carry `range`. */
-  async function applyCells(patches) {
+   *  or planner cells that already carry `range`.
+   *  opts.jobRef (A15, from jobRefAt before an await, e.g. an Undo): the
+   *  patches are for that job, wherever its row is now; their own row
+   *  numbers may be stale. Refused when the job is gone. */
+  async function applyCells(patches, opts) {
     if (!Array.isArray(patches) || patches.length === 0) return true;
     const updates = patches.map((p) => ({
       range: p.range || ("Pipeline!" + p.column + p.sheetRow),
       value: p.value,
     }));
-    const ok = await updateMultipleCells(updates, false, { guard: true });
+    const ref = opts && opts.jobRef;
+    const target = ref ? targetForJob(liveJob(ref)) : null;
+    if (ref && !target) {
+      host().showToast(
+        "Couldn’t save — that role moved or was removed in your Sheet. Refresh, then try again.",
+        "error",
+        true,
+        { label: "Refresh", onClick: refreshFromSheet },
+      );
+      return false;
+    }
+    if (target) {
+      updates.forEach((u, i) => {
+        const col = patches[i].column || (PIPELINE_ROW_RANGE.exec(u.range) || [])[1];
+        u.range = `Pipeline!${col}${target.row}`;
+      });
+    }
+    const ok = await updateMultipleCells(
+      updates,
+      false,
+      target ? { guard: true, targets: [target], sid: ref.sid } : { guard: true },
+    );
     // A merged Notes cell (A9) is what the Sheet now holds: hand it back so
     // the caller's local sync shows the same text.
     if (ok) updates.forEach((u, i) => { patches[i].value = u.value; });
@@ -1530,6 +1554,8 @@ async function updateJobResponseFlag(dataIndex, value) {
     markStatusExpired,
     editJobField,
     getSheetRow,
+    jobRefAt: writeTarget,
+    indexOfJobRef: liveIndex,
     todayStr,
     futureDateStr,
     getStatusSideEffects,
