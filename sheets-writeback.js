@@ -876,7 +876,10 @@ async function dismissJob(stableKey) {
   host().renderPipeline();
 
   // Written now, not after a 10 s window: Undo reverses what already landed.
+  // Undo runs once: a second click would delete the Blacklist row index it
+  // read before the first delete, i.e. another role's block.
   const persisted = persistDismiss(target, now, prev);
+  let undoing = null;
   const closeToast = host().showToast(
     `Dismissed "${job.title || "role"}"`,
     "info",
@@ -884,7 +887,8 @@ async function dismissJob(stableKey) {
     {
       label: "Undo",
       onClick: () => {
-        void persisted.then((ok) => (ok ? undoDismiss(target, now) : false));
+        if (!undoing) undoing = persisted.then((ok) => (ok ? undoDismiss(target, now) : false));
+        return undoing;
       },
     },
   );

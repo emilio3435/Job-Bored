@@ -71,6 +71,20 @@ describe("A8 / R12 · dismiss writes now and never half-commits", () => {
     assert.equal(t.env.state.data[t.idx].dismissedAt, null);
   });
 
+  it("a double-clicked Undo restores once and never lifts another role's block", { timeout: 2000 }, async () => {
+    const t = setup();
+    await t.env.sw.dismissJob(t.idx);
+    // Another role's block sits right after ours: a second, stale delete
+    // of "our" row index would lift it.
+    t.fake.rows("Blacklist").push(["https://example.com/other-role", STAMP, "Other", "Hooli", ""]);
+    const toast = t.env.toasts.find((x) => /^Dismissed/.test(x.message));
+    toast.action.onClick();
+    toast.action.onClick();
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepEqual(blacklistUrls(t.fake), ["https://example.com/other-role"]);
+    assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], "");
+  });
+
   it("a failed Blacklist write puts W back and reverts the card", { timeout: 2000 }, async () => {
     const t = setup();
     t.fake.failWhen(isAppend, 503, "Backend unavailable");
