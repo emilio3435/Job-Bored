@@ -289,7 +289,10 @@ describe("ATS state bus", () => {
     assert.equal(documentEvents.length, 0);
   });
 
-  it("jb:ats:modal:open opens the full scorecard modal and close paths hide it", () => {
+  /* HOLES SCORE (U3): with role-materials loaded this event opens the score
+     modal (tests/holes-score-ats.test.mjs). The old dialog below is the
+     fallback for a page without it. */
+  it("jb:ats:modal:open opens the fallback scorecard dialog when the score modal is absent, and close paths hide it", () => {
     const { context, document, window } = loadAtsStateBus({ withModalHarness: true });
     setScorecardState(context, {
       cacheKey: "ats:cover_letter:job-1:abc",

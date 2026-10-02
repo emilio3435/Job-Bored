@@ -2400,6 +2400,8 @@
     var entry = null;
     try { entry = state.getScorecardForJob(job); } catch (e) { entry = null; }
     if (!entry || !entry.result) return null;
+    /* "" (U3): the role-match score alone, whichever document it rated. */
+    if (feature === "") return entry;
     return entry.feature === ATS_FEATURE[feature] ? entry : null;
   }
 
@@ -2436,7 +2438,7 @@
   function gradeFor(feature, manifest) {
     var ms = scoreApi();
     var m = manifest || (currentManifest && currentManifest.manifest) || null;
-    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
+    if (!ms || (feature !== "resume" && feature !== "cover_letter" && feature !== "")) return null;
     var entry = atsEntryFor(feature);
     var grade = ms.gradeOf(qualityDocOf(m, feature), entry);
     return { grade: grade, stale: scoreIsStale(m, feature, entry, grade) };
@@ -2566,7 +2568,9 @@
    */
   function openScore(feature, opener, hooks) {
     var ms = scoreApi();
-    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
+    /* "" (U3): the stored role-match scorecard alone, from the ATS modal's
+       old entry points. */
+    if (!ms || (feature !== "resume" && feature !== "cover_letter" && feature !== "")) return null;
     var fill = hooks && typeof hooks.fill === "function" ? hooks.fill : null;
     var slug = currentManifest && currentManifest.manifest ? currentManifest.manifest.slug : "";
     var handle = ms.open({

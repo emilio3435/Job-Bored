@@ -167,6 +167,13 @@
         return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
       })(),
       model: String(input.model || fallbackModel || "unknown"),
+      /* MATQ's optional provenance: kept when the server sends it, so the
+         score modal can tell which draft and run a score rated. */
+      ...(typeof input.docHash === "string" && input.docHash ? { docHash: input.docHash } : {}),
+      ...(typeof input.runId === "string" && input.runId ? { runId: input.runId } : {}),
+      ...(typeof input.overallScoreSource === "string" && input.overallScoreSource
+        ? { overallScoreSource: input.overallScoreSource }
+        : {}),
     };
   }
 
@@ -491,9 +498,24 @@
     return modal;
   }
 
+  /* HOLES SCORE (U3): the stored scorecard names the document it rated;
+     "" means the score is role-match only. */
+  function scoreFeatureOf(cacheKey, payload) {
+    const known = (f) => (f === "resume_update" || f === "resume" ? "resume" : f === "cover_letter" ? "cover_letter" : "");
+    return known(String(cacheKey || "").split("|")[0]) || known(String((payload && payload.feature) || ""));
+  }
+
   function openDossierAtsModal(jobKey) {
     const wantKey = jobKey ? String(jobKey) : "";
     if (wantKey && wantKey !== getAtsScorecardState().cacheKey) return;
+    /* HOLES SCORE (U3): the full scorecard is the score modal now. The old
+       dialog stays only for a page that never loaded it. */
+    const rm = window.JobBoredRoleMaterials;
+    if (rm && typeof rm.openScore === "function") {
+      const st = getAtsScorecardState();
+      rm.openScore(scoreFeatureOf(st.cacheKey, st.payload), document.activeElement || null);
+      return;
+    }
     const modal = getDossierAtsModal();
     const body = modal.querySelector("[data-dossier-ats-modal-body]");
     if (body) body.innerHTML = renderDossierAtsModalBodyHtml();
@@ -524,7 +546,9 @@
     openDossierAtsModal(e?.detail?.jobKey);
   });
 
-  function startAtsScorecardAnalysis(cacheKey, payload) {
+  /* job: the role this score is for. The Rescore in the score modal passes
+     it, since the last generation session may be another role's. */
+  function startAtsScorecardAnalysis(cacheKey, payload, job) {
     setAtsScorecardState({
       ...getAtsScorecardState(),
       cacheKey,
@@ -545,7 +569,10 @@
         });
         const scoredSession = core().getLastResumeGenerationSession();
         const scoredJob =
-          (scoredSession && scoredSession.job) || (payload && payload.job) || null;
+          (job && typeof job === "object" ? job : null) ||
+          (scoredSession && scoredSession.job) ||
+          (payload && payload.job) ||
+          null;
         if (scoredJob) {
           materialsState().setScorecardForJob(
             scoredJob,

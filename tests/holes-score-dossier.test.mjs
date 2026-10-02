@@ -249,6 +249,19 @@ describe("Dossier · the modal's actions land on the row (U6)", () => {
   });
 });
 
+describe("U3 · the ATS modal's entry points open the score modal", () => {
+  it("should open an ATS-only modal for \"\": the role-match score, whichever document it rated", async () => {
+    const env = boot({ ats: ATS_LETTER });
+    await env.openRole();
+    const handle = env.win.JobBoredRoleMaterials.openScore("", null);
+    assert.ok(handle, "it opened");
+    const m = env.modal();
+    assert.match(text(m.querySelector(".jb-score__head")), /71 \/ 100/);
+    assert.match(text(m.querySelector('[data-step="rewrites"]')), /pricing tier/);
+    assert.equal(m.querySelector("[data-score-rescore]"), null, "nothing to rescore without a document");
+  });
+});
+
 describe("U12 · a grade the draft moved on from is stale until it is fresh", () => {
   it("should mark the row stale on a Scribe save, refetch, and clear it when the fresh manifest lands", async () => {
     const env = boot();
