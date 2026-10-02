@@ -96,6 +96,7 @@ import { handlePostJudgeModels } from "./judge-models.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
 import { leadsChatHandler } from "./leads-chat.mjs";
+import { createRouteLimiter, limitFromEnv } from "./route-limits.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -382,6 +383,16 @@ app.use((req, res, next) => {
   if (req.path === "/health") return next();
   return requireApiAuth(req, res, next);
 });
+
+/* HOLES S4: the LLM and Chromium routes share a per-process budget (60 a
+ * minute, 8 at once by default); past either, 429 retryable. Mounted after
+ * the token gate, so refused callers never spend it. */
+app.use(
+  createRouteLimiter({
+    perMinute: limitFromEnv(process.env.JOBBORED_ROUTE_RATE_PER_MINUTE, 60),
+    concurrency: limitFromEnv(process.env.JOBBORED_ROUTE_CONCURRENCY, 8),
+  }),
+);
 
 // Opt-in static file serving for local dev and e2e tests. Off by default so
 // production deployments don't accidentally expose the repo root.
