@@ -888,3 +888,101 @@ export async function installScribeEditApi(page, options) {
     },
   };
 }
+
+const RUN_FILE_TYPES = { pdf: "application/pdf", html: "text/html; charset=utf-8", txt: "text/plain; charset=utf-8" };
+
+/**
+ * GRADE (W-FE): the materials routes a v3 package reads, from the frozen
+ * fixtures (tests/fixtures/materials-qa-v3.mjs): the manifest, GET /runs
+ * (RunSummary[]), the run-scoped file route
+ * (`/runs/:runId/files/:filename`, `?download=1` as an attachment) and
+ * POST /runs/:runId/rescore. Install it after the fence so it wins for the
+ * materials origin. Every other materials call is refused and recorded,
+ * and same-origin /profile* never reaches the dev server.
+ *
+ * options: { slug, manifest(), runs(), origin }.
+ */
+export async function installGradeMaterialsApi(page, options) {
+  const origin = options.origin || DISPOSABLE_AUTH.materialsOrigin;
+  const slug = options.slug;
+  const seen = { refused: [], rescores: [], files: [] };
+  await page.route(`${origin}/**`, async (route) => {
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const prefix = `/api/applications/${slug}`;
+    if (method === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders() });
+      return;
+    }
+    if (path === "/api/applications" && method === "GET") {
+      const m = options.manifest();
+      await fulfillJson(route, { applications: [{ slug, company: m.company, title: m.title }] });
+      return;
+    }
+    if (path === "/api/applications/queue" && method === "GET") {
+      await fulfillJson(route, { queue: [] });
+      return;
+    }
+    if (path === `${prefix}/manifest` && method === "GET") {
+      await fulfillJson(route, options.manifest());
+      return;
+    }
+    if (path === `${prefix}/job-description` && method === "GET") {
+      await fulfillJson(route, { ok: true, exists: true });
+      return;
+    }
+    if (path === `${prefix}/checklist` && method === "GET") {
+      await fulfillJson(route, { contract: "materials.checklist.v1", slug, updatedAt: "2026-10-02T09:00:00.000Z", progress: { done: 0, total: 0 }, items: [] });
+      return;
+    }
+    if (path === `${prefix}/files/jd-extract.json` && method === "GET") {
+      await fulfillJson(route, { nouns: [] });
+      return;
+    }
+    if (path === `${prefix}/runs` && method === "GET") {
+      await fulfillJson(route, { slug, runs: options.runs ? options.runs() : [] });
+      return;
+    }
+    const runFile = /^\/api\/applications\/[^/]+\/runs\/([^/]+)\/files\/([^/]+)$/.exec(path);
+    if (runFile && method === "GET") {
+      const filename = decodeURIComponent(runFile[2]);
+      const ext = filename.split(".").pop();
+      seen.files.push({ runId: decodeURIComponent(runFile[1]), filename, download: url.searchParams.get("download") === "1" });
+      const body = ext === "pdf" ? "%PDF-1.4\n% hermetic GRADE fixture\n" : (ext === "html" ? "<!doctype html><title>Hermetic draft</title><p>Fictional Acme Robotics draft.</p>" : "Fictional Acme Robotics draft.\n");
+      await route.fulfill({
+        status: 200,
+        headers: {
+          ...corsHeaders(),
+          "content-type": RUN_FILE_TYPES[ext] || "application/octet-stream",
+          "x-content-type-options": "nosniff",
+          ...(url.searchParams.get("download") === "1" ? { "content-disposition": `attachment; filename="${filename}"` } : {}),
+        },
+        body,
+      });
+      return;
+    }
+    const rescore = /^\/api\/applications\/[^/]+\/runs\/([^/]+)\/rescore$/.exec(path);
+    if (rescore && method === "POST") {
+      seen.rescores.push({ runId: decodeURIComponent(rescore[1]), body: request.postDataJSON() });
+      await fulfillJson(route, { ok: true });
+      return;
+    }
+    const text = /^\/api\/applications\/[^/]+\/files\/(resume|cover-letter)\.txt$/.exec(path);
+    if (text && method === "GET") {
+      await route.fulfill({ status: 200, headers: { ...corsHeaders(), "content-type": "text/plain; charset=utf-8" }, body: "Fictional Acme Robotics draft.\n" });
+      return;
+    }
+    seen.refused.push(`${method} ${path}`);
+    await fulfillJson(route, { error: "Not staged in this hermetic test", code: "hermetic_refused" }, 503);
+  });
+  await page.route(/\/profile(\/.*)?(\?.*)?$/, async (route) => {
+    if (new URL(route.request().url()).origin === origin) {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, { ok: false, reason: "hermetic_refused" }, 503);
+  });
+  return seen;
+}

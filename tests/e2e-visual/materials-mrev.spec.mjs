@@ -1,8 +1,8 @@
 /**
  * materials-mrev.spec.mjs — MREV lane C in a real browser.
  *
- *   D1  the judge's scorecard: verdict + reason, factual blockers apart from
- *       writing feedback, five dimensions, gaps, the judge's label
+ *   D1  the quality check (GRADE D7): the verdict word and first reason,
+ *       the deciding claims with their sentences, background gaps — no score
  *   D2  an old (rubric) run renders read-only
  *   D3  Repair asks what to change and posts K4 (+ G5 base hash, request id)
  *   D4  when the repair lands, its diff opens by itself; "No material
@@ -346,28 +346,24 @@ async function setResume(page) {
 
 for (const width of [1440, 375]) {
   test.describe(`at ${width}px`, () => {
-    test("D1 · the scorecard says why: blockers apart from writing feedback, five dimensions, gaps, the judge", async ({ page }, testInfo) => {
+    /* GRADE (D1, D4, D7): a v2 judge record is an old checker's now — its
+       verdict word and the claims that decided it, never "64 of 100". */
+    test("D1 · the quality check says why: the verdict, the deciding claims with their sentences, background gaps", async ({ page }, testInfo) => {
       const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() }, { width, height: width === 375 ? 1600 : 1100 });
       const letter = section.locator('[data-doc="cover_letter"]');
       await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
-      /* A failed hard check caps the grade at D, whatever the 64. */
       const grade = letter.locator("[data-score-open]");
-      await expect(grade).toHaveAttribute("aria-label", /^Grade D, 64 of 100(, capped by a failed check)? — open score details$/);
+      await expect(grade).toHaveAttribute("aria-label", /^Cover letter: Fails — 1 claim needs a source\. Open the quality check\.$/);
+      await expect(grade).toHaveText("Fails · 1 claim needs a source");
       await expect(letter.locator(".mat-verdict__why, .mat-dims, .mat-gaps, [data-group]")).toHaveCount(0);
 
       const modal = await openScore(letter);
-      await expect(modal.locator(".jb-score__verdict")).toHaveText("One sentence claims a result your background doesn't support.");
-      await expect(modal.locator(".jb-score__judge")).toContainText("grok-judge-1");
-      const blockers = modal.locator('[data-step="blockers"] [data-group="blocker"]');
-      const writing = modal.locator('[data-step="blockers"] [data-group="writing"]');
-      await expect(blockers.locator(".jb-score__quote")).toHaveText("At Contoso I cut churn by 40% across the enterprise book.");
-      await expect(writing.first()).toContainText("The close is a stock line; end on something specific to them.");
-      await expect(writing.first()).not.toContainText("churn");
-      const [b, w] = [await blockers.first().boundingBox(), await writing.first().boundingBox()];
-      expect(b.y + b.height, "blockers sit above writing feedback, apart").toBeLessThanOrEqual(w.y);
-      await modal.locator('[data-score-step="dimensions"]').click();
-      await expect(modal.locator('[data-step="dimensions"] .jb-score__dim')).toHaveCount(5);
-      await expect(modal.locator('[data-step="dimensions"]')).toContainText("One result has no source in your background.");
+      await expect(modal.locator(".jb-score__verdict")).toHaveText("1 claim needs a source");
+      await expect(modal.locator(".jb-score__prov")).toHaveText("Graded by the old checker");
+      const claims = modal.locator('[data-step="why"] [data-group="sentence"]');
+      await expect(claims.first().locator(".jb-score__quote")).toHaveText("At Contoso I cut churn by 40% across the enterprise book.");
+      await expect(modal.locator('[data-step="why"] [data-group="background"]')).toHaveCount(2);
+      await expect(modal).not.toContainText(/\/ 100|of 100|One sentence claims/);
       await shoot(modal.locator(".jb-score__card"), testInfo, `mrev-score-modal-${width}`);
       await modal.locator(".jb-score__foot [data-score-close]").click();
       await expect(modal).toHaveCount(0);
@@ -375,7 +371,7 @@ for (const width of [1440, 375]) {
 
       const resume = section.locator('[data-doc="resume"]');
       await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
-      await expect(resume.locator("[data-score-open]")).toHaveAttribute("aria-label", /^Grade B, 86 of 100 — open score details$/);
+      await expect(resume.locator("[data-score-open]")).toHaveAttribute("aria-label", /^Resume: Ready\. Open the quality check\.$/);
       await expectNoSidewaysScroll(page, width);
       await shoot(letter, testInfo, `mrev-scorecard-${width}`);
       expectHermetic(fence, seen, testInfo);

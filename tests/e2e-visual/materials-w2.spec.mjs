@@ -415,7 +415,9 @@ for (const width of [1440, 390]) {
       await resume.getByRole("menuitem", { name: /PDF/ }).click();
       const confirm = resume.getByRole("alertdialog");
       await expect(confirm).toBeVisible();
-      await expect(confirm).toContainText("This draft failed its quality check. Download anyway?");
+      /* GRADE G7: a FAIL root is held, and its confirm says why. */
+      await expect(confirm).toHaveAttribute("data-gate", "held");
+      await expect(confirm).toContainText(/^This version is held — .+\. Download anyway\?/);
       /* MREV D2: this fixture is an old rubric run, which is read-only. */
       await expect(confirm.getByRole("button", { name: "Cancel" })).toBeVisible();
       await expect(confirm.getByRole("button", { name: "Repair first" })).toHaveCount(0);
@@ -562,7 +564,7 @@ test("Draft both queues the resume, then the letter as its own run (U-5)", async
   await expect(letter.locator(".mat-tl")).toBeVisible({ timeout: 20_000 });
   phase = "done";
   /* The verdict lands on the grade button; the pill keeps the document's state. */
-  await expect(section.locator('[data-doc="resume"] [data-score-open]')).toHaveAttribute("data-grade", "F", { timeout: 20_000 });
+  await expect(section.locator('[data-doc="resume"] [data-score-open]')).toHaveAttribute("data-verdict", "FAIL", { timeout: 20_000 });
   await expect(section.locator('[data-doc="resume"] .case__docst')).toHaveText(/^ready$/i);
   await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
   expect(seen.requests, "one request: the server chains the letter").toHaveLength(1);
