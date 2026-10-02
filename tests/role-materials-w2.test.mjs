@@ -273,7 +273,8 @@ describe("W2 · rows with a pipeline verdict", () => {
     const r = row(render(manifest()), "resume");
     assert.match(r, /data-qa="fail"/);
     assert.match(r, /class="jb-grade"[^>]*data-score-open data-feature="resume"[^>]*aria-label="Grade F, 50 of 100 — open score details"/);
-    assert.match(r, /case__docst--qa-fail" data-status="review">fail</);
+    /* Grok review: the pill says the document's own state, not the verdict. */
+    assert.match(r, /case__docst--ready" data-status="review">ready</);
     assert.doesNotMatch(r, /6 \/ 12|failed its quality check|fell back to rules|Review your details/);
     assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0);
   });
@@ -287,7 +288,7 @@ describe("W2 · rows with a pipeline verdict", () => {
     assert.match(resume, /\/files\/resume\.txt\?download=1/);
     assert.match(resume, /\/export\/resume\.docx\?download=1/);
     assert.doesNotMatch(letter, /data-gate/);
-    assert.match(letter, /case__docst--qa-review" data-status="review">review</);
+    assert.match(letter, /case__docst--ready" data-status="review">ready</);
     assert.doesNotMatch(letter, /LinkedIn/);
   });
 
@@ -308,7 +309,8 @@ describe("MREV D1 · rows with a judge verdict (materials.qa.v2)", () => {
     const html = render({ ...base, quality: { documents: { ...base.quality.documents, cover_letter: V2_LETTER_FAIL } } });
     const r = row(html, "cover_letter");
     assert.match(r, /class="jb-grade"[^>]*data-feature="cover_letter"[^>]*aria-label="Grade (D|D-|F), \d+ of 100 — open score details"/);
-    assert.match(r, /case__docst--qa-fail" data-status="review">fail</);
+    /* Grok review: the pill says the document's own state, not the verdict. */
+    assert.match(r, /case__docst--ready" data-status="review">ready</);
     assert.doesNotMatch(r, /data-qa-contract|Factual blockers|64 \/ 100/);
     assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0, "Repair lives in the modal");
     /* A v2 FAIL still gates Download. */

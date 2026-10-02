@@ -349,7 +349,7 @@ for (const width of [1440, 375]) {
     test("D1 · the scorecard says why: blockers apart from writing feedback, five dimensions, gaps, the judge", async ({ page }, testInfo) => {
       const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest() }, { width, height: width === 375 ? 1600 : 1100 });
       const letter = section.locator('[data-doc="cover_letter"]');
-      await expect(letter.locator(".case__docst")).toHaveText(/^fail$/i);
+      await expect(letter.locator(".case__docst")).toHaveText(/^ready$/i);
       /* A failed hard check caps the grade at D, whatever the 64. */
       const grade = letter.locator("[data-score-open]");
       await expect(grade).toHaveAttribute("aria-label", /^Grade D, 64 of 100(, capped by a failed check)? — open score details$/);
@@ -521,7 +521,7 @@ test("G5 · a stale base keeps the dialog open and says to refresh", async ({ pa
 test("D2 · an old rubric run renders read-only in the old style", async ({ page }, testInfo) => {
   const { fence, seen, section } = await openCase(page, { manifest: () => readyManifest({ resume: V1_RESUME_FAIL }) });
   const resume = section.locator('[data-doc="resume"]');
-  await expect(resume.locator(".case__docst")).toHaveText(/^fail$/i);
+  await expect(resume.locator(".case__docst")).toHaveText(/^ready$/i);
   await expect(resume.locator(".mat-rubric")).toHaveCount(0);
   const modal = await openScore(resume);
   await expect(modal).toContainText("Graded by the old checker");

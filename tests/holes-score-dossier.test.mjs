@@ -150,8 +150,14 @@ describe("Dossier rows · the grade button is the only score (§0.3)", () => {
       }
       assert.doesNotMatch(text(row), /\/ 100|\d+ \/ \d+|\+\d+ more|Factual blockers|Writing quality/);
     }
-    assert.equal(text(letter.querySelector(".case__docst")), "fail", "the pill keeps the verdict word, not the score");
-    assert.equal(text(resume.querySelector(".case__docst")), "ready");
+    /* Grok review: the verdict word is the modal's; the pill beside the
+       grade button says the document's own state. */
+    for (const row of [letter, resume]) {
+      const pill = row.querySelector(".case__docst");
+      assert.equal(text(pill), "ready", "the document's own state");
+      assert.doesNotMatch(pill.getAttribute("class"), /qa-/, "no verdict tone on the pill");
+    }
+    assert.ok(env.rowOf("cover_letter").getAttribute("data-qa") === "fail", "the FAIL gate still knows (downloads stay gated)");
   });
 
   it("should put the legacy panel's quality line behind the same button", () => {

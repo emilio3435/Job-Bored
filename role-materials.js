@@ -1257,11 +1257,10 @@
       var stateClass = isPending && isQueued ? "queued" : status;
       if (isNextInLine) stateWord = "next";
       if (verdict) {
-        /* The pill keeps the verdict's one word; the score is the grade
-           button's, and only the grade button's (§0.3). */
-        var tone = mi.dispositionOf(qualityForRow).toLowerCase();
-        stateWord = tone;
-        stateClass = "qa-" + (tone === "ready" ? "ready" : tone);
+        /* The verdict and the score are the grade button's and its modal's
+           (§0.3); the pill beside it says the document's own state. */
+        stateWord = "ready";
+        stateClass = "ready";
       }
       if (verdict && (def.type === "resume" || def.type === "cover_letter")) {
         actions = actions.concat(['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-history"'
