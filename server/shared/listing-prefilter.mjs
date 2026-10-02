@@ -12,6 +12,18 @@
 
 /** @typedef {"remote" | "hybrid" | "onsite" | "unknown"} RemoteBucket */
 
+/** @param {string} code @param {number} radix */
+function decodeNumericEntity(code, radix) {
+  try {
+    const point = Number.parseInt(code, radix);
+    return Number.isInteger(point) && point >= 0 && point <= 0x10ffff
+      ? String.fromCodePoint(point)
+      : " ";
+  } catch {
+    return " ";
+  }
+}
+
 /** @param {string} input */
 function stripHtml(input) {
   return String(input || "")
@@ -24,8 +36,8 @@ function stripHtml(input) {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&apos;|&#39;/gi, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number.parseInt(code, 10)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => decodeNumericEntity(code, 10))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => decodeNumericEntity(code, 16))
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -161,11 +173,11 @@ export function inferRemoteBucket(input) {
   // Remove denied signals without hiding a separate positive remote clause.
   const remoteSignal = REMOTE_LOCATION_PATTERN.source;
   const unnegated = haystack
-    .replace(new RegExp(`\\b(?:no|not(?!\\s+only\\b)|never|without|cannot|\\w+n['’]t|non)(?:(?:\\s+(?!(?:but|and|or)\\b)[a-z]+)|(?:\\s*(?:…|\\.{3}))){0,4}[\\s-]+${remoteSignal}`, "gi"), " ")
-    .replace(new RegExp(`${remoteSignal}(?:\\s+(?:work|working|position|role))?\\s+(?:(?:is|are)\\s+(?:not|never)|(?:is|are)n['’]t)\\b`, "gi"), " ");
+    .replace(new RegExp(`\\b(?:no|not(?!\\s+only\\b)|never|without|cannot|\\w+n['’]t|non)(?:\\s+(?:eligible\\s+for|(?:currently\\s+)?be|offer)|\\s*(?:…|\\.{3}))?(?:\\s+(?:a|an))?(?:\\s+fully)?[\\s-]+${remoteSignal}`, "gi"), " ")
+    .replace(new RegExp(`${remoteSignal}(?:\\s+(?:work|working|position|role))?\\s+(?:(?:is|are)\\s+(?:not|never)|(?:is|are)n['’]t)\\s+(?:available|offered|allowed|an?\\s+option)\\b`, "gi"), " ");
   if (REMOTE_LOCATION_PATTERN.test(unnegated)) return "remote";
-  if (HYBRID_LOCATION_PATTERN.test(haystack)) return "hybrid";
-  if (ONSITE_LOCATION_PATTERN.test(haystack)) return "onsite";
+  if (HYBRID_LOCATION_PATTERN.test(unnegated)) return "hybrid";
+  if (ONSITE_LOCATION_PATTERN.test(unnegated)) return "onsite";
   return "unknown";
 }
 
