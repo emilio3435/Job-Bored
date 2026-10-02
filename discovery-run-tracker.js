@@ -20,6 +20,14 @@
   const RUN_DEADLINE_GRACE_MS = 5 * 60 * 1000;
   const DEFAULT_OVERALL_POLL_DEADLINE_MS =
     DEFAULT_MAX_RUN_DURATION_MS + RUN_DEADLINE_GRACE_MS;
+  // D13 (§1b.9): the one channel tabs use to share a discovery run.
+  const DISCOVERY_RUN_CHANNEL = "jb-discovery-run";
+  const DISCOVERY_RUN_TAB_ID =
+    typeof crypto !== "undefined" && crypto && typeof crypto.getRandomValues === "function"
+      ? Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("")
+      : Math.random().toString(16).slice(2);
 
   function createAbortablePollSession() {
     let generation = 0;
@@ -602,9 +610,16 @@
       try {
         const raw = localStorage.getItem(this._key);
         if (!raw) return this._idle();
-        const parsed = JSON.parse(raw);
+        return this._hydrate(JSON.parse(raw));
+      } catch (_) {
+        return this._idle();
+      }
+    }
+
+    /** Re-hydrate a stored (or another tab's) snapshot with defaults. */
+    _hydrate(parsed) {
+      try {
         if (!parsed || typeof parsed !== "object") return this._idle();
-        // Re-hydrate with defaults for missing fields
         return {
           status: parsed.status || "idle",
           runId: parsed.runId || "",
@@ -658,6 +673,60 @@
         /* storage full or unavailable — run state is best-effort */
       }
       dispatchDiscoveryRunTrackerEvent(state);
+      this.postChannelMessage({ type: "state", state });
+    }
+
+    /**
+     * D13: tabs share one run over the jb-discovery-run BroadcastChannel.
+     * Every state change goes out; another tab's change is adopted here
+     * (its sender already persisted it), and listeners (the status handoff's
+     * poll election) see every message.
+     */
+    connectChannel() {
+      if (this._channel !== undefined) return this._channel;
+      this._channel = null;
+      this._channelListeners = [];
+      if (typeof BroadcastChannel !== "function") return null;
+      try {
+        this._channel = new BroadcastChannel(DISCOVERY_RUN_CHANNEL);
+        this._channel.onmessage = (event) => this._onChannelMessage(event && event.data);
+      } catch (_) {
+        this._channel = null;
+      }
+      return this._channel;
+    }
+
+    onChannelMessage(listener) {
+      if (this.connectChannel() && typeof listener === "function") {
+        this._channelListeners.push(listener);
+      }
+    }
+
+    postChannelMessage(message) {
+      if (!this._channel) return;
+      try {
+        this._channel.postMessage({ ...message, tabId: DISCOVERY_RUN_TAB_ID });
+      } catch (_) {
+        /* best-effort, like storage */
+      }
+    }
+
+    _onChannelMessage(message) {
+      if (!message || typeof message !== "object") return;
+      if (message.tabId === DISCOVERY_RUN_TAB_ID) return;
+      if (message.type === "state" && message.state && typeof message.state === "object") {
+        const next = this._hydrate(message.state);
+        if (next.runId !== this._state.runId) this._pollSession.abortAll();
+        this._state = next;
+        dispatchDiscoveryRunTrackerEvent(this._state);
+      }
+      for (const listener of this._channelListeners) {
+        try {
+          listener(message);
+        } catch (_) {
+          /* one listener never breaks another */
+        }
+      }
     }
 
     _idle() {
@@ -1017,6 +1086,7 @@
         localStorage.removeItem(this._key);
       } catch (_) {}
       dispatchDiscoveryRunTrackerEvent(this._state);
+      this.postChannelMessage({ type: "state", state: this._state });
       return this;
     }
 
@@ -1129,6 +1199,7 @@
 
   /** Shared singleton — initialized once at module load */
   const discoveryRunTracker = new DiscoveryRunTracker();
+  discoveryRunTracker.connectChannel();
 
   Object.assign(runTracker, {
     DISCOVERY_RUN_TRACKER_KEY,
@@ -1137,6 +1208,8 @@
     DEFAULT_OVERALL_POLL_DEADLINE_MS,
     DEFAULT_MAX_RUN_DURATION_MS,
     RUN_DEADLINE_GRACE_MS,
+    DISCOVERY_RUN_CHANNEL,
+    DISCOVERY_RUN_TAB_ID,
     DiscoveryRunTracker,
     discoveryRunTracker,
     dispatchDiscoveryRunTrackerEvent,

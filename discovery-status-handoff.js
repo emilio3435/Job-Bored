@@ -1052,6 +1052,94 @@ function surfacePreFilterRejectionsFromStatus(statusData) {
   }
 }
 
+/* D13: one tab polls a run. Before each poll the polling tab announces a
+   lease on the jb-discovery-run channel; a tab that sees a fresh lease
+   mirrors the state the tracker shares instead of polling, and takes over
+   when the lease is released or lapses. A hidden tab polls nothing: it
+   releases its lease and polls again the moment it is shown. */
+const RUN_LEASE_TTL_MS = 20 * 1000;
+const runLeases = new Map();
+let runChannelBound = false;
+let lastMirroredTerminalRunId = "";
+
+function bindRunChannel() {
+  if (runChannelBound) return;
+  const rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+  const tracker = rt && rt.discoveryRunTracker;
+  if (!tracker || typeof tracker.onChannelMessage !== "function") return;
+  runChannelBound = true;
+  tracker.onChannelMessage(onRunChannelMessage);
+}
+
+function thisTabId() {
+  const rt = window.JobBoredDiscovery.runTracker;
+  return String((rt && rt.DISCOVERY_RUN_TAB_ID) || "");
+}
+
+function onRunChannelMessage(message) {
+  const runId = String(message.runId || "");
+  if (message.type === "lease" && runId) {
+    runLeases.set(runId, { tabId: String(message.tabId || ""), seenAt: Date.now() });
+  } else if (message.type === "release" && runId) {
+    const lease = runLeases.get(runId);
+    if (lease && lease.tabId === String(message.tabId || "")) runLeases.delete(runId);
+    if (activePollLoop && activePollLoop.runId === runId) activePollLoop.wake();
+  } else if (message.type === "state") {
+    mirrorSharedRunState();
+  }
+}
+
+/** Another tab changed the run: show it here without a second toast. */
+function mirrorSharedRunState() {
+  const tracker = runTracker();
+  const state = tracker.getState();
+  renderDiscoveryRunStatus({ quiet: true });
+  if (TERMINAL_RUN_STATUSES.includes(state.status)) {
+    if (state.runId && lastMirroredTerminalRunId !== state.runId) {
+      lastMirroredTerminalRunId = state.runId;
+      void refreshPipelineAfterDiscoveryRun(state);
+    }
+    return;
+  }
+  const followed = activePollLoop && activePollLoop.runId === state.runId;
+  if (tracker.isActive() && state.statusPath && !followed) {
+    void startDiscoveryStatusPolling(state.webhookUrl || host().getDiscoveryWebhookUrl());
+  }
+}
+
+/** True when another tab polls this run, so this one should mirror it. */
+function anotherTabPolls(loop) {
+  const lease = runLeases.get(loop.runId);
+  if (!lease || lease.tabId === thisTabId()) return false;
+  if (Date.now() - lease.seenAt > RUN_LEASE_TTL_MS) return false;
+  // Two tabs that both claimed it: the lower tab id keeps polling.
+  return !loop.leading || lease.tabId < thisTabId();
+}
+
+function announceRunLease(loop, type) {
+  const tracker = runTracker();
+  if (typeof tracker.postChannelMessage === "function") {
+    tracker.postChannelMessage({ type, runId: loop.runId });
+  }
+}
+
+function stepBackFromRun(loop) {
+  if (!loop || !loop.leading) return;
+  loop.leading = false;
+  announceRunLease(loop, "release");
+}
+
+function isDocumentHidden() {
+  return typeof document !== "undefined" && !!document && document.visibilityState === "hidden";
+}
+
+function onDiscoveryVisibilityChange() {
+  const loop = activePollLoop;
+  if (!loop) return;
+  if (isDocumentHidden()) stepBackFromRun(loop);
+  else loop.wake();
+}
+
 /**
  * Main polling loop — call once after an accepted_async response.
  * Automatically stops when the run reaches a terminal state or polling errors exceed limit.
@@ -1073,8 +1161,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
   const loop = {
     runId: String(started.runId || ""),
     generation: Number(started.pollGeneration) || 0,
+    leading: false,
+    inFlight: false,
+    wake() {},
   };
   activePollLoop = loop;
+  bindRunChannel();
   // A reload re-polls a lost run once; if it is still unreachable the loss
   // was already shown, so it settles again without a second toast (D6).
   const resumedSettled = typeof tracker.isSettled === "function" && tracker.isSettled();
@@ -1087,16 +1179,50 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     );
   };
 
+  const pollInterval = (s) =>
+    Number.isFinite(s.pollAfterMs) ? Math.max(STATUS_POLL_DEBOUNCE_MS, s.pollAfterMs) : 2000;
+
+  // D13: poll now — the tab was shown, or the tab that polled stepped back.
+  loop.wake = () => {
+    if (!isCurrent() || loop.inFlight) return;
+    if (tracker._pollTimer) {
+      clearTimeout(tracker._pollTimer);
+      tracker._pollTimer = null;
+    }
+    void poll();
+  };
+
   async function poll() {
     if (!isCurrent()) return;
     const state = tracker.getState();
 
-    // If we've reached terminal or been cleared, stop
-    if (!state.runId || state.status === "idle") {
+    // If we've reached terminal or been cleared, stop — another tab may
+    // have finished it (D13).
+    if (
+      !state.runId ||
+      state.status === "idle" ||
+      (typeof tracker.isTerminal === "function" && tracker.isTerminal())
+    ) {
+      stepBackFromRun(loop);
       return;
     }
+    // D13: a hidden tab polls nothing; visibilitychange wakes it.
+    if (isDocumentHidden()) {
+      stepBackFromRun(loop);
+      return;
+    }
+    // D13: one tab polls; this one mirrors the shared state meanwhile.
+    if (anotherTabPolls(loop)) {
+      loop.leading = false;
+      tracker._pollTimer = setTimeout(poll, pollInterval(state));
+      return;
+    }
+    loop.leading = true;
+    announceRunLease(loop, "lease");
 
+    loop.inFlight = true;
     const statusData = await pollRunStatus(pollingWebhookUrl, { isCurrent });
+    loop.inFlight = false;
     if (!isCurrent()) return;
     if (statusData) {
       tracker.updateFromStatusResponse(statusData);
@@ -1110,10 +1236,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       if (updated.statusEndpointTerminal) {
         // Settled: the message is already honest, and another poll would
         // only re-earn the same answer.
+        stepBackFromRun(loop);
         renderDiscoveryRunStatus();
         return;
       }
       if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
+        stepBackFromRun(loop);
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
         );
@@ -1127,6 +1255,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     }
 
     if (tracker.isTerminal()) {
+      stepBackFromRun(loop);
       await refreshPipelineAfterDiscoveryRun(updated);
       if (!isCurrent()) return;
       renderDiscoveryRunStatus();
@@ -1146,16 +1275,14 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       tracker.isPastDeadline(nowMs) &&
       !tracker.hasFreshProgress(nowMs)
     ) {
+      stepBackFromRun(loop);
       tracker.markDeadlineExceeded();
       renderDiscoveryRunStatus();
       return;
     }
 
     // Normal: wait pollAfterMs then poll again
-    const interval = Number.isFinite(updated.pollAfterMs)
-      ? Math.max(STATUS_POLL_DEBOUNCE_MS, updated.pollAfterMs)
-      : 2000;
-    tracker._pollTimer = setTimeout(poll, interval);
+    tracker._pollTimer = setTimeout(poll, pollInterval(updated));
   }
 
   // Kick off the first poll after the advertised pollAfterMs
@@ -1179,6 +1306,7 @@ function dismissDiscoveryRun() {
 
 /** Stop any active polling loop without clearing run state */
 function stopDiscoveryStatusPolling() {
+  stepBackFromRun(activePollLoop);
   activePollLoop = null;
   if (runTracker()._pollTimer) {
     clearTimeout(runTracker()._pollTimer);
@@ -1280,6 +1408,7 @@ function resumeDiscoveryStatusPollingIfNeeded() {
   // treated as "don't gate" to stay defensive.)
   const h = host();
   if (h && typeof h.isSignedIn === "function" && !h.isSignedIn()) return;
+  bindRunChannel();
   const state = runTracker().getState();
   if (!state.runId) return;
   if (state.status === "failed") {
@@ -1896,4 +2025,10 @@ function resetPostAccessBootstrap() {
     runPostAccessBootstrapOnce: runPostAccessBootstrapOnce,
     resetPostAccessBootstrap: resetPostAccessBootstrap,
   });
+
+  // D13: share the run with other tabs, and pause polling while hidden.
+  bindRunChannel();
+  if (typeof document !== "undefined" && document && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", onDiscoveryVisibilityChange);
+  }
 })();
