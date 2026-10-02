@@ -59,7 +59,8 @@ async function bootHosted(cwd, scratch) {
     stderr += String(chunk);
   });
   const baseUrl = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 80; i += 1) {
+  // 30 s boot window: an 8 s window timed out under parallel-suite load.
+  for (let i = 0; i < 300; i += 1) {
     if (child.exitCode != null) break;
     const res = await fetch(`${baseUrl}/health`).catch(() => null);
     if (res && res.ok) return { child, baseUrl };
