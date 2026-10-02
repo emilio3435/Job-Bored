@@ -19,7 +19,7 @@ import { readQaVerdict, verdictSnapshot } from "./materials-qa.mjs";
  * way application-materials.mjs guards the file routes.
  */
 
-import { copyFile, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
@@ -122,7 +122,7 @@ export async function resolveRunDir(appDir, runId) {
 /** @param {Record<string, unknown> | null} qa */
 export function verdictOf(qa) {
   const view = readQaVerdict(qa);
-  return view ? { disposition: view.disposition, state: view.state, reason: view.reasons[0]?.text || "", failedChecks: verdictSnapshot(view)?.failedCheckIds || [], ...(view.legacy ? { legacy: view.legacy } : {}) } : null;
+  return view ? { disposition: view.disposition, state: view.state, reason: view.reasons[0]?.text || "", failedChecks: verdictSnapshot(view)?.failedCheckIds || [], checks: view.checks.filter((/** @type {any} */ c) => ["fail", "review"].includes(c.status)).map((/** @type {any} */ c) => ({ id: c.id, kind: c.kind, status: c.status, label: c.label })), ...(view.legacy ? { legacy: view.legacy } : {}) } : null;
 }
 
 /**
@@ -162,7 +162,7 @@ async function docFingerprint(dir, doc) {
  * @property {string} [regeneratedFrom]
  * @property {Record<string, unknown>} [repair]
  * @property {HistoryDoc[]} documents
- * @property {Partial<Record<HistoryDoc, { disposition: string | null, state: string, reason: string, failedChecks: string[], legacy?: string }>>} verdicts
+ * @property {Partial<Record<HistoryDoc, { disposition: string | null, state: string, reason: string, failedChecks: string[], checks: Array<{id:string,kind:string,status:string,label:string}>, legacy?: string }>>} verdicts
  * @property {"run"|"pass"} kind
  * @property {string} [parentRunId]
  * @property {string} [label]
@@ -299,7 +299,14 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
       await copyFile(join(runDir, name), join(appDir, name));
       copied.push(name);
     }
+    const context = `judge-context.${doc === "cover_letter" ? "letter" : "resume"}.json`;
+    if (existsSync(join(runDir, context))) {
+      await copyFile(join(runDir, context), join(appDir, context)); copied.push(context);
+    } else await rm(join(appDir, context), { force: true });
   }
+  if (existsSync(join(runDir, "writer-sources.json"))) {
+    await copyFile(join(runDir, "writer-sources.json"), join(appDir, "writer-sources.json")); copied.push("writer-sources.json");
+  } else await rm(join(appDir, "writer-sources.json"), { force: true });
   for (const name of RUN_LEVEL_FILES) {
     if (!existsSync(join(runDir, name))) continue;
     await copyFile(join(runDir, name), join(appDir, name));

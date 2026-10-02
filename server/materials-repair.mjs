@@ -63,7 +63,7 @@ export function buildRepairRequestPayload(manifest, options = {}) {
   const view = readQaVerdict(source.qa);
   const targets = view ? repairInstructionsFromQa([view]) : [];
   const targetedIds = new Set([...selected, ...targets].flatMap(issue => Array.isArray(issue?.sentenceIds) ? issue.sentenceIds : []));
-  const preserveSentenceIds = view ? view.sentences.filter((/** @type {any} */ sentence) => !targetedIds.has(sentence.id)).map((/** @type {any} */ sentence) => sentence.id) : [];
+  const preserveSentenceIds = view && !targets.some(target => !target.sentenceIds.length) ? view.sentences.filter((/** @type {any} */ sentence) => !targetedIds.has(sentence.id)).map((/** @type {any} */ sentence) => sentence.id) : [];
   const requestId = cleanString(options.requestId);
   /** @type {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], targets: Record<string, unknown>[], preserveSentenceIds: string[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} */
   const repairInput = {

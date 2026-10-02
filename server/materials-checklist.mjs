@@ -66,7 +66,7 @@ const OUTREACH_FILES = ["outreach.json", "outreach-note.md", "outreach.md"];
  * @property {string} title
  * @property {string} jobUrl http(s) or ""
  * @property {{ resume: boolean, coverLetter: boolean }} docs
- * @property {{ resume?: { disposition: string, score?: number, max?: number }, letter?: { disposition: string, score?: number, max?: number } }} verdicts
+ * @property {{ resume?: { disposition: string | null, state?: string }, letter?: { disposition: string | null, state?: string } }} verdicts
  * @property {string} outreachText "" when no note exists
  * @property {string[]} bars the posting's stated disqualifiers
  * @property {string} contact the hiring contact's name, "" when unknown
@@ -81,14 +81,14 @@ function safeHttp(url) {
 }
 
 /**
- * @param {{ disposition: string, score?: number, max?: number } | undefined} v
+ * @param {{ disposition: string | null, state?: string } | undefined} v
  */
 function verdictWords(v) {
+  if (v?.state === "not_rescored") return "Not rescored yet — Rescore it before you send it.";
   if (!v || !v.disposition) return "";
-  const score = typeof v.score === "number" && typeof v.max === "number" ? ` (${v.score} / ${v.max})` : "";
-  if (v.disposition === "FAIL") return `It failed its quality check${score}. Repair it or read it closely first.`;
-  if (v.disposition === "REVIEW") return `Quality check says review${score}. Give it a read.`;
-  return `Passed its quality check${score}.`;
+  if (v.disposition === "FAIL") return "It failed its quality check. Repair it or read it closely first.";
+  if (v.disposition === "REVIEW") return "Quality check says review. Give it a read.";
+  return "Passed its quality check.";
 }
 
 /**

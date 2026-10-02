@@ -7,6 +7,17 @@ export const QA_CONTRACT = "materials.qa.v3";
 export const QA_CONTRACT_V1 = "materials.qa.v1";
 /** @param {string} id */
 const labelOf = id => id.replace(/^(dimension|sentence|review):/, "").replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+/** Map factual gate details conservatively; an unmapped failure disables preservation.
+ * @param {any} check @param {any[]} sentences @returns {string[]} */
+function defectSentenceIds(check, sentences) {
+  if (check.sentenceIds?.length) return check.sentenceIds;
+  if (!/tool_support|metric|invented_fact|invented_employer|protected_fact/.test(check.id)) return [];
+  const reason = String(check.detail || check.reason || "");
+  const terms = [...(reason.match(/\$?\d[\d,.]*(?:%|[kmb])?/gi) || []),
+    ...[...reason.matchAll(/(?:supports:|evidence:|employer:|employers?:)\s*([^.;]+)/gi)].flatMap(m => m[1].split(",")),
+    ...[...reason.matchAll(/["“']([^"”']+)["”']/g)].map(m => m[1])].map(t => t.trim().toLowerCase()).filter(Boolean);
+  return sentences.filter(s => terms.some(term => String(s.text || "").toLowerCase().includes(term))).map(s => s.id);
+}
 /** @param {string} text @param {string} fallback */
 const legacyText = (text, fallback) => /(?:quality|advisory|overall)\s*score|\d+\s*(?:\/|of)\s*(?:100|16)|\bscore[d]?\s+\d+/i.test(text) ? fallback : text || fallback;
 /** Copy legacy display fields without carrying stored total prose into a served view.
@@ -35,7 +46,7 @@ export function issueDocument(/** @type {{ code?: string, field?: string }} */ i
 export function buildQaRecord({ document, runId, finalText = "", textHash, passId = null, gates = [], judge = { status: "invalid" }, constraints = [], degraded = [], repair, state = "graded", carriedFrom, rescore }) {
   const expectedHash = hashRenderedText(finalText);
   const normalizedGates = [...gates, ...constraints.map((/** @type {any} */ g) => ({ ...g, kind: "constraint" }))]
-    .map((/** @type {any} */ g) => ({ id: g.id, kind: g.kind, pass: Boolean(g.pass), reason: g.reason || labelOf(g.id), sentenceIds: g.sentenceIds || [] }));
+    .map((/** @type {any} */ g) => ({ id: g.id, kind: g.kind, pass: Boolean(g.pass), reason: g.reason || labelOf(g.id), sentenceIds: g.pass ? g.sentenceIds || [] : defectSentenceIds(g, splitSentences(finalText, document)) }));
   if (textHash && textHash !== expectedHash) normalizedGates.unshift({ id: "text_parity", kind: "hard", pass: false, reason: "The judged hash differs from the rendered body.", sentenceIds: [] });
   const failedHard = normalizedGates.some((/** @type {any} */ g) => g.kind === "hard" && !g.pass);
   const constraintFailed = normalizedGates.some((/** @type {any} */ g) => g.kind === "constraint" && !g.pass);
@@ -152,9 +163,9 @@ export function formatDocumentQaReport({ records, notes = [] }) {
 export function repairInstructionsFromQa(records) {
   return records.flatMap(readQa => {
     const record = readQaVerdict(readQa);
-    const failed = record.checks.filter((/** @type {any} */ c) => c.status === "fail");
+    const failed = record.checks.filter((/** @type {any} */ c) => c.status === "fail").map((/** @type {any} */ c) => ({ ...c, sentenceIds: defectSentenceIds(c, record.sentences) }));
     const flagged = new Set(failed.flatMap((/** @type {any} */ c) => c.sentenceIds));
-    const preserveSentenceIds = record.sentences.filter((/** @type {any} */ s) => !flagged.has(s.id)).map((/** @type {any} */ s) => s.id);
+    const preserveSentenceIds = failed.some((/** @type {any} */ c) => !c.sentenceIds.length) ? [] : record.sentences.filter((/** @type {any} */ s) => !flagged.has(s.id)).map((/** @type {any} */ s) => s.id);
     return failed.map((/** @type {any} */ c) => ({ id: record.issues.find((/** @type {any} */ i) => i.sentenceIds.some((/** @type {string} */ id) => c.sentenceIds.includes(id)) && i.severity === "hard")?.id || c.id,
       checkId: c.id, kind: c.kind === "sentence" ? "fact" : "format", reason: c.detail, sentenceIds: c.sentenceIds, text: c.detail, preserveSentenceIds }));
   });

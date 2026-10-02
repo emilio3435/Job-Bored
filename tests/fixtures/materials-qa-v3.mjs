@@ -33,6 +33,8 @@ export const V3_SECOND_DISAGREEMENT = { ...copy(V3_UNSUPPORTED), disposition: "R
 export const V3_SECOND_OUTAGE = { ...copy(base), reviews: [...copy(base.reviews), { role: "second", provider: "openai_compatible", model: "judge-example", promptVersion: "materials-judge-v3", status: "unavailable", disposition: null, flagged: [], errorCode: "timeout", error: "judge_timeout" }],
   checks: [{ id: "review:second", kind: "review", status: "skipped", label: "Second review unavailable", detail: "Try again", sentenceIds: [] }],
 };
+export const V3_FIRST_OUTAGE = { ...copy(base), reviews: [{ ...copy(V3_SECOND_OUTAGE.reviews[1]), role: "first" }, { ...copy(base.reviews[0]), role: "second", model: "judge-example" }], checks: [{ id: "review:first", kind: "review", status: "skipped", label: "First review unavailable", detail: "Try again", sentenceIds: [] }] };
+export const V3_BOTH_OUTAGE = { ...copy(base), disposition: "REVIEW", ratings: [], reviews: [copy(V3_FIRST_OUTAGE.reviews[0]), copy(V3_SECOND_OUTAGE.reviews[1])], reasons: [{ checkId: "review:absence", text: "No review ran; try again" }], checks: [{ id: "review:absence", kind: "review", status: "review", label: "Review unavailable", detail: "No review ran; try again", sentenceIds: [] }] };
 export const V3_REPAIRED_READY = { ...copy(base), passId: "pass-2", repair: { attempted: true, parentRunId: base.runId, changed: true, adopted: true,
   before: { runId: base.runId, disposition: "FAIL", failedCheckIds: ["sentence:L1"] }, after: { runId: base.runId, disposition: "READY", failedCheckIds: [] } } };
 export const V3_REPAIR_STILL_FAILING = { ...copy(V3_UNSUPPORTED), passId: "pass-2", repair: { ...copy(V3_REPAIRED_READY.repair), adopted: false, after: { runId: base.runId, disposition: "FAIL", failedCheckIds: ["sentence:L1"] } } };
@@ -53,9 +55,9 @@ export const LEGACY_V1 = { contract: "materials.qa.v1", document: "resume", runI
 export const V3_LEGACY_V2_VIEW = { ...copy(V3_GATE_FAIL_PERFECT), legacy: "old_checker", passId: null, reviews: [], ratings: [] };
 export const V3_LEGACY_V1_VIEW = { ...copy(base), document: "resume", legacy: "old_checker", passId: null, disposition: "FAIL", ratings: [], reviews: [], sentences: [],
   checks: [{ id: "resume_experience_missing", kind: "gate", status: "fail", label: "Resume experience missing", detail: "Resume is missing experience.", sentenceIds: [] }], reasons: [{ checkId: "resume_experience_missing", text: "Resume is missing experience." }] };
-export const RECORD_FIXTURES = { V3_READY, V3_GATE_FAIL_PERFECT, V3_UNSUPPORTED, V3_SECOND_DISAGREEMENT, V3_SECOND_OUTAGE, V3_REPAIRED_READY, V3_REPAIR_STILL_FAILING, V3_CARRIED_OVER, V3_NOT_RESCORED, V3_LOW_DIMENSION, V3_COVERAGE_MISSES, V3_LEGACY_V2_VIEW, V3_LEGACY_V1_VIEW };
+export const RECORD_FIXTURES = { V3_READY, V3_GATE_FAIL_PERFECT, V3_UNSUPPORTED, V3_SECOND_DISAGREEMENT, V3_SECOND_OUTAGE, V3_FIRST_OUTAGE, V3_BOTH_OUTAGE, V3_REPAIRED_READY, V3_REPAIR_STILL_FAILING, V3_CARRIED_OVER, V3_NOT_RESCORED, V3_LOW_DIMENSION, V3_COVERAGE_MISSES, V3_LEGACY_V2_VIEW, V3_LEGACY_V1_VIEW };
 const summary = (id, record, extra = {}) => ({ runId: id, date: "2026-10-02T09:00:00.000Z", feature: "cover_letter", template: "signal", source: "request", documents: ["cover_letter"], active: [], kind: "run",
-  verdicts: { cover_letter: { disposition: record.disposition, state: record.state, reason: record.reasons[0]?.text || "", failedChecks: record.checks.filter(c => c.status === "fail").map(c => c.id), ...(record.legacy ? { legacy: record.legacy } : {}) } },
+  verdicts: { cover_letter: { disposition: record.disposition, state: record.state, reason: record.reasons[0]?.text || "", failedChecks: record.checks.filter(c => c.status === "fail").map(c => c.id), checks: record.checks.filter(c => ["fail", "review"].includes(c.status)).map(({ id, kind, status, label }) => ({ id, kind, status, label })), ...(record.legacy ? { legacy: record.legacy } : {}) } },
   held: record.disposition === "FAIL" ? { reason: record.reasons[0].text } : null, isDefault: false,
   files: { cover_letter: { pdf: `/api/applications/acme/runs/${id}/files/cover-letter.pdf`, html: `/api/applications/acme/runs/${id}/files/cover-letter.html`, txt: `/api/applications/acme/runs/${id}/files/cover-letter.txt` } }, ...extra });
 export const RUNS_REPAIR_PASSED = [
@@ -69,7 +71,7 @@ export const RUNS_REPAIR_HELD = [
 ];
 export const RUNS_MANUAL_REPAIR = [
   summary("manual-parent", V3_UNSUPPORTED),
-  summary("manual-repair", V3_REPAIRED_READY, { active: ["cover_letter"], isDefault: true, source: "repair", repair: { ...copy(V3_REPAIRED_READY.repair), parentRunId: "manual-parent", before: { runId: "manual-parent", disposition: "FAIL", failedCheckIds: ["sentence:L1"] } } }),
+  summary("manual-repair", V3_REPAIRED_READY, { active: ["cover_letter"], isDefault: true, source: "request", repair: { ...copy(V3_REPAIRED_READY.repair), parentRunId: "manual-parent", before: { runId: "manual-parent", disposition: "FAIL", failedCheckIds: ["sentence:L1"] } } }),
 ];
 export const RUNS_EDITS = [
   summary("edit-parent", V3_READY),
@@ -77,7 +79,7 @@ export const RUNS_EDITS = [
   summary("edit-not-rescored", V3_NOT_RESCORED, { active: ["cover_letter"], isDefault: true, source: "manual", regeneratedFrom: "edit-carried" }),
 ];
 export const RUNS_LEGACY = [
-  summary("legacy-v1", V3_LEGACY_V1_VIEW, { feature: "resume", documents: ["resume"], verdicts: { resume: { disposition: "FAIL", state: "graded", reason: "Resume is missing experience.", failedChecks: ["resume_experience_missing"], legacy: "old_checker" } }, files: { resume: { txt: "/api/applications/acme/runs/legacy-v1/files/resume.txt" } } }),
+  summary("legacy-v1", V3_LEGACY_V1_VIEW, { feature: "resume", documents: ["resume"], verdicts: { resume: { disposition: "FAIL", state: "graded", reason: "Resume is missing experience.", failedChecks: ["resume_experience_missing"], checks: V3_LEGACY_V1_VIEW.checks.map(({ id, kind, status, label }) => ({ id, kind, status, label })), legacy: "old_checker" } }, files: { resume: { txt: "/api/applications/acme/runs/legacy-v1/files/resume.txt" } } }),
   summary("legacy-v2", V3_LEGACY_V2_VIEW, { active: ["cover_letter"] }),
 ];
 export const RUN_SUMMARIES = [...RUNS_REPAIR_PASSED, ...RUNS_REPAIR_HELD, ...RUNS_MANUAL_REPAIR, ...RUNS_EDITS, ...RUNS_LEGACY];

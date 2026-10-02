@@ -196,7 +196,7 @@ describe("repair source and request", () => {
     await writeFile(join(root, slug, "cover-letter.txt"), "Letter version");
     const letterBefore = await readFile(join(root, slug, "draft.cover_letter.json"));
     const listed = await listRuns(slug, { root });
-    assert.deepEqual(listed.runs.find((run) => run.runId === "r1").verdicts.resume, { disposition: "READY", state: "graded", reason: "", failedChecks: [], legacy: "old_checker" });
+    assert.deepEqual(listed.runs.find((run) => run.runId === "r1").verdicts.resume, { disposition: "READY", state: "graded", reason: "", failedChecks: [], checks: [], legacy: "old_checker" });
     await promoteRun(slug, "r1", { root });
     assert.deepEqual(await readFile(join(root, slug, "draft.cover_letter.json")), letterBefore);
     assert.deepEqual(await readFile(join(root, slug, "draft.resume.json")), await readFile(join(resumeDir, "draft.resume.json")));
