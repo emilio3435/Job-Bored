@@ -16,7 +16,7 @@ import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 
 /* v3.3: Wave 3 (company intel, outreach, per-role headline); v3.2: voice v4.1 (band fill, claim-close proofs, AI-role proofs); v3.1: voice v4. So a
  * package drafted under the old voice is never served from cache. */
-export const PIPELINE_PROMPT_VERSION = "materials.pipeline.mrev.v1";
+export const PIPELINE_PROMPT_VERSION = "materials.pipeline.grade.v3";
 export const CACHE_BUDGET_VERSION = MATERIALS_BUDGETS.version;
 
 /**

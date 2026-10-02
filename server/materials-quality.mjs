@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { readDocumentQa } from "./materials-qa.mjs";
 
-const QUALITY_VERSION = "materials-quality.v1";
+const QUALITY_VERSION = "materials-quality.v2";
 
 /* Slice 2: the length numbers live in MATERIALS_BUDGETS alone. The QA
  * thresholds below read the table; the contract test
@@ -356,25 +356,12 @@ export async function auditApplicationMaterials(dir) {
   for (const [key, verdict] of /** @type {const} */ ([["resume", verdicts.resume], ["cover_letter", verdicts.letter]])) {
     const doc = documents[key];
     if (!doc || !verdict) continue;
-    if (verdict.contract === "materials.qa.v2") {
-      doc.status = verdict.disposition === "FAIL" ? "fail" : verdict.disposition === "REVIEW" ? "review" : "pass";
-      doc.qa = {
-        runId: verdict.runId, disposition: verdict.disposition, dispositionReason: verdict.dispositionReason,
-        textHash: verdict.textHash, quality: verdict.quality, gates: verdict.gates, issues: verdict.issues,
-        qualificationGaps: verdict.qualificationGaps, sentences: verdict.sentences, judge: verdict.judge,
-        degraded: verdict.degraded, repair: verdict.repair,
-      };
-      continue;
-    }
-    for (const check of verdict.checks || []) {
-      if (check.severity !== "fail" && check.severity !== "review") continue;
-      if (doc.issues.some((item) => item.code === check.code)) continue;
-      doc.issues.push(issue(check.code, check.message, check.severity));
-    }
-    const rank = { pass: 0, review: 1, fail: 2 };
-    const fromIssues = statusFor(doc.issues);
-    doc.status = (rank[/** @type {keyof typeof rank} */ (verdict.status)] ?? 0) > rank[fromIssues] ? verdict.status : fromIssues;
+    doc.status = verdict.disposition === "FAIL" ? "fail" : verdict.disposition === "READY" ? "pass" : "review";
     doc.qa = verdict;
+    for (const check of verdict.checks || []) {
+      if (!["fail", "review"].includes(check.status) || doc.issues.some(item => item.code === check.id)) continue;
+      doc.issues.push(issue(check.id, check.detail, check.status));
+    }
   }
 
   const allIssues = Object.values(documents).flatMap((doc) => doc.issues || []);
