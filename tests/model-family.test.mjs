@@ -41,8 +41,12 @@ describe("Gemini Flash family boundary", () => {
   it("preserves other explicit versions and families", () => {
     for (const id of ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash-preview", "gemini-flash-lite", "gemini-2.5-pro"]) {
       assert.equal(normalizeGeminiFlashPreference(id), id);
+    }
+    for (const id of ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash-preview", "gemini-2.5-pro"]) {
       assert.equal(resolveGeminiFlashWireModel(id), id);
     }
+    // HOLES PROV P3: a family name is not a model id; Google takes its alias.
+    assert.equal(resolveGeminiFlashWireModel("gemini-flash-lite"), "gemini-flash-lite-latest");
   });
 });
 
