@@ -820,16 +820,49 @@ body.jb-v2 [data-region="pipeline"] .pipe-col__empty {
   background: transparent;
 }
 
+/* R5: the per-company cap's note is a Show all / Show fewer toggle. */
 body.jb-v2 [data-region="pipeline"] .pipe-col__hidden {
+  display: block;
+  width: calc(100% - 8px);
   margin: 6px 4px 0;
   padding: 6px 8px;
   font-family: var(--jb-font-display);
   font-size: var(--jb-text-xs, 11px);
-  color: var(--jb-ink-3);
+  color: var(--jb-ink-2);
   text-align: center;
   letter-spacing: 0.02em;
-  opacity: 0.7;
-  cursor: help;
+  background: transparent;
+  border: 1px dashed var(--jb-line);
+  border-radius: var(--jb-radius-sm);
+  cursor: pointer;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-col__hidden:hover {
+  color: var(--jb-ink);
+  border-color: var(--jb-line-strong);
+}
+
+/* B3: an empty board that is still loading, or failed to load, says so;
+   the per-column "lands here" hints would read as "you have nothing". */
+body.jb-v2 [data-region="pipeline"] .pipe-status {
+  margin: 0 0 var(--jb-space-3);
+  padding: var(--jb-space-2) var(--jb-space-3);
+  border-radius: var(--jb-radius-md);
+  background: var(--jb-surface-raised);
+  border: 1px solid var(--jb-line-soft);
+  color: var(--jb-ink-2);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+}
+
+body.jb-v2 [data-region="pipeline"][data-load-state="failed"] .pipe-status {
+  background: var(--jb-warn-bg);
+  border-color: var(--jb-warn);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="pipeline"][data-load-state] .pipe-col__empty {
+  visibility: hidden;
 }
 
 /* ───────────────────────── sticker card ───────────────────────── */

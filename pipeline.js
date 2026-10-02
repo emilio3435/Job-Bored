@@ -103,6 +103,20 @@
   var COMPANY_VISIBLE_CAP = capModule ? capModule.CAP : 3;
   // B6: search re-renders once typing pauses (the legacy board waits 200 ms too).
   var SEARCH_DEBOUNCE_MS = 200;
+  /* R5: the cap keeps one company from flooding the triage columns. A role
+     in a later stage is a commitment, so those columns always show every
+     role; a capped column offers Show all. */
+  var CAPPED_STAGES = { "new": true, "researching": true };
+
+  /* B3 (consumes SHEETS' jb:data:* events, spec §1b.10): loading
+     {generation}, loaded {generation, rowCount}, failed {generation, status,
+     message}; jb:data:load-failed is today's name for failed. An event from
+     a generation older than the newest one seen is stale. */
+  var dataLoad = { state: "unknown", generation: null };
+  var LOAD_COPY = {
+    loading: "Loading your pipeline…",
+    failed: "Your pipeline didn't load. An empty board here does not mean you have no roles: retry from the banner above.",
+  };
 
   var ric =
     typeof root.requestIdleCallback === "function"
@@ -1263,15 +1277,23 @@
     return '<p class="pipe-col__empty">' + escapeHtml(EMPTY_COPY[stageKey] || "Drop a role here.") + '</p>';
   }
 
-  function buildHiddenAffordance(hidden) {
+  /** R5: the cap's note is a Show all / Show fewer toggle for its column.
+   *  The column's existing toggle node is reused so focus survives renders. */
+  function hiddenToggle(body, stageKey, hidden, expanded) {
     var label = hidden
       .map(function (entry) { return "+" + entry.hidden + " from " + entry.company; })
       .join(" · ");
-    var el = document.createElement("p");
-    el.className = "pipe-col__hidden";
-    el.setAttribute("aria-label", "Hidden by per-company cap: " + label);
-    el.setAttribute("title", label + " — hidden so one company can’t dominate this column. Star a role or search to see all.");
-    el.textContent = label + " hidden";
+    var el = body.querySelector("[data-show-all]");
+    if (!el) {
+      el = document.createElement("button");
+      el.setAttribute("type", "button");
+      el.className = "pipe-col__hidden";
+      el.setAttribute("data-show-all", stageKey);
+      el.setAttribute("aria-controls", "pipe-col-body-" + stageKey);
+    }
+    el.setAttribute("aria-expanded", expanded ? "true" : "false");
+    el.setAttribute("title", "Up to " + COMPANY_VISIBLE_CAP + " roles per company show here, so one company can’t dominate this column.");
+    el.textContent = expanded ? "Show fewer" : "Show all (" + label + " hidden)";
     return el;
   }
 
@@ -1435,6 +1457,7 @@
   function buildShell(state) {
     return [
       buildToolbar(state),
+      '<p class="pipe-status" data-pipeline-status role="status" hidden></p>',
       '<div class="pipe-shell">',
         buildBoardSkeleton(),
       '</div>',
@@ -1475,14 +1498,18 @@
     return out;
   }
 
-  /** Put exactly `nodes`, in order, under `parent`, moving only what is out of
-   *  place: an untouched card keeps its node, and any focus inside it (B6). */
+  /** Put exactly `nodes`, in order, under `parent`. Dropped nodes go first,
+   *  so a kept node only moves when its order really changed: an untouched
+   *  card (or the Show all toggle) keeps its node and any focus in it (B6). */
   function syncChildren(parent, nodes) {
+    for (var j = parent.childNodes.length - 1; j >= 0; j--) {
+      var child = parent.childNodes[j];
+      if (nodes.indexOf(child) < 0) parent.removeChild(child);
+    }
     for (var i = 0; i < nodes.length; i++) {
       var at = parent.childNodes[i] || null;
       if (at !== nodes[i]) parent.insertBefore(nodes[i], at);
     }
-    while (parent.childNodes.length > nodes.length) parent.removeChild(parent.childNodes[nodes.length]);
   }
 
   function renderCards(region, vm, state) {
@@ -1498,7 +1525,9 @@
       // When the user is searching, do not hide hits behind the cap — search
       // is an explicit "show me everything matching" gesture and the column's
       // "X matches" header would otherwise lie.
-      var capped = searchActive
+      var capsColumn = CAPPED_STAGES[s.key] === true && !searchActive;
+      var showAll = !!(state.showAll && state.showAll[s.key]);
+      var cappedView = !capsColumn
         ? filtered
         : capCardsByFit(filtered, function (card) {
             if (!card) return false;
@@ -1509,9 +1538,10 @@
             var job = getPipelineJobByKey(card.jobKey);
             return !!(job && job.favorite);
           });
+      var capped = showAll ? filtered : cappedView;
       var ordered = sortCards(capped, state.sort);
-      var hiddenSummary = (root.JobBoredCompanyCap && !searchActive)
-        ? root.JobBoredCompanyCap.summarizeHidden(filtered, capped)
+      var hiddenSummary = (root.JobBoredCompanyCap && capsColumn)
+        ? root.JobBoredCompanyCap.summarizeHidden(filtered, cappedView)
         : [];
       var searchMatch = searchActive && ordered.length > 0;
       state.counts = state.counts || {};
@@ -1530,7 +1560,7 @@
           return prior && prior.__pipeSig === parts.sig ? prior : StickerCard(c, { parts: parts });
         });
         if (hiddenSummary.length) {
-          nodes.push(buildHiddenAffordance(hiddenSummary));
+          nodes.push(hiddenToggle(body, s.key, hiddenSummary, showAll));
         }
         syncChildren(body, nodes);
       }
@@ -1623,12 +1653,44 @@
   function rerender(region, state) {
     var vm = safeVm();
     if (!vm) return;
+    region.__pipeEmpty = !!vm.empty;
     if (vm.empty) {
       // Render empty board with placeholders only.
       renderCards(region, { stages: STAGES.map(function (s) { return { key: s.key, cards: [] }; }), untriaged: [] }, state);
-      return;
+    } else {
+      renderCards(region, vm, state);
     }
-    renderCards(region, vm, state);
+    applyLoadState(region);
+  }
+
+  /** B3: an empty board says whether it is still loading or failed to load;
+   *  a board with rows stays quiet (the sync banner owns a failed refresh). */
+  function applyLoadState(region) {
+    var empty = region.__pipeEmpty !== false;
+    var shown = empty && (dataLoad.state === "loading" || dataLoad.state === "failed") ? dataLoad.state : "";
+    if (shown) region.setAttribute("data-load-state", shown);
+    else region.removeAttribute("data-load-state");
+    var board = region.querySelector(".pipe-board");
+    if (board) {
+      if (shown === "loading") board.setAttribute("aria-busy", "true");
+      else board.removeAttribute("aria-busy");
+    }
+    var status = region.querySelector("[data-pipeline-status]");
+    if (status) {
+      status.hidden = !shown;
+      status.textContent = shown ? LOAD_COPY[shown] : "";
+    }
+  }
+
+  function onDataEvent(kind, e) {
+    var d = (e && e.detail) || {};
+    var gen = typeof d.generation === "number" && isFinite(d.generation) ? d.generation : null;
+    if (gen != null && dataLoad.generation != null && gen < dataLoad.generation) return;
+    if (gen != null) dataLoad.generation = gen;
+    dataLoad.state = kind;
+    var region = getRegion();
+    if (region && region.__pipeMounted) applyLoadState(region);
+    scheduleRender();
   }
 
   function focusSearch(opts) {
@@ -1685,6 +1747,15 @@
         e.preventDefault();
         var stageKey = toggle.getAttribute("data-stage-toggle");
         if (stageKey) toggleColumn(region, state, stageKey);
+        return;
+      }
+      var showAllBtn = e.target.closest("[data-show-all]");
+      if (showAllBtn) {
+        e.preventDefault();
+        var showStage = showAllBtn.getAttribute("data-show-all");
+        state.showAll = state.showAll || {};
+        state.showAll[showStage] = !state.showAll[showStage];
+        rerender(region, state);
         return;
       }
       var viewBtn = e.target.closest("[data-pipeline-view]");
@@ -2358,6 +2429,11 @@
     if (!registerWithBootContract()) {
       document.addEventListener("DOMContentLoaded", registerWithBootContract, { once: true });
     }
+    // B3: bound once at load; the first read can start before body.jb-v2.
+    document.addEventListener("jb:data:loading", function (e) { onDataEvent("loading", e); });
+    document.addEventListener("jb:data:loaded", function (e) { onDataEvent("loaded", e); });
+    document.addEventListener("jb:data:failed", function (e) { onDataEvent("failed", e); });
+    document.addEventListener("jb:data:load-failed", function (e) { onDataEvent("failed", e); });
     // Wire the materials index once. Cards render without badges
     // until the catalog resolves; we re-render on success.
     document.addEventListener("jb:materials:changed", function () {

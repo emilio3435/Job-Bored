@@ -59,6 +59,14 @@
     return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map((p) => p[1]);
   })();
 
+  /* R5: only the triage lanes are capped per company; a later stage is a
+     commitment and always shows every role. */
+  const LEGACY_CAPPED_LANES = new Set((() => {
+    const reg = stageRegistry();
+    if (reg) return [reg.LABELS.new, reg.LABELS.researching];
+    return STAGE_FALLBACK.filter((p) => p[0] === "new" || p[0] === "researching").map((p) => p[1]);
+  })());
+
   const STAGE_ARCHIVE = new Set((() => {
     const reg = stageRegistry();
     if (reg) return reg.ARCHIVE_KEYS.map((k) => reg.LABELS[k]);
@@ -334,9 +342,11 @@ function kanbanCardModel(job, index) {
 }
 
 /* DS-08: the cards the legacy board would draw, in its order (search, sort,
-   the dismissed and favorites filters, stage lanes, the per-company cap), as
-   data. Under body.jb-v2 renderPipeline builds no #jobCards DOM, and this is
-   what the v2 surfaces read instead. */
+   the dismissed and favorites filters, stage lanes), as data. Under
+   body.jb-v2 renderPipeline builds no #jobCards DOM, and this is what the v2
+   surfaces read instead. R5: no per-company cap here; each surface applies
+   its own (the board caps New and Researching with a Show all toggle), and
+   counts read from these models are the real ones. */
 function getBoardCardModels() {
   const data = filterAndSortJobs(
     core().getPipelineData() || [],
@@ -346,8 +356,7 @@ function getBoardCardModels() {
   const byStage = groupByStage(data);
   const out = [];
   STAGE_ORDER.forEach((stage) => {
-    const { visible } = applyLegacyKanbanCap(byStage.get(stage) || []);
-    visible.forEach((job, i) => out.push(kanbanCardModel(job, i)));
+    (byStage.get(stage) || []).forEach((job, i) => out.push(kanbanCardModel(job, i)));
   });
   return out;
 }
@@ -441,7 +450,9 @@ function renderStageLane(stage, jobs) {
   const isExpanded = core().getExpandedStages().has(stage);
   const isArchive = STAGE_ARCHIVE.has(stage);
   const cssKey = stageToCssKey(stage);
-  const { visible: visibleJobs, hidden } = applyLegacyKanbanCap(jobs);
+  const { visible: visibleJobs, hidden } = LEGACY_CAPPED_LANES.has(stage)
+    ? applyLegacyKanbanCap(jobs)
+    : { visible: jobs, hidden: [] };
   const hiddenHtml = renderLegacyKanbanHiddenAffordance(hidden);
 
   return `

@@ -349,3 +349,171 @@ describe("B11 · card controls have names that say which role they act on", () =
     assert.equal(fit.getAttribute("aria-label"), "Fit 7 of 10");
   });
 });
+
+function figmaRows(count, stage, extra = {}) {
+  return Array.from({ length: count }, (_, i) => job({ title: `Designer ${i}`, company: "Figma", stage, fit: 9 - i, ...extra }));
+}
+
+function stageCards(board, stage) {
+  return board.region.querySelectorAll(`[data-stage-body="${stage}"] .pipe-sticker`);
+}
+
+describe("R5 · the company cap applies only to New and Researching, with a Show all toggle", () => {
+  for (const stage of ["applied", "interviewing", "offer"]) {
+    it(`should never hide a ${stage} card behind the cap`, () => {
+      const board = mountBoard({ withCap: true, jobs: figmaRows(5, stage) });
+      assert.equal(stageCards(board, stage).length, 5, "every role in a later stage stays on the board");
+      assert.ok(board.region.querySelector(`[data-show-all="${stage}"]`) === null);
+    });
+  }
+
+  it("should cap Researching at three per company and offer Show all", () => {
+    const board = mountBoard({ withCap: true, jobs: figmaRows(5, "researching") });
+    assert.equal(stageCards(board, "researching").length, 3);
+    const toggle = board.region.querySelector('[data-show-all="researching"]');
+    assert.ok(toggle, "the hidden note is a control now");
+    assert.equal(toggle.tagName, "BUTTON");
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.match(toggle.textContent, /Show all/);
+    assert.match(toggle.textContent, /\+2 from Figma/);
+  });
+
+  it("should show every card, then three again, as the toggle flips", () => {
+    const board = mountBoard({ withCap: true, jobs: figmaRows(5, "new") });
+    const first = board.region.querySelector('[data-show-all="new"]');
+    first.focus();
+    first.click();
+    assert.equal(stageCards(board, "new").length, 5, "Show all shows them all");
+    const toggle = board.region.querySelector('[data-show-all="new"]');
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.match(toggle.textContent, /Show fewer/);
+    assert.ok(board.document.activeElement === toggle, "focus stays on the toggle across the re-render");
+    toggle.click();
+    assert.equal(stageCards(board, "new").length, 3);
+    assert.ok(board.document.activeElement === toggle, "and stays there when the column shrinks again");
+  });
+
+  it("should keep the cap per column, so showing all in one column leaves the other capped", () => {
+    const board = mountBoard({ withCap: true, jobs: [...figmaRows(4, "new"), ...figmaRows(4, "researching")] });
+    board.region.querySelector('[data-show-all="new"]').click();
+    assert.equal(stageCards(board, "new").length, 4);
+    assert.equal(stageCards(board, "researching").length, 3);
+  });
+});
+
+describe("R5 · the view-model reaches the board uncapped (pipeline-render.js)", () => {
+  function loadRender(rows) {
+    const win = {
+      JobBoredApp: {
+        core: {
+          getPipelineData: () => rows,
+          getViewedJobKeys: () => new Set(),
+          getExpandedStages: () => new Set(),
+          getCurrentSearch: () => "",
+          getCurrentSort: () => "fit",
+          getShowDismissed: () => false,
+          getFavoritesOnly: () => false,
+          getDataLoadFailed: () => false,
+          host: { escapeHtml: (s) => String(s) },
+        },
+        companyLogo: { renderLogoHtml: () => "" },
+      },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return true; },
+    };
+    const doc = {
+      body: { classList: { contains: () => true } },
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      dispatchEvent() { return true; },
+    };
+    const ctx = vm.createContext({ window: win, document: doc, console, CustomEvent: class {}, setTimeout, clearTimeout, localStorage: { getItem: () => null, setItem() {} } });
+    for (const f of ["jb-text.js", "stage-registry.js", "company-cap.js", "pipeline-render.js"]) {
+      vm.runInContext(read(f), ctx, { filename: f });
+    }
+    return win.JobBoredApp.pipelineRender;
+  }
+
+  it("should hand v2 every card, leaving each surface to apply its own cap", () => {
+    const rows = [
+      ...Array.from({ length: 5 }, (_, i) => ({ title: `A${i}`, company: "Figma", status: "Applied", fitScore: 5 })),
+      ...Array.from({ length: 5 }, (_, i) => ({ title: `R${i}`, company: "Figma", status: "Researching", fitScore: 5 })),
+    ];
+    const models = loadRender(rows).getBoardCardModels();
+    assert.equal(models.length, 10, "no upstream cap: 5 applied + 5 researching");
+  });
+});
+
+describe("B3 · the board says when the pipeline is loading or failed to load", () => {
+  const status = (board) => board.region.querySelector("[data-pipeline-status]");
+
+  it("should say it is loading instead of showing an empty board", () => {
+    const board = mountBoard({ jobs: [] });
+    board.fire(board.document, "jb:data:loading", { detail: { generation: 1 } });
+    board.flush();
+    assert.ok(status(board) && !status(board).hidden, "a status line is shown");
+    assert.match(status(board).textContent, /Loading your pipeline/);
+    assert.equal(board.region.getAttribute("data-load-state"), "loading");
+    assert.equal(board.region.querySelector(".pipe-board").getAttribute("aria-busy"), "true");
+  });
+
+  it("should say the read failed instead of looking empty", () => {
+    const board = mountBoard({ jobs: [] });
+    board.fire(board.document, "jb:data:loading", { detail: { generation: 1 } });
+    board.fire(board.document, "jb:data:failed", { detail: { generation: 1, status: 403, message: "forbidden" } });
+    board.flush();
+    assert.match(status(board).textContent, /didn.t load/);
+    assert.equal(board.region.getAttribute("data-load-state"), "failed");
+    assert.notEqual(board.region.querySelector(".pipe-board").getAttribute("aria-busy"), "true");
+  });
+
+  it("should accept today's jb:data:load-failed name too", () => {
+    const board = mountBoard({ jobs: [] });
+    board.fire(board.document, "jb:data:load-failed", { detail: { status: 0, kind: "offline" } });
+    board.flush();
+    assert.match(status(board).textContent, /didn.t load/);
+  });
+
+  it("should clear the status once rows load", () => {
+    const board = mountBoard({ jobs: [] });
+    board.fire(board.document, "jb:data:loading", { detail: { generation: 1 } });
+    board.flush();
+    board.state.jobs.push(job());
+    board.fire(board.document, "jb:data:loaded", { detail: { generation: 1, rowCount: 1 } });
+    board.api.scheduleRender();
+    board.flush();
+    assert.ok(status(board).hidden, "no status once the board has rows");
+    assert.ok(card(board, "0"));
+  });
+
+  it("should ignore a loaded event from an older generation", () => {
+    const board = mountBoard({ jobs: [] });
+    board.fire(board.document, "jb:data:loading", { detail: { generation: 2 } });
+    board.fire(board.document, "jb:data:loaded", { detail: { generation: 1, rowCount: 0 } });
+    board.flush();
+    assert.equal(board.region.getAttribute("data-load-state"), "loading", "generation 2 is still in flight");
+  });
+
+  it("should keep the board, not a failure line, when a refresh fails with rows on screen", () => {
+    const board = mountBoard();
+    board.fire(board.document, "jb:data:failed", { detail: { generation: 3, status: 503, message: "unavailable" } });
+    board.flush();
+    assert.ok(card(board, "0"), "the rows stay");
+    assert.ok(status(board).hidden, "the sync banner owns a failed refresh; the board stays quiet");
+  });
+
+  it("should hear a loading event that fires before the board mounts", () => {
+    const env = createBoardEnv({ bodyClass: "", html: '<section data-region="pipeline"></section>' });
+    env.window.JobBoredDawn = { data: { getPipelineViewModel: () => viewModelFrom([]) } };
+    env.window.JobBored = { getPipelineJobs: () => [] };
+    vm.runInNewContext(pipelineJs, env.window, { filename: "pipeline.js" });
+    env.fire(env.document, "jb:data:loading", { detail: { generation: 1 } });
+    env.document.body.classList.add("jb-v2");
+    env.flush();
+    const region = env.document.querySelector('[data-region="pipeline"]');
+    assert.match(region.querySelector("[data-pipeline-status]").textContent, /Loading your pipeline/);
+  });
+});
