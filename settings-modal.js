@@ -336,13 +336,15 @@ function apiFetch(url, init) {
 /**
  * Pin the server's drafting model. An `apiKey` property that is present
  * (even "") replaces the server's stored key; leave it out to keep that key.
+ * Resolves { ok: true }, or { ok: false, error } with the reason in words.
  */
 async function postLlmConfigPin(pin) {
+  const unreachable = "Can’t reach the JobBored server on this computer.";
   const { provider, model, baseUrl } = pin;
   const p = String(provider || "").trim();
   const m = String(model || "").trim();
-  if (!p || !m) return false;
-  if (typeof fetch !== "function") return false;
+  if (!p || !m) return { ok: false, error: "no model is selected." };
+  if (typeof fetch !== "function") return { ok: false, error: unreachable };
   const jobBoredApiUrl = resolveJobBoredApiUrl();
   const body = { provider: p, model: m };
   if ("apiKey" in pin) body.apiKey = String(pin.apiKey || "").trim();
@@ -356,19 +358,22 @@ async function postLlmConfigPin(pin) {
     if (!resp || resp.ok === false) {
       const status = resp && typeof resp.status === "number" ? resp.status : 0;
       console.warn("[JobBored] llm-config pin POST failed:", status || "network");
-      return false;
+      let answer = null;
+      try { answer = resp && typeof resp.json === "function" ? await resp.json() : null; } catch (_) { answer = null; }
+      const reason = answer && typeof answer.error === "string" ? answer.error.trim() : "";
+      return { ok: false, error: reason || `the server answered ${status || "nothing"}` };
     }
     serverWriterMissing = false;
     // A status read begun before this write cannot mark the writer missing.
     llmStatusSeq += 1;
-    return true;
+    return { ok: true };
   } catch (err) {
     const message =
       err && typeof err === "object" && "message" in err
         ? String(err.message)
         : String(err);
     console.warn("[JobBored] llm-config pin POST failed:", message);
-    return false;
+    return { ok: false, error: unreachable };
   }
 }
 
@@ -1002,8 +1007,9 @@ async function matchBrowserLlmToServer(mismatch) {
   settingsWriterBaselines[mismatch.providerId] = settingsWriterSnapshot;
   updateSettingsProviderPanels();
   const pin = mismatch.serverPin || { provider: mismatch.providerId, model: mismatch.model, baseUrl: "" };
-  await postLlmConfigPin({ provider: pin.provider, model: pin.model, baseUrl: pin.baseUrl });
-  showToast("Saved", "success");
+  const pinned = await postLlmConfigPin({ provider: pin.provider, model: pin.model, baseUrl: pin.baseUrl });
+  if (pinned.ok) showToast("Saved", "success");
+  else showToast(`Saved in this browser, but the JobBored server didn’t take it: ${pinned.error}`, "error", true);
   await refreshLlmStatus();
 }
 
@@ -1800,6 +1806,7 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
+  let writerError = "";
   if (selectedDef && (settingsWriterWasEdited() || serverWriterMissing)) {
     const pin = {
       provider,
@@ -1814,13 +1821,23 @@ async function saveCommandCenterSettingsFromForm() {
     if (typedKey) pin.apiKey = typedKey;
     const baseline = settingsWriterSnapshot;
     const submitted = { provider, model: pin.model, apiKey: typedKey, baseUrl: pin.baseUrl };
-    if (await postLlmConfigPin(pin)) {
+    const saved = await postLlmConfigPin(pin);
+    if (saved.ok) {
       // Capture submitted values, not fields edited while the POST awaited.
       // A closed/reopened modal owns a new snapshot and must keep it.
       if (settingsWriterSnapshot === baseline) {
         settingsWriterSnapshot = submitted;
         settingsWriterBaselines[provider] = submitted;
       }
+    } else {
+      // The rest of the save still runs; the modal stays open at the end.
+      writerError = saved.error;
+      if (err) {
+        err.textContent = `Your other settings are saved, but the drafting model isn’t: ${writerError}`;
+        err.style.display = "block";
+      }
+      const Tabs = window.JobBoredSettingsTabs;
+      if (Tabs && typeof Tabs.setActiveSettingsTab === "function") Tabs.setActiveSettingsTab("ai", { silent: true });
     }
   }
   host().setSHEET_ID(sheetId);
@@ -1839,6 +1856,10 @@ async function saveCommandCenterSettingsFromForm() {
       : null;
     if (invalidJudgeField && typeof invalidJudgeField.focus === "function") invalidJudgeField.focus();
     showToast("Your other settings are saved; the grading model isn’t. See the AI tab.", "error", true);
+    return;
+  }
+  if (writerError) {
+    showToast("Your other settings are saved; the drafting model isn’t. See the AI tab.", "error", true);
     return;
   }
   finishSettingsSave(beforeSave, payload, sheetId);
