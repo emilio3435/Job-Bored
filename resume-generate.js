@@ -7,6 +7,7 @@
     outputBudget: () => undefined,
     shortOutputBudget: () => undefined,
     geminiThinkingConfig: () => undefined,
+    openAIUsesMaxCompletionTokens: () => false,
     outputLimitField: () => ({}),
   };
   /**
@@ -459,7 +460,8 @@
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.5,
+      // Reasoning models (gpt-5*, o1/o3/o4) reject temperature.
+      ...(output.openAIUsesMaxCompletionTokens(m) ? {} : { temperature: 0.5 }),
       ...output.outputLimitField("openai", m, wantsJsonResponse(opts) ? undefined : 8192),
     };
     let resp;
@@ -764,7 +766,8 @@
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.7,
+      // Reasoning models (gpt-5*, o1/o3/o4) reject temperature.
+      ...(output.openAIUsesMaxCompletionTokens(model) ? {} : { temperature: 0.7 }),
       ...output.outputLimitField("openai", model),
     };
     const url = `${String(baseUrl).replace(/\/+$/, "")}/chat/completions`;
