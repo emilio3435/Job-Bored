@@ -296,3 +296,31 @@ describe("§2 · wake() during an in-flight poll (Grok DISCO review)", () => {
     assert.deepEqual(tab.clock.pending(), [2000]);
   });
 });
+
+describe("§2 · a wake during a poll that then fails still polls at once (Grok DISCO r2)", () => {
+  async function wokenDuringPoll() {
+    const net = createControlledFetch();
+    const tab = loadDiscoveryTab({ fetch: net.fetch });
+    startRun(tab, "run_a");
+    await tab.clock.advance(2000);
+    tab.document.setVisibility("hidden");
+    await flush();
+    tab.document.setVisibility("visible"); // wake() while poll 1 is in flight
+    await flush();
+    return { net, tab };
+  }
+
+  it("polls right after the in-flight GET times out, before any back-off", async () => {
+    const { net, tab } = await wokenDuringPoll();
+    await tab.clock.advance(tab.runTracker.DEFAULT_PER_POLL_TIMEOUT_MS);
+    assert.equal(pollsFor(net, "run_a")[0].aborted, true);
+    assert.equal(pollsFor(net, "run_a").length, 2, "polled at once after the timeout");
+  });
+
+  it("polls right after the in-flight GET errors, before any back-off", async () => {
+    const { net } = await wokenDuringPoll();
+    net.fail(pollsFor(net, "run_a")[0]);
+    await flush();
+    assert.equal(pollsFor(net, "run_a").length, 2, "polled at once after the error");
+  });
+});

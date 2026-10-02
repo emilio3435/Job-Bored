@@ -404,11 +404,19 @@ let discoveryRunDispatchInFlight = false;
  * rather than replacing it with this dispatch's run or its unconfirmed marker.
  */
 function anotherLiveRunId(runId) {
-  if (typeof discoveryRunTracker.isActive !== "function" || !discoveryRunTracker.isActive()) {
-    return "";
-  }
-  const live = String(discoveryRunTracker.getState().runId || "");
-  return live && live !== String(runId || "") ? live : "";
+  const own = String(runId || "");
+  const watching =
+    typeof discoveryRunTracker.isActive === "function" && discoveryRunTracker.isActive()
+      ? String(discoveryRunTracker.getState().runId || "")
+      : "";
+  if (watching && watching !== own) return watching;
+  // Another tab's run may be in localStorage before its channel message
+  // reaches this tab, so the stored run counts too (Grok DISCO r2).
+  const stored =
+    typeof discoveryRunTracker.storedActiveRunId === "function"
+      ? discoveryRunTracker.storedActiveRunId()
+      : "";
+  return stored && stored !== own ? stored : "";
 }
 
 function answerRunActive(runTrigger, liveRunId) {

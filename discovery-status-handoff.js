@@ -1294,6 +1294,13 @@ async function startDiscoveryStatusPolling(webhookUrl) {
         renderDiscoveryRunStatus({ quiet: resumedSettled });
         return;
       }
+      // Woken while the request was out (tab shown, poller stepped back):
+      // poll now, not after the back-off — a slow GET is the path that
+      // times out at 8 s (Grok DISCO r2).
+      if (wokenMeanwhile) {
+        void poll();
+        return;
+      }
       // Exponential-ish back-off: 1s, 2s, 4s
       const backoff = Math.min(4000, 500 * Math.pow(2, updated.pollErrorCount));
       tracker._pollTimer = setTimeout(poll, backoff);

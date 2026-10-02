@@ -484,3 +484,56 @@ describe("D3 · a dispatch from an idle tab never clobbers another tab's live ru
     assert.equal(a.tracker.getState().runId, "run_x");
   });
 });
+
+describe("D3 · overlapping accepts: a run another tab already stored wins (Grok DISCO r2)", () => {
+  // Tab a's jb-discovery-run message is a later task in a real browser; until
+  // it lands, tab b can see a's run only in localStorage. Tab a has no
+  // channel here, so storage is all b gets.
+  async function storedRunRace(answer) {
+    const clock = createClock();
+    const storage = createStorage();
+    const hub = createBroadcastHub();
+    const a = loadDiscoveryTab({ clock, storage, hub, noBroadcastChannel: true, document: createDocument() });
+    const b = loadDiscoveryTab({ clock, storage, hub, document: createDocument() });
+    let release;
+    setupTrigger(b, {
+      verify: () =>
+        new Promise((resolve) => {
+          release = () => resolve(answer);
+        }),
+    });
+    const click = b.orchestration.triggerDiscoveryRun({ trigger: "manual" });
+    await flush();
+    a.tracker.beginTracking({
+      runId: "run_x",
+      statusPath: "/runs/run_x",
+      pollAfterMs: 2000,
+      webhookUrl: a.webhookUrl,
+    });
+    assert.equal(b.tracker.getState().runId, "", "b has not heard of run_x yet");
+    release();
+    const result = await click;
+    return { b, storage, result };
+  }
+
+  it("an accept that lands after another tab stored its run answers run_active", async () => {
+    const { b, result } = await storedRunRace(ACCEPTED("run_b"));
+    assert.equal(result.reason, "run_active");
+    assert.equal(result.runId, "run_x");
+    assert.notEqual(b.tracker.getState().runId, "run_b", "b does not track a second run");
+  });
+
+  it("a dispatch timeout after another tab stored its run leaves that run in storage", async () => {
+    const { storage, result } = await storedRunRace({
+      ok: false,
+      kind: "network_error",
+      timedOut: true,
+      message: "timed out",
+    });
+    assert.equal(result.reason, "run_active");
+    const stored = JSON.parse(
+      [...storage.map.entries()].find(([, v]) => /run_x/.test(v))?.[1] || "{}",
+    );
+    assert.equal(stored.runId, "run_x");
+  });
+});

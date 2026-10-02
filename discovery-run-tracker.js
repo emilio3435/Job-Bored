@@ -1141,8 +1141,8 @@
      * its deadline. Its outcome is unknown, it blocks nothing, and the user
      * may dismiss it.
      */
-    isSettled() {
-      const s = this._state;
+    isSettled(state) {
+      const s = state || this._state;
       if (s.status === "pending") return !!s.statusUnavailable && !s.statusPath;
       if (s.status === "polling_error") {
         return !!(
@@ -1160,6 +1160,19 @@
         ["pending", "running", "polling_error"].includes(this._state.status) &&
         !this.isSettled()
       );
+    }
+
+    /**
+     * D3 across tabs: the live run another tab already stored, read from
+     * localStorage — its jb-discovery-run message may still be on its way.
+     * "" when storage holds no run anyone is still watching.
+     */
+    storedActiveRunId() {
+      const stored = this._load();
+      const live =
+        ["pending", "running", "polling_error"].includes(stored.status) &&
+        !this.isSettled(stored);
+      return live ? String(stored.runId || "") : "";
     }
 
     /** True when the run has reached a terminal state. */
