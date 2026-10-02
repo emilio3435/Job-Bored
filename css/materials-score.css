@@ -184,7 +184,26 @@ html.jb-score-open { overflow: hidden; }
 .jb-score .jb-score__of { font-family: var(--jb-font-mono); font-size: var(--jb-type-data); font-weight: 500; color: var(--jb-ink-2); }
 .jb-score .jb-score__verdict { margin: 2px 0 0; max-width: 60ch; font-size: var(--jb-type-body); color: var(--jb-ink-2); }
 .jb-score .jb-score__cap { margin: 0; font-size: var(--jb-type-small); font-weight: 500; color: var(--jb-err); }
-.jb-score .jb-score__judge { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-3); }
+.jb-score .jb-score__judge,
+.jb-score .jb-score__unscored { margin: 0; font-size: var(--jb-type-small); color: var(--jb-ink-3); }
+.jb-score .jb-score__judge[data-judge="unavailable"],
+.jb-score .jb-score__judge[data-judge="invalid"] { color: var(--jb-warn); font-weight: 500; }
+.jb-score .jb-score__judge-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; margin-left: 4px; font-weight: 400; }
+.jb-score .jb-score__link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  color: var(--jb-action);
+  text-decoration: underline;
+  text-decoration-color: var(--jb-line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.jb-score .jb-score__link:hover { text-decoration-color: currentColor; }
+.jb-score .jb-score__acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
 .jb-score .jb-score__badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
 .jb-score .jb-score__badges:empty { display: none; }
 .jb-score .jb-score__badge {

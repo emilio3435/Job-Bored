@@ -161,7 +161,7 @@ function load({
     },
     Promise, Date, Number, Math, Array, Object, String, JSON, Map, Set, Error, TypeError,
   });
-  for (const f of ["jb-text.js", "role-case-model.js", "role-materials.js"]) vm.runInContext(read(f), ctx, { filename: f });
+  for (const f of ["jb-text.js", "role-case-model.js", "materials-score.js", "role-materials.js"]) vm.runInContext(read(f), ctx, { filename: f });
   const html = () => mount.childNodes.map((c) => c.innerHTML).join("\n");
   const lastHtml = () => (mount.childNodes.length ? mount.childNodes[mount.childNodes.length - 1].innerHTML : "");
   const requestPosts = () => fetchCalls.filter((c) => /\/request$/.test(c.url) && c.options.method === "POST");
@@ -372,12 +372,15 @@ describe("C13 · review rows and the QA report", () => {
     pending: null,
   };
 
-  it("should show a flagged document as review with its first flag", () => {
+  /* HOLES SCORE (U16): the flags moved off the row into the score modal,
+     which lists every one (tests/holes-score-dossier.test.mjs). */
+  it("should show a flagged document as review with its grade button, flags in the modal", () => {
     const h = load();
     h.api.renderManifest(h.mount, MANIFEST, "http://127.0.0.1:3847");
     const out = h.lastHtml();
-    assert.match(out, /case__docst--review" data-status="review">review · 2 flags</);
-    assert.match(out, /Runs to 2 pages\. Trim to 1\. \+1 more/);
+    assert.match(out, /case__docst--review" data-status="review">review</);
+    assert.match(out, /class="jb-grade"[^>]*data-feature="resume"[^>]*aria-label="Grade: not graded yet — open score details"/);
+    assert.doesNotMatch(out, /Runs to 2 pages|2 flags|\+1 more/);
   });
 
   it("should offer Open on the QA report so it reads inline", () => {

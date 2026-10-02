@@ -111,7 +111,7 @@ describe("gradeOf · sources and fallbacks", () => {
     assert.match(none.why, /\S/, "the modal has a reason to show");
     const down = ms.gradeOf(V2_LETTER_JUDGE_DOWN, null);
     assert.equal(down.letter, "Grade");
-    assert.match(down.why, /didn.t finish|didn.t answer/i, "a judge that failed says so");
+    assert.match(down.why, /grading model gave this draft no score/i, "a grade that didn't finish is no score (the modal's judge line says why)");
   });
 });
 

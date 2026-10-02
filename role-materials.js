@@ -63,7 +63,7 @@
      materials-insights.js. Without it the rows paint as before. */
   function insights() {
     var mi = root.JobBoredMaterialsInsights;
-    return mi && typeof mi.scorecardHtml === "function" ? mi : null;
+    return mi && typeof mi.timelineHtml === "function" ? mi : null;
   }
 
   var DOC_LABELS = {
@@ -315,6 +315,15 @@
     }) || null;
   }
 
+  /* U17: a document whose PDF never rendered still downloads — the HTML
+     the preview shows, which prints to a PDF. */
+  function pickHtmlDownload(doc) {
+    if (!doc || !Array.isArray(doc.files)) return null;
+    return doc.files.find(function (f) {
+      return f && String(f.format || "").toLowerCase() === "html" && ALLOWED_FILES[f.filename];
+    }) || null;
+  }
+
   function fileVersion(file) {
     if (!file) return "";
     var modified = file.modifiedAt ? String(file.modifiedAt) : "";
@@ -390,6 +399,7 @@
         + '>Preview</a>'
       );
     }
+    var html = download ? null : pickHtmlDownload(doc);
     var mi = o.menu ? insights() : null;
     if (mi && (doc.type === "resume" || doc.type === "cover_letter")) {
       /* U-3: one Download menu (PDF, ATS text, Word, LinkedIn copy). */
@@ -398,24 +408,26 @@
       var menu = mi.downloadMenuHtml({
         type: doc.type,
         pdfHref: download ? fileUrl(base, slug, download.filename, { download: true, version: fileVersion(download) }) : "",
+        htmlHref: html ? fileUrl(base, slug, html.filename, { download: true, version: fileVersion(html) }) : "",
         txtHref: txt ? fileUrl(base, slug, txt.filename, { download: true, version: fileVersion(txt) }) : "",
         docxHref: doc.exports && doc.exports.docx ? exportUrl(base, slug, docxName, { download: true, version: fileVersion(download || txt) }) : "",
         linkedin: !!(doc.type === "resume" && doc.exports && doc.exports.linkedin),
         fail: !!o.fail,
       });
       if (menu) actions.push(menu);
-    } else if (download) {
+    } else if (download || html) {
+      var file = download || html;
       actions.push(
         '<a class="' + cls("ghost") + '"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
+        + ' href="' + escapeHtml(fileUrl(base, slug, file.filename, {
           download: true,
-          version: fileVersion(download),
+          version: fileVersion(file),
         })) + '"'
         + ' download'
         + ' data-action="materials-download"'
-        + ' data-filename="' + escapeHtml(download.filename) + '"'
+        + ' data-filename="' + escapeHtml(file.filename) + '"'
         + (o.fail ? ' data-gate="fail"' : "")
-        + '>Download PDF</a>'
+        + '>' + (download ? "Download PDF" : "Download HTML") + '</a>'
       );
     }
     return actions;
@@ -429,7 +441,7 @@
       + "/export/" + encodeURIComponent(name) + (params.length ? "?" + params.join("&") : "");
   }
 
-  function renderCard(slug, doc, base, pending, identity, quality) {
+  function renderCard(slug, doc, base, pending, identity, quality, manifest) {
     var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
     var primaryFile = ALLOWED_FILES[doc.primary] || null;
     var formats = doc.files.map(function (f) {
@@ -473,12 +485,11 @@
       if (identity.title)   parts.push(escapeHtml(identity.title));
       identityHtml = '<p class="brief-materials__card-identity">' + parts.join(' <span class="brief-materials__dot">·</span> ') + '</p>';
     }
-    var qualityHtml = "";
-    if (primaryQualityIssue && primaryQualityIssue.message) {
-      qualityHtml = '<p class="brief-materials__quality">'
-        + escapeHtml(primaryQualityIssue.message)
-        + '</p>';
-    }
+    /* HOLES SCORE (§0.3): the card's critique line is the grade button now;
+       the flags it named open in the score modal. */
+    var gradeBtn = manifest && (doc.type === "resume" || doc.type === "cover_letter")
+      ? gradeButtonHtml(manifest, doc.type) : "";
+    var qualityHtml = gradeBtn ? '<p class="brief-materials__card-grade">' + gradeBtn + '</p>' : "";
 
     return '<article class="brief-materials__card brief-materials__card--' + (meta.role === "primary" ? "primary" : "support")
       + (isPending ? " brief-materials__card--pending" : "")
@@ -948,7 +959,9 @@
       + '</div>'
       : '';
 
-    return '<div class="brief-materials__progress brief-materials__progress--enlarged" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
+    /* U9: the elapsed clock below ticks every second, so this card is not a
+       live region; announcePhase() says each phase once. */
+    return '<div class="brief-materials__progress brief-materials__progress--enlarged" data-phase="' + escapeHtml(phase) + '">'
       + '<div class="brief-materials__progress-icon">' + iconHtml + '</div>'
       + '<div class="brief-materials__progress-body">'
         + '<div class="brief-materials__progress-line">'
@@ -1023,7 +1036,8 @@
     var others = templateFamilies().filter(function (f) { return f.id !== t.family; });
     var buttons = others.map(function (f) {
       return '<button type="button" class="case__link" data-action="materials-regenerate" data-template="'
-        + escapeHtml(f.id) + '" aria-label="Change template to ' + escapeHtml(f.label) + '">' + escapeHtml(f.label) + '</button>';
+        + escapeHtml(f.id) + '" aria-label="Change template to ' + escapeHtml(f.label) + '"'
+        + (regenerating ? ' aria-disabled="true"' : "") + '>' + escapeHtml(f.label) + '</button>';
     }).join(" ");
     return '<p class="case__template" data-template-family="' + escapeHtml(t.family) + '">'
       + 'Template: <b>' + escapeHtml(templateLabel(t.family)) + '</b>'
@@ -1134,10 +1148,9 @@
       var meta = "";
       if (status === "failed") {
         meta = "stopped after " + elapsed + (attempt > 1 ? " · attempt " + attempt : "");
-      } else if (status === "review") {
-        meta = String(flags[0].message || flags[0].code)
-          + (flags.length > 1 ? " +" + (flags.length - 1) + " more" : "");
-      } else if (status === "ready") {
+      } else if (status === "ready" || status === "review") {
+        /* U16: a review row's flags are critique, so every one of them is
+           listed in the score modal; the meta line says what was drafted. */
         var files = doc && Array.isArray(doc.files) ? doc.files.length : 0;
         meta = (doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted")
           + (files ? " · " + files + " file" + (files === 1 ? "" : "s") : "");
@@ -1160,7 +1173,7 @@
          doing, and the indeterminate track says it is still alive. */
       var progressHtml = "";
       if (isPending && isNextInLine) {
-        progressHtml = '<span class="case__doc-progress" data-phase="queued" aria-live="polite">'
+        progressHtml = '<span class="case__doc-progress" data-phase="queued">'
           + '<span class="case__doc-eyebrow">next in line</span>'
           + '<span class="case__doc-msg">' + escapeHtml("Drafts after the " + featureLabel(pendingFeature) + " finishes, with its own quality check.") + '</span>'
         + '</span>';
@@ -1179,7 +1192,9 @@
         var stall = runSeconds >= STALL_NOTICE_SECONDS
           ? '<span class="case__doc-stall">Taking longer than usual \u00b7 check that the drafting server is still running.</span>'
           : "";
-        progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
+        /* U9: the eyebrow carries the elapsed time and the rows repaint on
+           every poll, so no live region here; announcePhase() speaks. */
+        progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '">'
           + '<span class="case__doc-eyebrow">' + escapeHtml(eyebrow) + '</span>'
           + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
           + stall
@@ -1201,9 +1216,13 @@
             ? mi.timelineHtml(pendingProgress, pendingFeature) : "");
       }
       var issue = flags[0] || null;
-      /* U-1: with a pipeline verdict the scorecard owns Repair and the fix,
-         so the action row does not repeat it. */
-      var verdict = mi && (status === "ready" || status === "review") ? mi.scorecardHtml(qualityForRow, def.type) : "";
+      /* HOLES SCORE (§0.3): a drafted resume or letter shows one grade
+         button; its verdict, blockers, dimensions and fixes open in the
+         score modal. With a pipeline verdict the modal owns Repair, so the
+         action row does not repeat it (U-1). */
+      var verdict = !!(mi && (status === "ready" || status === "review") && mi.qaVersion(qualityForRow && qualityForRow.qa));
+      var gradeBtn = (status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter")
+        ? gradeButtonHtml(manifest, def.type) : "";
       var fail = !!(mi && mi.isFail(qualityForRow));
       var actions = status === "ready" || status === "review"
         ? docActionButtons(manifest.slug, doc, base, verdict ? null : issue, function (kind) {
@@ -1234,27 +1253,20 @@
          line, so no content-sized track can take the label's width. */
       var stateWord = status === "missing"
         ? "not drafted"
-        : (status === "review"
-          ? "review \u00b7 " + flags.length + " flag" + (flags.length === 1 ? "" : "s")
-          : (isPending && isQueued ? "queued" : status));
+        : (isPending && isQueued ? "queued" : status);
       var stateClass = isPending && isQueued ? "queued" : status;
       if (isNextInLine) stateWord = "next";
       if (verdict) {
-        /* The pill carries the verdict and its score ("fail · 6 / 12"). */
+        /* The pill keeps the verdict's one word; the score is the grade
+           button's, and only the grade button's (§0.3). */
         var tone = mi.dispositionOf(qualityForRow).toLowerCase();
-        stateWord = mi.pillText(qualityForRow).toLowerCase();
+        stateWord = tone;
         stateClass = "qa-" + (tone === "ready" ? "ready" : tone);
-        if (status === "review") {
-          var ready = doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted";
-          meta = ready + (doc && Array.isArray(doc.files) && doc.files.length ? " · " + doc.files.length + " file" + (doc.files.length === 1 ? "" : "s") : "");
-        }
       }
       if (verdict && (def.type === "resume" || def.type === "cover_letter")) {
         actions = actions.concat(['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-history"'
           + ' data-feature="' + escapeHtml(def.type) + '" aria-expanded="false">Versions</button>']);
       }
-      var coverage = mi && (status === "ready" || status === "review") && (def.type === "resume" || def.type === "cover_letter")
-        ? coverageFor(manifest, def.type, doc) : "";
       /* The manual-apply checklist is a live, checkable list the server
          builds from the package, not a .md to download. */
       var checklist = "";
@@ -1282,13 +1294,14 @@
         : "";
       var repairBlocks = def.type === "resume" || def.type === "cover_letter"
         ? repairBlocksHtml(manifest.slug, def.type, qualityForRow, isPending) : "";
-      return '<div class="case__doc case__doc--' + status + (fail ? " case__doc--qafail" : "") + '" data-doc="' + escapeHtml(def.type) + '"'
+      return '<div class="case__doc case__doc--' + status + (fail ? " case__doc--qafail" : "") + (gradeBtn ? " case__doc--graded" : "") + '" data-doc="' + escapeHtml(def.type) + '"'
         + (fail ? ' data-qa="fail"' : "") + '>'
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
+        + (gradeBtn ? '<span class="case__doc-grade">' + gradeBtn + '</span>' : "")
         + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
           + escapeHtml(stateWord) + '</span>'
         + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + budgetNote + clearedReviewHtml + '</div>'
-        + (verdict || coverage || checklist ? '<div class="case__doc-qa">' + verdict + coverage + checklist + '</div>' : "")
+        + (checklist ? '<div class="case__doc-qa">' + checklist + '</div>' : "")
         + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
         + repairBlocks
       + '</div>';
@@ -1322,8 +1335,29 @@
        for a one-line status. The big panel keeps the live clock. */
   }
 
+  /* U9: the drafting card's clock ticks every second and the rows repaint
+     on every manifest poll, so neither is a live region. Each phase of a
+     run is said once, here, with no clock in it. */
+  var phaseSaid = "";
+  function announcePhase(manifest) {
+    var pending = manifest && manifest.pending && manifest.pending.feature ? manifest.pending : null;
+    if (!pending) return;
+    var progress = pending.progress || null;
+    var phase = String((progress && progress.phase) || "queued").toLowerCase();
+    var key = String(manifest.slug || "") + "|" + String(pending.feature) + "|" + phase;
+    if (key === phaseSaid) return;
+    phaseSaid = key;
+    var words = phase === "queued" ? "waiting in queue" : (phase === "drafting" ? "drafting in progress" : phaseWords(phase));
+    var label = featureLabel(pending.feature);
+    var a11y = root.JobBoredA11y;
+    if (a11y && a11y.live && typeof a11y.live.announce === "function") {
+      a11y.live.announce(label.charAt(0).toUpperCase() + label.slice(1) + ": " + words + ".");
+    }
+  }
+
   function renderManifest(briefEl, manifest, base) {
     if (!briefEl || !manifest) return;
+    announcePhase(manifest);
     removeExisting(briefEl);
     var caseDefs = caseRowsFor(briefEl);
     if (caseDefs) {
@@ -1355,7 +1389,7 @@
       ? manifest.quality.documents
       : {};
     var cards = docs.map(function (d) {
-      return renderCard(manifest.slug, d, base, pending, roleIdentity, qualityDocs[d.type]);
+      return renderCard(manifest.slug, d, base, pending, roleIdentity, qualityDocs[d.type], manifest);
     });
     /* No per-doc placeholder cards. The enlarged progress banner
        above is the single source of "this is in flight" truth — a
@@ -1476,6 +1510,9 @@
 
   function commitManifest(hostEl, manifest, base, jobKey) {
     manifest = holdOptimistic(manifest);
+    Object.keys(scribeSaves).forEach(function (k) {
+      if (manifest && k.indexOf(manifest.slug + "|") === 0 && scribeSaves[k] === manifest.runId) delete scribeSaves[k];
+    });
     renderManifest(hostEl, manifest, base);
     lastPaint = { kind: "manifest" };
     lastPaintKey = paintedRoleKey();
@@ -1490,6 +1527,7 @@
       jobKey: currentManifest.jobKey,
       manifest: manifest,
     });
+    refreshScore();
     maybeFinishRepair(manifest, base);
     return manifest;
   }
@@ -1548,6 +1586,11 @@
       var t = e.target;
       while (t && t !== section) {
         if (t.getAttribute) {
+          if (t.hasAttribute && t.hasAttribute("data-score-open")) {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            openScore(t.getAttribute("data-feature") || docTypeOf(docHostOf(t)), t);
+            return;
+          }
           var action = t.getAttribute("data-action");
           if (action === "materials-download" && t.getAttribute("data-gate") === "fail") {
             /* U-1: a FAIL draft never downloads silently — ask in the page. */
@@ -1631,6 +1674,7 @@
           }
           if (action === "materials-regenerate") {
             if (typeof e.preventDefault === "function") e.preventDefault();
+            if (t.getAttribute("aria-disabled") === "true") return;
             handleRegenerate(
               section.getAttribute("data-slug") || "",
               t.getAttribute("data-template") || "",
@@ -2019,21 +2063,21 @@
 
   /* U-7: role-term coverage, computed in the browser with Scribe's own
      keywordCoverage over the run's jd-extract.json nouns. One fetch pair per
-     served text version. */
+     served text version. HOLES SCORE: it is shown in the score modal's
+     Keyword coverage step, never inline in a row. */
   var coverageCache = {};
-  function coverageFor(manifest, type, doc) {
-    var mi = insights();
+  function coverageOf(manifest, type, doc) {
     var score = root.JobBoredScribeScore;
-    if (!mi || !score || typeof score.keywordCoverage !== "function") return "";
-    if (!doc || !doc.text || !doc.text.filename) return "";
+    if (!insights() || !score || typeof score.keywordCoverage !== "function") return null;
+    if (!manifest || !doc || !doc.text || !doc.text.filename) return null;
     var key = manifest.slug + "|" + type + "|" + fileVersion(doc.text) + "|" + (manifest.runId || "");
     var hit = coverageCache[key];
-    if (hit && hit.state === "done") return mi.coverageHtml(hit.cov, type);
+    if (hit && hit.state === "done") return hit.cov;
     if (!hit) {
       coverageCache[key] = { state: "loading" };
       loadCoverage(manifest.slug, type, doc, key);
     }
-    return "";
+    return null;
   }
 
   function loadCoverage(slug, type, doc, key) {
@@ -2050,31 +2094,11 @@
         coverageCache[key] = { state: "none" };
         return;
       }
-      var cov = score.keywordCoverage(String(out[1] || ""), terms);
-      coverageCache[key] = { state: "done", cov: cov };
-      paintCoverage(slug, type, mi.coverageHtml(cov, type));
+      coverageCache[key] = { state: "done", cov: score.keywordCoverage(String(out[1] || ""), terms) };
+      refreshScore();
     }).catch(function () {
       coverageCache[key] = { state: "none" };
     });
-  }
-
-  function paintCoverage(slug, type, html) {
-    var host = findMount();
-    if (!host || !host.querySelector) return;
-    var section = host.querySelector("." + SECTION_CLASS);
-    if (!section || section.getAttribute("data-slug") !== slug) return;
-    var row = section.querySelector('[data-doc="' + type + '"]');
-    if (!row) return;
-    var prior = row.querySelector(".mat-kw");
-    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
-    var qa = row.querySelector(".case__doc-qa");
-    if (!qa) {
-      qa = document.createElement("div");
-      qa.className = "case__doc-qa";
-      var acts = row.querySelector(".case__doc-actions");
-      row.insertBefore(qa, acts || null);
-    }
-    qa.insertAdjacentHTML("beforeend", html);
   }
 
   /* U-6: every run of this document, which one is in use, and a diff. */
@@ -2103,13 +2127,9 @@
     });
   }
 
-  function promoteVersion(btn, section) {
-    var runId = btn.getAttribute("data-run") || "";
-    var slug = section.getAttribute("data-slug") || "";
-    if (!runId || !slug) return;
+  function promoteRun(slug, runId) {
     var base = materialsBase();
-    btn.setAttribute("disabled", "");
-    postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(runId) + "/promote", {})
+    return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/runs/" + encodeURIComponent(runId) + "/promote", {})
       .then(function () {
         dispatch("jb:materials:changed", { slug: slug, reason: "promoted" });
         return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
@@ -2118,11 +2138,18 @@
         var brief = findMount();
         if (brief && manifest) commitManifest(brief, manifest, base, currentContext && currentContext.jobKey);
         toast("That version is in use again. Preview and Download serve it now.", "success");
-      })
-      .catch(function (err) {
-        btn.removeAttribute("disabled");
-        toast("Couldn\u2019t switch versions: " + ((err && err.message) || "unknown error"), "error");
       });
+  }
+
+  function promoteVersion(btn, section) {
+    var runId = btn.getAttribute("data-run") || "";
+    var slug = section.getAttribute("data-slug") || "";
+    if (!runId || !slug) return;
+    btn.setAttribute("disabled", "");
+    promoteRun(slug, runId).catch(function (err) {
+      btn.removeAttribute("disabled");
+      toast("Couldn\u2019t switch versions: " + ((err && err.message) || "unknown error"), "error");
+    });
   }
 
   function diffVersions(btn, section) {
@@ -2202,15 +2229,19 @@
      itself; nothing is flattened to text here. */
   function openScribe(btn, section) {
     var desk = root.JB_SCRIBE_V2;
-    if (!desk || typeof desk.open !== "function") return;
     var slug = section.getAttribute("data-slug") || "";
     var feature = btn.getAttribute("data-feature") || "";
     if (!slug || (feature !== "resume" && feature !== "cover_letter")) return;
+    /* U15: an Edit that cannot open says so instead of doing nothing. */
+    var cantOpen = function () {
+      toast("The editor didn\u2019t load, so the " + featureLabel(feature) + " can\u2019t open for editing. Reload the page and try again.", "error");
+    };
+    if (!desk || typeof desk.open !== "function") { cantOpen(); return; }
     var jobKey = openRoleKey() || (currentContext && currentContext.jobKey) || "";
     var job = getMaterialsJob(jobKey) || {};
     var manifest = currentManifest && currentManifest.manifest;
     var family = manifest && manifest.template && manifest.template.family ? String(manifest.template.family) : "";
-    desk.open({
+    var opened = desk.open({
       slug: slug,
       doc: feature,
       base: materialsBase(),
@@ -2231,7 +2262,14 @@
       title: String(job.role || job.title || (manifest && manifest.title) || ""),
       company: String(job.company || (manifest && manifest.company) || ""),
       family: family,
+      /* HOLES SCORE: the desk's header shows this document's grade, and its
+         modal pre-fills the desk's composer instead of Repair. */
+      score: {
+        gradeFor: function (doc) { return gradeFor(doc); },
+        open: function (doc, opener, hooks) { return openScore(doc, opener, hooks); },
+      },
     });
+    if (!opened) cantOpen();
   }
 
   function handleDismiss(slug) {
@@ -2281,9 +2319,24 @@
       });
   }
 
+  /* U14: one template change at a time. A second click while the first
+     is running sends nothing, and the links say they are busy. */
+  var regenerating = false;
+
+  function markRegenerating(on) {
+    regenerating = on;
+    var section = currentSection();
+    var links = section && section.querySelectorAll ? section.querySelectorAll('[data-action="materials-regenerate"]') : [];
+    for (var i = 0; i < links.length; i++) {
+      if (on) links[i].setAttribute("aria-disabled", "true");
+      else links[i].removeAttribute("aria-disabled");
+    }
+  }
+
   function handleRegenerate(slug, template) {
-    if (!slug || !template || !currentContext) return;
+    if (!slug || !template || !currentContext || regenerating) return;
     var ctx = currentContext;
+    markRegenerating(true);
     toast("Changing the template to " + templateLabel(template) + "\u2026", "info");
     return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/regenerate", { template: template })
       .then(function () {
@@ -2291,13 +2344,269 @@
         return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       })
       .then(function (manifest) {
+        regenerating = false;
         var brief = findMount();
         if (brief && manifest) commitManifest(brief, manifest, ctx.base, ctx.jobKey);
         toast("Changed the template to " + templateLabel(template) + ". Nothing was rewritten.", "success");
       })
       .catch(function (err) {
         toast("Couldn\u2019t change the template: " + ((err && err.message) || "unknown error"), "error");
+      })
+      .then(function () { markRegenerating(false); });
+  }
+
+  /* -------------------- HOLES SCORE: the grade button and its modal --------------------
+     Spec §0.3/§2 SCORE: a drafted resume or letter shows one grade button
+     (materials-score.js); what the graders said opens in the score modal.
+     role-materials owns the manifest, so it builds what the modal reads and
+     takes its actions — for the rows, the Case (role-case.js) and Scribe's
+     header (scribe-v2.js). Fix this, Apply and Repair pre-fill the row's
+     Repair form; opened from Scribe, they pre-fill Scribe's composer. */
+
+  var ATS_FEATURE = { resume: "resume_update", cover_letter: "cover_letter" };
+  /* U12: Scribe saves the manifest has not caught up with, slug|doc -> runId. */
+  var scribeSaves = {};
+  var scoreOpen = null;
+  var rescoring = {};
+
+  function scoreApi() {
+    var ms = root.JobBoredMaterialsScore;
+    return ms && typeof ms.gradeOf === "function" && typeof ms.open === "function" ? ms : null;
+  }
+
+  function scoreJobKey() {
+    return openRoleKey() || (currentContext && currentContext.jobKey) || (currentManifest && currentManifest.jobKey) || "";
+  }
+
+  /* The role's job as the ATS scorer and the scorecard store key it. */
+  function scoreJob() {
+    var key = scoreJobKey();
+    var core = root.JobBoredApp && root.JobBoredApp.core;
+    if (key !== "" && core && typeof core.getJobByStableKey === "function") {
+      try {
+        var job = core.getJobByStableKey(key);
+        if (job) return job;
+      } catch (e) { /* fall through */ }
+    }
+    return key !== "" ? getPipelineJobByKey(key) : null;
+  }
+
+  /* The role keeps one stored scorecard, and it rates the document it
+     names: a letter's score is never the resume's grade. */
+  function atsEntryFor(feature) {
+    var state = root.JobBoredApp && root.JobBoredApp.materialsState;
+    var job = scoreJob();
+    if (!state || typeof state.getScorecardForJob !== "function" || !job) return null;
+    var entry = null;
+    try { entry = state.getScorecardForJob(job); } catch (e) { entry = null; }
+    if (!entry || !entry.result) return null;
+    return entry.feature === ATS_FEATURE[feature] ? entry : null;
+  }
+
+  function qualityDocOf(manifest, feature) {
+    var docs = manifest && manifest.quality && manifest.quality.documents ? manifest.quality.documents : null;
+    return docs ? docs[feature] : undefined;
+  }
+
+  function docOf(manifest, feature) {
+    var docs = manifest && Array.isArray(manifest.documents) ? manifest.documents : [];
+    return docs.filter(function (d) { return d && d.type === feature; })[0] || null;
+  }
+
+  /* U12: a grade is stale once the draft moves on — a Scribe save the
+     manifest hasn't caught up with, or a role-match score older than the
+     text it rated. MATQ's runId (and an equal docHash) decide when the
+     scorecard carries them. */
+  function scoreIsStale(manifest, feature, entry, grade) {
+    if (!manifest) return false;
+    var saved = scribeSaves[manifest.slug + "|" + feature];
+    if (saved && saved !== manifest.runId) return true;
+    if (!entry || grade.source !== "ats") return false;
+    var r = entry.result || {};
+    var qa = (qualityDocOf(manifest, feature) || {}).qa || null;
+    if (r.runId && qa && qa.runId) return r.runId !== qa.runId;
+    if (r.docHash && qa && qa.textHash && r.docHash === qa.textHash) return false;
+    var doc = docOf(manifest, feature);
+    var changed = Date.parse(String((doc && doc.text && doc.text.modifiedAt) || (doc && doc.lastModifiedAt) || ""));
+    var scored = Date.parse(String(entry.storedAt || ""));
+    return Number.isFinite(changed) && Number.isFinite(scored) && changed > scored;
+  }
+
+  /** { grade, stale } for one document of the manifest (default: the open one). */
+  function gradeFor(feature, manifest) {
+    var ms = scoreApi();
+    var m = manifest || (currentManifest && currentManifest.manifest) || null;
+    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
+    var entry = atsEntryFor(feature);
+    var grade = ms.gradeOf(qualityDocOf(m, feature), entry);
+    return { grade: grade, stale: scoreIsStale(m, feature, entry, grade) };
+  }
+
+  function gradeButtonHtml(manifest, feature) {
+    var ms = scoreApi();
+    var g = ms ? gradeFor(feature, manifest) : null;
+    return g ? ms.buttonHtml(g.grade, { feature: feature, scope: "row", stale: g.stale }) : "";
+  }
+
+  function canRescore(manifest, feature) {
+    var ats = root.JobBoredApp && root.JobBoredApp.ats;
+    var doc = docOf(manifest, feature);
+    return !!(ats && typeof ats.startAtsScorecardAnalysis === "function" && doc && doc.text && doc.text.filename && scoreJob());
+  }
+
+  function scoreData(feature, fill) {
+    var m = currentManifest && currentManifest.manifest;
+    var mi = insights();
+    var qd = qualityDocOf(m, feature);
+    var entry = atsEntryFor(feature);
+    var g = gradeFor(feature, m);
+    var pendingHere = !!(m && m.pending && /^(resume|cover_letter|both)$/.test(String(m.pending.feature || ""))
+      && !/^(complete|done|failed)$/i.test(String((m.pending.progress && m.pending.progress.phase) || "queued")));
+    var repairable = !!(m && mi && mi.canRepair(qd) && !pendingHere);
+    var doc = docOf(m, feature);
+    return {
+      feature: feature,
+      role: [m && m.title, m && m.company].filter(Boolean).join(" \u00b7 "),
+      drafted: doc && doc.lastModifiedAt ? String(doc.lastModifiedAt) : "",
+      qualityDoc: qd,
+      ats: entry,
+      stale: !!(g && g.stale),
+      coverage: coverageOf(m, feature, doc),
+      busy: !!rescoring[feature],
+      can: {
+        fix: !!fill || repairable,
+        apply: !!fill || repairable,
+        repair: !!fill || repairable,
+        rescore: canRescore(m, feature),
+        promote: !fill && !!m,
+        retry: !fill && !!m,
+        profile: !fill,
+      },
+    };
+  }
+
+  /* Repair, pre-filled: the instruction, and only the issue it came from
+     ticked. Focus lands in the instruction box (paintRepairForm). */
+  function prefillRepair(feature, item) {
+    var section = currentSection();
+    var mi = insights();
+    if (!section || !mi || !currentManifest || !currentManifest.manifest) return;
+    var checked = null;
+    if (item && item.issueId) {
+      checked = {};
+      mi.repairTargets(qualityDocFor(feature)).forEach(function (t) { checked[t.id] = t.id === item.issueId; });
+    }
+    repairForm = {
+      slug: section.getAttribute("data-slug") || currentManifest.manifest.slug,
+      feature: feature,
+      instruction: String((item && item.instruction) || "").slice(0, mi.REPAIR_MAX || 600),
+      checked: checked, error: "", busy: false, requestId: "",
+    };
+    paintRepairForm(section);
+  }
+
+  /* Scribe's Repair: the blockers, as one instruction for its composer. */
+  function blockerInstruction(feature) {
+    var mi = insights();
+    var qd = qualityDocFor(feature);
+    var qa = qd && qd.qa;
+    var reasons = mi && qa && mi.qaVersion(qa) === 2
+      ? mi.qaIssues(qa).filter(function (it) { return it.group === "facts"; }).map(function (it) { return it.reason; })
+      : [];
+    (qd && Array.isArray(qd.issues) ? qd.issues : []).forEach(function (f) { if (f && f.message) reasons.push(String(f.message)); });
+    reasons = reasons.filter(Boolean).slice(0, 3);
+    return reasons.length ? "Fix these: " + reasons.join("; ") : "Fix what the grade found.";
+  }
+
+  /* Rescore: the role-match check over this package's own text, for this
+     role. It resolves when the scorecard bus says the score landed. */
+  function rescoreDoc(feature) {
+    if (rescoring[feature]) return rescoring[feature];
+    var ats = root.JobBoredApp && root.JobBoredApp.ats;
+    var m = currentManifest && currentManifest.manifest;
+    var doc = docOf(m, feature);
+    var job = scoreJob();
+    if (!ats || typeof ats.startAtsScorecardAnalysis !== "function") return Promise.reject(new Error("scoring isn\u2019t available in this session"));
+    if (!m || !doc || !doc.text || !doc.text.filename) return Promise.reject(new Error("this draft has no text version to score"));
+    if (!job) return Promise.reject(new Error("this role isn\u2019t loaded"));
+    var atsFeature = ATS_FEATURE[feature];
+    var run = fetchText(fileUrl(materialsBase(), m.slug, doc.text.filename, { version: fileVersion(doc.text) })).then(function (text) {
+      var body = String(text || "").trim();
+      if (!body) throw new Error("this draft is empty");
+      var cacheKey = ats.computeAtsScorecardCacheKey(body, job, atsFeature);
+      if (!cacheKey) throw new Error("this role is missing a title or company");
+      var payload = ats.buildAtsScorecardRequestPayload(body, job, { feature: atsFeature });
+      return new Promise(function (resolve, reject) {
+        function onState(e) {
+          var d = (e && e.detail) || {};
+          if (d.jobKey !== cacheKey || (d.status !== "success" && d.status !== "error")) return;
+          root.removeEventListener("jb:ats:state", onState);
+          if (d.status === "success") resolve();
+          else reject(new Error(d.error || "the scorer didn\u2019t return a result"));
+        }
+        root.addEventListener("jb:ats:state", onState);
+        try {
+          ats.startAtsScorecardAnalysis(cacheKey, payload, job);
+        } catch (err) {
+          root.removeEventListener("jb:ats:state", onState);
+          reject(err);
+        }
       });
+    });
+    rescoring[feature] = run;
+    var done = function () { rescoring[feature] = null; repaintMaterials(m.slug); };
+    run.then(done, done);
+    return run;
+  }
+
+  /**
+   * Open the score modal for one document of the open role. hooks.fill,
+   * when Scribe passes it, takes Fix this, Apply and Repair instead of the
+   * row's Repair form.
+   */
+  function openScore(feature, opener, hooks) {
+    var ms = scoreApi();
+    if (!ms || (feature !== "resume" && feature !== "cover_letter")) return null;
+    var fill = hooks && typeof hooks.fill === "function" ? hooks.fill : null;
+    var slug = currentManifest && currentManifest.manifest ? currentManifest.manifest.slug : "";
+    var handle = ms.open({
+      opener: opener || null,
+      read: function () { return scoreData(feature, fill); },
+      fix: function (item) { if (fill) fill(item.instruction); else prefillRepair(feature, item); },
+      apply: function (s) { if (fill) fill(s.instruction); else prefillRepair(feature, { instruction: s.instruction }); },
+      repair: function () { if (fill) fill(blockerInstruction(feature)); else prefillRepair(feature, null); },
+      retry: function () { handleRetry(slug, feature); },
+      profile: function (focus) { openProfileSettings(focus); },
+      rescore: function () { return rescoreDoc(feature); },
+      loadHistory: function () {
+        return fetchJson(materialsBase() + "/api/applications/" + encodeURIComponent(slug) + "/runs").then(function (body) {
+          return body && body.runs;
+        });
+      },
+      promote: function (runId) { return promoteRun(slug, runId); },
+      onClose: function () { if (scoreOpen && scoreOpen.handle === handle) scoreOpen = null; },
+    });
+    scoreOpen = handle ? { handle: handle, feature: feature, slug: slug } : null;
+    return handle;
+  }
+
+  function refreshScore() {
+    if (scoreOpen && scoreOpen.handle && scoreOpen.handle.isOpen()) scoreOpen.handle.refresh();
+  }
+
+  /* U12: a Scribe save marks the document's grade stale at once, then the
+     manifest is read again so the fresh grade (or its absence) replaces it. */
+  function onScribeSaved(e) {
+    var d = (e && e.detail) || {};
+    var cur = currentManifest;
+    if (!cur || !cur.manifest || !d.slug || d.slug !== cur.manifest.slug || !d.doc) return;
+    scribeSaves[d.slug + "|" + d.doc] = String(d.runId || "saved");
+    repaintMaterials(d.slug);
+    refreshScore();
+    fetchJson(cur.base + "/api/applications/" + encodeURIComponent(d.slug) + "/manifest").then(function (manifest) {
+      var brief = findMount();
+      if (brief && manifest) commitManifest(brief, manifest, cur.base, cur.jobKey);
+    }).catch(function () { /* the next open or poll catches up */ });
   }
 
   /* -------------------- MREV D3/D4: Repair with an instruction -------------------- */
@@ -3986,6 +4295,7 @@
     root.addEventListener("jb:role:opened", onOpened);
     root.addEventListener("jb:role:closed", onClosed);
     root.addEventListener("jb:role:enriched", onEnriched);
+    root.addEventListener("jb:scribe:saved", onScribeSaved);
     /* role.js dispatches jb:role:action on both document and window.
        Listen on document only so the duplicate window dispatch does
        not fire a second handler invocation; the re-entrancy guard
@@ -4053,6 +4363,9 @@
     answerReturnPrompt: answerReturnPrompt,
     /* Wave 2: the in-page confirm and draft-both entry, for tests. */
     handleDraftRequest: handleDraftRequest,
+    /* HOLES SCORE: the Case's grade buttons open the same modal. */
+    openScore: openScore,
+    gradeFor: function (feature) { return gradeFor(feature); },
     /** Test-only hook to inject a fresh applications list. */
     _resetCache: clearCache,
     _refreshContextApplication: refreshContextApplication,

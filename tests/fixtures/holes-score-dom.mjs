@@ -70,6 +70,140 @@ export function parseInto(parent, html) {
   }
 }
 
+/* Selectors: role-materials.js asks for ".mat-dl__menu:not([hidden])" on
+   every click, which jb-dom's matcher (rightly, for its renderers) refuses.
+   This one reads compound selectors (tag, #id, .class, [attr], [attr=v],
+   :not(...)), the descendant and child combinators, and comma groups. */
+function splitTop(src, sep) {
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of src) {
+    if (ch === "[" || ch === "(") depth++;
+    if (ch === "]" || ch === ")") depth--;
+    if (ch === sep && depth === 0) { out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+function parseCompound(src) {
+  const c = { tag: null, id: null, classes: [], attrs: [], nots: [] };
+  let i = 0;
+  const ident = () => {
+    const m = /^[\w-]+/.exec(src.slice(i));
+    if (!m) throw new Error(`holes-score-dom: bad selector "${src}"`);
+    i += m[0].length;
+    return m[0];
+  };
+  if (src[0] === "*") i = 1;
+  else if (/[a-zA-Z]/.test(src[0] || "")) c.tag = ident().toLowerCase();
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "#") { i++; c.id = ident(); continue; }
+    if (ch === ".") { i++; c.classes.push(ident()); continue; }
+    if (ch === "[") {
+      const end = src.indexOf("]", i);
+      const body = src.slice(i + 1, end);
+      const m = /^([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|(.*)))?$/.exec(body.trim());
+      if (!m) throw new Error(`holes-score-dom: bad attribute selector "${body}"`);
+      c.attrs.push({ name: m[1], value: m[2] ?? m[3] ?? m[4] ?? null });
+      i = end + 1;
+      continue;
+    }
+    if (src.startsWith(":not(", i)) {
+      let depth = 0;
+      let j = i + 4;
+      for (; j < src.length; j++) {
+        if (src[j] === "(") depth++;
+        if (src[j] === ")") { depth--; if (depth === 0) break; }
+      }
+      c.nots.push(parseCompound(src.slice(i + 5, j)));
+      i = j + 1;
+      continue;
+    }
+    throw new Error(`holes-score-dom: unsupported selector "${src}"`);
+  }
+  return c;
+}
+
+function parseComplex(src) {
+  const parts = [];
+  const tokens = src.replace(/\s*>\s*/g, " > ").split(/\s+/).filter(Boolean);
+  let comb = " ";
+  for (const t of tokens) {
+    if (t === ">") { comb = ">"; continue; }
+    parts.push({ comp: parseCompound(t), comb });
+    comb = " ";
+  }
+  return parts;
+}
+
+function matchesCompound(node, c) {
+  if (!node || node.nodeType !== 1) return false;
+  if (c.tag && node.tagName.toLowerCase() !== c.tag) return false;
+  if (c.id && node.getAttribute("id") !== c.id) return false;
+  for (const cls of c.classes) if (!node.classList.contains(cls)) return false;
+  for (const a of c.attrs) {
+    if (!node.hasAttribute(a.name)) return false;
+    if (a.value != null && node.getAttribute(a.name) !== a.value) return false;
+  }
+  for (const n of c.nots) if (matchesCompound(node, n)) return false;
+  return true;
+}
+
+function matchesParts(node, parts, idx) {
+  if (!matchesCompound(node, parts[idx].comp)) return false;
+  if (idx === 0) return true;
+  const comb = parts[idx].comb;
+  let up = node.parentNode;
+  if (comb === ">") return matchesParts(up, parts, idx - 1);
+  while (up) {
+    if (matchesParts(up, parts, idx - 1)) return true;
+    up = up.parentNode;
+  }
+  return false;
+}
+
+function compileSelector(selector) {
+  const groups = splitTop(String(selector), ",").map(parseComplex);
+  return (node) => groups.some((parts) => matchesParts(node, parts, parts.length - 1));
+}
+
+function descendants(root, test, firstOnly) {
+  const out = [];
+  const visit = (node) => {
+    for (const child of node.children) {
+      if (test(child)) {
+        out.push(child);
+        if (firstOnly) return true;
+      }
+      if (visit(child)) return true;
+    }
+    return false;
+  };
+  visit(root);
+  return out;
+}
+
+const SELECTOR_API = {
+  querySelector(selector) {
+    return descendants(this, compileSelector(selector), true)[0] || null;
+  },
+  querySelectorAll(selector) {
+    return descendants(this, compileSelector(selector), false);
+  },
+  matches(selector) {
+    return compileSelector(selector)(this);
+  },
+  closest(selector) {
+    const test = compileSelector(selector);
+    for (let n = this; n; n = n.parentNode) if (test(n)) return n;
+    return null;
+  },
+};
+
 class ParsingNode extends FakeNode {
   get nodeType() {
     if (this.tagName === "#TEXT") return 3;
@@ -119,6 +253,7 @@ class ParsingNode extends FakeNode {
     return [{}];
   }
 }
+Object.assign(ParsingNode.prototype, SELECTOR_API);
 
 class ParsingDocument extends FakeDocument {
   createElement(tag) {
@@ -140,6 +275,7 @@ class ParsingDocument extends FakeDocument {
     return false;
   }
 }
+Object.assign(ParsingDocument.prototype, SELECTOR_API);
 
 /** makeEnv() with a parsing document. */
 export function makeScoreEnv(opts = {}) {

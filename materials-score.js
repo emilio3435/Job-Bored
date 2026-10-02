@@ -110,27 +110,13 @@
     return ats;
   }
 
-  var JUDGE_FAILURES = {
-    auth: "the key was rejected",
-    rate_limited: "the provider was busy",
-    timeout: "it timed out",
-    unconfigured: "no key is saved for it",
-    invalid_json: "it returned a grade we couldn’t use",
-    invalid_judgment: "it returned a grade we couldn’t use",
-  };
-
+  /* Why there is no score; the modal's judge line (materials-insights.js
+     judgeLine) says why the grading model didn’t finish. */
   function whyUngraded(qa) {
     if (isUnscoredStub(qa)) {
       return "This version was saved without a grade: its evidence was not rescored. Rescore grades it against the role.";
     }
-    var j = qa && qa.judge && typeof qa.judge === "object" ? qa.judge : null;
-    if (j && j.status && j.status !== "ok") {
-      var reason = JUDGE_FAILURES[String(j.errorCode || "")]
-        || (j.status === "invalid" ? JUDGE_FAILURES.invalid_judgment : "it didn’t answer");
-      return "Grading" + (j.model ? " by " + j.model : "") + " didn’t finish: " + reason
-        + ". Rescore to grade it against the role.";
-    }
-    if (qa) return "The grading model gave this draft no score. Rescore to grade it against the role.";
+    if (qa) return "The grading model gave this draft no score. Rescore grades it against the role.";
     return "Nothing has graded this draft yet. Rescore grades it against the role.";
   }
 
@@ -222,6 +208,7 @@
   var VERDICT_CHIPS = { READY: "Ready", REVIEW: "Review", FAIL: "Failed a check" };
   /* Blockers first, the grader's notes last. */
   var GROUPS = ["blocker", "flag", "check", "rubric", "gap", "background", "writing", "note"];
+  var BACKGROUND_HINT = "What the posting asks for that your background doesn’t show. This is information for you, not a problem with the writing.";
   var GROUP_TAGS = {
     blocker: "Blocker", flag: "Check", check: "To confirm", rubric: "Rubric",
     gap: "Role gap", background: "Background gap", writing: "Writing", note: "Fallback",
@@ -306,7 +293,7 @@
         var gap = String(g).trim();
         if (!gap) return;
         items.push({
-          group: "background", kind: "", quotes: [], why: gap, sub: "What the posting asks for that your background doesn’t show.",
+          group: "background", kind: "", quotes: [], why: gap, sub: BACKGROUND_HINT,
           issueId: "", instruction: clip("Address this gap honestly, using only what my background supports: " + gap),
         });
       });
@@ -377,28 +364,38 @@
     });
   }
 
-  function judgeLineOf(grade, qa, version, atsEntry, ats, mi) {
-    var when = atsEntry && atsEntry.storedAt && mi ? mi.shortDate(atsEntry.storedAt) : "";
-    if (grade.source === "judge") {
-      var j = qa.judge && typeof qa.judge === "object" ? qa.judge : {};
-      var who = j.independent === false
-        ? "Graded by your writing model" + (j.model ? " (" + j.model + ")" : "")
-        : "Graded by " + (j.model || j.provider || "an independent model");
-      return who + (j.promptVersion ? " · " + j.promptVersion : "");
+  /* Who graded it and which version: the grading model (by name, or the
+     writer's own) and its grader version, the old checker, or the role-match
+     check; then the draft it graded. A grade that didn't finish says why,
+     with Try again and Change grading model (materials-insights judgeLine). */
+  function judgeOf(grade, qa, version, atsEntry, ats, feature, drafted, mi) {
+    var j = { kind: "", text: "", acts: [] };
+    if (version === 2 && mi) {
+      var line = mi.judgeLine(qa, feature);
+      if (line) j = { kind: line.kind, text: line.text.replace(/\.$/, ""), acts: line.acts };
+      var v = /v(\d+(?:\.\d+)*)$/i.exec(String((qa.judge && qa.judge.promptVersion) || ""));
+      if (v && (j.kind === "independent" || j.kind === "same")) j.text += " · grading v" + v[1];
+    } else if (version === 1) {
+      j.text = "Graded by the old checker";
     }
-    if (grade.source === "rubric") return "Graded by the old checker (rubric)";
     if (grade.source === "ats") {
       var pct = finite(ats.confidence) ? Math.round(ats.confidence * 100) : null;
-      return "Role match by " + (ats.model || "the role-match check")
+      var when = atsEntry && atsEntry.storedAt && mi ? mi.shortDate(atsEntry.storedAt) : "";
+      j.text = (j.text ? j.text + ". " : "") + "Role match by " + (ats.model || "the role-match check")
         + (pct != null ? " · " + pct + "% confidence" : "")
         + (ats.overallScoreSource === "dimensions" ? " · averaged from its five dimensions" : "")
         + (when ? " · scored " + when : "");
+    } else if (j.text && drafted && mi && mi.shortDate(drafted)) {
+      j.text += " · draft of " + mi.shortDate(drafted);
     }
-    return version ? "Not graded" : "";
+    return j;
   }
 
+  var SOURCE_NOTES = { ats: "role match", rubric: "old checker" };
+
   /**
-   * data: { feature, role, qualityDoc, ats, stale, coverage, busy, can }.
+   * data: { feature, role, drafted, qualityDoc, ats, stale, coverage, busy,
+   * can: { fix, apply, repair, rescore, promote, retry, profile } }.
    * Everything the modal shows, as plain values.
    */
   function modelOf(data) {
@@ -409,19 +406,29 @@
     var atsEntry = d.ats && d.ats.result ? d.ats : null;
     var ats = atsResultOf(d.ats);
     var grade = gradeOf(d.qualityDoc, d.ats);
-    var verdictLine = grade.score == null
-      ? grade.why
-      : (version === 2 ? String(qa.dispositionReason || "").trim()
-        : (version === 1 && mi ? mi.plainDisposition(qa) : "")) || VERDICT_LINES[grade.verdict]
-        || "How well this draft matches the role, from the role-match check.";
+    /* The grader's own one-line reason leads; without one, the verdict's
+       plain words, or why there is no score. */
+    var reason = version === 2 ? String(qa.dispositionReason || "").trim()
+      : (version === 1 && mi && !isUnscoredStub(qa) ? mi.plainDisposition(qa) : "");
+    var verdictLine = reason
+      || (grade.score == null ? grade.why : VERDICT_LINES[grade.verdict] || "How well this draft matches the role, from the role-match check.");
     var cov = d.coverage && typeof d.coverage === "object" && finite(d.coverage.total) && d.coverage.total > 0 ? d.coverage : null;
+    var feature = d.feature === "cover_letter" ? "cover_letter" : (d.feature === "resume" ? "resume" : "");
+    /* "Review your details" and "Add a voice guide": the fixes the verdict
+       points at outside the draft itself. */
+    var profile = mi && d.qualityDoc ? mi.fixActions(d.qualityDoc, feature).filter(function (a) {
+      return a.action === "materials-open-profile";
+    }).map(function (a) { return { focus: a.focus, label: a.label }; }) : [];
     return {
-      feature: d.feature === "cover_letter" ? "cover_letter" : (d.feature === "resume" ? "resume" : ""),
+      feature: feature,
       role: String(d.role || ""),
       grade: grade,
+      sourceNote: SOURCE_NOTES[grade.source] || "",
       verdictLine: verdictLine,
       capNote: grade.capped ? "Capped at D: a failed hard check caps the grade, whatever the score." : "",
-      judgeLine: judgeLineOf(grade, qa, version, atsEntry, ats || {}, mi),
+      noScoreNote: grade.score == null && reason ? grade.why : "",
+      judge: judgeOf(grade, qa, version, atsEntry, ats || {}, feature, d.drafted, mi),
+      profile: profile,
       stale: !!d.stale,
       blockers: blockerItems(d.qualityDoc, qa, version, ats, mi),
       dimensions: dimensionGroups(qa, version, ats, mi),
@@ -493,8 +500,13 @@
     var can = model.can;
     var noun = DOC_NOUN[model.feature] || "draft";
     if (id === "blockers") {
-      if (!model.blockers.length) return emptyHtml("Nothing is blocking this " + noun + ".");
-      return '<ul class="jb-score__items">' + model.blockers.map(function (it, i) { return itemHtml(it, i, can); }).join("") + "</ul>";
+      var fixes = can.profile && model.profile.length
+        ? '<p class="jb-score__acts">' + model.profile.map(function (a) {
+          return btn("jb-score__btn--small", ' data-score-profile="' + esc(a.focus) + '"', esc(a.label));
+        }).join("") + "</p>"
+        : "";
+      if (!model.blockers.length) return emptyHtml("Nothing is blocking this " + noun + ".") + fixes;
+      return '<ul class="jb-score__items">' + model.blockers.map(function (it, i) { return itemHtml(it, i, can); }).join("") + "</ul>" + fixes;
     }
     if (id === "dimensions") {
       if (!model.dimensions.length) return emptyHtml("No dimension scores yet." + (can.rescore ? " Rescore grades this " + noun + " against the role." : ""));
@@ -596,14 +608,33 @@
       + '<div class="jb-score__headline">'
       + (model.role ? '<p class="jb-score__eyebrow">' + esc(model.role) + "</p>" : "")
       + '<h2 class="jb-score__title" id="jb-score-title-' + n + '"><span>' + esc(title) + "</span> "
-      + '<span class="jb-score__of">' + esc(g.score == null ? "Not graded" : g.score + " / 100") + "</span></h2>"
+      + '<span class="jb-score__of">' + esc(g.score == null ? "Not graded" : g.score + " / 100" + (model.sourceNote ? " · " + model.sourceNote : "")) + "</span></h2>"
       + '<p class="jb-score__verdict" id="jb-score-verdict-' + n + '">' + esc(model.verdictLine) + "</p>"
       + (model.capNote ? '<p class="jb-score__cap">' + esc(model.capNote) + "</p>" : "")
-      + (model.judgeLine ? '<p class="jb-score__judge">' + esc(model.judgeLine) + "</p>" : "")
+      + (model.noScoreNote ? '<p class="jb-score__unscored">' + esc(model.noScoreNote) + "</p>" : "")
+      + judgeHtml(model)
       + '<p class="jb-score__badges">'
       + (VERDICT_CHIPS[g.verdict] ? '<span class="jb-score__badge jb-score__badge--' + esc(g.verdict.toLowerCase()) + '">' + esc(VERDICT_CHIPS[g.verdict]) + "</span>" : "")
       + (model.stale ? '<span class="jb-score__badge jb-score__badge--stale">Changed since graded</span>' : "")
       + "</p></div></header>";
+  }
+
+  /* Change grading model and Add a second opinion are settings-modal.js's
+     own document-level action: the modal closes and lets the click through. */
+  function judgeHtml(model) {
+    var j = model.judge;
+    if (!j || !j.text) return "";
+    var acts = j.acts.map(function (a) {
+      if (a.action === "settings-open-grading") {
+        return '<button type="button" class="jb-score__link" data-action="settings-open-grading" data-score-handoff>' + esc(a.label) + "</button>";
+      }
+      if (a.action === "materials-retry" && model.can.retry) {
+        return '<button type="button" class="jb-score__link" data-score-retry>' + esc(a.label) + "</button>";
+      }
+      return "";
+    }).filter(Boolean).join(" ");
+    return '<p class="jb-score__judge"' + (j.kind ? ' data-judge="' + esc(j.kind) + '"' : "") + ">" + esc(j.text)
+      + (acts ? ' <span class="jb-score__judge-acts">' + acts + "</span>" : "") + "</p>";
   }
 
   function footHtml(model, ui) {
@@ -802,6 +833,10 @@
     while (t && t !== ctl.el.parentNode) {
       if (t.getAttribute) {
         if (t.hasAttribute("data-score-close")) { closeCtl(ctl, "button"); return; }
+        if (t.hasAttribute("data-score-handoff")) { closeCtl(ctl, "handoff"); return; }
+        if (t.hasAttribute("data-score-retry")) { handOff(ctl, ctl.spec.retry, { feature: ctl.model.feature }); return; }
+        var focus = t.getAttribute("data-score-profile");
+        if (focus) { handOff(ctl, ctl.spec.profile, focus); return; }
         var step = t.getAttribute("data-score-step");
         if (step) { toggleStep(ctl, step); return; }
         if (t.hasAttribute("data-score-rescore")) { runRescore(ctl); return; }
@@ -858,8 +893,9 @@
 
   /**
    * spec: { opener, read() -> data (see modelOf), fix(item), apply(s),
-   * repair(), rescore() -> Promise, loadHistory() -> Promise<runs>,
-   * promote(runId) -> Promise, onClose() }. Returns { el, refresh, close }.
+   * repair(), retry(), profile(focus), rescore() -> Promise,
+   * loadHistory() -> Promise<runs>, promote(runId) -> Promise, onClose() }.
+   * Returns { el, refresh, close, isOpen }.
    */
   function open(spec) {
     var d = root.document;

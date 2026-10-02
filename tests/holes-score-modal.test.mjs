@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { V1_RESUME_FAIL, V2_LETTER_FAIL } from "./fixtures/materials-qa-v2.mjs";
+import { V1_RESUME_FAIL, V2_LETTER_FAIL, V2_RESUME_READY_SAME_MODEL } from "./fixtures/materials-qa-v2.mjs";
 import { click, keydown, load, makeScoreEnv, read, text } from "./fixtures/holes-score-dom.mjs";
 
 const ATS = {
@@ -86,9 +86,25 @@ describe("modalHtml · what the modal holds", () => {
     assert.deepEqual([...foot.matchAll(/data-score-(repair|rescore|close)/g)].map((m) => m[1]), ["repair", "rescore", "close"]);
   });
 
-  it("should name who graded it and which version", () => {
-    const html = ms.modalHtml(ms.modelOf(letterData()));
-    assert.match(html, /class="jb-score__judge"[^>]*>[^<]*Graded by grok-judge-1[^<]*judge\.v1/);
+  it("should name who graded it, its grader version and the draft it graded, never 'judge'", () => {
+    const html = ms.modalHtml(ms.modelOf(letterData({ drafted: "2026-09-28T12:00:00.000Z" })));
+    const line = /class="jb-score__judge"[^>]*>([^<]*)/.exec(html)[1];
+    assert.match(line, /^Graded by grok-judge-1 · grading v1 · draft of Sep 2[78]/);
+    assert.doesNotMatch(line.replace(/grok-judge-1/g, ""), /judge/i, "our own words never say judge");
+  });
+
+  it("should say why a grade didn't finish, with Try again and Change grading model (J-FE4)", () => {
+    const down = { ...V2_LETTER_FAIL, qa: { ...V2_LETTER_FAIL.qa, quality: { score: null, ratings: [] }, judge: { status: "unavailable", model: "grok-judge-1", errorCode: "timeout", latencyMs: 240000 } } };
+    const html = ms.modalHtml(ms.modelOf(letterData({ qualityDoc: down, ats: null, can: { ...CAN, retry: true } })));
+    const line = /<p class="jb-score__judge"[^>]*>[\s\S]*?<\/p>/.exec(html)[0];
+    assert.match(line, /data-judge="unavailable"/);
+    assert.match(line, /Grading by grok-judge-1 didn(’|&#39;)t finish: it timed out after 240 s/);
+    assert.match(line, /<button[^>]*data-score-retry[^>]*>Try again<\/button>/);
+    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*data-score-handoff[^>]*>Change grading model<\/button>/);
+    const same = ms.modalHtml(ms.modelOf({ feature: "resume", qualityDoc: V2_RESUME_READY_SAME_MODEL, can: CAN }));
+    assert.match(same, /Graded by your writing model \(gemini-writer-1\)/);
+    assert.match(same, /data-action="settings-open-grading"[^>]*>Add a second opinion</);
+    assert.doesNotMatch(same, /data-score-retry/, "nothing to retry on a grade that finished");
   });
 
   it("should give every blocker and gap a Fix this (U6)", () => {
@@ -204,9 +220,9 @@ describe("open() · the modal as a dialog", () => {
     assert.ok(el.contains(doc.activeElement), "focus moved into the modal");
     assert.equal(main.inert, true, "the page behind is inert");
     doc.activeElement.dispatchEvent(keydown(doc.activeElement, "Escape"));
-    assert.equal(modal(), null, "Esc closed it");
+    assert.ok(modal() === null, "Esc closed it");
     assert.equal(main.inert, false, "the page is live again");
-    assert.equal(doc.activeElement, opener, "focus went back to the grade button");
+    assert.ok(doc.activeElement === opener, "focus went back to the grade button");
   });
 
   it("should keep Tab inside the modal", () => {
@@ -217,9 +233,9 @@ describe("open() · the modal as a dialog", () => {
     last.focus();
     const ev = keydown(last, "Tab");
     last.dispatchEvent(ev);
-    assert.equal(doc.activeElement, first, "Tab from the last control wraps to the first");
+    assert.ok(doc.activeElement === first, "Tab from the last control wraps to the first");
     first.dispatchEvent(keydown(first, "Tab", { shiftKey: true }));
-    assert.equal(doc.activeElement, last, "Shift+Tab from the first wraps to the last");
+    assert.ok(doc.activeElement === last, "Shift+Tab from the first wraps to the last");
   });
 
   it("should run Rescore once, show busy, and announce the score when it lands", async () => {
