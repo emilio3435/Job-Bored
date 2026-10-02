@@ -42,8 +42,8 @@ describe("buildChecklistItems · from package states", () => {
     const items = buildChecklistItems({ ...FACTS, verdicts: { resume: { disposition: "FAIL" } } });
     const resume = items.find((i) => i.id === "resume");
     assert.equal(resume.tone, "warn");
-    assert.equal(resume.action.gate, true);
-    assert.equal(resume.detail, "It failed its quality check. Repair it or read it closely first.");
+    assert.equal(resume.action.gate, "held");
+    assert.equal(resume.detail, "Held — A document in this run fails checks. Repair it or read it closely before you send it.");
   });
 
   it("should offer Draft when nothing is drafted yet", () => {
@@ -115,7 +115,7 @@ describe("loadChecklist / setChecklistItem · stored in the application folder",
     const first = await loadChecklist(SLUG, opts);
     assert.equal(first.contract, "materials.checklist.v1");
     assert.equal(first.progress.done, 0);
-    assert.equal(first.items[0].action.gate, true, "the FAIL verdict gates the resume download");
+    assert.equal(first.items[0].action.gate, "held", "the FAIL verdict gates the resume download");
     const stored = JSON.parse(await readFile(join(root, "apps", SLUG, "checklist.json"), "utf8"));
     assert.deepEqual(stored.items.map((i) => i.id), first.items.map((i) => i.id));
 

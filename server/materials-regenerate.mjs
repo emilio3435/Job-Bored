@@ -35,6 +35,7 @@ import { retargetModel, runsToText, validateRenderModel } from "./materials-rend
 import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-model-adapter.mjs";
 import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
 import { runHardGates } from "./materials-rubric.mjs";
+import { numerals } from "./materials-metric-tag.mjs";
 import { letterWordBand, resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -61,6 +62,20 @@ async function readJson(path) {
   } catch {
     return null;
   }
+}
+
+/** Carry the source run's links into its snapshot and merge only its documents at root.
+ * @param {string} sourceDir @param {string} dir @param {string} runDir
+ * @param {Array<"resume"|"cover_letter">} documents */
+export async function carryWriterSources(sourceDir, dir, runDir, documents) {
+  if (!existsSync(sourceDir)) return;
+  const writerSources = await readJson(await resolveContainedFile(sourceDir, "writer-sources.json", { optional: true }));
+  if (!writerSources) return;
+  const publishedSources = await readJson(await resolveContainedFile(dir, "writer-sources.json", { optional: true })) || {};
+  await resolveContainedFile(runDir, "writer-sources.json", { optional: true });
+  for (const key of documents) if (Array.isArray(writerSources[key])) publishedSources[key] = writerSources[key];
+  await writeFile(await resolveContainedFile(runDir, "writer-sources.json", { optional: true }), JSON.stringify(writerSources, null, 2) + "\n");
+  await writeFile(await resolveContainedFile(dir, "writer-sources.json", { optional: true }), JSON.stringify(publishedSources, null, 2) + "\n");
 }
 
 /** @param {import("./materials-render.mjs").RenderModel} model @param {"resume" | "letter"} document */
@@ -164,6 +179,7 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
   let pin = deps.pin || null;
   if (!pin) { try { const config = loadLlmConfig(); if (config) pin = /** @type {Record<string,unknown>} */ (/** @type {unknown} */ (await resolveActivePin(config))); } catch { /* unavailable */ } }
   const canJudge = Boolean(deps.qaTools?.judgeMaterials || resolveProvider(pin).configured);
+  if (force && !canJudge) throw Object.assign(httpError("Rescore didn't finish — no review model is configured", 503, "rescore_incomplete"), { retryable: true });
   /** @type {any[]} */
   const records = [];
   let judgedChange = false;
@@ -183,14 +199,23 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
     } else {
       const draft = await readJson(await sourcePath(document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
       const refs = await readJson(await sourcePath("writer-sources.json"));
-      const evidenceLedger = context.ledger || ledger || { claims: context.sources.claims.map((/** @type {any} */ c) => ({ ...c, id: c.id.replace(/^claim:/, "") })) };
+      const sourceRefs = refs?.[document === "letter" ? "cover_letter" : "resume"];
+      if (!Array.isArray(sourceRefs) || !sourceRefs.length) context.reducedEvidence = true;
+      // Older saved packets lack metric metadata. Rebuild it from their own
+      // approved claim quotes, not today's unrelated ledger or raw voice rules.
+      if (!context.ledger) {
+        context.reducedEvidence = true;
+        context.ledger = { claims: context.sources.claims.map((/** @type {any} */ c) => ({ ...c, id: c.id.replace(/^claim:/, ""), verified: c.verified === true,
+          metrics: numerals(c.text).map(token => ({ token })) })) };
+      }
+      const evidenceLedger = context.ledger;
       const html = (document === "letter" ? rendered.letterHtml : rendered.resumeHtml) || "";
       const twin = (document === "letter" ? rendered.letterTxt : rendered.resumeTxt) || "";
       const normal = (/** @type {string} */ text) => text.replace(/\s+/g, " ").trim().toLowerCase();
       const parity = Boolean(twin) && body.split("\n").map(normal).filter(Boolean).every(line => normal(twin).includes(line));
       const pdfName = document === "letter" ? "cover-letter.pdf" : "resume.pdf";
       const pdf = await readFile(force ? await sourcePath(pdfName) : join(stagingDir, pdfName)).catch(() => undefined);
-      const gates = [...await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n"), sourceRefs: refs?.[document === "letter" ? "cover_letter" : "resume"] || [], artifacts: { html, pdf, renderedText: parity ? body : twin } }),
+      const gates = [...await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n"), sourceRefs: Array.isArray(sourceRefs) ? sourceRefs : [], artifacts: { html, pdf, renderedText: parity ? body : twin } }),
         ...localIssues.map(i => ({ id: i.code || "version_issue", kind: i.severity === "fail" ? "hard" : "constraint", pass: false, reason: i.message || "Version issue", sentenceIds: [] }))];
       // In-place Rescore cannot positively remeasure layout or blocked requests.
       if (force) for (const gate of old?.gates || []) if (["layout_overflow", "render_network_request"].includes(gate.id) && !gates.some(g => g.id === gate.id)) gates.push(gate);
@@ -209,16 +234,25 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
         setConstraint({ id: "letter_paragraphs", pass: paragraphs === 3, reason: `${paragraphs} paragraphs`, sentenceIds: [] });
       } else if (force && old?.gates?.some((/** @type {any} */ g) => g.id === "resume_page_target")) setConstraint(old.gates.find((/** @type {any} */ g) => g.id === "resume_page_target"));
       else setConstraint({ id: "resume_page_target", pass: !rendered.fit.resume?.overflow, reason: rendered.fit.resume?.overflow ? "resume exceeds page target" : "resume fits or is unmeasured", sentenceIds: [] });
-      if (old?.textHash !== hash) context.sources.advisory = await refreshedDocumentAdvisory({ document, body, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n") });
+      if (old?.textHash !== hash) {
+        context.sources.advisory = await refreshedDocumentAdvisory({ document, body, ledger: evidenceLedger, posting: jdText || context.sources.posting.map((/** @type {any} */ p) => p.text).join("\n"), company: targetCompanyOf(fitted) });
+        // Whole-body refresh lacks the pipeline's per-field inputs and voice references.
+        context.reducedEvidence = true;
+      }
       const packet = buildJudgePacket({ writer: pin || inheritedRun?.pin, judge: pin?.judge, documents: [{ document, text: body, textHash: hash, sentences: tools.splitSentences(body, document) }], sources: context.sources, signal: deps.signal, fetchImpl: deps.fetchImpl });
-      const judge = await tools.judgeMaterials(packet);
+      let judge;
+      try { judge = await tools.judgeMaterials(packet); } catch (error) {
+        if (!force) throw error;
+        throw Object.assign(httpError("Rescore didn't finish — reviews are unavailable; try again", 503, "rescore_incomplete"), { retryable: true });
+      }
       context.constraints = constraints;
       judgedChange = true;
       qa = readQaVerdict(await tools.buildQaRecord({ document, runId, finalText: body, textHash: hash, gates, judge, constraints, rescore: { reducedEvidence: context.reducedEvidence, ...(context.reducedEvidence ? { why: "Rescored with less context than the original draft" } : {}) } }));
+      if (force && !qa?.reviews?.some((/** @type {any} */ review) => review.status === "ok")) throw Object.assign(httpError("Rescore didn't finish — no usable review returned; try again", 503, "rescore_incomplete"), { retryable: true });
     }
     records.push(qa);
     await writeFile(join(stagingDir, qaFileName(document)), `${JSON.stringify(qa, null, 2)}\n`);
-    await writeFile(join(stagingDir, `judge-context.${document}.json`), `${JSON.stringify({ sources: context.sources, constraints: context.constraints, ...(context.ledger ? { ledger: context.ledger } : {}), ...(typeof context.requirePdf === "boolean" ? { requirePdf: context.requirePdf } : {}) })}\n`);
+    await writeFile(join(stagingDir, `judge-context.${document}.json`), `${JSON.stringify({ sources: context.sources, constraints: context.constraints, ...(context.reducedEvidence ? { reducedEvidence: true } : {}), ...(context.ledger ? { ledger: context.ledger } : {}), ...(typeof context.requirePdf === "boolean" ? { requirePdf: context.requirePdf } : {}) })}\n`);
   }
   await saveCombinedQa(stagingDir, runId, records, notes);
   return { status: combinedStatus(records), judgedChange };
@@ -548,7 +582,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
       }
     }
     const status = judged?.status || await writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady: true });
-    const { record } = await writePackageRecords({
+    const { record, runDir } = await writePackageRecords({
       dir,
       rendered,
       model,
@@ -582,6 +616,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         ],
       },
     });
+    await carryWriterSources(sourceDir, dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])]);
     return { ok: true, slug, runId, ...(regeneratedFrom ? { regeneratedFrom } : {}), template: record.template, status };
   } finally {
     await rm(stagingDir, { recursive: true, force: true });

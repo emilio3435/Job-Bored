@@ -43,7 +43,7 @@ const OUTREACH_FILES = ["outreach.json", "outreach-note.md", "outreach.md"];
  * @property {string} [href] an http(s) link (open)
  * @property {string} [filename] a package file (download / preview)
  * @property {string} [doc] "resume" | "cover_letter"
- * @property {boolean} [gate] the document failed QA: ask before download
+ * @property {boolean | "held"} [gate] the run is Held: ask before download
  * @property {string} [text] text to copy
  * @property {string} [stage] pipeline stage (stage)
  * @property {string} label the button's words
@@ -66,7 +66,7 @@ const OUTREACH_FILES = ["outreach.json", "outreach-note.md", "outreach.md"];
  * @property {string} title
  * @property {string} jobUrl http(s) or ""
  * @property {{ resume: boolean, coverLetter: boolean }} docs
- * @property {{ resume?: { disposition: string | null, state?: string }, letter?: { disposition: string | null, state?: string } }} verdicts
+ * @property {{ resume?: { disposition: string | null, state?: string, runId?: string, reason?: string }, letter?: { disposition: string | null, state?: string, runId?: string, reason?: string } }} verdicts
  * @property {string} outreachText "" when no note exists
  * @property {string[]} bars the posting's stated disqualifiers
  * @property {string} contact the hiring contact's name, "" when unknown
@@ -117,13 +117,14 @@ export function buildChecklistItems(facts, state = {}) {
   const company = facts.company || "the company";
 
   if (facts.docs.resume) {
-    const fail = facts.verdicts.resume?.disposition === "FAIL";
+    const resume = facts.verdicts.resume;
+    const held = Object.values(facts.verdicts).find(v => v?.disposition === "FAIL" && (!resume?.runId || !v.runId || v.runId === resume.runId));
     items.push({
       id: "resume",
       label: "Download your tailored resume (PDF)",
-      detail: verdictWords(facts.verdicts.resume) || "Your resume for this role is ready.",
-      ...(fail ? { tone: /** @type {const} */ ("warn") } : {}),
-      action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: fail, label: "Download" },
+      detail: held ? `Held — ${held.reason || "A document in this run fails checks. Repair it or read it closely before you send it."}` : verdictWords(resume) || "Your resume for this role is ready.",
+      ...(held ? { tone: /** @type {const} */ ("warn") } : {}),
+      action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: held ? "held" : false, label: "Download" },
     });
   } else {
     items.push({
@@ -252,7 +253,7 @@ async function readJson(path) {
  */
 function verdictOf(qa) {
   const view = readQaVerdict(qa);
-  return view ? { disposition: view.disposition, state: view.state, reason: view.reasons[0]?.text || "" } : undefined;
+  return view ? { disposition: view.disposition, state: view.state, runId: view.runId, reason: view.reasons[0]?.text || "" } : undefined;
 }
 
 /** @param {string} dir */

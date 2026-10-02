@@ -9,7 +9,7 @@ import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
-import { commitModelAsRun, withPackagePublishClaim, writeVersionQa } from "./materials-regenerate.mjs";
+import { carryWriterSources, commitModelAsRun, withPackagePublishClaim, writeVersionQa } from "./materials-regenerate.mjs";
 import { renderDocument, runsToText } from "./materials-render.mjs";
 import { readProfile } from "./user-profile.mjs";
 
@@ -332,7 +332,7 @@ export function createMaterialsVersionService(deps = {}) {
         const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
         await writeVersionQa({ dir, rendered, runId, issues: rendered.issues || [], notes: ["PDF stale: browser unavailable."], pdfReady: false });
         const provenance = source === "restore" && restoredFrom ? (await runFiles(dir, restoredFrom)).run : current;
-        await writePackageRecords({ dir, rendered, model, run: {
+        const { runDir } = await writePackageRecords({ dir, rendered, model, run: {
           runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
           requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
           source, ...(source === "restore" ? { restoredFrom } : {}), ...(edit ? { edit } : {}),
@@ -345,6 +345,7 @@ export function createMaterialsVersionService(deps = {}) {
             { stage: "publish", status: "ok", llm: false },
           ],
         } });
+        await carryWriterSources(join(dir, RUNS_DIR, input.parentRunId), dir, runDir, [...(rendered.resumeHtml ? [/** @type {const} */ ("resume")] : []), ...(rendered.letterHtml ? [/** @type {const} */ ("cover_letter")] : [])]);
         return { runId, pdf: "stale", stale: true };
       }
     });
