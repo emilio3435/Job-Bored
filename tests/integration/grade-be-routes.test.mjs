@@ -47,12 +47,12 @@ it("GRADE-B G7: history keeps good root default, lists held pass and excludes pa
 it("GRADE-B G8: Rescore updates QA in place with full context and returns 409 during a draft", async () => application(async (root, app) => {
   await seed(app, "original", V3_READY);
   const run = join(app, "runs", "original"); const body = "I built a dispatch forecast.";
-  const model = { documents: { coverLetter: { paragraphs: [{ text: body }] } } };
+  const model = { documents: { coverLetter: { paragraphs: [{ text: body }] }, resume: { statement: { runs: [{ text: "An unrelated saved resume." }] }, sections: [] } } };
   await save(join(run, "render-model.json"), model);
   const sources = { posting: [{ id: "posting:1", text: "Acme needs forecasting." }], claims: [{ id: "claim:1", text: body, verified: true }], voice: "Plain.", research: [], advisory: [], requirements: [{ id: "req:1", text: "Forecasting" }] };
   await save(join(run, "judge-context.letter.json"), { sources, constraints: [] });
   let calls = 0;
-  const deps = { applicationsRoot: root, pin: { provider: "example", model: "fictional" }, qaTools: { runHardGates: async () => [], judgeMaterials: async input => {
+  const deps = { applicationsRoot: root, pin: { provider: "example", model: "fictional" }, qaTools: { runHardGates: async input => { assert.equal(input.artifacts.html, "<p>I built a dispatch forecast.</p>"); assert.equal(input.artifacts.renderedText, body); return []; }, judgeMaterials: async input => {
     calls++; assert.deepEqual(input.sources, sources);
     return { status: "ok", meta: { model: "fictional" }, judgment: { documents: [{ document: "letter", textHash: hashRenderedText(body), ratings: [], sentences: [{ id: "L1", status: "supported", reason: "Claim.", citations: [] }], issues: [], qualificationGaps: [], coverage: { requirements: [{ ...sources.requirements[0], status: "covered", sentenceIds: ["L1"] }] } }] } };
   } } };

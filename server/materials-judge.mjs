@@ -304,7 +304,10 @@ export function buildJudgePacket({ writer, judge, documents, sources, signal, fe
 export async function readJudgeContext(dir, document, fallback) {
   try {
     const stored = JSON.parse(await readFile(join(dir, `judge-context.${document}.json`), "utf8"));
-    if (stored?.sources && Array.isArray(stored.constraints)) return { ...stored, reducedEvidence: false };
+    if (stored?.sources) {
+      const complete = ["posting", "claims", "research", "advisory"].every(key => Array.isArray(stored.sources[key])) && typeof stored.sources.voice === "string" && Array.isArray(stored.constraints);
+      return { ...stored, sources: { ...fallback, ...stored.sources }, constraints: stored.constraints || [], reducedEvidence: !complete };
+    }
   } catch { /* older run lacks context */ }
   return { sources: fallback, constraints: [], reducedEvidence: true };
 }

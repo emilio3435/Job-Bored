@@ -112,6 +112,7 @@ export async function resolveRunDir(appDir, runId) {
     throw httpError("Run not found", 404, "run_not_found");
   }
   const realRoot = await realpath(runsRoot);
+  if (!realRoot.startsWith(appDir + sep)) throw httpError("Path escape detected", 400);
   if (!real.startsWith(realRoot + sep)) throw httpError("Path escape detected", 400);
   const st = await stat(real);
   if (!st.isDirectory()) throw httpError("Run not found", 404, "run_not_found");

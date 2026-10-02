@@ -9,6 +9,14 @@ export const QA_CONTRACT_V1 = "materials.qa.v1";
 const labelOf = id => id.replace(/^(dimension|sentence|review):/, "").replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
 /** @param {string} text @param {string} fallback */
 const legacyText = (text, fallback) => /(?:quality|advisory|overall)\s*score|\d+\s*(?:\/|of)\s*(?:100|16)|\bscore[d]?\s+\d+/i.test(text) ? fallback : text || fallback;
+/** Copy legacy display fields without carrying stored total prose into a served view.
+ * @param {any} value @returns {any} */
+function legacyView(value) {
+  if (typeof value === "string") return value ? legacyText(value, "Old checker feedback") : value;
+  if (Array.isArray(value)) return value.map(legacyView);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, legacyView(item)]));
+  return value;
+}
 /** @param {"letter" | "resume"} document */
 export function qaFileName(document) { return document === "letter" ? "qa.letter.json" : "qa.resume.json"; }
 
@@ -61,7 +69,7 @@ export function buildQaRecord({ document, runId, finalText = "", textHash, passI
   }
   const ratings = (primary?.ratings || []).map((/** @type {any} */ r) => ({ dimension: r.dimension, score: r.score, reason: r.reason, sentenceIds: r.sentenceIds || [] }));
   /** @type {any[]} */
-  const checks = normalizedGates.map((/** @type {any} */ g) => ({ id: g.id, kind: g.kind === "constraint" ? "constraint" : "gate", status: g.pass ? "pass" : g.kind === "hard" ? "fail" : "review", label: labelOf(g.id), detail: g.reason, sentenceIds: g.sentenceIds }));
+  const checks = normalizedGates.map((/** @type {any} */ g) => ({ id: g.id, kind: g.kind === "constraint" ? "constraint" : "gate", status: g.pass ? "pass" : g.kind === "hard" ? "fail" : g.kind === "advisory" ? "skipped" : "review", label: labelOf(g.id), detail: g.reason, sentenceIds: g.sentenceIds }));
   const unsupported = sentences.filter(s => s.status === "unsupported");
   const ok = parsed.filter((/** @type {any} */ r) => r.view.status === "ok");
   const disagree = ok.length === 2 && ok[0].view.disposition !== ok[1].view.disposition;
@@ -100,16 +108,16 @@ export function readQaVerdict(record) {
   const base = buildQaRecord({ document: record.document || "resume", runId: record.runId || "legacy", finalText: "", state: stub ? "not_rescored" : "graded" });
   /** @type {any[]} */
   const checks = [];
-  for (const gate of record.gates || []) checks.push({ id: gate.id, kind: gate.kind === "constraint" ? "constraint" : "gate", status: gate.pass ? "pass" : gate.kind === "hard" ? "fail" : "review", label: labelOf(gate.id), detail: legacyText(gate.reason || "", labelOf(gate.id)), sentenceIds: gate.sentenceIds || [] });
+  for (const gate of record.gates || []) checks.push({ id: gate.id, kind: gate.kind === "constraint" ? "constraint" : "gate", status: gate.pass ? "pass" : gate.kind === "hard" ? "fail" : gate.kind === "advisory" ? "skipped" : "review", label: labelOf(gate.id), detail: legacyText(gate.reason || "", labelOf(gate.id)), sentenceIds: gate.sentenceIds || [] });
   for (const check of record.checks || []) if (["fail", "review"].includes(check.severity)) checks.push({ id: check.code || check.id || "legacy_check", kind: "gate", status: check.severity, label: labelOf(check.code || check.id || "legacy_check"), detail: legacyText(check.message || "", "Old checker flagged this check"), sentenceIds: check.sentenceIds || [] });
   for (const sentence of record.sentences || []) if (["unsupported", "uncertain"].includes(sentence.status)) checks.push({ id: `sentence:${sentence.id}`, kind: "sentence", status: sentence.status === "unsupported" ? "fail" : "review", label: "Claim evidence", detail: legacyText(sentence.reason || "", "Claim needs review"), sentenceIds: [sentence.id] });
   for (const issue of record.issues || []) if (issue.severity === "hard" && !checks.some(c => c.status === "fail" && c.sentenceIds.some((/** @type {string} */ id) => issue.sentenceIds?.includes(id)))) checks.push({ id: `issue:${issue.id}`, kind: "sentence", status: "fail", label: "Claim needs a source", detail: legacyText(issue.reason || "", "Claim needs a source"), sentenceIds: issue.sentenceIds || [] });
   const disposition = stub ? null : record.disposition || (record.status === "fail" ? "FAIL" : record.status === "pass" ? "READY" : "REVIEW");
   const decisive = checks.filter(c => c.status === "fail" || c.status === "review");
-  return { ...base, textHash: /^sha256:[0-9a-f]{64}$/.test(record.textHash || "") ? record.textHash : base.textHash, legacy: "old_checker", disposition,
+  return legacyView({ ...base, textHash: /^sha256:[0-9a-f]{64}$/.test(record.textHash || "") ? record.textHash : base.textHash, legacy: "old_checker", disposition,
     reasons: stub ? base.reasons : decisive.map(c => ({ checkId: c.id, text: c.detail })), checks: stub ? base.checks : checks,
     gates: record.gates || [], sentences: record.sentences || [], issues: record.issues || [], ratings: (record.quality?.ratings || []).map((/** @type {any} */ r) => ({ dimension: r.dimension, score: r.score, reason: legacyText(r.reason || "", "Old checker rating"), sentenceIds: r.sentenceIds || [] })),
-    reviews: [], qualificationGaps: record.qualificationGaps || [], degraded: record.degraded || [], repair: { ...base.repair, ...record.repair, before: typeof record.repair?.before === "object" ? record.repair.before : null, after: typeof record.repair?.after === "object" ? record.repair.after : null } };
+    reviews: [], qualificationGaps: record.qualificationGaps || [], degraded: record.degraded || [], repair: { ...base.repair, ...record.repair, before: typeof record.repair?.before === "object" ? record.repair.before : null, after: typeof record.repair?.after === "object" ? record.repair.after : null } });
 }
 
 /** @param {any[]} records */
@@ -131,7 +139,8 @@ export async function readDocumentQa(dir) {
 /** @param {{records: any[], notes?: string[]}} input */
 export function formatDocumentQaReport({ records, notes = [] }) {
   const views = records.map(readQaVerdict).filter(Boolean);
-  const lines = ["# QA report", "", `Status: ${combinedStatus(views).toUpperCase()}`, ...notes];
+  const status = combinedStatus(views);
+  const lines = ["# QA report", "", `Status: ${status === "pass" ? "READY" : status.toUpperCase()}`, ...notes];
   for (const record of views) {
     lines.push("", `## ${record.document === "letter" ? "Cover letter" : "Resume"}: ${record.disposition || "Not rescored"}`, "", `Run: ${record.runId}`);
     for (const reason of record.reasons) lines.push(`- ${reason.text}`);

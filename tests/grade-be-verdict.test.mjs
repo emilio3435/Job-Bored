@@ -68,3 +68,12 @@ it("GRADE-B G8: legacy version-recheck stub adapts to not-rescored with no verdi
   const view = qa.readQaVerdict({ ...LEGACY_V1, rubric: { rows: [{ id: "version_recheck" }] } });
   assert.equal(view.state, "not_rescored"); assert.equal(view.disposition, null);
 });
+it("GRADE-B D4: legacy nested reasons cannot expose a stored total", () => {
+  const source = structuredClone(LEGACY_V2);
+  source.gates[0].reason = "Quality score 100/100";
+  source.sentences[0].reason = "Overall score 87 of 100";
+  source.issues = [{ id: "i1", kind: "fact", severity: "hard", action: "rewrite", reason: "Scored 100/100", sentenceIds: ["L1"] }];
+  const before = JSON.stringify(source);
+  assert.doesNotMatch(JSON.stringify(qa.readQaVerdict(source)), /100\/100|87 of 100/);
+  assert.equal(JSON.stringify(source), before);
+});

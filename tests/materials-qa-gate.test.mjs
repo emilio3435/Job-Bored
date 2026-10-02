@@ -209,3 +209,14 @@ it("review extra P1: a READY QA record stays pass when it carries advisory writi
     assert.equal(audit.status, "pass");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+it("GRADE-B G1: advisory gate findings cannot change a READY manifest into REVIEW", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "grade-advisory-"));
+  try {
+    const record = qa({ gates: [{ id: "posting_overlap", kind: "advisory", pass: false, reason: "Weak overlap hint.", sentenceIds: [] }] });
+    assert.equal(record.disposition, "READY");
+    await writeFile(join(dir, "cover-letter.html"), `<html><body><article class="page"><p data-paragraph="1">${"route forecast ".repeat(80)}</p></article></body></html>`);
+    await writeFile(join(dir, "cover-letter.pdf"), "%PDF-1.4\n/Type /Page\n");
+    await writeFile(join(dir, "qa.letter.json"), JSON.stringify(record));
+    assert.equal((await auditApplicationMaterials(dir)).status, "pass");
+  } finally { await rm(dir, {recursive:true,force:true}); }
+});
