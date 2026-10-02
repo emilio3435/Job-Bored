@@ -303,10 +303,10 @@ export function buildJudgePacket({ writer, judge, documents, sources, signal, fe
   }, signal, fetchImpl };
 }
 /** Read the context saved by drafting, or an honest reduced legacy packet.
- * @param {string} dir @param {string} document @param {Record<string, any>} fallback */
-export async function readJudgeContext(dir, document, fallback) {
+ * @param {string} dir @param {string} document @param {Record<string, any>} fallback @param {string} [file] */
+export async function readJudgeContext(dir, document, fallback, file = join(dir, `judge-context.${document}.json`)) {
   try {
-    const stored = JSON.parse(await readFile(join(dir, `judge-context.${document}.json`), "utf8"));
+    const stored = JSON.parse(await readFile(file, "utf8"));
     if (stored?.sources) {
       const complete = ["posting", "claims", "research", "advisory"].every(key => Array.isArray(stored.sources[key])) && typeof stored.sources.voice === "string" && Array.isArray(stored.constraints);
       return { ...stored, sources: { ...fallback, ...stored.sources }, constraints: stored.constraints || [], reducedEvidence: !complete };

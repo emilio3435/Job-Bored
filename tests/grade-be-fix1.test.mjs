@@ -53,11 +53,11 @@ it("GRADE-B FIX1-B1: Rescore retains unvalidated rendering failures and Held", a
 }, "resume"));
 
 it("GRADE-B FIX1-B2: Rescore refuses per-file run and root escapes before any write", async () => {
-  for (const [place, name] of [["run", "qa.letter.json"], ["run", "render-model.json"], ["run", "judge-context.letter.json"], ["app", "qa.letter.json"], ["app", "run.json"]]) {
+  for (const [place, name] of [["run", "qa.letter.json"], ["run", "run.json"], ["run", "render-model.json"], ["run", "judge-context.letter.json"], ["run", "writer-sources.json"], ["run", "cover-letter.html"], ["run", "cover-letter.txt"], ["run", "cover-letter.pdf"], ["run", "qa.json"], ["run", "qa-report.md"], ["app", "qa.letter.json"], ["app", "run.json"], ["app", "qa.json"], ["app", "qa-report.md"], ["app", "judge-context.letter.json"], ["app", "job-description.md"]]) {
     await application(async ({ root, run, app, deps }) => {
       const outside = join(root, "outside.json"), target = join(place === "run" ? run : app, name);
-      const original = await readFile(target, "utf8");
-      await writeFile(outside, original); await rm(target); await symlink(outside, target);
+      const original = await readFile(target, "utf8").catch(() => "{}");
+      await writeFile(outside, original); await rm(target, { force: true }); await symlink(outside, target);
       await assert.rejects(rescoreRun({ slug: "acme", runId: "original" }, deps), { statusCode: 400 });
       assert.equal(await readFile(outside, "utf8"), original);
     });
@@ -81,6 +81,10 @@ it("GRADE-B FIX1-B3: root and run QA exports adapt legacy records without changi
       assert.equal(await readFile(join(dir, name), "utf8"), before);
     }
   }
+  await save(join(run, "qa.letter.json"), fixtures.V3_READY);
+  const report = "# QA report\n\nStatus: READY\nSaved resume provenance: fictional upload.\n";
+  await writeFile(join(run, "qa-report.md"), report);
+  assert.equal((await resolveRunFile("acme", "original", "qa-report.md", { root })).body, report);
 }));
 
 it("GRADE-B FIX1-B4: a non-READY Rescore clears run and root cache eligibility", async () => application(async ({ app, run, deps }) => {
@@ -92,6 +96,15 @@ it("GRADE-B FIX1-B4: a non-READY Rescore clears run and root cache eligibility",
   assert.equal((await json(join(run, "run.json"))).cacheKey, undefined);
   assert.equal((await json(join(app, "run.json"))).cacheKey, undefined);
   assert.equal((await findCachedPackage({ dir: app, cacheKey: "eligible-key", feature: "cover_letter" })).hit, false);
+}));
+it("GRADE-B FIX1-B4: rescoring a served document clears a newer mixed-feature root cache", async () => application(async ({ app, deps }) => {
+  await save(join(app, "run.json"), { runId: "newer-resume", feature: "both", cacheKey: "eligible-key" });
+  deps.qaTools.judgeMaterials = input => {
+    const judge = readyJudge(input); judge.judgment.documents[0].sentences[0].status = "unsupported"; return judge;
+  };
+  await rescoreRun({ slug: "acme", runId: "original" }, deps);
+  assert.equal((await json(join(app, "run.json"))).runId, "newer-resume");
+  assert.equal((await json(join(app, "run.json"))).cacheKey, undefined);
 }));
 
 it("GRADE-B FIX1-B5: changed-body judging replaces stale sentence advisories", async () => application(async ({ run, app, sources, deps }) => {
@@ -129,6 +142,13 @@ it("GRADE-B FIX1-B7: real unlinked gate defects are targeted and never preserved
   assert.deepEqual(targets[0].sentenceIds, ["L2"]); assert.deepEqual(targets[0].preserveSentenceIds, ["L1"]);
   const unknown = buildQaRecord({ document: "letter", runId: "original", finalText: body, gates: [{ id: "layout_overflow", kind: "hard", pass: false, reason: "Overflow.", sentenceIds: [] }], judge: readyJudge(input) });
   assert.deepEqual(repairInstructionsFromQa([unknown])[0].preserveSentenceIds, []);
+  const metricBody = "I built a dispatch forecast. I grew sales 987%.";
+  const metric = runHardGates({ document: "letter", finalText: metricBody, ledger: { claims: [{ id: "1", text: "I built a dispatch forecast." }] } }).find(g => g.id === "invented_fact");
+  assert.equal(metric.pass, false); assert.deepEqual(metric.sentenceIds, []);
+  const metricInput = { documents: [{ document: "letter", textHash: hashRenderedText(metricBody), sentences: splitSentences(metricBody, "letter") }] };
+  const metricRecord = buildQaRecord({ document: "letter", runId: "original", finalText: metricBody, gates: [metric], judge: readyJudge(metricInput) });
+  assert.deepEqual(repairInstructionsFromQa([metricRecord])[0].sentenceIds, ["L2"]);
+  assert.deepEqual(repairInstructionsFromQa([metricRecord])[0].preserveSentenceIds, ["L1"]);
 });
 
 it("GRADE-B FIX1-B8: Apply labels not-rescored truthfully and never formats a total", async () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -11,7 +11,7 @@ import { buildOutline, summarizeRenderedResumeSelection } from "../server/materi
 import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline, renderedBodyText } from "../server/materials-pipeline.mjs";
-import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
+import { rescoreRun, withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
 const RESUME = [
   "Jordan Rivera", "Northwind — Operations Analyst, 2021–2026",
@@ -531,6 +531,18 @@ describe("GRADE backend pass persistence and adoption", () => {
     const candidate = await json(join(dir, "runs", "candidate"), "run.json");
     assert.equal(candidate.label, newCheck ? "Original draft" : "Repaired");
     assert.ok(candidate.held);
+  });
+  it("GRADE-B FIX1-B4: the identical draft request writes again after a failing Rescore", async () => {
+    const app = join(dir, "harbor-fleet-role"); await mkdir(app);
+    const { services, calls } = testServices();
+    await runPipeline(base(app, services, "cover_letter", "eligible"));
+    assert.equal((await runPipeline(base(app, services, "cover_letter", "cache-check"))).outcome, "cached");
+    await rescoreRun({ slug: "harbor-fleet-role", runId: "eligible" }, { applicationsRoot: dir, qaTools: {
+      runHardGates: () => [], judgeMaterials: input => ({ status: "ok", judgment: { documents: input.documents.map(doc => ({ ...doc, ratings: [], issues: [], qualificationGaps: [], sentences: doc.sentences.map(s => ({ id: s.id, status: "unsupported", reason: "Needs a source.", citations: [] })) })) } }),
+    } });
+    const before = calls.write.length;
+    assert.notEqual((await runPipeline(base(app, services, "cover_letter", "redraft"))).outcome, "cached");
+    assert.ok(calls.write.length > before);
   });
   it("GRADE-B G5: every FAIL triggers repair even without a hard rewrite issue", async () => {
     const { services, calls } = testServices({ hardGate: () => [{ id: "artifact_usable", kind: "hard", pass: false, reason: "Check artifact.", sentenceIds: [] }] });
