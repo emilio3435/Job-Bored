@@ -122,3 +122,54 @@ describe("D13 · a hidden tab pauses polling", () => {
     assert.equal(polls.length, 3, "and back on the normal cadence");
   });
 });
+
+describe("D13 · a foreign snapshot never replaces the run this tab follows (Grok DISCO review)", () => {
+  async function followingTab() {
+    const { createControlledFetch } = await import("./holes-disco-harness.mjs");
+    const clock = createClock();
+    const storage = createStorage();
+    const hub = createBroadcastHub();
+    const net = createControlledFetch();
+    const a = loadDiscoveryTab({ clock, storage, hub, fetch: net.fetch, document: createDocument() });
+    const b = loadDiscoveryTab({ clock, storage, hub, document: createDocument() });
+    startIn(a);
+    await clock.advance(2000); // a's first poll is in flight
+    assert.equal(b.tracker.getState().runId, "run_x", "b learned the run");
+    return { a, b, net, clock };
+  }
+
+  it("an empty dispatch-unconfirmed snapshot neither aborts the poll nor forgets the run", async () => {
+    const { a, b, net, clock } = await followingTab();
+    const inFlight = net.calls[0];
+    b.tracker.markDispatchUnconfirmed({ webhookUrl: b.webhookUrl, trigger: "manual" });
+    await flush();
+    assert.equal(inFlight.aborted, undefined, "a's in-flight poll was not aborted");
+    assert.equal(a.tracker.getState().runId, "run_x");
+    net.respond(inFlight, 200, runStatusBody("run_x"));
+    await flush();
+    await clock.advance(2000);
+    assert.equal(net.calls.length, 2, "a keeps polling run_x");
+  });
+
+  it("another tab's different run does not replace a live one here", async () => {
+    const { a, b, net } = await followingTab();
+    b.tracker.beginTracking({
+      runId: "run_y",
+      statusPath: "/runs/run_y",
+      pollAfterMs: 2000,
+      webhookUrl: b.webhookUrl,
+    });
+    await flush();
+    assert.equal(net.calls[0].aborted, undefined);
+    assert.equal(a.tracker.getState().runId, "run_x");
+  });
+
+  it("still adopts the terminal update of the same run", async () => {
+    const { a, b } = await followingTab();
+    b.tracker.updateFromStatusResponse(
+      runStatusBody("run_x", { status: "completed", terminal: true }),
+    );
+    await flush();
+    assert.equal(a.tracker.getState().status, "completed");
+  });
+});

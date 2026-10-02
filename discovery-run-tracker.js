@@ -716,7 +716,14 @@
       if (message.tabId === DISCOVERY_RUN_TAB_ID) return;
       if (message.type === "state" && message.state && typeof message.state === "object") {
         const next = this._hydrate(message.state);
-        if (next.runId !== this._state.runId) this._pollSession.abortAll();
+        // Adopt another tab's update of the run this tab follows, or any run
+        // when this tab follows none. Never let a different (or empty) run
+        // replace a live one here: that would abort this tab's poll and
+        // forget the run it is watching.
+        if (next.runId !== this._state.runId) {
+          if (this._state.runId && this.isActive()) return;
+          this._pollSession.abortAll();
+        }
         this._state = next;
         dispatchDiscoveryRunTrackerEvent(this._state);
       }

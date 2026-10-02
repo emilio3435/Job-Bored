@@ -3,8 +3,11 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 
 import {
+  createBroadcastHub,
   createClock,
   createControlledFetch,
+  createDocument,
+  createStorage,
   flush,
   jsonResponse,
   loadDiscoveryTab,
@@ -419,5 +422,65 @@ describe("D16 · the verifier tells a slow answer from no answer", () => {
     assert.equal(result.kind, "network_error");
     assert.equal(result.timedOut, undefined);
     assert.equal(result.message, "Can't reach the endpoint.");
+  });
+});
+
+describe("D3 · a dispatch from an idle tab never clobbers another tab's live run (Grok DISCO review)", () => {
+  async function racingTabs(answer) {
+    const clock = createClock();
+    const storage = createStorage();
+    const hub = createBroadcastHub();
+    const polls = async (url) => jsonResponse(200, {
+      ok: true,
+      runId: String(url).split("/runs/")[1],
+      status: "running",
+      terminal: false,
+    });
+    const a = loadDiscoveryTab({ clock, storage, hub, fetch: polls, document: createDocument() });
+    const b = loadDiscoveryTab({ clock, storage, hub, fetch: polls, document: createDocument() });
+    let release;
+    setupTrigger(b, {
+      verify: () =>
+        new Promise((resolve) => {
+          release = () => resolve(answer);
+        }),
+    });
+    const click = b.orchestration.triggerDiscoveryRun({ trigger: "manual" });
+    await flush();
+    // Tab a starts run_x while b's POST is still out.
+    a.tracker.beginTracking({
+      runId: "run_x",
+      statusPath: "/runs/run_x",
+      pollAfterMs: 2000,
+      webhookUrl: a.webhookUrl,
+    });
+    void a.status.startDiscoveryStatusPolling(a.webhookUrl);
+    await flush();
+    assert.equal(b.tracker.getState().runId, "run_x");
+    release();
+    const result = await click;
+    await flush();
+    return { a, b, result };
+  }
+
+  it("an accepted run that lands after another tab's run started answers run_active", async () => {
+    const { a, b, result } = await racingTabs(ACCEPTED("run_b"));
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "run_active");
+    assert.equal(b.tracker.getState().runId, "run_x");
+    assert.equal(a.tracker.getState().runId, "run_x");
+  });
+
+  it("a dispatch timeout after another tab's run started leaves that run in place", async () => {
+    const { a, b, result } = await racingTabs({
+      ok: false,
+      kind: "network_error",
+      timedOut: true,
+      message: "timed out",
+    });
+    assert.equal(result.reason, "run_active");
+    assert.equal(b.tracker.getState().runId, "run_x");
+    assert.equal(b.tracker.getState().dispatchUnconfirmed, false);
+    assert.equal(a.tracker.getState().runId, "run_x");
   });
 });

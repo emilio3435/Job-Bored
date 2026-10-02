@@ -398,6 +398,29 @@ async function triggerDiscoveryRun(options) {
 // D3: one dispatch at a time per tab.
 let discoveryRunDispatchInFlight = false;
 
+/**
+ * D3 across tabs: while this tab's POST was out, another tab may have started
+ * a run this tab now follows. Answer run_active and leave that run in place
+ * rather than replacing it with this dispatch's run or its unconfirmed marker.
+ */
+function anotherLiveRunId(runId) {
+  if (typeof discoveryRunTracker.isActive !== "function" || !discoveryRunTracker.isActive()) {
+    return "";
+  }
+  const live = String(discoveryRunTracker.getState().runId || "");
+  return live && live !== String(runId || "") ? live : "";
+}
+
+function answerRunActive(runTrigger, liveRunId) {
+  if (runTrigger === "manual") {
+    h("showToast",
+      "A discovery run is already going — follow it in the Discovery drawer or Runs.",
+      "info",
+    );
+  }
+  return { ok: false, reason: "run_active", runId: liveRunId };
+}
+
 // §0.11: the dispatch POST waits a generous minute for the worker to answer.
 const DISCOVERY_RUN_DISPATCH_TIMEOUT_MS = 60 * 1000;
 
@@ -484,6 +507,8 @@ async function dispatchDiscoveryRun(runOptions, runTrigger) {
 
       // Extract run tracking metadata from accepted_async responses and start polling
       if (result.kind === "accepted_async" && result.runId) {
+        const liveRunId = anotherLiveRunId(result.runId);
+        if (liveRunId) return answerRunActive(runTrigger, liveRunId);
         const webhookUrl = String(hook || "").trim();
         const statusPath = statusApi.resolveAcceptedRunStatusPath(result, webhookUrl);
         discoveryRunTracker.beginTracking({
@@ -513,6 +538,8 @@ async function dispatchDiscoveryRun(runOptions, runTrigger) {
       return { ok: true, kind: result.kind, runId: String(result.runId || "") };
     }
     if (result.kind === "network_error" && result.timedOut) {
+      const liveRunId = anotherLiveRunId("");
+      if (liveRunId) return answerRunActive(runTrigger, liveRunId);
       // D16: no answer within the dispatch timeout is not "can't reach" — the
       // worker may have the run. Keep its identity for the next attempt.
       if (typeof discoveryRunTracker.markDispatchUnconfirmed === "function") {
