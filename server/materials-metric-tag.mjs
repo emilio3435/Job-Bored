@@ -16,7 +16,8 @@ const NUMERAL_RE = /((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?
 const YEAR_RE = /^(?:19|20)\d\d$/;
 const YEAR_RANGE_RE = /^(?:19|20)\d\d[–-](?:19|20)\d\d$/;
 
-/* M4: number words, up to "nine hundred and ninety-nine" and "a dozen". */
+/* M4: number words, up to "nine hundred and ninety-nine", "fifteen hundred"
+ * and "half a dozen". */
 const WORD_VALUES = new Map(Object.entries({
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
@@ -24,10 +25,15 @@ const WORD_VALUES = new Map(Object.entries({
 }));
 const UNIT_WORDS = "one|two|three|four|five|six|seven|eight|nine";
 const SMALL_WORDS = `(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\\s](?:${UNIT_WORDS}))?|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen`;
-const NUMBER = `(?:(?:a|${UNIT_WORDS})\\s+hundred(?:\\s+(?:and\\s+)?(?:${SMALL_WORDS}))?|a\\s+dozen|${SMALL_WORDS})\\b|\\d[\\d,]*(?:\\.\\d+)?`;
+/* Digits with thousands grouped by threes, never re-entered mid-number, so a
+ * long comma run reads in linear time. */
+const DIGITS = "(?<![\\d,.])(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
+const NUMBER = `(?:(?:half\\s+a|a|${SMALL_WORDS})\\s+dozen|(?:a|${SMALL_WORDS})\\s+hundred(?:\\s+(?:and\\s+)?(?:${SMALL_WORDS}))?|${SMALL_WORDS})\\b|${DIGITS}`;
 /* Nouns that make a spelled-out number a real count (as in materials-numerals). */
 const COUNT_NOUNS = "people|persons?|reps?|sellers?|staff|employees?|hires?|engineers?|managers?|specialists?|directs?|reports?|members?|FTEs?|clients?|accounts?|advertisers?|customers?|brands?|partners?|agencies|agency|desks?|markets?|stations?|locations?|stores?|states?|countries|campaigns?|deals?|users?|subscribers?|leads?|sites?|teams?|properties|publishers?|verticals?|categories";
-const NOT_A_COUNT_GAP = /\b(?:of|the|a|an|and|or|to|for|with|in|on|at|by|from|our|my|their|its|as)\b/i;
+/* Words that end a count: "ten years leading teams" counts years, not teams. */
+const NOT_A_COUNT_GAP = /\b(?:of|the|a|an|and|or|to|for|with|in|on|at|by|from|our|my|their|its|as|years?|months?|weeks?|days?|hours?|quarters?|decades?|times)\b/i;
+const SENTENCE_START = /(?:^|[.!?:;•\n]\s*|\(\s*)$/u;
 const SCALE = /** @type {Record<string, string>} */ ({ thousand: "K", million: "M", billion: "B" });
 const MULTIPLE = /** @type {Record<string, string>} */ ({ doubled: "2x", tripled: "3x", quadrupled: "4x" });
 
@@ -35,11 +41,14 @@ const MULTIPLE = /** @type {Record<string, string>} */ ({ doubled: "2x", tripled
 function numberValue(words) {
   if (/^\d/.test(words)) return words.replace(/,/g, "");
   let value = 0;
+  let lead = 0;
   for (const word of words.toLowerCase().split(/[-\s]+/)) {
-    if (word === "a") value = 1;
-    else if (word === "hundred") value = (value || 1) * 100;
-    else if (word === "dozen") value = (value || 1) * 12;
-    else if (WORD_VALUES.has(word)) value += /** @type {number} */ (WORD_VALUES.get(word));
+    if (word === "half") lead = 0.5;
+    else if (word === "a") lead = lead || 1;
+    else if (word === "hundred" || word === "dozen") {
+      value = (value || lead || 1) * (word === "hundred" ? 100 : 12);
+      lead = 0;
+    } else if (WORD_VALUES.has(word)) value += /** @type {number} */ (WORD_VALUES.get(word));
   }
   return String(value);
 }
@@ -47,8 +56,9 @@ function numberValue(words) {
 /**
  * M4: spelled-out figures as the digit tokens the ledger and the critic
  * compare: "forty percent" → "40%", "$3 million" / "three million dollars" →
- * "$3M", "doubled" → "2x", "a dozen reps" → "12 reps". Prose stays prose:
- * "one of", "one team" and "two years" are not metrics.
+ * "$3M", "doubled" → "2x", "half a dozen reps" → "6 reps". Prose stays prose:
+ * "one of", "one team", "two years", "ten years leading teams", "Big Four
+ * clients", "doubled as" and "doubled down" are not metrics.
  * @param {string} text
  */
 export function spelledMetrics(text) {
@@ -58,11 +68,26 @@ export function spelledMetrics(text) {
     .replace(new RegExp(`\\b(${NUMBER})\\s*(?:percent|per\\s+cent)\\b`, "gi"), (_m, n) => `${numberValue(n)}%`)
     .replace(new RegExp(`\\b(${NUMBER})\\s+dollars\\b`, "gi"), (_m, n) => `$${numberValue(n)}`)
     .replace(new RegExp(`\\b(${NUMBER})[-\\s]fold\\b`, "gi"), (_m, n) => `${numberValue(n)}x`)
-    .replace(/\b(doubled|tripled|quadrupled)\b(?!\s+down\b)/gi, (m) => MULTIPLE[m.toLowerCase()])
-    .replace(new RegExp(`\\b(${NUMBER})\\s+((?:[\\p{L}-]+\\s+){0,2}?)(?=(?:${COUNT_NOUNS})\\b)`, "giu"), (m, n, gap) => {
-      if (/^\d/.test(n) || Number(numberValue(n)) < 2 || NOT_A_COUNT_GAP.test(gap)) return m;
+    .replace(/\b(doubled|tripled|quadrupled)\b(?![-\s]+(?:down|as|up|back|over)\b)/gi, (m) => MULTIPLE[m.toLowerCase()])
+    .replace(new RegExp(`\\b(${NUMBER})\\s+((?:[\\p{L}-]+\\s+){0,2}?)(?=(?:${COUNT_NOUNS})\\b)`, "giu"), (m, n, gap, offset, whole) => {
+      if (/^\d/.test(n) || Number(numberValue(n)) < 2 || NOT_A_COUNT_GAP.test(gap) || /\p{Lu}/u.test(gap)) return m;
+      /* A capitalised number word mid-sentence names something ("Big Four"). */
+      if (/^\p{Lu}/u.test(n) && !SENTENCE_START.test(whole.slice(0, offset))) return m;
       return `${numberValue(n)} ${gap}`;
     });
+}
+
+/**
+ * M4: figures compare by value, so "5K" is "5,000" and "$3M" is
+ * "$3,000,000"; a range or anything else compares as written.
+ * @param {string} token
+ */
+function metricKey(token) {
+  const match = String(token).trim().match(/^([$#]|top-)?(\d[\d,]*(?:\.\d+)?)([kKmMbB])?(\+|%|x)?$/i);
+  if (!match) return String(token);
+  const scale = { k: 1e3, m: 1e6, b: 1e9 }[String(match[3] || "").toLowerCase()] || 1;
+  const value = Number((Number(match[2].replace(/,/g, "")) * scale).toPrecision(12));
+  return `${String(match[1] || "").toLowerCase()}${value}${String(match[4] || "").toLowerCase()}`;
 }
 
 /**
@@ -89,7 +114,7 @@ export function numerals(text) {
 export function tagDraftMetrics({ draft, ledger, postingText = "" }) {
   /* Letter only: a posting fact may carry its own number (the hook's
    * company fact); resume slots never may. */
-  const postingTokens = new Set(numerals(postingText));
+  const postingTokens = new Set(numerals(postingText).map(metricKey));
   /** @type {Array<{ code: string, field: string, token: string, message: string }>} */
   const issues = [];
   let matched = 0;
@@ -97,20 +122,22 @@ export function tagDraftMetrics({ draft, ledger, postingText = "" }) {
   /* M3: unverified evidence (verified:false) never grounds a number. */
   const ledgerTokens = new Set(
     (ledger.claims || []).flatMap((c) =>
-      Array.isArray(c.metrics) && c.verified !== false ? c.metrics.map((m) => String(m.token || "")) : [],
+      Array.isArray(c.metrics) && c.verified !== false ? c.metrics.map((m) => metricKey(String(m.token || ""))) : [],
     ),
   );
 
   /** @param {string} field @param {string} text @param {string[] | null} claimTokens */
   const check = (field, text, claimTokens) => {
+    const claimKeys = claimTokens ? claimTokens.map(metricKey) : null;
     for (const token of numerals(text)) {
       total += 1;
-      const ok = claimTokens
-        ? claimTokens.includes(token)
-        : ledgerTokens.has(token) || (field.startsWith("letter.") && postingTokens.has(token));
+      const key = metricKey(token);
+      const ok = claimKeys
+        ? claimKeys.includes(key)
+        : ledgerTokens.has(key) || (field.startsWith("letter.") && postingTokens.has(key));
       if (ok) {
         matched += 1;
-      } else if (claimTokens && ledgerTokens.has(token)) {
+      } else if (claimKeys && ledgerTokens.has(key)) {
         issues.push({
           code: "metric_borrowed",
           field,

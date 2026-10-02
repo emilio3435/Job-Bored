@@ -74,3 +74,35 @@ describe("M4 a résumé line uses only its own claim's numbers", () => {
     assert.deepEqual(issues.map((issue) => issue.code), ["metric_borrowed"]);
   });
 });
+
+describe("M4 spelled figures are read without inventing any (review round)", () => {
+  it("M4-9 durations and proper nouns never become counts", () => {
+    for (const text of ["ten years leading teams", "six months onboarding clients", "oversaw Four Seasons properties", "advised Big Four clients", "sold across Six Flags locations"]) {
+      assert.deepEqual(numerals(text), [], text);
+    }
+    assert.deepEqual(numerals("Twelve reps joined the desk."), ["12"]);
+  });
+
+  it("M4-10 idioms with doubled are not multiples", () => {
+    assert.deepEqual(numerals("Doubled as interim manager."), []);
+    assert.deepEqual(numerals("Doubled-down on partnerships."), []);
+    assert.deepEqual(numerals("Doubled in size within a year."), ["2x"]);
+  });
+
+  it("M4-11 dozens and hundreds read at their value", () => {
+    assert.deepEqual(numerals("Handled half a dozen accounts."), ["6"]);
+    assert.deepEqual(numerals("Hired two dozen reps."), ["24"]);
+    assert.deepEqual(numerals("Signed fifteen hundred users."), ["1500"]);
+  });
+
+  it("M4-12 tagDraftMetrics compares figures by value, so five thousand traces to 5,000", () => {
+    const { issues } = tagDraftMetrics({ draft: { statement: "Grew to five thousand subscribers." }, ledger: { claims: [{ id: "c1", metrics: [{ token: "5,000" }] }] } });
+    assert.deepEqual(issues, []);
+  });
+
+  it("M4-13 a long comma run reads in linear time", () => {
+    const started = Date.now();
+    numerals("1,".repeat(20000));
+    assert.ok(Date.now() - started < 500, `took ${Date.now() - started} ms`);
+  });
+});
