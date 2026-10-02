@@ -719,16 +719,39 @@
     return { state: state, word: WORDS[d] || "Not graded", tone: TONES[d] || "none", reason: noPeriod(x.reason), legacy: x.legacy ? String(x.legacy) : "" };
   }
 
+  /* The verdict a manual repair started from, for this row's document.
+     FIX1-F1: a repair is known by its repair record, not by the run's
+     source (the template's). FIX2-N3: only a manual repair names a parent
+     run — the pipeline also writes `before` on an automatic two-pass run,
+     with parentRunId null — and a per-document record (or a repair of one
+     named document) gives each document its own before. */
+  function repairBefore(r, feature) {
+    var rep = r && r.kind !== "pass" && r.repair && typeof r.repair === "object" ? r.repair : null;
+    if (!rep || !rep.parentRunId || !rep.before || typeof rep.before !== "object") return "";
+    if (rep.feature && rep.feature !== feature) return "";
+    var b = rep.before[feature] && typeof rep.before[feature] === "object" ? rep.before[feature] : rep.before;
+    return WORDS[String(b.disposition || "").toUpperCase()] || "";
+  }
+
   var CHECK_WORDS = { fail: "Fails", review: "Needs review" };
 
   /* FIX1-F3: a version's own failed and review checks
-     (RunSummary.verdicts[doc].checks), readable without promoting it. */
+     (RunSummary.verdicts[doc].checks), readable without promoting it.
+     FIX2-N8: identical labels with the same status are one line, counted. */
   function checksHtml(v) {
-    var checks = list(v && v.checks).filter(function (c) { return CHECK_WORDS[c.status]; });
-    if (!checks.length) return "";
+    var groups = [];
+    var at = {};
+    list(v && v.checks).forEach(function (c) {
+      if (!CHECK_WORDS[c.status]) return;
+      var label = String(c.label || c.id || "");
+      var key = c.status + "|" + label;
+      if (at[key] == null) { at[key] = groups.length; groups.push({ label: label, status: c.status, n: 0 }); }
+      groups[at[key]].n += 1;
+    });
+    if (!groups.length) return "";
     return '<details class="jb-ver__checks"><summary>Checks for this version</summary><ul>'
-      + checks.map(function (c) {
-        return "<li>" + esc(String(c.label || c.id || "")) + " — " + esc(CHECK_WORDS[c.status]) + "</li>";
+      + groups.map(function (g) {
+        return "<li>" + esc(g.label + (g.n > 1 ? " ×" + g.n : "")) + " — " + esc(CHECK_WORDS[g.status]) + "</li>";
       }).join("") + "</ul></details>";
   }
 
@@ -744,9 +767,7 @@
     var filename = String(download).split("?")[0].split("/").pop();
     var dlHref = download ? withQuery(base + download, "download=1") : "";
     var what = cap(r.template || "") + (SOURCE_WORDS[r.source] ? " · " + SOURCE_WORDS[r.source] : "");
-    /* FIX1-F1: the run's source is its template's; a repair is known by
-       its repair record. A pass sibling is never a manual repair. */
-    var before = r.kind !== "pass" && r.repair && r.repair.before ? WORDS[String(r.repair.before.disposition || "").toUpperCase()] : "";
+    var before = repairBefore(r, feature);
     var acts = [];
     if (preview) {
       acts.push('<a class="jb-ver__btn" href="' + esc(base + preview) + '" target="_blank" rel="noopener" data-action="materials-preview"'
@@ -925,7 +946,10 @@
     }, function (err) {
       if (ctl.closed) return;
       ctl.ui.busy = false;
-      ctl.ui.error = "Rescore didn’t finish: " + ((err && err.message) || "unknown error");
+      /* FIX2-N1: a refused Rescore's api-error envelope already says
+         "Rescore didn't finish — <why>"; show it once, as sent. */
+      var said = String((err && err.message) || "unknown error");
+      ctl.ui.error = /^Rescore didn[’']t finish/.test(said) ? said : "Rescore didn’t finish: " + said;
       refresh(ctl, true);
       announce(ctl.ui.error, true);
     });

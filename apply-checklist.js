@@ -92,7 +92,8 @@
     if (a.kind === "download" && a.filename) {
       return "<a " + btn + ' href="' + esc(fileHref(base, slug, a.filename, true)) + '" download'
         + ' data-action="materials-download" data-filename="' + esc(a.filename) + '"'
-        + (a.gate ? ' data-gate="fail"' : "") + ">" + label + "</a>";
+        /* GRADE FIX2-N4: a run-level held gate asks with the held copy. */
+        + (a.gate === "held" ? ' data-gate="held"' : (a.gate ? ' data-gate="fail"' : "")) + ">" + label + "</a>";
     }
     if (a.kind === "preview" && a.filename) {
       return "<a " + btn + ' href="' + esc(fileHref(base, slug, a.filename, false)) + '" target="_blank" rel="noopener">' + label + "</a>";

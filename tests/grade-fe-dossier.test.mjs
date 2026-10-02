@@ -82,7 +82,7 @@ function boot(opts = {}) {
     if (/\/api\/applications$/.test(url)) return json({ applications: [{ slug: SLUG }] });
     if (/\/manifest$/.test(url)) return json(state.manifest);
     if (/\/runs$/.test(url)) return json({ runs: state.runs });
-    if (/\/rescore$/.test(url)) return json({ ok: true });
+    if (/\/rescore$/.test(url)) return opts.rescoreReply ? opts.rescoreReply() : json({ ok: true });
     return json({ ok: true });
   };
   win.addEventListener("jb:role:materials:downloaded", (e) => downloads.push(e.detail));
@@ -218,5 +218,52 @@ describe("GRADE-F G8 · Rescore re-runs the quality check on that run", () => {
     assert.equal(env.analyses.length, 0, "the ATS scorer never ran");
     assert.ok(env.said.some((s) => /^Rescored/.test(s)), "the result was announced");
     assert.ok(env.said.every((s) => !/of 100|\/ 100|grade [A-F]/i.test(s)));
+  });
+});
+
+/* FIX2-N4 (Fable N4): the Apply checklist's resume download carries
+   gate "held" (run-level Held) with no reason of its own; the confirm it
+   opens must be the same held copy the rows use. */
+describe("GRADE-F FIX2-N4 · the checklist's held download asks with the held copy", () => {
+  it("GRADE-F FIX2-N4: a held checklist download names the run's held reason, never the FAIL copy", async () => {
+    const env = boot();
+    await env.openRole();
+    const mount = env.doc.querySelector('[data-mount="materials"]');
+    const step = env.doc.createElement("div");
+    step.setAttribute("data-item", "resume");
+    step.setAttribute("data-doc-type", "resume");
+    step.innerHTML = '<a href="http://127.0.0.1:3847/api/applications/x/files/resume.pdf?download=1" download data-action="materials-download" data-filename="resume.pdf" data-gate="held">Download</a>';
+    mount.querySelector(".brief-materials, section, div").appendChild(step);
+    const link = step.querySelector("a");
+    link.dispatchEvent(click(link));
+    const box = step.querySelector(".mat-confirm");
+    assert.ok(box, "the in-page confirm opened");
+    assert.equal(box.getAttribute("data-gate"), "held");
+    assert.equal(text(box.querySelector(".mat-confirm__q")), "This version is held — Cover letter: Tool support. Download anyway?");
+  });
+});
+
+/* FIX2-N1 (W-BE): a refused Rescore answers a non-2xx api-error envelope;
+   the modal says so in the envelope's own words and the verdict stays. */
+describe("GRADE-F FIX2-N1 · a refused Rescore leaves the verdict on screen", () => {
+  it("GRADE-F FIX2-N1: the modal shows the envelope's message once, and the verdict is unchanged", async () => {
+    const envelope = { error: "Rescore didn\u2019t finish \u2014 no review ran, so the verdict stands.", code: "rescore_no_review", retryable: true };
+    const env = boot({ rescoreReply: () => json(envelope, 409) });
+    await env.openRole();
+    const btn = env.rowOf("cover_letter").querySelector("[data-score-open]");
+    btn.dispatchEvent(click(btn));
+    const manifests = () => env.calls.filter(([m, u]) => m === "GET" && /\/manifest$/.test(u)).length;
+    const before = manifests();
+    const rescore = env.modal().querySelector("footer [data-score-rescore]");
+    rescore.dispatchEvent(click(rescore));
+    await settle();
+    const alert = env.modal().querySelector('footer [role="alert"]');
+    assert.ok(alert, "the failure is shown");
+    assert.equal(text(alert), "Rescore didn\u2019t finish \u2014 no review ran, so the verdict stands.");
+    assert.equal(text(env.modal().querySelector(".jb-score__word")), "Fails", "the verdict on screen is unchanged");
+    assert.equal(text(env.modal().querySelector(".jb-score__verdict")), "Tool support: Unknown tool");
+    assert.equal(text(env.rowOf("cover_letter").querySelector("[data-score-open]")), "Fails · Tool support");
+    assert.equal(manifests(), before, "nothing was refetched as if it had worked");
+    assert.equal(env.modal().querySelector("footer [data-score-rescore]").getAttribute("aria-busy"), "false");
   });
 });

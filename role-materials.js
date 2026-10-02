@@ -1847,9 +1847,15 @@
     /* D2: an old run is read-only, so its confirm offers Cancel, not Repair;
        so does an earlier version in the list, which Repair does not rewrite.
        GRADE G7: a held version's confirm names why it is held. */
+    /* FIX2-N4: a held gate with no reason of its own (the Apply checklist's)
+       takes the run-level reason the rows show. */
+    var heldGate = trigger.getAttribute("data-gate") === "held";
+    var held = trigger.getAttribute("data-held")
+      || (heldGate && currentManifest ? heldReason(currentManifest.manifest, type) : "")
+      || (heldGate ? "a document in this run fails its checks" : "");
     holder.innerHTML = mi.failConfirmHtml(type, target, {
       repair: !version && mi.canRepair(qualityDocFor(type)),
-      held: trigger.getAttribute("data-held") || "",
+      held: held || "",
     });
     var box = holder.firstElementChild || holder.firstChild;
     if (!box) return;
