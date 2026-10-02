@@ -64,14 +64,15 @@ test("checkJobPostingUrl refuses a hostname that resolves to a private address",
 });
 
 test("checkJobPostingUrl follows a public redirect and reports the final URL", async () => {
-  const result = await checkJobPostingUrl("https://jobs.example.com/old", {
+  // HOLES R14: the redirect keeps the posting id; one that drops it is review.
+  const result = await checkJobPostingUrl("https://jobs.example.com/jobs/4012/old-title", {
     fetchImpl: (async (input: RequestInfo | URL) =>
-      String(input).endsWith("/old")
-        ? new Response(null, { status: 301, headers: { location: "/new" } })
+      String(input).endsWith("/old-title")
+        ? new Response(null, { status: 301, headers: { location: "/jobs/4012/new-title" } })
         : new Response("<button>Apply now</button>", { status: 200 })) as typeof fetch,
   });
   assert.equal(result.status, "open");
-  assert.equal(result.finalUrl, "https://jobs.example.com/new");
+  assert.equal(result.finalUrl, "https://jobs.example.com/jobs/4012/new-title");
 });
 
 // Repair round: a gzip posting must be decoded before classification, or the

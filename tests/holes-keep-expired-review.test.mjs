@@ -37,13 +37,15 @@ const REVIEW_CLASSIFICATIONS = [
   { source: "network_error" },
   { source: "timeout" },
   { source: "invalid_url" },
+  { source: "redirect", finalUrl: "https://careers.example.com/jobs" },
   { source: "ambiguous" },
-].map((c) => ({ status: "needs_review", reason: "", evidence: "", confidence: "low", ...c }));
+].map((c) => ({ status: "unknown", reason: "", evidence: "", confidence: "low", ...c }));
 
 const EXPIRE_CLASSIFICATIONS = [
   { source: "http_status", httpStatus: 404 },
   { source: "http_status", httpStatus: 410 },
   { source: "html_marker" },
+  { source: "redirect", finalUrl: "https://boards.greenhouse.io/acme?error=true" },
 ].map((c) => ({ status: "expired", reason: "", evidence: "", confidence: "high", ...c }));
 
 describe("R4: expired review reads the cleanup's own notes", () => {
@@ -82,11 +84,11 @@ describe("R4: expired review reads the cleanup's own notes", () => {
   it("reads the newest cleanup stamp when several checks are on file", () => {
     const older = buildNeedsReviewAuditLine({
       timestamp: "2026-09-01T00:00:00.000Z",
-      classification: REVIEW_CLASSIFICATIONS[1],
+      classification: REVIEW_CLASSIFICATIONS.find((c) => c.httpStatus === 403),
     });
     const newer = buildNeedsReviewAuditLine({
       timestamp: "2026-09-28T00:00:00.000Z",
-      classification: REVIEW_CLASSIFICATIONS[6],
+      classification: REVIEW_CLASSIFICATIONS.find((c) => c.source === "timeout"),
     });
     const health = review.getPostingHealth(
       { status: "Researching", link: "https://jobs.example.com/1", _rawNotes: `${older}\n${newer}` },
