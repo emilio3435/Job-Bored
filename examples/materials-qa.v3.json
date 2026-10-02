@@ -1,0 +1,135 @@
+{
+  "contract": "materials.qa.v3",
+  "document": "letter",
+  "runId": "mr_20261002090000_acme_a1",
+  "passId": "pass-1",
+  "textHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "graded",
+  "disposition": "FAIL",
+  "reasons": [
+    {
+      "checkId": "tool_support",
+      "text": "Unknown tool."
+    }
+  ],
+  "checks": [
+    {
+      "id": "tool_support",
+      "kind": "gate",
+      "status": "fail",
+      "label": "Tool support",
+      "detail": "Unknown tool.",
+      "sentenceIds": [
+        "L1"
+      ]
+    }
+  ],
+  "sentences": [
+    {
+      "id": "L1",
+      "text": "I built a dispatch forecast at Acme Robotics.",
+      "status": "supported",
+      "reason": "Source supports the work.",
+      "citations": [
+        {
+          "sourceId": "claim:1",
+          "quote": "built a dispatch forecast"
+        }
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "id": "i1",
+      "code": "i1",
+      "kind": "fact",
+      "severity": "hard",
+      "sentenceIds": [
+        "L1"
+      ],
+      "reason": "Unknown tool.",
+      "action": "rewrite",
+      "origin": "gate"
+    }
+  ],
+  "ratings": [
+    {
+      "dimension": "role_relevance",
+      "score": 4,
+      "reason": "Clear, grounded writing.",
+      "sentenceIds": [
+        "L1"
+      ]
+    },
+    {
+      "dimension": "evidence_quality",
+      "score": 4,
+      "reason": "Clear, grounded writing.",
+      "sentenceIds": [
+        "L1"
+      ]
+    },
+    {
+      "dimension": "voice",
+      "score": 4,
+      "reason": "Clear, grounded writing.",
+      "sentenceIds": [
+        "L1"
+      ]
+    },
+    {
+      "dimension": "coherence",
+      "score": 4,
+      "reason": "Clear, grounded writing.",
+      "sentenceIds": [
+        "L1"
+      ]
+    },
+    {
+      "dimension": "economy",
+      "score": 4,
+      "reason": "Clear, grounded writing.",
+      "sentenceIds": [
+        "L1"
+      ]
+    }
+  ],
+  "coverage": null,
+  "reviews": [
+    {
+      "role": "first",
+      "provider": "openai_compatible",
+      "model": "writer-example",
+      "promptVersion": "materials-judge-v3",
+      "status": "ok",
+      "disposition": "FAIL",
+      "flagged": []
+    }
+  ],
+  "gates": [
+    {
+      "id": "tool_support",
+      "kind": "hard",
+      "pass": false,
+      "reason": "Unknown tool.",
+      "sentenceIds": [
+        "L1"
+      ]
+    }
+  ],
+  "qualificationGaps": [],
+  "degraded": [],
+  "repair": {
+    "attempted": false,
+    "parentRunId": null,
+    "changed": null,
+    "adopted": null,
+    "before": null,
+    "after": null
+  },
+  "versions": {
+    "schema": "materials.qa.v3",
+    "judgePrompt": "materials-judge-v3",
+    "pipeline": "materials.pipeline.grade.v3"
+  }
+}
