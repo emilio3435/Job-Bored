@@ -52,6 +52,7 @@ function jobKeyOf(job) {
 
 function targetForJob(job) {
   if (!job || job._rawIndex == null) return null;
+  const notesBase = job._notesBase != null ? job._notesBase : job._rawNotes;
   return {
     job,
     key: jobKeyOf(job),
@@ -59,7 +60,7 @@ function targetForJob(job) {
     link: normalizeLeadUrlClient(job.link || ""),
     title: identityText(job.title),
     company: identityText(job.company),
-    notesBase: job._rawNotes == null ? "" : String(job._rawNotes),
+    notesBase: notesBase == null ? "" : String(notesBase),
   };
 }
 
@@ -150,7 +151,8 @@ async function resolveTargets(targets) {
 }
 
 /* A9: notes merge, never overwrite from a stale copy. `base` is the cell as
-   loaded, `mine` what this write wants, `theirs` the cell now. When nobody
+   loaded (or what this tab last meant to write, see recordNotesWritten),
+   `mine` what this write wants, `theirs` the cell now. When nobody
    else touched it, `mine` is written as is; otherwise each line someone
    added since the load is kept: on top when they prepended (the dated,
    newest-first entries), else at the end. */
@@ -187,7 +189,8 @@ function sessionEnded() {
  * Re-point each guarded update at the row its job holds NOW and merge notes.
  * Rewrites update.range / update.value in place, so the caller's local copy
  * matches what the Sheet receives. Resolves the notes cells it will write
- * ([{ target, value }]), or null after telling the person why nothing was.
+ * ([{ target, value, intended }]), or null after telling the person why
+ * nothing was.
  */
 async function guardUpdates(updates, targets, silent) {
   if (!targets.length) return [];
@@ -230,18 +233,25 @@ async function guardUpdates(updates, targets, silent) {
     if (!hit) continue;
     u.range = `Pipeline!${m[1]}${hit.found.row}`;
     if (m[1] === NOTES_COLUMN) {
-      u.value = mergeNotes(hit.target.notesBase, u.value, hit.found.cells[IDENTITY_COL.notes]);
-      notes.push({ target: hit.target, value: u.value });
+      const intended = u.value;
+      u.value = mergeNotes(hit.target.notesBase, intended, hit.found.cells[IDENTITY_COL.notes]);
+      notes.push({ target: hit.target, value: u.value, intended });
     }
   }
   return notes;
 }
 
-/** After a guarded write lands, the Notes it wrote are the new merge base. */
+/* After a guarded write lands, _rawNotes is the cell as the Sheet now holds
+   it (expired-review.js reads it), and the next merge's base is what this
+   tab meant to write. A line that came in by merge stays someone else's, so
+   a planner Undo built from an older snapshot keeps it; the trade-off is that
+   this tab can't delete that line until the next load replaces the job. */
 function recordNotesWritten(notes) {
   for (const n of notes || []) {
     const job = liveJob(n.target);
-    if (job) job._rawNotes = n.value;
+    if (!job) continue;
+    job._rawNotes = n.value;
+    job._notesBase = n.intended == null ? "" : String(n.intended);
   }
 }
 

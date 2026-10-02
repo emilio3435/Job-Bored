@@ -102,6 +102,19 @@ describe("A9 · notes re-read the cell and merge", () => {
     assert.equal(patches[1].value, t.sheetNotes());
   });
 
+  it("an Undo after a merged planner write drops only our line, keeping theirs", async () => {
+    const t = setup();
+    const row = t.env.sw.getSheetRow(t.idx);
+    t.setSheetNotes("Old note\nRecruiter: call Friday"); // another tab, after the load
+    const forward = [{ range: `Pipeline!O${row}`, column: "O", value: "[2026-10-02] Dismissed\nOld note" }];
+    await t.env.sw.applyCells(forward);
+    t.env.state.data[t.idx].notes = forward[0].value; // the adapter's local sync
+    assert.equal(t.env.state.data[t.idx]._rawNotes, t.sheetNotes(), "_rawNotes stays the cell (expired-review reads it)");
+    // The planner's rollback snapshot predates the other tab's line.
+    await t.env.sw.applyCells([{ range: `Pipeline!O${row}`, column: "O", value: "Old note" }]);
+    assert.equal(t.sheetNotes(), "Old note\nRecruiter: call Friday");
+  });
+
   it("an Undo right after a planner write restores the exact previous text", async () => {
     const t = setup();
     const row = t.env.sw.getSheetRow(t.idx);
