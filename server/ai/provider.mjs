@@ -466,9 +466,10 @@ export function toGeminiSchema(schema) {
   return project(toStructuredOutputSchema(schema));
 }
 
-/** xAI's Chat Completions endpoint supports structured output; other compatible endpoints vary. */
+/** OpenRouter and xAI's Chat Completions endpoint support structured output; other compatible endpoints vary. */
 function supportsStrictSchema(/** @type {ResolvedProvider} */ resolved) {
   if (resolved.provider === "openai") return openAISupportsStrictSchema(resolved.model);
+  if (resolved.provider === "openrouter") return true;
   if (resolved.provider !== "openai_compatible") return false;
   try { return new URL(resolved.baseUrl).hostname === "api.x.ai"; } catch { return false; }
 }
@@ -674,7 +675,7 @@ export async function chat(input) {
     const limitKey = reasoningModel ? "max_completion_tokens" : "max_tokens";
     /** @type {Record<string, unknown> | undefined} */
     let responseFormat;
-    if (schema && (provider === "openai" || provider === "openai_compatible")) {
+    if (schema) {
       responseFormat = supportsStrictSchema(resolved)
         ? { type: "json_schema", json_schema: { name: str(input.schemaName) || "response", strict: true, schema: toStructuredOutputSchema(schema) } }
         : { type: "json_object" };

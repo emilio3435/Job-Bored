@@ -213,7 +213,11 @@ describe("analyzeAtsScorecard provider routing", () => {
       assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
       assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer or-test-key");
       assert.equal(body.model, "openai/gpt-oss-120b:free");
-      assert.equal(body.response_format, undefined);
+      // HOLES PROV P18: OpenRouter is asked for the scorecard schema; an
+      // endpoint without structured output ignores it.
+      assert.equal(body.response_format.type, "json_schema");
+      assert.equal(body.response_format.json_schema.name, "ats_scorecard");
+      assert.equal(body.response_format.json_schema.strict, true);
       assert.equal(scorecard.overallScore, 78);
       assert.equal(scorecard.model, "openai/gpt-oss-120b:free");
     } finally {
