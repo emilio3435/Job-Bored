@@ -2,7 +2,8 @@
  * Materials v3 — prompt cache (plan slice 6, mechanism §6.7).
  *
  * Key: jdHash|ledgerHash|<family>@<version>|promptVersion|budgetVersion|
- * feature|provider:model. A repeat request with an unchanged key returns
+ * feature|provider:model, then |notes:<hash> when the user left notes (M2).
+ * A repeat request with an unchanged key returns
  * the published package without an LLM call. The store is the slug
  * directory itself: run.json carries the key of the run that produced it.
  * P-8: a degraded or QA-failed run writes no cacheKey, so it is never
@@ -28,6 +29,7 @@ export const CACHE_BUDGET_VERSION = MATERIALS_BUDGETS.version;
  * @param {string} [input.budgetVersion]
  * @param {string} input.feature
  * @param {string} [input.model] provider:resolvedModel, or "none" with no pin
+ * @param {string} [input.notesHash] hash of the editor instructions, when any
  */
 export function pipelineCacheKey({
   jdHash,
@@ -38,8 +40,10 @@ export function pipelineCacheKey({
   budgetVersion = CACHE_BUDGET_VERSION,
   feature,
   model = "none",
+  notesHash = "",
 }) {
-  return [jdHash, ledgerHash, `${templateFamily}@${templateVersion}`, promptVersion, budgetVersion, feature, model].join("|");
+  return [jdHash, ledgerHash, `${templateFamily}@${templateVersion}`, promptVersion, budgetVersion, feature, model,
+    ...(notesHash ? [`notes:${notesHash}`] : [])].join("|");
 }
 
 /**
