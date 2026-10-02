@@ -99,11 +99,12 @@ function sentenceContainsPhrase(text, phrase) {
   return Boolean(a && b && (` ${a} `).includes(` ${b} `));
 }
 
-/** @param {string[]} claimIds @param {{ claims?: Array<{ id?: string, metrics?: Array<{ token?: string }> }> }} ledger */
+/** M3: unverified evidence (verified:false) never grounds a number.
+ * @param {string[]} claimIds @param {{ claims?: Array<{ id?: string, verified?: boolean, metrics?: Array<{ token?: string }> }> }} ledger */
 function metricTokensForClaims(claimIds, ledger) {
   const wanted = new Set(claimIds.filter((id) => typeof id === "string"));
   return (ledger.claims || [])
-    .filter((claim) => typeof claim.id === "string" && wanted.has(claim.id))
+    .filter((claim) => typeof claim.id === "string" && wanted.has(claim.id) && claim.verified !== false)
     .flatMap((claim) => (claim.metrics || []).map((metric) => String(metric.token || "")))
     .filter(Boolean);
 }

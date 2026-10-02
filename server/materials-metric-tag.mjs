@@ -83,7 +83,7 @@ export function numerals(text) {
 /**
  * @param {object} input
  * @param {{ statement?: unknown, bullets?: Array<{ claimId?: unknown, text?: unknown }>, earlier?: Array<{ claimId?: unknown, text?: unknown }>, letter?: Record<string, unknown> }} input.draft
- * @param {{ claims?: Array<{ id?: unknown, metrics?: Array<{ token?: unknown }> }> }} input.ledger
+ * @param {{ claims?: Array<{ id?: unknown, verified?: unknown, metrics?: Array<{ token?: unknown }> }> }} input.ledger
  * @param {string} [input.postingText] the posting; its numbers are legal in the letter
  */
 export function tagDraftMetrics({ draft, ledger, postingText = "" }) {
@@ -94,9 +94,10 @@ export function tagDraftMetrics({ draft, ledger, postingText = "" }) {
   const issues = [];
   let matched = 0;
   let total = 0;
+  /* M3: unverified evidence (verified:false) never grounds a number. */
   const ledgerTokens = new Set(
     (ledger.claims || []).flatMap((c) =>
-      Array.isArray(c.metrics) ? c.metrics.map((m) => String(m.token || "")) : [],
+      Array.isArray(c.metrics) && c.verified !== false ? c.metrics.map((m) => String(m.token || "")) : [],
     ),
   );
 

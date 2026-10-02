@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { scoreClaims } from "../server/materials-claim-score.mjs";
+import { criticHardChecks } from "../server/materials-critic.mjs";
+import { tagDraftMetrics } from "../server/materials-metric-tag.mjs";
 import { validateLedger } from "../server/materials-ledger.mjs";
 
 const RESUME = [
@@ -88,6 +90,17 @@ describe("M3 profile evidence is verified only when the résumé carries it", ()
     const ids = shortlist.map((item) => item.claimId);
     assert.ok(!ids.includes("profile-strength-1"), `unverified strength shortlisted: ${ids.join(", ")}`);
     assert.ok(ids.includes("profile-strength-2"), `verified strength missing: ${ids.join(", ")}`);
+  });
+
+  it("M3-8 an unverified strength's number grounds no draft sentence", () => {
+    const ledger = ledgerWith([{ name: "Growth", evidence: "Grew partner revenue 450% in a single year at Contoso Media." }]);
+    const sentence = "At Contoso Media I grew partner revenue 450% in a single year.";
+    const checks = Object.fromEntries(criticHardChecks({ document: "letter", draft: { letter: { proof1: sentence } }, ledger, finalText: sentence })
+      .map((check) => [check.id, check.pass]));
+    assert.equal(checks.metric_mismatch, false);
+    assert.equal(checks.invented_fact, false);
+    const { issues } = tagDraftMetrics({ draft: { letter: { proof1: sentence } }, ledger });
+    assert.deepEqual(issues.map((issue) => `${issue.code}:${issue.token}`), ["invented_fact:450%"]);
   });
 
   it("M3-7 a tool named only in unverified evidence is not cited as ledger evidence", () => {
