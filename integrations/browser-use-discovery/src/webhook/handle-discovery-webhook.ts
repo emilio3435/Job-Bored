@@ -91,7 +91,7 @@ export type HandleWebhookDependencies = {
   includeRunStatusToken?: boolean;
   /**
    * Maximum duration in milliseconds for an async run before it is forcibly
-   * terminalized. Defaults to 60 minutes (3600000ms) if not specified.
+   * terminalized. Defaults to 3 hours (10800000ms) if not specified.
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
@@ -102,18 +102,12 @@ export type HandleWebhookDependencies = {
   cancelRegistry?: RunCancelRegistry;
 };
 
-// Default maximum async run duration: 60 minutes. Discovery runs in the
-// background; per-source timeouts still provide narrower stuck-lane bounds.
-const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
-
-/**
- * BEAUDIT A9: the dashboard's Google Identity Services access token lives
- * about 3600 s, which equals the default run budget, so a run authorized only
- * by that token could not write its final DiscoveryRuns row. Such runs are
- * capped at 50 minutes, which leaves the terminal write inside the token's
- * life.
- */
-export const GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS = 50 * 60 * 1000;
+// Default maximum async run duration: 3 hours (HOLES §0.11). Discovery runs in
+// the background; per-source timeouts still provide narrower stuck-lane bounds.
+// A run carried by the dashboard's Google token gets the same budget: if the
+// token expires before the Sheet write, the run ends write_failed with its
+// leads kept, and the dashboard refreshes the token and retries the write.
+export const DEFAULT_MAX_RUN_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
@@ -265,12 +259,6 @@ export async function handleDiscoveryWebhook(
           };
           return {
             ...baseRunDependencies,
-            // BEAUDIT A9: end inside the request token's life.
-            maxRunDurationMs: Math.min(
-              baseRunDependencies.maxRunDurationMs ??
-                DEFAULT_MAX_RUN_DURATION_MS,
-              GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS,
-            ),
             runtimeConfig: overrideRuntimeConfig,
             pipelineWriter: dependencies.createPipelineWriterForRequest
               ? dependencies.createPipelineWriterForRequest(
@@ -467,11 +455,8 @@ export async function handleDiscoveryWebhook(
   });
 
   const startedAt = now().toISOString();
-  const configuredMaxRunDurationMs =
+  const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
-  const maxRunDurationMs = requestGoogleAccessToken
-    ? Math.min(configuredMaxRunDurationMs, GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS)
-    : configuredMaxRunDurationMs;
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   try {
     dependencies.runStatusStore?.put(runningStatus);

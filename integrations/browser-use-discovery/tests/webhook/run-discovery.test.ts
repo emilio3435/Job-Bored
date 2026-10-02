@@ -1830,7 +1830,7 @@ test("runDiscovery uses the resolved browser_only default grounded timeout for c
 
   const result = await runDiscovery(makeGroundedTimeoutRequest(), "manual", dependencies);
 
-  assert.equal(result.run.config.groundedSearchTuning.maxRuntimeMs, 300000);
+  assert.equal(result.run.config.groundedSearchTuning.maxRuntimeMs, 900000);
   assert.equal(result.lifecycle.state, "completed");
   assert.equal(result.lifecycle.normalizedLeadCount, 1);
   assert.equal(writtenLeads.length, 1);

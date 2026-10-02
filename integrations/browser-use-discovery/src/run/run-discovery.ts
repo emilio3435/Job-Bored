@@ -138,10 +138,10 @@ import {
 // Default maximum run duration: 60 minutes. Async discovery runs are background
 // work; source and matcher timeouts still keep individual lanes bounded.
 const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
-// Default per-source (adapter) timeout: 60 seconds
-const DEFAULT_SOURCE_TIMEOUT_MS = 60 * 1000;
-// Default per-matcher timeout: 30 seconds
-const DEFAULT_MATCHER_TIMEOUT_MS = 30 * 1000;
+// Default per-source (adapter) timeout: 3 minutes (HOLES §0.11)
+export const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
+// Default per-matcher timeout: 90 seconds (HOLES §0.11)
+export const DEFAULT_MATCHER_TIMEOUT_MS = 90 * 1000;
 
 function isAtsSourceId(sourceId: string): sourceId is AtsSourceId {
   return ATS_SOURCE_IDS.some((candidate) => candidate === sourceId);
@@ -3275,10 +3275,10 @@ async function runGroundedWebDiscovery(
     };
   }
 
-  // Honor groundedSearchTuning.maxRuntimeMs for grounded_web collection — the
-  // browser_only preset resolves this to 300_000ms (see config.ts:199) to give
+  // Honor groundedSearchTuning.maxRuntimeMs for grounded_web collection — every
+  // preset resolves this to 900_000ms (HOLES §0.11, config.ts) to give
   // multi-query fan-out + per-page Browser Use calls room to finish. Fall back to
-  // the shared sourceTimeoutMs (60_000ms) for other presets or when tuning is
+  // the shared sourceTimeoutMs (180_000ms) when tuning is
   // absent. The outer run-budget at dependencies.maxRunDurationMs still bounds
   // the whole run if this grounded timeout exceeds it.
   const sourceTimeoutMs =

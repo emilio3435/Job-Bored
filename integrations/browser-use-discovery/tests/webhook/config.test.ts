@@ -76,12 +76,12 @@ test("loadRuntimeConfig defaults local workers to localhost browser origins", ()
   ]);
 });
 
-test("loadRuntimeConfig defaults async run watchdog to 60 minutes", () => {
+test("loadRuntimeConfig defaults async run watchdog to 3 hours (HOLES §0.11)", () => {
   const result = loadRuntimeConfig({
     BROWSER_USE_DISCOVERY_RUN_MODE: "local",
   });
 
-  assert.equal(result.maxRunDurationMs, 60 * 60 * 1000);
+  assert.equal(result.maxRunDurationMs, 3 * 60 * 60 * 1000);
 });
 
 test("loadRuntimeConfig defaults packaged local state to ~/.jobbored", () => {
@@ -1006,7 +1006,7 @@ test("VAL-API-001: browser_only resolves elevated groundedSearchTuning defaults 
   // browser_only should use elevated defaults
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 12, "maxResultsPerCompany should be 12 for browser_only");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 8, "maxPagesPerCompany should be 8 for browser_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "maxRuntimeMs should be 300000 for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 900000, "maxRuntimeMs should be 900000 for browser_only (HOLES §0.11)");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "maxTokensPerQuery should be 4096 for browser_only");
 });
 
@@ -1033,7 +1033,7 @@ test("VAL-API-001: ats_only resolves legacy groundedSearchTuning defaults when o
   // ats_only should use legacy defaults
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 6, "maxResultsPerCompany should be 6 for ats_only");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 4, "maxPagesPerCompany should be 4 for ats_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 180000, "maxRuntimeMs should be 180000 for ats_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 900000, "maxRuntimeMs should be 900000 for ats_only (HOLES §0.11)");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 2048, "maxTokensPerQuery should be 2048 for ats_only");
 });
 
@@ -1070,7 +1070,7 @@ test("VAL-API-002: explicit groundedSearchTuning override is preserved exactly",
   assert.equal(result.groundedSearchTuning.maxResultsPerCompany, 20, "explicit maxResultsPerCompany override should be preserved");
   assert.equal(result.groundedSearchTuning.maxPagesPerCompany, 15, "explicit maxPagesPerCompany override should be preserved");
   // Non-overridden fields should still use browser_only defaults
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "non-overridden maxRuntimeMs should use browser_only default");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 900000, "non-overridden maxRuntimeMs should use browser_only default");
   assert.equal(result.groundedSearchTuning.maxTokensPerQuery, 4096, "non-overridden maxTokensPerQuery should use browser_only default");
 });
 
@@ -1205,7 +1205,7 @@ test("VAL-API-006: omitted browser_only maxRuntimeMs defaults to > 60000ms", () 
   );
   // VAL-API-006: omitted timeout must be strictly greater than 60000ms
   assert.ok(result.groundedSearchTuning.maxRuntimeMs > 60000, "omitted maxRuntimeMs must be > 60000ms for browser_only");
-  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 300000, "omitted maxRuntimeMs should be 300000ms for browser_only");
+  assert.equal(result.groundedSearchTuning.maxRuntimeMs, 900000, "omitted maxRuntimeMs should be 900000ms for browser_only (HOLES §0.11)");
 });
 
 test("VAL-API-006: explicit maxRuntimeMs override is preserved exactly", () => {
@@ -1228,7 +1228,7 @@ test("VAL-API-006: explicit maxRuntimeMs override is preserved exactly", () => {
 });
 
 test("VAL-API-006: explicit override can be lower than uplift default", () => {
-  // Explicit override of 30000 is lower than the uplifted default of 300000
+  // Explicit override of 30000 is lower than the uplifted default of 900000
   const explicitTimeout = 30000;
   const result = mergeDiscoveryConfig(
     makeStoredConfig() as any,

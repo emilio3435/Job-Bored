@@ -139,7 +139,9 @@ const defaultAllowedOrigins = [
 ];
 const defaultScheduleCron = "0 7 * * 1-5";
 const defaultMaxLeadsPerRun = 15;
-const defaultMaxRunDurationMs = 60 * 60 * 1000;
+// HOLES §0.11: a run may take 3 h; grounded search gets 15 min.
+const defaultMaxRunDurationMs = 3 * 60 * 60 * 1000;
+const defaultGroundedMaxRuntimeMs = 15 * 60 * 1000;
 const supportedSourceSet = new Set(SUPPORTED_SOURCE_IDS);
 const defaultAtsCompanies: CompanyTarget[] = [
   {
@@ -179,10 +181,10 @@ const defaultAtsCompanies: CompanyTarget[] = [
 
 // === UltraPlan preset-specific default values ===
 // browser_only uses elevated agentic defaults:
-//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=300000, maxTokensPerQuery=4096
+//   - groundedSearchTuning: maxResultsPerCompany=12, maxPagesPerCompany=8, maxRuntimeMs=900000, maxTokensPerQuery=4096
 //   - ultraPlanTuning: multiQuery=true, retryBroadening=true, parallelCompanyProcessing=true
 // Other presets (ats_only, browser_plus_ats) use legacy conservative values:
-//   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=180000, maxTokensPerQuery=2048
+//   - groundedSearchTuning: maxResultsPerCompany=6, maxPagesPerCompany=4, maxRuntimeMs=900000, maxTokensPerQuery=2048
 //   - ultraPlanTuning: multiQuery=false, retryBroadening=false, parallelCompanyProcessing=false
 
 /**
@@ -245,7 +247,7 @@ function resolveGroundedSearchTuning(
     return {
       maxResultsPerCompany: isBrowserOnly ? 12 : 6,
       maxPagesPerCompany: isBrowserOnly ? 8 : 4,
-      maxRuntimeMs: isBrowserOnly ? 300000 : 180000,
+      maxRuntimeMs: defaultGroundedMaxRuntimeMs,
       maxTokensPerQuery: isBrowserOnly ? 4096 : 2048,
       multiQueryCap: isBrowserOnly ? 4 : 3,
     };
@@ -268,9 +270,7 @@ function resolveGroundedSearchTuning(
     maxRuntimeMs:
       explicitTuning.maxRuntimeMs !== undefined
         ? explicitTuning.maxRuntimeMs
-        : isBrowserOnly
-          ? 300000
-          : 180000,
+        : defaultGroundedMaxRuntimeMs,
     maxTokensPerQuery:
       explicitTuning.maxTokensPerQuery !== undefined
         ? explicitTuning.maxTokensPerQuery

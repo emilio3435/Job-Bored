@@ -1352,7 +1352,7 @@ export async function collectGroundedWebListings(input: {
       const sessionResult = await input.sessionManager.run({
         url: candidate.url,
         instruction: buildPagePrompt(input.company, input.run, candidate),
-        timeoutMs: 25_000,
+        timeoutMs: 90_000,
         abortSignal: input.abortSignal,
       });
       pagesVisited += 1;
@@ -4237,7 +4237,7 @@ function formatError(error: unknown): string {
 
 /** Default per-request timeout for outbound Gemini calls inside grounded
  * search. Overridable via groundedSearchTuning.requestTimeoutMs. */
-const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 30_000;
+export const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 90_000;
 
 function resolveGeminiRequestTimeoutMs(run: DiscoveryRun): number {
   const configured = run.config.groundedSearchTuning?.requestTimeoutMs;
