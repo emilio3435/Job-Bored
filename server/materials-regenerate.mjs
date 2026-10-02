@@ -79,13 +79,15 @@ export async function carryWriterSources(sourceDir, dir, runDir, documents, edit
     rebindWriterSources(writerSources, original, edit.model, documents, edit.ops);
     for (const key of documents) {
       const name = key === "cover_letter" ? "draft.cover_letter.json" : "draft.resume.json";
-      const saved = await readJson(await resolveContainedFile(sourceDir, name, { optional: true }));
-      const draft = rebindDraft(saved, originalRefs[key] || [], writerSources[key] || []);
+      const sourcePath = await resolveContainedFile(sourceDir, name, { optional: true });
+      const saved = await readJson(sourcePath);
+      const draft = rebindDraft(saved, originalRefs[key] || [], writerSources[key] || [], { original, model: edit.model, ops: edit.ops, document: key === "cover_letter" ? "letter" : "resume" });
       if (!draft) continue;
       const rootPath = await resolveContainedFile(dir, name, { optional: true });
       const runPath = await resolveContainedFile(runDir, name, { optional: true });
-      await writeFile(rootPath, JSON.stringify(draft, null, 2) + "\n");
-      await writeFile(runPath, JSON.stringify(draft, null, 2) + "\n");
+      const content = draft === saved ? await readFile(sourcePath) : JSON.stringify(draft, null, 2) + "\n";
+      await writeFile(rootPath, content);
+      await writeFile(runPath, content);
     }
   }
   const publishedSources = await readJson(await resolveContainedFile(dir, "writer-sources.json", { optional: true })) || {};
@@ -110,6 +112,8 @@ function rebindWriterSources(refs, original, model, documents, ops = []) {
     const document = documentKey === "cover_letter" ? "letter" : "resume";
     const before = splitSentences(documentBody(original, document), document);
     const after = splitSentences(documentBody(model, document), document);
+    const originalKeys = new Set(before.map(s => key(s.text)));
+    const addressed = new Set(refs[documentKey].map((/** @type {any} */ ref) => key(ref.sentence)));
     refs[documentKey] = refs[documentKey].map((/** @type {any} */ ref) => {
       if (typeof ref.sentence !== "string" || after.some(s => key(s.text) === key(ref.sentence))) return ref;
       const positions = before.flatMap((s, index) => key(s.text) === key(ref.sentence) ? [index] : []);
@@ -124,33 +128,59 @@ function rebindWriterSources(refs, original, model, documents, ops = []) {
         const index = splitSentences(node.text, document).findIndex(s => key(s.text) === key(ref.sentence));
         candidate = next ? splitSentences(next.text, document)[index]?.text : undefined;
       }
-      if (!candidate) return ref;
+      if (!candidate || originalKeys.has(key(candidate)) || addressed.has(key(candidate))) return ref;
       const oldWords = words(ref.sentence), newWords = words(candidate);
       const overlap = [...oldWords].filter(w => newWords.has(w)).length;
-      return overlap >= 2 && overlap / Math.max(oldWords.size, newWords.size) >= 0.5 ? { ...ref, sentence: candidate } : ref;
+      if (overlap < 2 || overlap / Math.max(oldWords.size, newWords.size) < 0.5) return ref;
+      addressed.add(key(candidate));
+      return { ...ref, sentence: candidate };
     });
   }
 }
 
 /** Hard gates also check the saved draft's sentence links. Keep its
  * existing slots aligned with the same accepted edits, without new claims.
- * @param {any} draft @param {unknown} before @param {unknown} after */
-function rebindDraft(draft, before, after) {
+ * @param {any} draft @param {unknown} before @param {unknown} after
+ * @param {{original: any, model: import('./materials-render.mjs').RenderModel, ops?: any[], document: "resume"|"letter"}} context */
+function rebindDraft(draft, before, after, context) {
   if (!Array.isArray(before) || !Array.isArray(after)) return draft;
+  if (!draft || !validateRenderModel(context.original).ok) return draft;
   const key = (/** @type {string} */ text) => String(text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  const changed = before.flatMap((ref, index) => typeof ref.sentence === "string" && after[index]?.sentence !== ref.sentence
+  const originalKeys = new Set(context.original?.documents ? splitSentences(documentBody(context.original, context.document), context.document).map(s => key(s.text)) : []);
+  const changed = before.flatMap((ref, index) => typeof ref.sentence === "string" && typeof after[index]?.sentence === "string" && after[index].sentence !== ref.sentence
+    && !originalKeys.has(key(after[index].sentence)) && !after.some((other, otherIndex) => otherIndex !== index && key(other.sentence) === key(after[index].sentence))
     ? [{ from: key(ref.sentence), to: after[index].sentence }] : []);
-  if (!draft || !changed.length) return draft;
-  const out = structuredClone(draft);
+  let out = changed.length ? structuredClone(draft) : draft;
   const replace = (/** @type {string} */ text) => {
     if (typeof text !== "string") return text;
     const parts = splitSentences(text, "letter");
     if (!parts.some(s => changed.some(c => c.from === key(s.text)))) return text;
     return parts.map(s => changed.find(c => c.from === key(s.text))?.to || s.text).join(" ");
   };
-  out.statement = replace(out.statement);
-  for (const entry of [...(out.bullets || []), ...(out.earlier || [])]) entry.text = replace(entry.text);
-  for (const beat of Object.keys(out.letter || {})) out.letter[beat] = replace(out.letter[beat]);
+  if (changed.length) {
+    out.statement = replace(out.statement);
+    for (const entry of [...(out.bullets || []), ...(out.earlier || [])]) entry.text = replace(entry.text);
+    for (const beat of Object.keys(out.letter || {})) out.letter[beat] = replace(out.letter[beat]);
+  }
+  // Older resume versions can be grounded solely by their claim-id slots.
+  // Only an accepted replacement of that exact bullet may realign its slot.
+  if (context.document === "resume" && context.ops?.length) {
+    const oldNodes = deriveNodes(context.original), nextNodes = deriveNodes(context.model);
+    for (const op of context.ops) {
+      if (op.op !== "replace") continue;
+      const node = oldNodes.find(n => n.kind === "bullet" && n.id === op.node);
+      const next = nextNodes.find(n => n.kind === "bullet" && n.id === op.node);
+      if (!node || !next || key(node.text) === key(next.text) || originalKeys.has(key(next.text))) continue;
+      // Linked sentences retain the existing overlap heuristic; do not widen it.
+      if (before.some(ref => key(ref.sentence) === key(node.text)) || after.some(ref => key(ref.sentence) === key(next.text))) continue;
+      const slots = [...(draft.bullets || []), ...(draft.earlier || [])].filter(slot => typeof slot.claimId === "string"
+        && node.id.endsWith(`:${slot.claimId}`) && key(slot.text) === key(node.text));
+      if (slots.length !== 1) continue;
+      if (out === draft) out = structuredClone(draft);
+      const slot = [...(out.bullets || []), ...(out.earlier || [])].find(s => s.claimId === slots[0].claimId && key(s.text) === key(node.text));
+      if (slot) slot.text = next.text;
+    }
+  }
   return out;
 }
 
@@ -249,8 +279,8 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
   const documents = /** @type {Array<"resume"|"letter">} */ ([...(typeof rendered.resumeHtml === "string" ? ["resume"] : []), ...(typeof rendered.letterHtml === "string" ? ["letter"] : [])]);
   const refs = await readJson(await sourcePath("writer-sources.json"));
   const originalRefs = structuredClone(refs);
+  const original = !force ? await readJson(await sourcePath("render-model.json")) : null;
   if (refs && !force) {
-    const original = await readJson(await sourcePath("render-model.json"));
     rebindWriterSources(refs, original, model, documents.map(d => d === "letter" ? "cover_letter" : "resume"), editOps);
     // Capture before publication can replace the source model at root.
     await writeFile(join(stagingDir, "writer-sources.json"), JSON.stringify(refs, null, 2) + "\n");
@@ -278,8 +308,11 @@ export async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, mo
     const draftName = document === "letter" ? "draft.cover_letter.json" : "draft.resume.json";
     const savedDraft = await readJson(await sourcePath(draftName));
     const documentKey = document === "letter" ? "cover_letter" : "resume";
-    const draft = force ? savedDraft : rebindDraft(savedDraft, originalRefs?.[documentKey] || [], refs?.[documentKey] || []);
-    if (draft && !force) await writeFile(join(stagingDir, draftName), JSON.stringify(draft, null, 2) + "\n");
+    const draft = force ? savedDraft : rebindDraft(savedDraft, originalRefs?.[documentKey] || [], refs?.[documentKey] || [], { original, model, ops: editOps, document });
+    if (draft && !force) {
+      if (draft === savedDraft) await copyFile(await sourcePath(draftName), join(stagingDir, draftName));
+      else await writeFile(join(stagingDir, draftName), JSON.stringify(draft, null, 2) + "\n");
+    }
     let qa;
     if (!force && raw?.contract !== "materials.qa.v1" && old && old.state !== "not_rescored" && old.textHash === hash && !localIssues.length) {
       qa = { ...old, runId, state: "carried_over", carriedFrom: { runId: old.runId, date: String(inheritedRun?.finishedAt || inheritedRun?.requestedAt || "") } };
