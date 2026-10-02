@@ -55,6 +55,9 @@ function targetForJob(job) {
   const notesBase = job._notesBase != null ? job._notesBase : job._rawNotes;
   return {
     job,
+    // The spreadsheet this write is for, pinned before any await: every
+    // request of the write, its 401 retry and its rollback go here.
+    sid: sheetId(),
     key: jobKeyOf(job),
     row: job._rawIndex + 2,
     link: normalizeLeadUrlClient(job.link || ""),
@@ -72,6 +75,7 @@ function writeTarget(dataIndex) {
 /** The live copy of a target's job after an await: same object, else same key. */
 function liveJob(target) {
   if (!target) return null;
+  if (target.sid && sheetId() !== target.sid) return null; // another Sheet's rows now
   const data = host().getPipelineData() || [];
   if (data.indexOf(target.job) !== -1) return target.job;
   if (!target.key) return null;
@@ -110,9 +114,10 @@ function rowMatchesTarget(cells, target) {
 }
 
 /** found {row, cells} | missing | ambiguous {rows}, one per target. */
-async function resolveTargets(targets) {
+async function resolveTargets(targets, sid) {
   const fresh = await sheetsValuesBatchGet(
     targets.map((t) => `Pipeline!A${t.row}:${PIPELINE_LAST_COLUMN}${t.row}`),
+    sid,
   );
   const results = targets.map((t, i) => {
     const cells = (fresh[i] && fresh[i][0]) || [];
@@ -125,7 +130,7 @@ async function resolveTargets(targets) {
   if (!moved.length) return results;
 
   // Title..Link for every row; the identity columns, read once.
-  const scan = (await sheetsValuesGet("Pipeline!B2:E")).values || [];
+  const scan = (await sheetsValuesGet("Pipeline!B2:E", sid)).values || [];
   const refetch = [];
   for (const i of moved) {
     const candidates = [];
@@ -139,6 +144,7 @@ async function resolveTargets(targets) {
   if (refetch.length) {
     const again = await sheetsValuesBatchGet(
       refetch.map((r) => `Pipeline!A${r.row}:${PIPELINE_LAST_COLUMN}${r.row}`),
+      sid,
     );
     refetch.forEach((r, k) => {
       const cells = (again[k] && again[k][0]) || [];
@@ -199,11 +205,11 @@ function sessionEnded() {
  * ([{ target, value, intended }]), or null after telling the person why
  * nothing was.
  */
-async function guardUpdates(updates, targets, silent) {
+async function guardUpdates(updates, targets, silent, sid) {
   if (!targets.length) return [];
   let resolved;
   try {
-    resolved = await resolveTargets(targets);
+    resolved = await resolveTargets(targets, sid);
   } catch (err) {
     if (err && err.status === 401) {
       sessionEnded();
@@ -267,18 +273,24 @@ async function updateSheetCell(range, value, isRetry, opts) {
     host().showSheetAccessGate("signin");
     return false;
   }
+  // Pinned before any await; the retry and the guarded write reuse it.
+  const sid = (opts && opts.sid) || sheetId();
 
   if (opts && opts.guard && !isRetry) {
     const update = { range, value };
     const targets = targetsForUpdates([update]);
-    const notes = await guardUpdates([update], targets, false);
+    const notes = await guardUpdates([update], targets, false, sid);
     if (!notes) return false;
-    const ok = await updateSheetCell(update.range, update.value, false);
+    if (sheetId() !== sid) {
+      console.warn("[JobBored] Sheet write dropped: the active Sheet changed");
+      return false;
+    }
+    const ok = await updateSheetCell(update.range, update.value, false, { sid });
     if (ok) recordNotesWritten(notes);
     return ok;
   }
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
 
   try {
     const resp = await fetch(url, {
@@ -297,7 +309,7 @@ async function updateSheetCell(range, value, isRetry, opts) {
     if (resp.status === 401) {
       if (!isRetry) {
         const refreshed = await host().refreshAccessTokenSilently();
-        if (refreshed) return updateSheetCell(range, value, true);
+        if (refreshed) return updateSheetCell(range, value, true, { sid });
       }
       host().clearSessionAuthState();
       host().renderPipeline();
@@ -333,25 +345,30 @@ async function updateMultipleCells(updates, isRetry, opts) {
     return false;
   }
 
+  // opts.sid pins the spreadsheet (a dismiss's halves and rollback share
+  // one); otherwise it is pinned here, before any await, for the guard
+  // reads, the write and its 401 retry.
+  const sid = (opts && opts.sid) || sheetId();
+
   // opts.guard (A4): which job each row is for is read HERE, before any
   // await — a caller may edit the job optimistically right after this call.
   if (opts && opts.guard && !isRetry) {
     const targets = opts.targets || targetsForUpdates(updates);
-    const sid = sheetId();
-    const notes = await guardUpdates(updates, targets, silent);
+    const notes = await guardUpdates(updates, targets, silent, sid);
     if (!notes) return false;
-    if (sheetId() !== sid) {
+    if (!opts.rollback && sheetId() !== sid) {
       // The person switched Sheets while the row was checked: the verified
-      // row belongs to the old Sheet, so write nowhere.
+      // row belongs to the old Sheet, so write nowhere. A rollback still
+      // lands, on the spreadsheet its first half went to.
       console.warn("[JobBored] Sheet write dropped: the active Sheet changed");
       return false;
     }
-    const ok = await updateMultipleCells(updates, false, { silent });
+    const ok = await updateMultipleCells(updates, false, { silent, sid });
     if (ok) recordNotesWritten(notes);
     return ok;
   }
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values:batchUpdate`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values:batchUpdate`;
 
   try {
     const resp = await fetch(url, {
@@ -373,7 +390,7 @@ async function updateMultipleCells(updates, isRetry, opts) {
     if (resp.status === 401) {
       if (!isRetry) {
         const refreshed = await host().refreshAccessTokenSilently();
-        if (refreshed) return updateMultipleCells(updates, true, opts);
+        if (refreshed) return updateMultipleCells(updates, true, Object.assign({}, opts, { sid }));
       }
       host().clearSessionAuthState();
       host().renderPipeline();
@@ -480,8 +497,8 @@ function providerKeyForUrl(raw) {
   return `provider:${rule.provider}:${tenant}:${id}`;
 }
 
-async function sheetsBatchUpdate(body, isRetry) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}:batchUpdate`;
+async function sheetsBatchUpdate(body, sid = sheetId(), isRetry = false) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}:batchUpdate`;
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -492,7 +509,7 @@ async function sheetsBatchUpdate(body, isRetry) {
   });
   if (resp.status === 401 && !isRetry) {
     const ok = await host().refreshAccessTokenSilently();
-    if (ok) return sheetsBatchUpdate(body, true);
+    if (ok) return sheetsBatchUpdate(body, sid, true);
   }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -502,8 +519,8 @@ async function sheetsBatchUpdate(body, isRetry) {
   return resp.json();
 }
 
-async function sheetsValuesAppend(range, values, isRetry) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(
+async function sheetsValuesAppend(range, values, sid = sheetId(), isRetry = false) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${encodeURIComponent(
     range,
   )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
   const resp = await fetch(url, {
@@ -516,7 +533,7 @@ async function sheetsValuesAppend(range, values, isRetry) {
   });
   if (resp.status === 401 && !isRetry) {
     const ok = await host().refreshAccessTokenSilently();
-    if (ok) return sheetsValuesAppend(range, values, true);
+    if (ok) return sheetsValuesAppend(range, values, sid, true);
   }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -528,8 +545,8 @@ async function sheetsValuesAppend(range, values, isRetry) {
   return resp.json();
 }
 
-async function sheetsValuesGet(range, isRetry) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(
+async function sheetsValuesGet(range, sid = sheetId(), isRetry = false) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${encodeURIComponent(
     range,
   )}`;
   const resp = await fetch(url, {
@@ -537,7 +554,7 @@ async function sheetsValuesGet(range, isRetry) {
   });
   if (resp.status === 401 && !isRetry) {
     const ok = await host().refreshAccessTokenSilently();
-    if (ok) return sheetsValuesGet(range, true);
+    if (ok) return sheetsValuesGet(range, sid, true);
   }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -549,15 +566,15 @@ async function sheetsValuesGet(range, isRetry) {
 }
 
 /** values:batchGet — one `values` array per range, in order. */
-async function sheetsValuesBatchGet(ranges, isRetry) {
+async function sheetsValuesBatchGet(ranges, sid = sheetId(), isRetry = false) {
   const query = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join("&");
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values:batchGet?${query}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values:batchGet?${query}`;
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${host().getAccessToken()}` },
   });
   if (resp.status === 401 && !isRetry) {
     const ok = await host().refreshAccessTokenSilently();
-    if (ok) return sheetsValuesBatchGet(ranges, true);
+    if (ok) return sheetsValuesBatchGet(ranges, sid, true);
   }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -569,8 +586,8 @@ async function sheetsValuesBatchGet(ranges, isRetry) {
   return (data.valueRanges || []).map((vr) => (vr && vr.values) || []);
 }
 
-async function sheetsValuesUpdate(range, values, isRetry) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}/values/${encodeURIComponent(
+async function sheetsValuesUpdate(range, values, sid = sheetId(), isRetry = false) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${encodeURIComponent(
     range,
   )}?valueInputOption=RAW`;
   const resp = await fetch(url, {
@@ -583,7 +600,7 @@ async function sheetsValuesUpdate(range, values, isRetry) {
   });
   if (resp.status === 401 && !isRetry) {
     const ok = await host().refreshAccessTokenSilently();
-    if (ok) return sheetsValuesUpdate(range, values, true);
+    if (ok) return sheetsValuesUpdate(range, values, sid, true);
   }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
@@ -592,19 +609,20 @@ async function sheetsValuesUpdate(range, values, isRetry) {
   return resp.json();
 }
 
-async function ensureBlacklistTab() {
+async function ensureBlacklistTab(sid) {
   // Create the Blacklist tab + header row. Called only on the
   // "Unable to parse range" failure path, so we know the tab is missing.
   await sheetsBatchUpdate({
     requests: [{ addSheet: { properties: { title: "Blacklist" } } }],
-  });
+  }, sid);
   await sheetsValuesUpdate("Blacklist!A1:F1", [
     ["URL", "Dismissed At", "Title", "Company", "Reason", "Provider ID"],
-  ]);
+  ], sid);
 }
 
-async function appendBlacklistRow({ url, dismissedAt, title, company }) {
+async function appendBlacklistRow({ url, dismissedAt, title, company }, pinnedSid) {
   if (!host().getAccessToken()) throw new Error("Not signed in");
+  const sid = pinnedSid || sheetId();
   const normalized = normalizeLeadUrlClient(url || "");
   const row = [
     normalized,
@@ -615,13 +633,13 @@ async function appendBlacklistRow({ url, dismissedAt, title, company }) {
     providerKeyForUrl(normalized),
   ];
   try {
-    await sheetsValuesAppend("Blacklist!A:F", [row]);
+    await sheetsValuesAppend("Blacklist!A:F", [row], sid);
     return;
   } catch (err) {
     const msg = String(err?.message || "");
     if (/Unable to parse range/i.test(msg)) {
-      await ensureBlacklistTab();
-      await sheetsValuesAppend("Blacklist!A:F", [row]);
+      await ensureBlacklistTab(sid);
+      await sheetsValuesAppend("Blacklist!A:F", [row], sid);
       return;
     }
     throw err;
@@ -637,14 +655,15 @@ function blacklistRowProviderKey(cells) {
  *  `providerKeys`: a dismiss → restore → dismiss cycle leaves duplicates, a
  *  re-canonicalized Link leaves its old URL behind, and one survivor keeps
  *  the role blocked. Resolves whether anything was removed. */
-async function deleteBlacklistRows(urls, providerKeys) {
+async function deleteBlacklistRows(urls, providerKeys, pinnedSid) {
   if (!host().getAccessToken()) throw new Error("Not signed in");
+  const sid = pinnedSid || sheetId();
   const wantUrls = (urls || []).map((u) => normalizeLeadUrlClient(u || "")).filter(Boolean);
   const wantKeys = (providerKeys || []).filter(Boolean);
   if (!wantUrls.length && !wantKeys.length) return false;
   let data;
   try {
-    data = await sheetsValuesGet("Blacklist!A:F");
+    data = await sheetsValuesGet("Blacklist!A:F", sid);
   } catch (err) {
     const msg = String(err?.message || "");
     if (/Unable to parse range/i.test(msg)) return false;
@@ -661,7 +680,7 @@ async function deleteBlacklistRows(urls, providerKeys) {
   if (!rows.length) return false;
   // Look up the sheetId for "Blacklist"
   const metaResp = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId()}?fields=sheets.properties`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${sid}?fields=sheets.properties`,
     { headers: { Authorization: `Bearer ${host().getAccessToken()}` } },
   );
   if (!metaResp.ok) throw new Error(`Blacklist lookup failed (HTTP ${metaResp.status})`);
@@ -682,7 +701,7 @@ async function deleteBlacklistRows(urls, providerKeys) {
         },
       },
     })),
-  });
+  }, sid);
   return true;
 }
 
@@ -835,7 +854,8 @@ async function putBack(range, value, target) {
   // landed must not take the rollback meant for this role.
   const m = PIPELINE_ROW_RANGE.exec(range);
   const targets = m ? [Object.assign({}, target, { row: Number(m[2]) })] : undefined;
-  if (await updateMultipleCells([{ range, value }], false, { silent: true, guard: true, targets })) {
+  const opts = { silent: true, guard: true, targets, sid: target && target.sid, rollback: true };
+  if (await updateMultipleCells([{ range, value }], false, opts)) {
     return;
   }
   console.error("[JobBored] rollback failed; the Sheet may hold half a change at", range);
@@ -849,7 +869,7 @@ async function putBack(range, value, target) {
 
 async function persistDismiss(target, at, prevW) {
   const w = { range: `Pipeline!W${target.row}`, value: at };
-  if (!(await updateMultipleCells([w], false, { guard: true }))) return false;
+  if (!(await updateMultipleCells([w], false, { guard: true, sid: target.sid }))) return false;
   if (!target.link) return true; // nothing to key a block on
   try {
     await appendBlacklistRow({
@@ -857,7 +877,7 @@ async function persistDismiss(target, at, prevW) {
       dismissedAt: at,
       title: target.job.title || "",
       company: target.job.company || "",
-    });
+    }, target.sid);
     return true;
   } catch (err) {
     console.error("[JobBored] dismiss: Blacklist write failed; putting W back", err);
@@ -868,12 +888,13 @@ async function persistDismiss(target, at, prevW) {
 
 async function persistRestore(target, prevW, also) {
   const w = { range: `Pipeline!W${target.row}`, value: "" };
-  if (!(await updateMultipleCells([w], false, { guard: true }))) return false;
+  if (!(await updateMultipleCells([w], false, { guard: true, sid: target.sid }))) return false;
   const link = normalizeLeadUrlClient(target.job.link || "");
   try {
     await deleteBlacklistRows(
       [link].concat((also && also.urls) || []),
       [providerKeyForUrl(link)].concat((also && also.providerKeys) || []),
+      target.sid,
     );
     return true;
   } catch (err) {

@@ -261,3 +261,47 @@ describe("A15 · a write that finishes after a reload finds its job by key, not 
     assert.equal(env.state.data[ev.detail.jobKey].link, D);
   });
 });
+
+describe("A4 · a write lands on the spreadsheet it started on", () => {
+  const writesTo = (fake) =>
+    fake.requests.filter((r) => r.method !== "GET").map((r) => /spreadsheets\/([^/:?]+)/.exec(r.url)[1]);
+
+  it("a single-cell write (follow-up) refuses when the Sheet switches during its row check", async () => {
+    const fake = seed();
+    const env = loadWriteback(fake);
+    env.load();
+    fake.intercept(async (req) => {
+      if (req.method === "GET") env.host.getActiveSheetId = () => "sheet-other";
+      return null;
+    });
+    await env.sw.updateFollowUpDate(env.indexOf(C), "2026-10-09");
+    assert.deepEqual(writesTo(fake), [], "nothing is written to either spreadsheet");
+  });
+
+  it("a 401 retry after a refresh goes to the spreadsheet the write started on", async () => {
+    const fake = seed();
+    const env = loadWriteback(fake);
+    env.load();
+    fake.failWhen((r) => r.method === "POST" && /values:batchUpdate/.test(r.url), 401, "Unauthenticated");
+    env.host.refreshAccessTokenSilently = async () => {
+      env.host.getActiveSheetId = () => "sheet-other"; // switched while the token refreshed
+      return true;
+    };
+    assert.equal(await env.sw.updateJobStatus(env.indexOf(B), "Phone Screen"), true);
+    assert.deepEqual([...new Set(writesTo(fake))], ["sheet-123"]);
+    assert.equal(rowByLink(fake, B)[COL.status], "Phone Screen");
+  });
+
+  it("a single-cell 401 retry stays on the spreadsheet it started on", async () => {
+    const fake = seed();
+    const env = loadWriteback(fake);
+    env.load();
+    fake.failWhen((r) => r.method === "PUT", 401, "Unauthenticated");
+    env.host.refreshAccessTokenSilently = async () => {
+      env.host.getActiveSheetId = () => "sheet-other";
+      return true;
+    };
+    await env.sw.updateFollowUpDate(env.indexOf(C), "2026-10-09");
+    assert.deepEqual([...new Set(writesTo(fake))], ["sheet-123"]);
+  });
+});

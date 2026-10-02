@@ -124,6 +124,40 @@ describe("A8 / R12 · dismiss writes now and never half-commits", () => {
     assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], "");
   });
 
+  const spreadsheetsHit = (fake) => [
+    ...new Set(fake.requests.map((r) => /spreadsheets\/([^/:?]+)/.exec(r.url)[1])),
+  ];
+  const switchAfterW = (t) =>
+    t.fake.intercept(async (req) => {
+      if (isPipelineWrite(req)) t.env.host.getActiveSheetId = () => "sheet-other";
+      return null;
+    });
+
+  it("a Sheet switch after W lands still sends the Blacklist row to the same spreadsheet", { timeout: 2000 }, async () => {
+    const t = setup();
+    switchAfterW(t);
+    assert.equal(await t.env.sw.dismissJob(t.idx), true);
+    assert.deepEqual(spreadsheetsHit(t.fake), ["sheet-123"]);
+    assert.deepEqual(blacklistUrls(t.fake), [LINK]);
+  });
+
+  it("a failed Blacklist half after a Sheet switch rolls W back on the original spreadsheet", { timeout: 2000 }, async () => {
+    const t = setup();
+    switchAfterW(t);
+    t.fake.failWhen(isAppend, 503, "Backend unavailable");
+    assert.equal(await t.env.sw.dismissJob(t.idx), false);
+    assert.deepEqual(spreadsheetsHit(t.fake), ["sheet-123"]);
+    assert.equal(rowByLink(t.fake, LINK)[COL.dismissedAt], "", "W rolled back");
+  });
+
+  it("restore after a Sheet switch deletes the block on the same spreadsheet", { timeout: 2000 }, async () => {
+    const t = setup({ dismissed: true });
+    switchAfterW(t);
+    assert.equal(await t.env.sw.restoreJob(t.idx), true);
+    assert.deepEqual(spreadsheetsHit(t.fake), ["sheet-123"]);
+    assert.deepEqual(blacklistUrls(t.fake), []);
+  });
+
   it("a failed W write leaves the Blacklist untouched", { timeout: 2000 }, async () => {
     const t = setup();
     t.fake.failWhen(isPipelineWrite, 500, "Internal error");
