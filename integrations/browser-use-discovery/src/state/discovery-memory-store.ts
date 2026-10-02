@@ -15,8 +15,16 @@ import {
   type CandidateCatalogStatus,
   type CandidateCatalogWrite,
   type CandidatePromotion,
+  type DiscoveryExplorationSlot,
 } from "../contracts.ts";
 import { normalizeCompanyKey } from "../discovery/company-keys.ts";
+import type {
+  NoveltyCandidate,
+  NoveltyCandidateQuery,
+  NoveltyKind,
+  NoveltyMemory,
+  NoveltySlotsRecord,
+} from "../run/novelty-explorer.ts";
 
 type JsonObject = Record<string, unknown>;
 type ProviderHints = Record<string, string[]>;
@@ -611,7 +619,7 @@ export type DiscoveryMemoryStore = {
     listings: Array<{ title: string; companyKey: string; sourceLane: string }>;
   }): { familiesIncremented: number };
   close(): void;
-};
+} & NoveltyMemory;
 
 export function createDiscoveryMemoryStore(
   databasePath: string,
@@ -849,6 +857,8 @@ export function createDiscoveryMemoryStore(
   `);
   ensureCandidateCatalogIntentKeyColumn(database);
   const candidateCatalog = createCandidateCatalogMethods(database);
+  ensureNoveltyLedgerTables(database);
+  const noveltyLedger = createNoveltyLedgerMethods(database);
 
   const getCompanyStatement = database.prepare(`
     SELECT *
@@ -1327,6 +1337,11 @@ export function createDiscoveryMemoryStore(
     markCandidatesPromoted: candidateCatalog.markPromoted,
     pruneCandidateCatalog: candidateCatalog.prune,
     listCandidates: candidateCatalog.list,
+
+    listTriedNoveltyKeys: noveltyLedger.listTried,
+    listNoveltyCandidates: noveltyLedger.listCandidates,
+    recordNoveltySlots: noveltyLedger.recordSlots,
+    listNoveltySlots: noveltyLedger.listSlots,
 
     upsertCompany(input) {
       const now = normalizeTimestamp(input.lastSeenAt, new Date().toISOString());
@@ -3299,6 +3314,403 @@ function createCandidateCatalogMethods(database: DatabaseSync) {
         total += Number(row.count || 0);
       }
       return { rows, counts, total };
+    },
+  };
+}
+
+/**
+ * HOLES HUNT (docs/INTERFACE-HUNTS.md §6): the exploration ledger.
+ * novelty_slots keeps every slot a run recorded with its yield;
+ * novelty_ledger keeps one row per company, surface, provider or facet ever
+ * tried, with its running totals.
+ */
+function ensureNoveltyLedgerTables(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS novelty_ledger (
+      entity_kind TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      first_tried_at TEXT NOT NULL,
+      last_tried_at TEXT NOT NULL,
+      tries INTEGER NOT NULL DEFAULT 0,
+      explore_tries INTEGER NOT NULL DEFAULT 0,
+      listings_seen INTEGER NOT NULL DEFAULT 0,
+      leads_written INTEGER NOT NULL DEFAULT 0,
+      last_run_id TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (entity_kind, entity_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS novelty_slots (
+      run_id TEXT NOT NULL,
+      slot_index INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT '',
+      mode TEXT NOT NULL,
+      listings_seen INTEGER NOT NULL DEFAULT 0,
+      leads_written INTEGER NOT NULL DEFAULT 0,
+      share REAL NOT NULL DEFAULT 0,
+      recorded_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, slot_index)
+    );
+  `);
+}
+
+type NoveltySlotRow = {
+  run_id: string;
+  slot_index: number;
+  kind: string;
+  entity_key: string;
+  label: string;
+  provider: string;
+  mode: string;
+  listings_seen: number;
+  leads_written: number;
+  recorded_at: string;
+};
+
+type NoveltyCompanyRow = { company_key: string; seen_at: string };
+
+type NoveltyRegistryRow = {
+  company_key: string;
+  display_name: string;
+  normalized_name: string;
+  last_seen_at: string;
+  cooldown_until: string | null;
+};
+
+function isNoveltySlotKind(value: unknown): value is DiscoveryExplorationSlot["kind"] {
+  return value === "company" || value === "surface" || value === "facet";
+}
+
+/** Company keys compare normalized; every other kind compares as recorded. */
+function noveltyEntityKey(kind: NoveltyKind, key: unknown): string {
+  return kind === "company" ? normalizeCompanyKey(key) : String(key ?? "").trim();
+}
+
+/** The ledger rows one slot counts toward: its own entity, then its provider. */
+function noveltyLedgerEntries(
+  kind: string,
+  key: string,
+  provider: string,
+): Array<[NoveltyKind, string]> {
+  const entries: Array<[NoveltyKind, string]> = [];
+  const entityKey = isNoveltySlotKind(kind) ? noveltyEntityKey(kind, key) : "";
+  if (isNoveltySlotKind(kind) && entityKey) entries.push([kind, entityKey]);
+  if (provider) entries.push(["provider", provider]);
+  return entries;
+}
+
+/** "hooli-inc" or "hooli inc" reads as "Hooli Inc", as the company planner shows it. */
+function humanizeCompanyKey(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function isCoolingDown(cooldownUntil: string | null, nowMs: number): boolean {
+  const until = Date.parse(String(cooldownUntil || ""));
+  return Number.isFinite(until) && until > nowMs;
+}
+
+function mapNoveltySlotRow(row: NoveltySlotRow): DiscoveryExplorationSlot | null {
+  if (!isNoveltySlotKind(row.kind)) return null;
+  return {
+    index: Number(row.slot_index),
+    kind: row.kind,
+    key: row.entity_key,
+    label: row.label,
+    ...(row.provider ? { provider: row.provider } : {}),
+    mode: row.mode === "explore" ? "explore" : "exploit",
+    listingsSeen: Number(row.listings_seen || 0),
+    leadsWritten: Number(row.leads_written || 0),
+  };
+}
+
+/**
+ * Tried means the ledger holds the key, or older memory shows it was
+ * searched: intent_coverage for companies and facets, exploit_outcomes for
+ * surfaces and providers. A listing fingerprint alone is a candidate source,
+ * not a try. A re-recorded run replaces its slots and counts once.
+ */
+function createNoveltyLedgerMethods(database: DatabaseSync) {
+  const ledgerHitStatement = database.prepare(`
+    SELECT 1 AS hit FROM novelty_ledger
+    WHERE entity_kind = ? AND entity_key = ? AND tries > 0
+  `);
+  const ledgerCompanyKeysStatement = database.prepare(`
+    SELECT entity_key FROM novelty_ledger
+    WHERE entity_kind = 'company' AND tries > 0
+  `);
+  const coverageCompanyKeysStatement = database.prepare(`
+    SELECT DISTINCT company_key FROM intent_coverage
+  `);
+  const coverageIntentHitStatement = database.prepare(`
+    SELECT 1 AS hit FROM intent_coverage WHERE intent_key = ? LIMIT 1
+  `);
+  const outcomeSurfaceHitStatement = database.prepare(`
+    SELECT 1 AS hit FROM exploit_outcomes WHERE surface_id = ? LIMIT 1
+  `);
+  const outcomeSourceHitStatement = database.prepare(`
+    SELECT 1 AS hit FROM exploit_outcomes WHERE source_id = ? LIMIT 1
+  `);
+  const registryStatement = database.prepare(`
+    SELECT company_key, display_name, normalized_name, last_seen_at, cooldown_until
+    FROM company_registry
+  `);
+  const catalogCompaniesStatement = database.prepare(`
+    SELECT company_key, MAX(last_seen_at) AS seen_at
+    FROM candidate_catalog
+    WHERE sheet_id = ? AND company_key <> ''
+    GROUP BY company_key
+  `);
+  // With a single MAX(), SQLite reads the bare name from that newest row.
+  const catalogNamesStatement = database.prepare(`
+    SELECT company_key, MAX(last_seen_at) AS seen_at,
+      json_extract(lead_json, '$.company') AS name
+    FROM candidate_catalog
+    WHERE sheet_id = ? AND company_key <> '' AND lead_json IS NOT NULL
+      AND json_valid(lead_json)
+    GROUP BY company_key
+  `);
+  const fingerprintCompaniesStatement = database.prepare(`
+    SELECT company_key, MAX(last_seen_at) AS seen_at
+    FROM listing_fingerprints
+    GROUP BY company_key
+  `);
+  const runSlotsStatement = database.prepare(`
+    SELECT * FROM novelty_slots WHERE run_id = ? ORDER BY slot_index ASC
+  `);
+  const deleteRunSlotsStatement = database.prepare(`
+    DELETE FROM novelty_slots WHERE run_id = ?
+  `);
+  const insertSlotStatement = database.prepare(`
+    INSERT INTO novelty_slots (
+      run_id, slot_index, kind, entity_key, label, provider, mode,
+      listings_seen, leads_written, share, recorded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const addToLedgerStatement = database.prepare(`
+    INSERT INTO novelty_ledger (
+      entity_kind, entity_key, first_tried_at, last_tried_at, tries,
+      explore_tries, listings_seen, leads_written, last_run_id
+    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+    ON CONFLICT(entity_kind, entity_key) DO UPDATE SET
+      first_tried_at = MIN(novelty_ledger.first_tried_at, excluded.first_tried_at),
+      last_tried_at = MAX(novelty_ledger.last_tried_at, excluded.last_tried_at),
+      last_run_id = CASE
+        WHEN excluded.last_tried_at >= novelty_ledger.last_tried_at
+          THEN excluded.last_run_id
+        ELSE novelty_ledger.last_run_id
+      END,
+      tries = novelty_ledger.tries + 1,
+      explore_tries = novelty_ledger.explore_tries + excluded.explore_tries,
+      listings_seen = novelty_ledger.listings_seen + excluded.listings_seen,
+      leads_written = novelty_ledger.leads_written + excluded.leads_written
+  `);
+  const subtractFromLedgerStatement = database.prepare(`
+    UPDATE novelty_ledger SET
+      tries = MAX(0, tries - 1),
+      explore_tries = MAX(0, explore_tries - ?),
+      listings_seen = MAX(0, listings_seen - ?),
+      leads_written = MAX(0, leads_written - ?)
+    WHERE entity_kind = ? AND entity_key = ?
+  `);
+  const deleteSpentLedgerRowsStatement = database.prepare(`
+    DELETE FROM novelty_ledger WHERE tries <= 0
+  `);
+
+  const coveredCompanyKeys = (): Set<string> =>
+    new Set(
+      (coverageCompanyKeysStatement.all() as Array<{ company_key: string }>)
+        .map((row) => normalizeCompanyKey(row.company_key))
+        .filter(Boolean),
+    );
+  const isLedgerHit = (kind: NoveltyKind, key: string): boolean =>
+    Boolean(ledgerHitStatement.get(kind, key));
+
+  return {
+    listTried(kind: NoveltyKind, keys: readonly string[]): Set<string> {
+      const wanted = [
+        ...new Set(keys.map((key) => String(key ?? "").trim()).filter(Boolean)),
+      ];
+      if (wanted.length === 0) return new Set<string>();
+      let isTried: (key: string) => boolean;
+      switch (kind) {
+        case "company": {
+          const covered = coveredCompanyKeys();
+          isTried = (key) => {
+            const companyKey = normalizeCompanyKey(key);
+            return covered.has(companyKey) || isLedgerHit(kind, companyKey);
+          };
+          break;
+        }
+        case "facet":
+          isTried = (key) =>
+            isLedgerHit(kind, key) || Boolean(coverageIntentHitStatement.get(key));
+          break;
+        case "surface":
+          isTried = (key) =>
+            isLedgerHit(kind, key) || Boolean(outcomeSurfaceHitStatement.get(key));
+          break;
+        case "provider":
+          isTried = (key) =>
+            isLedgerHit(kind, key) || Boolean(outcomeSourceHitStatement.get(key));
+          break;
+        default: {
+          const unknownKind: never = kind;
+          throw new Error(`Unknown novelty kind: ${String(unknownKind)}`);
+        }
+      }
+      return new Set(wanted.filter(isTried));
+    },
+
+    /**
+     * Never-tried companies, newest first: the registry (its own key and
+     * name), this Sheet's catalog, then listing fingerprints. A registry row
+     * cooling down holds its company back from every source.
+     */
+    listCandidates(query: NoveltyCandidateQuery): NoveltyCandidate[] {
+      const limit = Math.max(0, Math.floor(Number(query.limit) || 0));
+      if (limit === 0) return [];
+      const sheetId = normalizeRequiredString(query.sheetId, "sheetId");
+      const parsedNow = Date.parse(String(query.now || ""));
+      const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
+      const held = coveredCompanyKeys();
+      for (const key of query.excludeCompanyKeys || []) {
+        held.add(normalizeCompanyKey(key));
+      }
+      for (const row of ledgerCompanyKeysStatement.all() as Array<{ entity_key: string }>) {
+        held.add(row.entity_key);
+      }
+      const registry = registryStatement.all() as NoveltyRegistryRow[];
+      for (const row of registry) {
+        if (!isCoolingDown(row.cooldown_until, nowMs)) continue;
+        held.add(normalizeCompanyKey(row.company_key));
+        held.add(normalizeCompanyKey(row.normalized_name));
+      }
+
+      const found = new Map<string, NoveltyCandidate & { seenMs: number }>();
+      const offer = (
+        companyKey: string,
+        name: string,
+        source: NoveltyCandidate["source"],
+        seenAt: string,
+      ): void => {
+        const key = normalizeCompanyKey(companyKey);
+        if (!key || held.has(key)) return;
+        const seenMs = Date.parse(String(seenAt || "")) || 0;
+        const existing = found.get(key);
+        if (existing) {
+          existing.seenMs = Math.max(existing.seenMs, seenMs);
+          return;
+        }
+        found.set(key, { companyKey, name, source, seenMs });
+      };
+      for (const row of registry) {
+        if (isCoolingDown(row.cooldown_until, nowMs)) continue;
+        offer(
+          row.company_key,
+          row.display_name || humanizeCompanyKey(row.company_key),
+          "company_registry",
+          row.last_seen_at,
+        );
+      }
+      const catalogNames = new Map(
+        (catalogNamesStatement.all(sheetId) as Array<{ company_key: string; name: unknown }>)
+          .map((row) => [row.company_key, String(row.name ?? "").trim()]),
+      );
+      for (const row of catalogCompaniesStatement.all(sheetId) as NoveltyCompanyRow[]) {
+        offer(
+          normalizeCompanyKey(row.company_key),
+          catalogNames.get(row.company_key) || humanizeCompanyKey(row.company_key),
+          "candidate_catalog",
+          row.seen_at,
+        );
+      }
+      for (const row of fingerprintCompaniesStatement.all() as NoveltyCompanyRow[]) {
+        offer(
+          normalizeCompanyKey(row.company_key),
+          humanizeCompanyKey(row.company_key),
+          "listing_fingerprints",
+          row.seen_at,
+        );
+      }
+      return [...found.entries()]
+        .sort(
+          ([leftKey, left], [rightKey, right]) =>
+            right.seenMs - left.seenMs || leftKey.localeCompare(rightKey),
+        )
+        .slice(0, limit)
+        .map(([, { companyKey, name, source }]) => ({ companyKey, name, source }));
+    },
+
+    recordSlots(input: NoveltySlotsRecord): void {
+      const runId = normalizeRequiredString(input.runId, "runId");
+      const recordedAt = normalizeTimestamp(input.recordedAt, new Date().toISOString());
+      const share = finiteOrNull(input.share) ?? 0;
+      withTransaction(database, () => {
+        // A retry replaces the run's slots: take their old counts out first.
+        const previous = runSlotsStatement.all(runId) as NoveltySlotRow[];
+        for (const row of previous) {
+          for (const [kind, key] of noveltyLedgerEntries(row.kind, row.entity_key, row.provider)) {
+            subtractFromLedgerStatement.run(
+              row.mode === "explore" ? 1 : 0,
+              Number(row.listings_seen || 0),
+              Number(row.leads_written || 0),
+              kind,
+              key,
+            );
+          }
+        }
+        if (previous.length > 0) {
+          deleteRunSlotsStatement.run(runId);
+          deleteSpentLedgerRowsStatement.run();
+        }
+        for (const slot of input.slots) {
+          if (!isNoveltySlotKind(slot.kind)) continue;
+          const key = String(slot.key ?? "").trim();
+          const provider = String(slot.provider || "").trim();
+          const mode = slot.mode === "explore" ? "explore" : "exploit";
+          const listingsSeen = normalizeNonNegativeInteger(slot.listingsSeen);
+          const leadsWritten = normalizeNonNegativeInteger(slot.leadsWritten);
+          insertSlotStatement.run(
+            runId,
+            normalizeNonNegativeInteger(slot.index),
+            slot.kind,
+            key,
+            String(slot.label || ""),
+            provider,
+            mode,
+            listingsSeen,
+            leadsWritten,
+            share,
+            recordedAt,
+          );
+          for (const [kind, entityKey] of noveltyLedgerEntries(slot.kind, key, provider)) {
+            addToLedgerStatement.run(
+              kind,
+              entityKey,
+              recordedAt,
+              recordedAt,
+              mode === "explore" ? 1 : 0,
+              listingsSeen,
+              leadsWritten,
+              runId,
+            );
+          }
+        }
+      });
+    },
+
+    listSlots(runId: string): DiscoveryExplorationSlot[] {
+      const key = normalizeNullableString(runId);
+      if (!key) return [];
+      return (runSlotsStatement.all(key) as NoveltySlotRow[]).flatMap((row) => {
+        const slot = mapNoveltySlotRow(row);
+        return slot ? [slot] : [];
+      });
     },
   };
 }

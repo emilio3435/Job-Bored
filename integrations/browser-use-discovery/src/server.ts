@@ -53,9 +53,22 @@ import {
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
 import { openListingScoreCache } from "./state/listing-score-cache.ts";
 import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
-import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
+import { openHuntStore } from "./state/hunt-store.ts";
+import { createHuntScheduler } from "./scheduler/hunt-scheduler.ts";
+import {
+  createDiscoveryRunAdmission,
+  handleDiscoveryWebhook,
+  type WebhookRequestLike,
+} from "./webhook/handle-discovery-webhook.ts";
+import {
+  createHuntRunDispatcher,
+  createHuntsRouteHandler,
+} from "./webhook/handle-hunts.ts";
 import { createRunCancelRegistry } from "./webhook/run-async-lifecycle.ts";
-import { createWorkerRequestListener } from "./webhook/worker-router.ts";
+import {
+  createWorkerRequestListener,
+  type RouteLog,
+} from "./webhook/worker-router.ts";
 import { handleCleanupExpiredWebhook } from "./webhook/handle-cleanup-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { handlePipelineUpdateWebhook } from "./webhook/handle-pipeline-update.ts";
@@ -296,6 +309,17 @@ void recoverAbandonedRuns({
 });
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
+// The hunt's exploration share reaches its run by run id; the run reads it
+// while planning, so only recent entries matter.
+const huntRunShares = new Map<string, number>();
+function rememberHuntRunShare(runId: string, share: number): void {
+  huntRunShares.set(runId, share);
+  if (huntRunShares.size > 100) {
+    const oldest = huntRunShares.keys().next().value;
+    if (oldest !== undefined) huntRunShares.delete(oldest);
+  }
+}
+
 const sharedRunDependencies = {
   runtimeConfig,
   sourceAdapterRegistry,
@@ -313,6 +337,10 @@ const sharedRunDependencies = {
   now: () => new Date(),
   randomId: (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, "")}`,
   maxRunDurationMs: runtimeConfig.maxRunDurationMs,
+  // HOLES HUNT (INTERFACE-HUNTS §6): the exploration ledger and shares.
+  noveltyMemory: rawDiscoveryMemoryStore,
+  explorationShare: runtimeConfig.hunts?.explorationShare,
+  explorationShareForRun: (runId: string) => huntRunShares.get(runId) ?? null,
 } satisfies RunDiscoveryDependencies & { companyPlanner: CompanyPlanner };
 
 function mapPlannerCompany(company: RankedPlannedCompany): PlannedCompany {
@@ -751,6 +779,7 @@ async function buildHealthPayload() {
       ingestUrl: "/ingest-url",
       cleanupExpired: "/cleanup-expired",
       runStatus: RUN_STATUS_TEMPLATE,
+      hunts: "/hunts",
     },
     readiness: {
       ready: blockingWarnings.length === 0,
@@ -978,6 +1007,66 @@ function hasNonBlankStringValue(value: unknown): boolean {
 
 // BEAUDIT A21: live async discovery runs that POST /runs/:id/cancel can abort.
 const runCancelRegistry = createRunCancelRegistry();
+const discoveryAdmission = createDiscoveryRunAdmission(isDiscoveryRunActive);
+
+function handleDiscovery(
+  request: WebhookRequestLike,
+  log: RouteLog,
+  options: { allowMissingSheetsCredential?: boolean } = {},
+) {
+  return handleDiscoveryWebhook(request, {
+    runSynchronously: !runtimeConfig.asyncAckByDefault,
+    runStatusPathForRun: buildRunStatusPath,
+    runStatusStore,
+    runDiscovery,
+    runDependencies: sharedRunDependencies,
+    createPipelineWriterForRequest,
+    createDiscoveryRunsLoggerForRequest,
+    includeRunStatusToken: runtimeConfig.runMode === "hosted",
+    cancelRegistry: runCancelRegistry,
+    admission: discoveryAdmission,
+    log,
+    maxRunDurationMs: runtimeConfig.maxRunDurationMs,
+    ...(options.allowMissingSheetsCredential ? { allowMissingSheetsCredential: true } : {}),
+  });
+}
+
+// HOLES HUNT: saved hunts live in worker-state.sqlite next to the memory
+// store; the scheduler fires them while this worker is alive
+// (docs/INTERFACE-HUNTS.md §4).
+const huntStore = openHuntStore(runtimeConfig.stateDatabasePath);
+// A live async run is registered for cancel; a sync run only shows as a
+// non-terminal status (boot recovery terminalized every earlier one).
+function isDiscoveryRunActive(): boolean {
+  if (discoveryAdmission.isPending()) return true;
+  if (runCancelRegistry.size() > 0) return true;
+  return !!runStatusStore
+    .list({ limit: 25 })
+    ?.runs.some((run) => run.status === "accepted" || run.status === "running");
+}
+const dispatchHuntRun = createHuntRunDispatcher({
+  webhookSecret: runtimeConfig.webhookSecret,
+  // §0.9: with no server-side Sheet credential the run still executes and
+  // holds its leads ("awaiting sheet write") for the dashboard to flush.
+  handleDiscovery: (request) =>
+    handleDiscovery(
+      request,
+      (event, details) => logEvent(event, { source: "hunts", ...(details || {}) }),
+      { allowMissingSheetsCredential: true },
+    ),
+  now: () => new Date(),
+  isRunActive: isDiscoveryRunActive,
+  rememberRunShare: rememberHuntRunShare,
+  resolveSheetId: async () => (await loadStoredWorkerConfig(runtimeConfig, "")).sheetId,
+});
+const huntScheduler = createHuntScheduler({
+  store: huntStore,
+  dispatch: dispatchHuntRun,
+  isRunActive: isDiscoveryRunActive,
+  now: () => new Date(),
+  tickMs: runtimeConfig.hunts?.tickMs,
+  log: logEvent,
+});
 
 // BEAUDIT A14: the router lives in a side-effect-free module (tested on
 // node:http port 0); this file only wires the live collaborators into it.
@@ -994,6 +1083,14 @@ const server = createServer(
     candidateCatalog: {
       listCandidates: (query) => rawDiscoveryMemoryStore.listCandidates(query),
     },
+    hunts: createHuntsRouteHandler({
+      store: huntStore,
+      runStatusStore,
+      dispatch: dispatchHuntRun,
+      isRunActive: isDiscoveryRunActive,
+      now: () => new Date(),
+      defaultExplorationShare: runtimeConfig.hunts?.explorationShare,
+    }),
     logEvent,
     handlers: {
       discoveryProfile: (request, log) =>
@@ -1031,20 +1128,7 @@ const server = createServer(
         }),
       cleanupExpired: (request, log) =>
         handleCleanupExpiredWebhook(request, { runtimeConfig, log }),
-      discovery: (request, log) =>
-        handleDiscoveryWebhook(request, {
-          runSynchronously: !runtimeConfig.asyncAckByDefault,
-          runStatusPathForRun: buildRunStatusPath,
-          runStatusStore,
-          runDiscovery,
-          runDependencies: sharedRunDependencies,
-          createPipelineWriterForRequest,
-          createDiscoveryRunsLoggerForRequest,
-          includeRunStatusToken: runtimeConfig.runMode === "hosted",
-          cancelRegistry: runCancelRegistry,
-          log,
-          maxRunDurationMs: runtimeConfig.maxRunDurationMs,
-        }),
+      discovery: (request, log) => handleDiscovery(request, log),
     },
   }),
 );
@@ -1055,4 +1139,5 @@ server.listen(runtimeConfig.port, runtimeConfig.host, () => {
   console.log(
     `[browser-use-discovery] listening on http://${host}:${runtimeConfig.port}`,
   );
+  if (runtimeConfig.hunts?.schedulerEnabled !== false) huntScheduler.start();
 });

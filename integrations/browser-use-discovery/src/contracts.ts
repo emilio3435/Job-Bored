@@ -406,6 +406,10 @@ export const DISCOVERY_RUN_TRIGGERS = [
   "scheduled-cloudflare",
   "scheduled-appsscript",
   "cli",
+  // HOLES HUNT: a saved hunt run now (`hunt`) or by the in-worker scheduler
+  // (`scheduled-hunt`). See docs/INTERFACE-HUNTS.md §4.3.
+  "hunt",
+  "scheduled-hunt",
 ] as const;
 
 export type DiscoveryRunTrigger = (typeof DISCOVERY_RUN_TRIGGERS)[number];
@@ -935,6 +939,45 @@ export type DiscoveryRunLifecycle = {
    * Absent on runs from before DISCAT.
    */
   filterStats?: DiscoveryRunFilterStats;
+  /**
+   * HOLES HUNT: the share of slots this run reserved for never-tried
+   * companies, surfaces, providers and facet combinations, and what each
+   * explore or exploit slot yielded. Absent on runs from before HUNT.
+   */
+  exploration?: DiscoveryRunExploration;
+};
+
+export type DiscoveryExplorationSlotKind = "company" | "surface" | "facet";
+export type DiscoveryExplorationSlotMode = "explore" | "exploit";
+
+export type DiscoveryExplorationSlot = {
+  index: number;
+  kind: DiscoveryExplorationSlotKind;
+  key: string;
+  label: string;
+  /** ATS provider of a company or surface slot, when known. */
+  provider?: string;
+  mode: DiscoveryExplorationSlotMode;
+  listingsSeen: number;
+  leadsWritten: number;
+};
+
+export type DiscoveryExplorationYield = {
+  slots: number;
+  listingsSeen: number;
+  leadsWritten: number;
+};
+
+/** docs/INTERFACE-HUNTS.md §6. `slots` holds at most 200 entries. */
+export type DiscoveryRunExploration = {
+  share: number;
+  reservedSlots: number;
+  slotCount: number;
+  slots: DiscoveryExplorationSlot[];
+  totals: {
+    explore: DiscoveryExplorationYield;
+    exploit: DiscoveryExplorationYield;
+  };
 };
 
 /**

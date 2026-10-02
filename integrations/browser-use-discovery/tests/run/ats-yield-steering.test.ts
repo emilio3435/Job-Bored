@@ -390,7 +390,7 @@ test("D6: a new company is not starved behind zero-yield history", () => {
   assert.equal(plan.priorYield, 0.5 * 0.005);
 });
 
-test("D6: a run skips a cooled ATS company, logs it and counts it", async () => {
+test("D6/HUNT-W: a novelty run skips every cooled ATS company, logs them and counts them", async () => {
   const { registry, detected } = boardsByCompany({
     scaleai: [["greenhouse", "scaleai"]],
     notion: [["greenhouse", "notion"]],
@@ -415,13 +415,13 @@ test("D6: a run skips a cooled ATS company, logs it and counts it", async () => 
     "manual",
     dependencies as never,
   );
-  assert.deepEqual(detected, ["Figma", "Notion"]);
+  assert.deepEqual(detected, ["Figma"]);
   const cooldown = logs.find(([event]) => event === "discovery.run.ats_company_cooldown");
   assert.ok(cooldown, "cooldown must be logged");
-  assert.deepEqual(cooldown[1].skipped, ["scaleai"]);
-  assert.equal(cooldown[1].explorationAdmitted, "notion");
+  assert.deepEqual(cooldown[1].skipped, ["scaleai", "notion"]);
+  assert.equal(cooldown[1].explorationAdmitted, null);
   const loopCounters = result.lifecycle.loopCounters as unknown as Record<string, number>;
-  assert.equal(loopCounters.atsCompaniesCooledDown, 1);
+  assert.equal(loopCounters.atsCompaniesCooledDown, 2);
 });
 
 test("D7: one board reached through two different company keys is listed once", async () => {

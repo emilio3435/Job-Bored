@@ -13,16 +13,19 @@ import {
 import { join } from "node:path";
 
 import type {
+  DiscoveryExplorationYield,
   DiscoveryRunFilterStats,
   DiscoveryRunLifecycle,
   DiscoveryRunStatus,
   DiscoveryRunStatusPayload,
+  DiscoverySearchPlan,
   DiscoverySourceSummary,
   DiscoveryWebhookRequestV1,
   TriggerKind,
 } from "../contracts.ts";
 import type { RunDiscoveryResult } from "../run/run-discovery.ts";
 import { resolveDiscoveryRunLogError } from "../sheets/discovery-runs-writer.ts";
+import { buildSearchKey } from "./hunt-store.ts";
 import {
   RUN_PROGRESS_PHASES,
   type DiscoveryRunProgress,
@@ -82,6 +85,17 @@ export type DiscoveryRunListSummary = {
    * Absent on runs from before DISCAT.
    */
   filterStats?: DiscoveryRunFilterStats;
+  /** HOLES HUNT: the plan the run executed, and its INTERFACE-HUNTS §7 key. */
+  searchPlan?: DiscoverySearchPlan;
+  searchKey?: string;
+  /** HOLES HUNT: the explore/exploit split from lifecycle.exploration. */
+  yield?: {
+    explorationShare: number;
+    explore: DiscoveryExplorationYield;
+    exploit: DiscoveryExplorationYield;
+  };
+  /** HOLES HUNT §0.9: a write_failed run still holding leads for a flush. */
+  awaitingSheetWrite?: { leads: number };
 };
 
 export type DiscoveryRunListPage = {
@@ -336,7 +350,7 @@ export function createDiscoveryRunStatusStore(
   };
 }
 
-function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunListSummary {
+export function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunListSummary {
   const startedMs = Date.parse(status.startedAt || status.acceptedAt);
   const completedMs = Date.parse(status.completedAt || "");
   const measuredDuration = status.runStats?.durationMs ??
@@ -362,6 +376,21 @@ function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunLis
       ...(status.runStats?.fit?.avg !== undefined ? { fitAvg: status.runStats.fit.avg } : {}),
     },
     ...(status.lifecycle?.filterStats ? { filterStats: status.lifecycle.filterStats } : {}),
+    ...(status.searchPlan
+      ? { searchPlan: status.searchPlan, searchKey: buildSearchKey(status.searchPlan) }
+      : {}),
+    ...(status.lifecycle?.exploration
+      ? {
+          yield: {
+            explorationShare: status.lifecycle.exploration.share,
+            explore: status.lifecycle.exploration.totals.explore,
+            exploit: status.lifecycle.exploration.totals.exploit,
+          },
+        }
+      : {}),
+    ...(status.status === "write_failed" && status.selectedLeads?.length
+      ? { awaitingSheetWrite: { leads: status.selectedLeads.length } }
+      : {}),
   };
 }
 
