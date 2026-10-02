@@ -135,9 +135,10 @@ import {
   type RejectedListingRef,
 } from "./filter-stats.ts";
 
-// Default maximum run duration: 60 minutes. Async discovery runs are background
-// work; source and matcher timeouts still keep individual lanes bounded.
-const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
+// Default maximum run duration: 3 hours (HOLES §0.11), the same ceiling as
+// config.ts and the webhook. Async discovery runs are background work; source
+// and matcher timeouts still keep individual lanes bounded.
+export const DEFAULT_MAX_RUN_DURATION_MS = 3 * 60 * 60 * 1000;
 // Default per-source (adapter) timeout: 3 minutes (HOLES §0.11)
 export const DEFAULT_SOURCE_TIMEOUT_MS = 3 * 60 * 1000;
 // Default per-matcher timeout: 90 seconds (HOLES §0.11)

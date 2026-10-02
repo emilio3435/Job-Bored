@@ -332,7 +332,7 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
     checkpoints.some(
       (checkpoint) =>
         checkpoint.phase === "scout" &&
-        checkpoint.budget?.totalMs === 60 * 60 * 1000 &&
+        checkpoint.budget?.totalMs === 3 * 60 * 60 * 1000 &&
         typeof checkpoint.budget.remainingMs === "number",
     ),
     "scout checkpoints should persist the active run budget",
