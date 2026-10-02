@@ -29,6 +29,65 @@ function withTimeout(work, ms) {
 }
 
 /**
+ * HOLES S9: the full `playwright` package (a repo-root dev dependency) keeps
+ * local dev on its own browser builds; the server image has only its own
+ * playwright-core, so fall back to that.
+ * @param {(name: string) => Promise<any>} [importImpl]
+ * @returns {Promise<{ chromium: { launch: Function } }>}
+ */
+export async function importPlaywright(importImpl = (name) => import(name)) {
+  try {
+    return await importImpl("playwright");
+  } catch {
+    return importImpl("playwright-core");
+  }
+}
+
+/**
+ * HOLES S9: JOBBORED_CHROMIUM_PATH points Playwright at a system Chromium
+ * (the Alpine image has no Playwright browser build).
+ */
+function launchOptions() {
+  const executablePath = String(process.env.JOBBORED_CHROMIUM_PATH || "").trim();
+  return executablePath ? { headless: true, executablePath } : { headless: true };
+}
+
+/**
+ * HOLES HOST /health?deep=1: can this host launch the PDF browser? Launches
+ * and closes it with the renderer's own options; a path guess would miss
+ * the headless shell Playwright actually runs. Never throws.
+ * @param {{ playwrightImport?: () => Promise<{ chromium: { launch: Function } }>, timeoutMs?: number }} [options]
+ * @returns {Promise<{ ok: boolean, detail?: string }>}
+ */
+export async function probePdfBrowser(options = {}) {
+  ensureBrowsersPath();
+  const load = options.playwrightImport || (() => importPlaywright());
+  /** @type {{ launch: Function }} */
+  let chromium;
+  try {
+    ({ chromium } = await load());
+  } catch {
+    return { ok: false, detail: "playwright is not installed" };
+  }
+  const launching = Promise.resolve().then(() => chromium.launch(launchOptions()));
+  let browser;
+  try {
+    browser = await withTimeout(launching, options.timeoutMs || PDF_TIMEOUT_MS);
+  } catch {
+    /* Closes it even when it comes up after the timeout. */
+    launching.then((late) => late.close(), () => {}).catch(() => {});
+    return { ok: false, detail: "the browser did not launch" };
+  }
+  /* Awaited: Playwright holds a SIGTERM handler until the browser is gone. */
+  try {
+    await browser.close();
+  } catch {
+    // it launched, which is what this answers
+  }
+  return { ok: true };
+}
+
+/**
  * Optional Playwright PDF render. Missing Playwright, a launch/render
  * failure, or a timeout returns `{ skipped: true, note: "pdf_skipped" }`
  * and never throws.
@@ -42,7 +101,7 @@ function withTimeout(work, ms) {
  * @returns {Promise<{ skipped: boolean, path?: string, note?: string }>}
  */
 export async function renderPdfIfPossible(html, outPath, options = {}) {
-  const load = options.playwrightImport || (() => import("playwright"));
+  const load = options.playwrightImport || (() => importPlaywright());
   const timeoutMs =
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
@@ -53,7 +112,7 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
     await withTimeout(
       (async () => {
         const { chromium } = await load();
-        const launched = await chromium.launch({ headless: true });
+        const launched = await chromium.launch(launchOptions());
         closeBrowser = () => launched.close();
         const page = await launched.newPage();
         await page.setContent(html, { waitUntil: "load" });
@@ -175,7 +234,7 @@ export function ensureBrowsersPath(env = process.env) {
  */
 export async function openPdfSession(options = {}) {
   ensureBrowsersPath();
-  const load = options.playwrightImport || (() => import("playwright"));
+  const load = options.playwrightImport || (() => importPlaywright());
   const timeoutMs =
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
@@ -184,7 +243,7 @@ export async function openPdfSession(options = {}) {
   let browser = null;
   try {
     const { chromium } = await withTimeout(load(), timeoutMs);
-    browser = await withTimeout(Promise.resolve(chromium.launch({ headless: true })), timeoutMs);
+    browser = await withTimeout(Promise.resolve(chromium.launch(launchOptions())), timeoutMs);
   } catch {
     return null;
   }

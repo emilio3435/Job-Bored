@@ -2,8 +2,8 @@ name = "jobbored-discovery-relay"
 main = "src/worker.js"
 compatibility_date = "2026-05-01"
 
-# DISCOVERY_TARGET is supplied at deploy time:
-#   wrangler deploy --var DISCOVERY_TARGET:https://your-ngrok-url.ngrok-free.app
-#
-# Optional bearer auth:
-#   wrangler deploy --var DISCOVERY_TARGET:https://... --var SHARED_SECRET:...
+# DISCOVERY_TARGET, SHARED_SECRET (required: without it the relay answers 401)
+# and ALLOWED_ORIGINS (the dashboard origins that get CORS) are supplied at
+# deploy time:
+#   wrangler deploy --var DISCOVERY_TARGET:https://... --var SHARED_SECRET:... \
+#     --var ALLOWED_ORIGINS:https://your-dashboard.example

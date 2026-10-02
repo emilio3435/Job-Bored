@@ -5,7 +5,7 @@
   "entrypoint": "src/worker.js",
   "compatibilityDate": "2026-05-01",
   "routes": ["/discovery", "/runs/:runId", "/health"],
-  "deployCommand": "wrangler deploy --var DISCOVERY_TARGET:https://your-ngrok-url.ngrok-free.app",
+  "deployCommand": "wrangler deploy --var DISCOVERY_TARGET:https://your-ngrok-url.ngrok-free.app --var SHARED_SECRET:replace-with-a-long-random-value --var ALLOWED_ORIGINS:https://your-dashboard.example",
   "vars": [
     {
       "name": "DISCOVERY_TARGET",
@@ -15,9 +15,15 @@
     },
     {
       "name": "SHARED_SECRET",
+      "required": true,
+      "source": "wrangler --var at deploy time",
+      "description": "Bearer token every relayed request must send. Without it the relay answers 401 (fails closed)."
+    },
+    {
+      "name": "ALLOWED_ORIGINS",
       "required": false,
       "source": "wrangler --var at deploy time",
-      "description": "Optional bearer token required from browser clients."
+      "description": "Comma-separated browser origins (for example https://your-dashboard.example) allowed to call the relay. Any other browser origin gets 403; there is no wildcard."
     }
   ],
   "upstreamRoutes": [
@@ -38,7 +44,7 @@
     }
   ],
   "auth": {
-    "type": "optional_bearer",
+    "type": "required_bearer",
     "envVar": "SHARED_SECRET"
   },
   "privacy": {

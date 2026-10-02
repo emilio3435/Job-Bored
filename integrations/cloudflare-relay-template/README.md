@@ -20,23 +20,34 @@ target.
 
 ```sh
 cd integrations/cloudflare-relay-template
-wrangler deploy --var DISCOVERY_TARGET:https://abc123.ngrok-free.app
+wrangler deploy \
+  --var DISCOVERY_TARGET:https://abc123.ngrok-free.app \
+  --var SHARED_SECRET:replace-with-a-long-random-value \
+  --var ALLOWED_ORIGINS:https://your-dashboard.example
 ```
 
 No hand edits to `wrangler.toml` are required.
 
-## Optional Shared Secret
+## Shared Secret (required)
 
-To require browser callers to send `Authorization: Bearer <secret>` on relayed
-requests:
-
-```sh
-wrangler deploy \
-  --var DISCOVERY_TARGET:https://abc123.ngrok-free.app \
-  --var SHARED_SECRET:replace-with-a-long-random-value
-```
+Every relayed request must send `Authorization: Bearer <SHARED_SECRET>`. The
+relay fails closed: with no `SHARED_SECRET` set, `POST /discovery` and
+`GET /runs/:runId` answer 401 `relay_secret_not_configured` and nothing
+reaches your tunnel.
 
 `GET /health` stays open so JobBored can detect that the relay itself is up.
+
+## Allowed Origins
+
+`ALLOWED_ORIGINS` is a comma-separated list of the browser origins that may
+call the relay, for example your dashboard's origin. A listed origin is
+echoed back in `Access-Control-Allow-Origin`; any other browser origin gets
+403 before auth or relaying. There is no `*`. Requests without an `Origin`
+header (curl, schedulers) are unaffected.
+
+The relay that `npm run cloudflare-relay:deploy` publishes is
+`templates/cloudflare-worker/`; it fails closed the same way with its own
+`RELAY_TOKEN`.
 
 ## Privacy
 

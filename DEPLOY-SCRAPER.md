@@ -7,7 +7,7 @@ Browsers **block** an HTTPS page from calling **`http://127.0.0.1`** or **`http:
 1. **Run the UI locally** — `npm start` and open `http://localhost:8080` (the app defaults the scraper to `http://127.0.0.1:3847` when the scraper URL in config is empty), or
 2. **Deploy the scraper** to a public URL with **HTTPS**, then set **Settings → Job posting scraper URL** to that base URL (no trailing slash).
 
-The hosted server **fails closed** for browser CORS unless an origin is explicitly allowed. Local-only runs (`LISTEN_HOST=127.0.0.1`, the default) allow `http://localhost:8080`, `http://127.0.0.1:8080`, and `https://localhost:8080`. Hosted/container runs (`LISTEN_HOST=0.0.0.0`) must set `COMMAND_CENTER_ALLOWED_ORIGINS` (or `CORS_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS`) to your dashboard origin, for example `https://yourname.github.io`. Hosted/container runs also require `JOBBORED_API_TOKEN`; send it as `Authorization: Bearer <token>` or `x-api-token` on non-health requests.
+The hosted server **fails closed** for browser CORS unless an origin is explicitly allowed. Local-only runs (`LISTEN_HOST=127.0.0.1`, the default) with no origins set allow `http://localhost:8080` and `http://127.0.0.1:8080` only while JobBored's own dashboard answers there (its `/__proxy/ping`), never another app on that port; the TLS dev mode (`https://localhost:8080`) is set explicitly. Hosted/container runs (`LISTEN_HOST=0.0.0.0`) must set `COMMAND_CENTER_ALLOWED_ORIGINS` (or `CORS_ALLOWED_ORIGINS` / `ALLOWED_ORIGINS`) to your dashboard origin, for example `https://yourname.github.io`. Hosted/container runs also require `JOBBORED_API_TOKEN`; send it as `Authorization: Bearer <token>` or `x-api-token` on non-health requests.
 
 ## Environment variables
 
@@ -18,12 +18,12 @@ The hosted server **fails closed** for browser CORS unless an origin is explicit
 | `COMMAND_CENTER_ALLOWED_ORIGINS` | Comma/newline/semicolon-separated dashboard origins allowed by CORS. Required for hosted scraper deployments. |
 | `JOBBORED_API_TOKEN` | Shared token required for every hosted/container non-health endpoint. Send as `Authorization: Bearer <token>` or `x-api-token`. |
 
-## Option A: Render (Web Service)
+## Option A: Render (Docker Web Service)
 
 1. New **Web Service**, connect this repo.
-2. **Root directory:** `server`
-3. **Build command:** `npm install`
-4. **Start command:** `node index.mjs`
+2. **Runtime:** Docker; leave the root directory blank.
+3. **Dockerfile path:** `./server/Dockerfile.render`; **Docker context:** `.`. This image copies the required schemas, materials templates and fonts directly from the checkout, and installs system Chromium on Node 24.
+4. Keep the image's default start command (`node index.mjs` from `/app/server`). The checked-in `render.yaml` uses these settings.
 5. Add environment variable **`LISTEN_HOST`** = `0.0.0.0` (Render sets **`PORT`**).
 6. Add **`COMMAND_CENTER_ALLOWED_ORIGINS`** = your dashboard origin (for example `https://yourname.github.io` or `https://yourname.github.io/command-center`'s origin `https://yourname.github.io`).
 7. Add **`JOBBORED_API_TOKEN`** = a long random secret.
@@ -35,7 +35,8 @@ The hosted server **fails closed** for browser CORS unless an origin is explicit
 From the repo root:
 
 ```bash
-docker build -f server/Dockerfile -t job-scraper ./server
+node scripts/stage-server-image-assets.mjs
+docker build -t job-scraper server
 docker run -p 3847:3847 \
   -e LISTEN_HOST=0.0.0.0 \
   -e PORT=3847 \
@@ -44,15 +45,17 @@ docker run -p 3847:3847 \
   job-scraper
 ```
 
-Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings.
+Point your reverse proxy or platform at the container; use the **HTTPS** public URL in Settings. Both Docker variants include the materials schemas, templates, fonts and system Chromium, run as the non-root `node` user and check `/health`. Restage assets before each server-context build. For the Render variant, build from the root with `docker build -f server/Dockerfile.render -t job-scraper .`; no staging command is needed. The root `.dockerignore` restricts that context to the server and required assets and excludes local secrets and dependencies.
 
 ## Option C: Fly.io / Railway / etc.
 
-Same idea: run `node index.mjs` in `server/`, set `LISTEN_HOST=0.0.0.0`, ensure the platform assigns `PORT` and TLS termination.
+Use the Docker image above, or keep a full checkout and run `cd server && node index.mjs`; the directories beside `server/` must remain available. Set `LISTEN_HOST=0.0.0.0` and ensure the platform assigns `PORT` and TLS termination.
 
 ## Health check
 
 `GET /health` returns JSON like `{ "ok": true }` — use it for uptime checks.
+
+`GET /health?deep=1` reports schemas, templates, fonts, the PDF browser and the logo resolver. It returns 503 when required assets are missing; the browser and resolver are optional and have their own verdicts. Hosted callers must send the API token. The server-only Docker image reports the optional logo resolver as unavailable because its Python script is outside that build context.
 
 ## OAuth note
 

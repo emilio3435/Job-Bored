@@ -1,0 +1,17 @@
+# Render's root context contains only the server and its runtime assets.
+**
+!server/
+!server/**
+!schemas/
+!schemas/**
+!templates/
+!templates/materials/
+!templates/materials/**
+!vendor/
+!vendor/fonts/
+!vendor/fonts/**
+**/node_modules
+**/.image-assets
+**/.env
+**/.env.*
+**/*.log
