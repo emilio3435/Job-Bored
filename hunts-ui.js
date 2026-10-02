@@ -809,6 +809,19 @@
     var store = o.store || defaultStore();
     var id = clean(runId);
     if (!store || !id) return Promise.resolve(false);
+    // The saved list is not loaded at boot, so fetch it before deciding;
+    // offline, the cached copy decides.
+    var load = typeof store.loadHunts === "function" ? store.loadHunts() : null;
+    return Promise.resolve(load)
+      .catch(function () {
+        return false;
+      })
+      .then(function () {
+        return toggleLoadedRunHunt(store, id, button, o);
+      });
+  }
+
+  function toggleLoadedRunHunt(store, id, button, o) {
     var hunt = store.huntForRun(id);
     var setChecked = function (on) {
       if (button && typeof button.setAttribute === "function") {

@@ -604,30 +604,21 @@
     };
   }
 
-  /* ---- the page's store: on open, load the saved hunts and flush (§0.9) ---- */
+  /* ---- the page's store, and the flush on open (§0.9) ---- */
 
   var store = createHuntsStore();
 
   // The worker config and the Google token arrive after boot, so retry on a
-  // short backoff (and on the Sheet load event); each step runs once per page.
+  // short backoff (and on the Sheet load event); the flush runs once per page.
+  // GET /hunts waits for the Hunts tab or a "Save as hunt" switch, so a
+  // signed-in boot makes no /hunts request.
   function bootOnOpen() {
-    var loaded = false;
-    var loading = false;
     var flushed = false;
     var attempt = function () {
-      if (!defaultResolveWorker()) return;
-      if (!loaded && !loading) {
-        loading = true;
-        store.loadHunts().then(function (ok) {
-          loading = false;
-          loaded = ok;
-        });
-      }
-      if (!flushed && defaultAccessToken()) {
-        store.flushAwaitingSheetWrites().then(function (report) {
-          if (report && report.ok) flushed = true;
-        });
-      }
+      if (flushed || !defaultAccessToken() || !defaultResolveWorker()) return;
+      store.flushAwaitingSheetWrites().then(function (report) {
+        if (report && report.ok) flushed = true;
+      });
     };
     FLUSH_RETRY_DELAYS_MS.forEach(function (delay) {
       setTimeout(attempt, delay);

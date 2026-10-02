@@ -348,3 +348,42 @@ test("HUNT-FE-STORE-11: a 400 invalid_hunt shows the field the worker names in `
   assert.equal(res.code, "invalid_hunt");
   assert.equal(res.message, "The hunt is not valid. explorationShare must be a number from 0 to 1.");
 });
+
+test("HUNT-FE-STORE-12: page boot never calls GET /hunts; only the §0.9 flush may reach the worker", async () => {
+  // A signed-in boot must stay inside the e2e network fence: the saved list
+  // loads when the Hunts tab opens or a "Save as hunt" switch is pressed.
+  const { readFileSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const calls = [];
+  const timers = [];
+  const listeners = {};
+  const sandbox = {
+    document: {},
+    localStorage: memoryStorage(),
+    setTimeout: (fn) => timers.push(fn),
+    clearTimeout() {},
+    addEventListener: (type, fn) => (listeners[type] = (listeners[type] || []).concat(fn)),
+    dispatchEvent() {},
+    JobBored: { getAccessToken: () => "" },
+    JobBoredDiscovery: {
+      status: {
+        host: { getDiscoveryWebhookUrl: () => ORIGIN + "/webhook", getConfigCore: () => null },
+        buildRunStatusUrl: (path) => ORIGIN + path,
+      },
+    },
+    fetch: (url, init) => {
+      calls.push(`${(init && init.method) || "GET"} ${url}`);
+      return Promise.resolve(json(200, { hunts: [], runs: [] }));
+    },
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(readFileSync(new URL("../hunts-store.js", import.meta.url), "utf8"), sandbox);
+  timers.forEach((fn) => fn());
+  (listeners["jb:data:loaded"] || []).forEach((fn) => fn());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    calls.filter((call) => call.includes("/hunts")),
+    [],
+    "no /hunts request at boot",
+  );
+});

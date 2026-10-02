@@ -408,3 +408,29 @@ test("HUNT-FE-UI-11: Escape inside a hunts dialog closes only that dialog, never
   assert.equal(closed, 1);
   assert.deepEqual(stopped, ["Escape"], "Escape never reaches the drawer's document listener");
 });
+
+test("HUNT-FE-UI-12: the Runs-row switch loads the saved list before it decides save or remove", async () => {
+  // Boot no longer loads GET /hunts, so a cold cache must not offer to save
+  // a run whose hunt already exists on the worker.
+  let loaded = false;
+  const deleted = [];
+  const store = {
+    loadHunts: () => {
+      loaded = true;
+      return Promise.resolve(true);
+    },
+    huntForRun: (id) => (loaded && id === "run_saved" ? HUNT : null),
+    deleteHunt: (id) => {
+      deleted.push(id);
+      return Promise.resolve({ ok: true });
+    },
+  };
+  const previousConfirm = globalThis.confirm;
+  globalThis.confirm = () => true;
+  try {
+    assert.equal(await ui.toggleRunHunt("run_saved", null, { store }), true);
+  } finally {
+    globalThis.confirm = previousConfirm;
+  }
+  assert.deepEqual(deleted, [HUNT.id]);
+});
