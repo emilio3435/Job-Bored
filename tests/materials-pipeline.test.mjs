@@ -210,7 +210,7 @@ describe("MREV B1 pipeline", () => {
     assert.equal(run.feature, "both");
     assert.deepEqual(Object.keys(run.textHash).sort(), ["letter", "resume"]);
     for (const name of ["draft.resume.json", "draft.cover_letter.json", "qa.resume.json", "qa.letter.json", "qa.json", "resume.html", "cover-letter.html"]) assert.ok(await readFile(join(dir, name), "utf8"), name);
-    assert.equal((await json(dir, "qa.json")).contract, "materials.qa.v2");
+    assert.equal((await json(dir, "qa.json")).contract, "materials.qa.v3");
     assert.ok(await readFile(join(dir, "runs/run-mrev-1/resume-source.json"), "utf8"), "the immutable run keeps its source resume");
     const next = testServices();
     await runPipeline(base(dir, next.services, "cover_letter", "run-mrev-2"));
@@ -510,5 +510,34 @@ describe("MREV B1 pipeline", () => {
     const { services, calls } = testServices();
     await assert.rejects(runPipeline({ ...base(dir, services), ledger: { claims: [], employers: [] } }), (error) => error.code === "ledger_empty");
     assert.equal(calls.write.length, 0);
+  });
+});
+
+describe("GRADE backend pass persistence and adoption", () => {
+  let dir;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "grade-passes-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  it("GRADE-B G5: every FAIL triggers repair even without a hard rewrite issue", async () => {
+    const { services, calls } = testServices({ hardGate: () => [{ id: "artifact_usable", kind: "hard", pass: false, reason: "Check artifact.", sentenceIds: [] }] });
+    await runPipeline(base(dir, services, "cover_letter", "failed-artifact"));
+    assert.equal(calls.write.length, 2);
+  });
+  it("GRADE-B G6: both passes keep draft, verdict, HTML, text and model in sibling runs", async () => {
+    const { services } = testServices({ rewriteClose: true, qaIssue: (_args, n) => n === 1 ? { id: "i1", kind: "fact", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] } : null });
+    await runPipeline(base(dir, services, "cover_letter", "passing-repair"));
+    const sibling = join(dir, "runs", "passing-repair-pass-1");
+    const run = await json(sibling, "run.json");
+    assert.equal(run.kind, "pass"); assert.equal(run.parentRunId, "passing-repair"); assert.equal(run.label, "Original draft");
+    for (const file of ["draft.cover_letter.json", "qa.letter.json", "cover-letter.html", "cover-letter.txt", "render-model.json"]) assert.ok((await readFile(join(sibling, file))).length, file);
+    assert.equal((await json(join(dir, "runs", "passing-repair"), "run.json")).label, "Repaired");
+  });
+  it("GRADE-B G7: a later held repair keeps the previous good root as default", async () => {
+    const first = testServices(); await runPipeline(base(dir, first.services, "cover_letter", "previous-good"));
+    const { services } = testServices({ rewriteClose: true, hardGate: () => [{ id: "tool_support", kind: "hard", pass: false, reason: "Unknown tool.", sentenceIds: ["L1"] }] });
+    const request = base(dir, services, "cover_letter", "still-failing"); request.payload.notes = "new draft";
+    const result = await runPipeline(request);
+    assert.equal(result.adopted, false);
+    assert.equal((await json(dir, "run.json")).runId, "previous-good");
+    assert.ok((await json(join(dir, "runs", "still-failing"), "run.json")).held);
   });
 });

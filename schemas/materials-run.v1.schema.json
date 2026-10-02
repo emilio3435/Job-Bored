@@ -4,56 +4,126 @@
   "title": "materials.run.v1",
   "description": "Append-only stage ledger for one materials run. The dossier polls this for stage-level progress; pending.json is written beside it as a UI compatibility shim. Never contains credentials.",
   "type": "object",
-  "required": ["contract", "runId", "slug", "feature", "requestedAt", "executor", "template", "stages"],
+  "required": [
+    "contract",
+    "runId",
+    "slug",
+    "feature",
+    "requestedAt",
+    "executor",
+    "template",
+    "stages"
+  ],
   "additionalProperties": false,
   "$defs": {
     "usage": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "promptTokens": { "type": "integer", "minimum": 0 },
-        "outputTokens": { "type": "integer", "minimum": 0 },
-        "thoughtsTokens": { "type": "integer", "minimum": 0 },
-        "totalTokens": { "type": "integer", "minimum": 0 }
+        "promptTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thoughtsTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "stageCall": {
       "description": "One model stage's call record (P-7): what the provider said, how many attempts it took, and why the stage degraded when it did. Never carries credentials.",
       "type": "object",
-      "required": ["provider", "model", "attempts", "trace"],
+      "required": [
+        "provider",
+        "model",
+        "attempts",
+        "trace"
+      ],
       "additionalProperties": false,
       "properties": {
-        "provider": { "type": "string" },
-        "model": { "type": "string" },
-        "attempts": { "type": "integer", "minimum": 0 },
-        "finishReason": { "type": "string" },
-        "usage": { "$ref": "#/$defs/usage" },
-        "errorCode": { "type": "string" },
-        "degradedReason": { "type": "string" },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finishReason": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "errorCode": {
+          "type": "string"
+        },
+        "degradedReason": {
+          "type": "string"
+        },
         "fallback": {
           "description": "Present when the stage switched to its llm.json fallback model after the primary failed twice.",
           "type": "object",
-          "required": ["provider", "model", "reason"],
+          "required": [
+            "provider",
+            "model",
+            "reason"
+          ],
           "additionalProperties": false,
           "properties": {
-            "provider": { "type": "string" },
-            "model": { "type": "string" },
-            "reason": { "type": "string" }
+            "provider": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
           }
         },
         "trace": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["budget"],
+            "required": [
+              "budget"
+            ],
             "additionalProperties": false,
             "properties": {
-              "budget": { "type": ["integer", "null"], "minimum": 0 },
-              "thinkingBudget": { "type": "integer", "minimum": 0 },
-              "finishReason": { "type": "string" },
-              "usage": { "$ref": "#/$defs/usage" },
-              "errorCode": { "type": "string" },
-              "errorDetail": { "type": "string" }
+              "budget": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "thinkingBudget": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finishReason": {
+                "type": "string"
+              },
+              "usage": {
+                "$ref": "#/$defs/usage"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "errorDetail": {
+                "type": "string"
+              }
             }
           }
         }
@@ -61,45 +131,158 @@
     }
   },
   "properties": {
-    "contract": { "const": "materials.run.v1" },
-    "runId": { "type": "string", "minLength": 1 },
-    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,127}$" },
-    "feature": { "enum": ["resume", "cover_letter", "both"] },
+    "contract": {
+      "const": "materials.run.v1"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,127}$"
+    },
+    "feature": {
+      "enum": [
+        "resume",
+        "cover_letter",
+        "both"
+      ]
+    },
     "textHash": {
       "oneOf": [
-        { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        { "type": "object", "additionalProperties": false, "properties": {
-          "letter": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-          "resume": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
-        }, "minProperties": 1 }
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "letter": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "resume": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "minProperties": 1
+        }
       ]
     },
     "selectionSummary": {
       "description": "Count-only partition of selected claims in the final fitted resume.",
       "type": "object",
-      "required": ["selected", "featured", "earlier", "pageBudgetExcluded"],
+      "required": [
+        "selected",
+        "featured",
+        "earlier",
+        "pageBudgetExcluded"
+      ],
       "additionalProperties": false,
       "properties": {
-        "selected": { "type": "integer", "minimum": 0 },
-        "featured": { "type": "integer", "minimum": 0 },
-        "earlier": { "type": "integer", "minimum": 0 },
-        "pageBudgetExcluded": { "type": "integer", "minimum": 0 }
+        "selected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "featured": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "earlier": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pageBudgetExcluded": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "repair": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "parentRunId": { "type": ["string", "null"] },
-        "instruction": { "type": "string" },
-        "issueIds": { "type": "array", "items": { "type": "string" } },
-        "changed": { "type": ["boolean", "null"] },
-        "adopted": { "type": ["boolean", "null"] },
-        "reason": { "type": "string" }
+        "parentRunId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "issueIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "adopted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "before": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "runId",
+            "disposition",
+            "failedCheckIds"
+          ],
+          "properties": {
+            "runId": {
+              "type": "string"
+            },
+            "disposition": {
+              "enum": [
+                "READY",
+                "REVIEW",
+                "FAIL",
+                null
+              ]
+            },
+            "failedCheckIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     },
-    "requestedAt": { "type": "string", "format": "date-time" },
-    "finishedAt": { "type": "string", "format": "date-time" },
-    "executor": { "enum": ["local-inprocess", "hermes-cli", "webhook"] },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "executor": {
+      "enum": [
+        "local-inprocess",
+        "hermes-cli",
+        "webhook"
+      ]
+    },
     "cacheKey": {
       "description": "jdHash|ledgerHash|<family>@<version>|promptVersion|budgetVersion|feature|provider:model. A repeat request with an unchanged key returns the published package without an LLM call. Absent when the run degraded or failed QA: such a run is never served from cache.",
       "type": "string"
@@ -107,61 +290,148 @@
     "template": {
       "description": "The template family this package was rendered in, so the package can be regenerated in another family later. Copied from the render model's template block; source says where the choice came from.",
       "type": "object",
-      "required": ["family", "version", "templateIds", "source"],
+      "required": [
+        "family",
+        "version",
+        "templateIds",
+        "source"
+      ],
       "additionalProperties": false,
       "properties": {
-        "family": { "enum": ["signal", "dossier", "editorial"] },
-        "version": { "type": "string", "minLength": 1 },
+        "family": {
+          "enum": [
+            "signal",
+            "dossier",
+            "editorial"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
         "templateIds": {
           "type": "object",
           "minProperties": 1,
           "additionalProperties": false,
           "properties": {
-            "resume": { "type": "string", "pattern": "^(signal|dossier|editorial)\\.resume$" },
-            "coverLetter": { "type": "string", "pattern": "^(signal|dossier|editorial)\\.letter$" }
+            "resume": {
+              "type": "string",
+              "pattern": "^(signal|dossier|editorial)\\.resume$"
+            },
+            "coverLetter": {
+              "type": "string",
+              "pattern": "^(signal|dossier|editorial)\\.letter$"
+            }
           }
         },
         "source": {
           "description": "default: no preference was set; preference: the saved materialsTemplate; request: the request named a family; regenerate: a re-render of an existing package in another family; edit, manual and restore: a new immutable version from the named action.",
-          "enum": ["default", "preference", "request", "regenerate", "edit", "manual", "restore"]
+          "enum": [
+            "default",
+            "preference",
+            "request",
+            "regenerate",
+            "edit",
+            "manual",
+            "restore"
+          ]
         },
-        "regeneratedFrom": { "description": "runId of the package this one re-rendered. Required when source is regenerate.", "type": "string", "minLength": 1 }
+        "regeneratedFrom": {
+          "description": "runId of the package this one re-rendered. Required when source is regenerate.",
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "if": { "properties": { "source": { "const": "regenerate" } } },
-      "then": { "required": ["regeneratedFrom"] }
+      "if": {
+        "properties": {
+          "source": {
+            "const": "regenerate"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "regeneratedFrom"
+        ]
+      }
     },
     "pin": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "provider": { "type": "string" },
-        "requestedModel": { "type": "string" },
-        "resolvedModel": { "type": "string" }
+        "provider": {
+          "type": "string"
+        },
+        "requestedModel": {
+          "type": "string"
+        },
+        "resolvedModel": {
+          "type": "string"
+        }
       }
     },
-    "note": { "type": "string" },
+    "note": {
+      "type": "string"
+    },
     "edit": {
       "description": "Accepted edit batch that produced this run. Op objects follow materials.edit-op.v1; the contract script validates them together.",
       "type": "object",
-      "required": ["prompt", "accepted", "rejected", "ops"],
+      "required": [
+        "prompt",
+        "accepted",
+        "rejected",
+        "ops"
+      ],
       "additionalProperties": false,
       "properties": {
-        "prompt": { "type": "string" },
-        "proposalId": { "type": "string", "minLength": 1 },
-        "accepted": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-        "rejected": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-        "ops": { "type": "array", "items": { "type": "object" } }
+        "prompt": {
+          "type": "string"
+        },
+        "proposalId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accepted": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rejected": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ops": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
-    "restoredFrom": { "description": "runId copied into this restore-as-new version.", "type": "string", "minLength": 1 },
+    "restoredFrom": {
+      "description": "runId copied into this restore-as-new version.",
+      "type": "string",
+      "minLength": 1
+    },
     "budget": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "max": { "type": "integer" },
-          "used": { "type": "integer" }
+          "max": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -170,7 +440,10 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["stage", "status"],
+        "required": [
+          "stage",
+          "status"
+        ],
         "additionalProperties": false,
         "properties": {
           "stage": {
@@ -193,18 +466,49 @@
               "fit",
               "render",
               "qa",
-              "publish"
-              ,"prepare", "write", "validate", "judge", "save", "repair"
+              "publish",
+              "prepare",
+              "write",
+              "validate",
+              "judge",
+              "save",
+              "repair"
             ]
           },
-          "status": { "enum": ["ok", "skipped", "review", "failed"] },
-          "ms": { "type": "integer", "minimum": 0 },
-          "llm": { "type": "boolean" },
-          "tokensOut": { "type": "integer", "minimum": 0 },
-          "out": { "type": "array", "items": { "type": "string" } },
-          "detail": { "type": "string" },
-          "degraded": { "type": "boolean" },
-          "call": { "$ref": "#/$defs/stageCall" }
+          "status": {
+            "enum": [
+              "ok",
+              "skipped",
+              "review",
+              "failed"
+            ]
+          },
+          "ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "llm": {
+            "type": "boolean"
+          },
+          "tokensOut": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "out": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "detail": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "call": {
+            "$ref": "#/$defs/stageCall"
+          }
         }
       }
     },
@@ -213,34 +517,77 @@
       "maxItems": 2,
       "items": {
         "type": "object",
-        "required": ["code", "reenteredAt"],
+        "required": [
+          "code",
+          "reenteredAt"
+        ],
         "additionalProperties": false,
         "properties": {
-          "code": { "type": "string" },
-          "reenteredAt": { "type": "string" },
-          "detail": { "type": "string" }
+          "code": {
+            "type": "string"
+          },
+          "reenteredAt": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
         }
       }
     },
     "resume": {
       "description": "Which resume the draft used and why: the request's copy or the saved resume. Garbled text and an older copy are never used; degraded names the fallback.",
       "type": "object",
-      "required": ["used", "reason"],
+      "required": [
+        "used",
+        "reason"
+      ],
       "additionalProperties": false,
       "properties": {
-        "source": { "type": "string" },
-        "filename": { "type": "string" },
-        "addedAt": { "type": "string" },
-        "used": { "enum": ["request", "saved"] },
-        "reason": { "enum": ["current", "pinned", "saved_newer", "request_newer", "request_garbled", "saved_garbled", "request_only", "saved_only"] },
-        "message": { "type": "string" },
+        "source": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "addedAt": {
+          "type": "string"
+        },
+        "used": {
+          "enum": [
+            "request",
+            "saved"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "current",
+            "pinned",
+            "saved_newer",
+            "request_newer",
+            "request_garbled",
+            "saved_garbled",
+            "request_only",
+            "saved_only"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
         "degraded": {
           "type": "object",
-          "required": ["code", "message"],
+          "required": [
+            "code",
+            "message"
+          ],
           "additionalProperties": false,
           "properties": {
-            "code": { "type": "string" },
-            "message": { "type": "string" }
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
           }
         }
       }
@@ -252,32 +599,68 @@
       "properties": {
         "resume": {
           "type": "object",
-          "required": ["hash", "chars"],
+          "required": [
+            "hash",
+            "chars"
+          ],
           "additionalProperties": false,
           "properties": {
-            "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
-            "chars": { "type": "integer", "minimum": 0 }
+            "hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]+$"
+            },
+            "chars": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
         "ledger": {
           "type": "object",
-          "required": ["hash", "claims", "employers"],
+          "required": [
+            "hash",
+            "claims",
+            "employers"
+          ],
           "additionalProperties": false,
           "properties": {
-            "hash": { "type": "string" },
-            "claims": { "type": "integer", "minimum": 0 },
-            "employers": { "type": "integer", "minimum": 0 },
-            "builderVersion": { "type": "integer", "minimum": 1 }
+            "hash": {
+              "type": "string"
+            },
+            "claims": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "employers": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "builderVersion": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         },
         "jd": {
           "type": "object",
-          "required": ["hash", "words", "source"],
+          "required": [
+            "hash",
+            "words",
+            "source"
+          ],
           "additionalProperties": false,
           "properties": {
-            "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
-            "words": { "type": "integer", "minimum": 0 },
-            "source": { "type": "string" }
+            "hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]+$"
+            },
+            "words": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "source": {
+              "type": "string"
+            }
           }
         }
       }
@@ -286,13 +669,55 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "additionalProperties": false,
         "properties": {
-          "path": { "type": "string" },
-          "bytes": { "type": "integer", "minimum": 0 },
-          "sha256": { "type": "string" },
-          "pages": { "type": "integer", "minimum": 0 }
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "kind": {
+      "enum": [
+        "run",
+        "pass"
+      ]
+    },
+    "parentRunId": {
+      "type": "string"
+    },
+    "label": {
+      "enum": [
+        "Original draft",
+        "Repaired"
+      ]
+    },
+    "held": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string"
         }
       }
     }

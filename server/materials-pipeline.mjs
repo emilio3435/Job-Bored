@@ -1,3 +1,4 @@
+import { buildJudgePacket } from "./materials-judge.mjs";
 /** One materials funnel: prepare, write, validate, render, judge, save. */
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -21,7 +22,7 @@ import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
 import { withPackagePublishClaim } from "./materials-regenerate.mjs";
-import { buildQaRecord, repairInstructionsFromQa } from "./materials-qa.mjs";
+import { buildQaRecord, repairInstructionsFromQa, readQaVerdict, passesOrStrictlyBetter, verdictSnapshot, formatDocumentQaReport } from "./materials-qa.mjs";
 import { selectRankedClaims } from "./materials-select.mjs";
 import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
 import { runsToText } from "./materials-render.mjs";
@@ -391,9 +392,9 @@ async function runPipelineBody(input, assertBase) {
   const pack = profileVoice ? { ...packBase, aiTells: [...(packBase.aiTells || []), ...profileVoice.avoid], signatureLines: profileVoice.signatureLines, signatureTellLines: profileVoice.signatureTellLines || [] } : packBase;
   const posting = originalPostingSources(jdText);
   const claims = (groundingLedger.claims || []).filter((/** @type {any} */ claim) => claim && typeof claim.id === "string" && typeof claim.text === "string")
-    .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text }));
+    .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text, verified: claim.verified === true }));
   const researchSources = research.map((fact) => ({ id: fact.id, text: fact.text, url: fact.url }));
-  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources };
+  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources, requirements: (Array.isArray(extract.requirements) ? extract.requirements : []).slice(0, 20).map((/** @type {any} */ r, /** @type {number} */ i) => ({ id: typeof r.id === "string" ? r.id : `req:${i + 1}`, text: typeof r === "string" ? r : String(r.text || r.requirement || "") })).filter((/** @type {any} */ r) => r.text) };
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
@@ -409,16 +410,16 @@ async function runPipelineBody(input, assertBase) {
     if (passIndex === 1) {
       for (const document of documents) {
         const qa = previous.qaRecords.find((/** @type {any} */ record) => record.document === document);
-        const hardIds = new Set(rewriteIssues(qa).filter((/** @type {any} */ issue) => issueBelongsToDocument(issue, document)).map((/** @type {any} */ issue) => issue.id || issue.code));
-        const fromQa = deps.repairInstructionsFromQa(qa ? [qa] : []);
-        const issues = Array.isArray(fromQa) ? fromQa.filter((/** @type {any} */ issue) => issue && hardIds.has(issue.id || issue.code) && issueBelongsToDocument(issue, document)) : [];
-        if (issues.length) automaticIssues.set(document, issues);
+        if (qa?.disposition !== "FAIL") continue;
+        const fromQa = repairInstructionsFromQa(qa ? [qa] : []);
+        const issues = fromQa.length ? fromQa : [{ id: "failed_document", kind: "format", reason: qa.reasons?.[0]?.text || "Repair the failing document", sentenceIds: [], preserveSentenceIds: [] }];
+        automaticIssues.set(document, issues);
       }
       if (!llmAvailable || !automaticIssues.size) break;
       try {
         for (const [document, issues] of automaticIssues) {
           const feature = document === "letter" ? "cover_letter" : "resume";
-          automaticPrompts.set(document, await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, sourceText: previous.texts[document] }));
+          automaticPrompts.set(document, await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, preserveSentenceIds: issues[0]?.preserveSentenceIds || [], sourceText: previous.texts[document] }));
         }
       } catch (error) {
         if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ERR_MODULE_NOT_FOUND") throw error;
@@ -451,7 +452,7 @@ async function runPipelineBody(input, assertBase) {
       const source = String(repair?.sourceText || "");
       const issues = manualIssues.filter((issue) => issueBelongsToDocument(issue, document));
       const repairPrompt = passIndex === 1 ? automaticPrompts.get(document) : repair
-        ? await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, sourceText: source }) : "";
+        ? await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, preserveSentenceIds: repair?.preserveSentenceIds || [], sourceText: source }) : "";
       const draftWriter = services.draftSlots || draftSlots;
       const writeInput = {
         outline, ledger, extract, feature, voice: voiceSamples, voiceProfile: profileVoice,
@@ -623,15 +624,18 @@ async function runPipelineBody(input, assertBase) {
     const qaRecords = [];
     const judgeStarted = Date.now();
     for (const { document, finalText, hash, sentences, gates, constraints, advisory } of validated) {
-      const judge = llmAvailable ? await deps.judgeMaterials({
-        writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }],
-        sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
-      }) : { status: "unavailable", meta: { provider: "", model: "", independent: false, promptVersion: "", latencyMs: 0 } };
-      const qa = deps.buildQaRecord({
-        document, runId, finalText, textHash: hash, gates,
+      const packet = buildJudgePacket({
+        writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }], sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
+      });
+      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints });
+      const judge = llmAvailable ? await deps.judgeMaterials(packet) : { status: "unavailable", meta: { provider: "", model: "", promptVersion: "", latencyMs: 0 } };
+      /* Previous packet assembly is centralized above. */
+
+      const qa = readQaVerdict(deps.buildQaRecord({
+        document, runId, passId: `pass-${passIndex + 1}`, finalText, textHash: hash, gates,
         judge, constraints, degraded,
         repair: { attempted: passIndex > 0 || Boolean(repair), parentRunId: repair?.parentRunId || null, changed: null, adopted: null, before: null, after: null },
-      });
+      }));
       qaRecords.push(qa);
     }
     record({ stage: "judge", status: worst(qaRecords.map((qa) => statusOf(qa.disposition))) === "FAIL" ? "failed" : "ok",
@@ -643,31 +647,57 @@ async function runPipelineBody(input, assertBase) {
   }
 
   let chosen = passes[passes.length - 1];
-  if (passes.length === 2 && (chosen.qaRecords.some((/** @type {any} */ qa) => {
-    const parent = passes[0].qaRecords.find((/** @type {any} */ item) => item.document === qa.document);
-    return addsHardFailure(qa, parent);
-  }) || !documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])))) {
-    chosen = passes[0];
-  }
+  if (passes.length === 2 && !passesOrStrictlyBetter(chosen.qaRecords, passes[0].qaRecords)) chosen = passes[0];
   const fittedSelectionSummary = documents.includes("resume")
     ? summarizeRenderedResumeSelection({ selection, ledger, model: chosen.rendered.fit.resume?.model })
     : undefined;
   const parentQa = repair ? await readJson(join(dir, "runs", repair.parentRunId, `qa.${DOCUMENT_FOR[repair.feature]}.json`)) : null;
   const changed = repair ? documents.some((document) => materiallyChanged(repair.sourceText, chosen.texts[document])) : passes.length === 2
     ? documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])) : null;
-  const adopted = repair ? Boolean(changed) && !chosen.qaRecords.some((/** @type {any} */ qa) => addsHardFailure(qa, parentQa)) : true;
-  const reason = !repair ? "" : !changed ? "No material change" : adopted ? "Repair adopted" : "Repair introduced a hard failure";
+  const rootQa = (await Promise.all(["resume", "letter"].map(d => readJson(join(dir, `qa.${d}.json`))))).filter(Boolean);
+  const projected = ["resume", "letter"].map(d => chosen.qaRecords.find((/** @type {any} */ r) => r.document === d) || rootQa.find((/** @type {any} */ r) => r.document === d)).filter(Boolean);
+  const hasRoot = Boolean(await readJson(join(dir, "run.json")));
+  const adopted = (!repair || Boolean(changed)) && (!hasRoot || passesOrStrictlyBetter(projected, rootQa));
+  const reason = repair && !changed ? "No material change" : adopted ? "Candidate adopted" : "Held — previous version remains default";
+  const before = repair ? verdictSnapshot(parentQa) : passes.length === 2 ? verdictSnapshot(passes[0].qaRecords.find((/** @type {any} */ q) => q.document === documents[0])) : null;
   const repairRecord = repair || passes.length === 2 ? {
-    parentRunId: repair?.parentRunId || null, instruction: originalInstruction, issueIds: repairIssueIds(repair),
-    changed, adopted, reason,
+    parentRunId: repair?.parentRunId || null, instruction: originalInstruction, issueIds: repairIssueIds(repair), changed, adopted, reason, before,
   } : undefined;
+  // Keep both complete automatic passes as immutable, independently servable packages.
+  if (passes.length === 2) {
+    const other = passes.find(p => p !== chosen);
+    const n = passes.indexOf(other) + 1;
+    const siblingId = `${runId}-pass-${n}`;
+    const siblingDir = join(dir, "runs", siblingId);
+    await mkdir(siblingDir, { recursive: true });
+    for (const document of documents) {
+      const feature = document === "letter" ? "cover_letter" : "resume";
+      const record = { ...other.qaRecords.find((/** @type {any} */ q) => q.document === document), runId: siblingId, passId: `pass-${n}` };
+      await writeJson(join(siblingDir, `draft.${feature}.json`), other.drafts[feature]);
+      await writeJson(join(siblingDir, `qa.${document}.json`), record);
+      await copyFile(join(other.passDir, `judge-context.${document}.json`), join(siblingDir, `judge-context.${document}.json`));
+    }
+    await writeJson(join(siblingDir, "draft.json"), other.draft);
+    await writeJson(join(siblingDir, "writer-sources.json"), other.sourceRefs);
+    await writeJson(join(siblingDir, "qa.json"), { contract: "materials.qa.v3", runId: siblingId, disposition: worst(other.qaRecords.map((/** @type {any} */ q) => q.disposition)), textHashes: other.hashes, documents: Object.fromEntries(other.qaRecords.map((/** @type {any} */ q) => [q.document, q.disposition])) });
+    await writeFile(join(siblingDir, "qa-report.md"), formatDocumentQaReport({ records: other.qaRecords }));
+    if (other.rendered.resumeHtml) await writeFile(join(siblingDir, "resume.html"), other.rendered.resumeHtml);
+    if (other.rendered.letterHtml) await writeFile(join(siblingDir, "cover-letter.html"), other.rendered.letterHtml);
+    for (const name of ["resume.pdf", "cover-letter.pdf"]) try { await copyFile(join(other.passDir, name), join(siblingDir, name)); } catch { /* PDF unavailable */ }
+    for (const name of ["jd-extract.json", "selection.json", "outline.json", "intel.json", "resume-source.json"]) try { await copyFile(join(runDir, name), join(siblingDir, name)); } catch { /* optional source */ }
+    const otherFail = other.qaRecords.find((/** @type {any} */ q) => q.disposition === "FAIL");
+    await writePackageRecords({ dir: siblingDir, rendered: other.rendered, model: other.model, snapshot: false, manifestBaseDir: dir,
+      run: { runId: siblingId, kind: "pass", parentRunId: runId, label: n === 1 ? "Original draft" : "Repaired", held: otherFail ? { reason: otherFail.reasons[0]?.text || "Document fails checks" } : null,
+        slug: payload.slug, feature: payload.feature, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource, stages } });
+  }
   for (const document of documents) {
     const feature = document === "letter" ? "cover_letter" : "resume";
     await writeJson(join(runDir, `draft.${feature}.json`), chosen.drafts[feature]);
     const qa = chosen.qaRecords.find((/** @type {any} */ item) => item.document === document);
+    await copyFile(join(chosen.passDir, `judge-context.${document}.json`), join(runDir, `judge-context.${document}.json`));
     if (qa) await writeJson(join(runDir, `qa.${document}.json`), {
       ...qa, repair: { ...(qa.repair || {}), attempted: passes.length === 2 || Boolean(repair),
-        parentRunId: repair?.parentRunId || null, changed, adopted },
+        parentRunId: repair?.parentRunId || null, changed, adopted, before, after: verdictSnapshot(qa) },
     });
   }
   /* The legacy draft stays a combined view; per-document files are the repair sources. */
@@ -688,13 +718,12 @@ async function runPipelineBody(input, assertBase) {
   const dispositions = Object.fromEntries(Object.entries(currentQa).filter(([, qa]) => qa).map(([document, qa]) => [document, statusOf(qa.disposition)]));
   const disposition = worst(Object.values(dispositions));
   const textHashes = Object.fromEntries(Object.entries(currentQa).filter(([, qa]) => qa?.textHash).map(([document, qa]) => [document, qa.textHash]));
-  await writeJson(join(runDir, "qa.json"), { contract: "materials.qa.v2", runId, disposition, textHashes, documents: dispositions });
+  await writeJson(join(runDir, "qa.json"), { contract: "materials.qa.v3", runId, disposition, textHashes, documents: dispositions });
   const resumeRecord = payload.resume ? runResumeBlock(payload.resume, payload.resumeChoice) : null;
   const notes = resumeRecord ? [formatProvenanceLine(payload.resume),
     ...(resumeRecord.degraded ? [`degraded: ${resumeRecord.degraded.code}: ${resumeRecord.degraded.message}`] : resumeRecord.message ? [resumeRecord.message] : []),
   ] : [];
-  await writeFile(join(runDir, "qa-report.md"), ["# QA report", "", `Status: ${disposition}`, ...notes,
-    ...Object.entries(currentQa).filter(([, qa]) => qa).flatMap(([document, qa]) => ["", `## ${document}: ${qa.disposition}`, qa.dispositionReason || ""]), ""].join("\n"), "utf8");
+  await writeFile(join(runDir, "qa-report.md"), formatDocumentQaReport({ records: Object.values(currentQa).filter(Boolean), notes }), "utf8");
   if (chosen.rendered.resumeHtml) await writeFile(join(runDir, "resume.html"), chosen.rendered.resumeHtml, "utf8");
   if (chosen.rendered.letterHtml) await writeFile(join(runDir, "cover-letter.html"), chosen.rendered.letterHtml, "utf8");
   for (const name of ["resume.pdf", "cover-letter.pdf"]) {
@@ -732,7 +761,9 @@ async function runPipelineBody(input, assertBase) {
     snapshot: false, manifestBaseDir: dir, manifestExtra, extraFiles,
     manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" },
     run: {
-      runId, slug: payload.slug, feature: payload.feature, textHash: documents.length === 1 ? chosen.hashes[documents[0]] : chosen.hashes,
+      runId, kind: "run", ...(passes.length === 2 ? { label: chosen === passes[0] ? "Original draft" : "Repaired" } : {}),
+      held: disposition === "FAIL" ? { reason: Object.values(currentQa).find(q => q?.disposition === "FAIL")?.reasons?.[0]?.text || "Document fails checks" } : null,
+      slug: payload.slug, feature: payload.feature, textHash: documents.length === 1 ? chosen.hashes[documents[0]] : chosen.hashes,
       repair: repairRecord, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource,
       pin: pin ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel } : undefined,
       resume: resumeRecord || undefined,
@@ -743,7 +774,7 @@ async function runPipelineBody(input, assertBase) {
   });
   if (adopted) {
     await assertBase();
-    const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "selection.json", "outline.json", "draft.json", "writer-sources.json",
+    const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "selection.json", "outline.json", "draft.json", "writer-sources.json", ...documents.map(d => `judge-context.${d}.json`),
       ...(intelPack ? ["intel.json"] : []), ...(outreach ? ["outreach.json", "outreach.txt"] : []),
       ...(documents.includes("resume") ? ["resume.html", "resume.txt", "resume.pdf", "draft.resume.json", "qa.resume.json"] : []),
       ...(documents.includes("letter") ? ["cover-letter.html", "cover-letter.txt", "cover-letter.pdf", "draft.cover_letter.json", "qa.letter.json"] : []),
@@ -764,7 +795,7 @@ async function runPipelineBody(input, assertBase) {
     }
   }
   return {
-    outcome: "published", runId, cacheKey, model: chosen.model, stages, degraded, adopted,
+    outcome: adopted ? "published" : "held", runId, cacheKey, model: chosen.model, stages, degraded, adopted,
     repair: repairRecord,
     qa: { status: disposition.toLowerCase(), disposition, documents: chosen.qaRecords, repaired: passes.length === 2 },
   };
