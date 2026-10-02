@@ -61,6 +61,36 @@ describe("P18 · structured output on OpenRouter", () => {
 });
 
 describe("P18 · a keyless grading model reuses the writer's key on the same endpoint", () => {
+  for (const [provider, baseUrl, model] of [
+    ["openai", "https://api.openai.com/v1", "gpt-5.4-mini"],
+    ["openrouter", "https://openrouter.ai/api/v1", "openai/gpt-5.4-mini"],
+  ]) {
+    it(`${provider} Settings writer shares its key with the explicit default judge endpoint`, async () => {
+      for (const [writerBase, judgeBase] of [["", baseUrl], [baseUrl + "/", ""]]) {
+        const pin = await resolveActivePin({
+          provider, model, apiKey: "fictional-writer-key", baseUrl: writerBase, updatedAt: "",
+          judge: { provider, model, baseUrl: judgeBase },
+        });
+        assert.equal(pin.judge.apiKey, "fictional-writer-key");
+      }
+      const custom = await resolveActivePin({
+        provider, model, apiKey: "fictional-writer-key", baseUrl: "", updatedAt: "",
+        judge: { provider, model, baseUrl: "https://other.example/v1" },
+      });
+      assert.equal(custom.judge.apiKey, "", "a custom endpoint must not inherit the default endpoint's key");
+    });
+
+    it(`${provider} judge-test accepts the Settings pair with an explicit default base URL`, async () => {
+      await writeLlmConfig({ provider, model, apiKey: "fictional-writer-key", baseUrl: "" }, env);
+      const { calls, fetchImpl } = capture();
+      const res = mockRes();
+      await handleJudgeTest({ body: { provider, model, baseUrl } }, res, env, { fetchImpl });
+      assert.equal(res.body.ok, true);
+      assert.equal(calls[0].headers.authorization, "Bearer fictional-writer-key");
+      assert.equal(JSON.stringify(res.body).includes("fictional-writer-key"), false);
+    });
+  }
+
   it("resolveActivePin hands the writer's key to a same-endpoint judge only", async () => {
     const same = await resolveActivePin({
       provider: "openai", model: "gpt-5.4", apiKey: "fictional-writer-key", baseUrl: "", updatedAt: "",

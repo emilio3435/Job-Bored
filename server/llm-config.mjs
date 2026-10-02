@@ -387,7 +387,7 @@ function sameEndpoint(a, b) {
   return Boolean(a && b)
     && normalizeProvider(asString(a && a.provider)) !== ""
     && normalizeProvider(asString(a && a.provider)) === normalizeProvider(asString(b && b.provider))
-    && asString(a && a.baseUrl).replace(/\/+$/, "") === asString(b && b.baseUrl).replace(/\/+$/, "");
+    && resolveProvider(a).baseUrl.replace(/\/+$/, "") === resolveProvider(b).baseUrl.replace(/\/+$/, "");
 }
 
 /**
