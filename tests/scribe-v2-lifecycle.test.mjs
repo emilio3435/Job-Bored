@@ -656,3 +656,10 @@ it('SCRP-R1-9 Continue then Discard aborts the request and permits Send', async 
   await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
   pending.resolve(); ctl.close();
 });
+
+it('SCRP-R1-10 locked blocks use fixed copy rather than echoing detail', async () => {
+  const t = reliabilityApi();
+  t.api.stream = async (_id, h) => { h.onEvent({ event: 'blocked', data: { op: { opId: 'locked' }, reason: 'locked', detail: 'That would change a locked fact.' } }); h.onEvent({ event: 'done', data: { status: 'ready' } }); };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.log.querySelector('.scribe__msg--blocked').textContent, 'Blocked: that would change a locked fact.'); ctl.close();
+});

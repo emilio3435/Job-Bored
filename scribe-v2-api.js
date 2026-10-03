@@ -232,7 +232,7 @@
     { event: "stage", data: { stage: "drafting" } },
     { event: "stage", data: { stage: "checking", done: 1, total: 3 } },
     { event: "op", data: { op: { opId: "o1", op: "replace", node: "b:acme:c14", text: "Measured carrier delays and reduced delays through a weekly operations dashboard." } } },
-    { event: "blocked", data: { op: { opId: "o4", op: "replace", node: "stmt", text: "Shortened the statement." }, reason: "locked", detail: "38%" } },
+    { event: "blocked", data: { op: { opId: "o4" }, reason: "locked", detail: "That would change a locked fact." } },
     { event: "stage", data: { stage: "measuring" } },
     { event: "proposal", data: { summary: { changes: 1, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 } } },
     { event: "done", data: { status: "ready" } },

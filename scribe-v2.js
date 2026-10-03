@@ -1998,10 +1998,9 @@
 
   /* The blocked-op chat line (SPEC §2 Guards), worded by reason. */
   function blockedLine(data) {
-    var detail = data && typeof data.detail === "string" ? data.detail.slice(0, 300) : "";
     var reason = data && data.reason;
     if (reason === "out_of_scope") return active && active.state.proposal && Array.isArray(active.state.proposal.scope) ? "Blocked: that change is outside the selected text." : "Blocked: that change was outside what you asked Scribe to edit.";
-    if (reason === "locked") return detail ? "Blocked: “" + detail + "” is a locked fact." : "Blocked: that would change a locked fact.";
+    if (reason === "locked") return "Blocked: that would change a locked fact.";
     return copy(reason);
   }
 

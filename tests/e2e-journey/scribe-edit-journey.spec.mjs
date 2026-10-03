@@ -629,3 +629,18 @@ for (const which of ['resume', 'cover_letter']) {
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F27 R1 #10 ${which} real-service locked fact uses fixed blocked copy`, async ({ page }) => {
+    const op = which === 'resume'
+      ? { opId: 'locked', op: 'replace', node: 'seat:acme', text: 'Invented title' }
+      : { opId: 'locked', op: 'replace', node: 'p:p2', text: 'Reduced carrier delays by 40%.' };
+    const h = await realDesk(page, which, { propose: async () => ({ ops: [], blocked: [{ op, reason: 'locked', detail: '38%' }], summary: { changes: 0 } }) });
+    try {
+      await h.send();
+      await expect(h.desk.locator('.scribe__msg--blocked')).toHaveText('Blocked: that would change a locked fact.');
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      await expect(h.desk.locator('[data-review="save"]')).toHaveCount(0);
+    } finally { await h.service.close(); }
+  });
+}

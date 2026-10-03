@@ -880,6 +880,7 @@ export async function installScribeEditApi(page, options) {
     streamOpened: (id) => streamFor(id).opened.promise,
     /** Write one SSE event; an `op` event also becomes a validated op. */
     emit(id, event, data) {
+      if (event === "blocked" && data.reason === "locked") data = { op: { opId: data.op?.opId }, reason: "locked", detail: "That would change a locked fact." };
       const p = proposals.find((x) => x.id === id);
       if (event === "op" && p) p.ops.push(data.op);
       if (event === "done" && p) p.status = data.status;

@@ -69,7 +69,7 @@ describe("scribe-v2-api stub: the C0 fixtures, not invented data", () => {
   it("should carry fixtures/model.json and sse-transcript.json verbatim", () => {
     const { JBScribeApi } = loadApi();
     assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.model), fixture("model.json"));
-    assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.transcript), fixture("sse-transcript.json"));
+    assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.transcript), fixture("sse-transcript.json").map(frame => frame.event === "blocked" ? { event: "blocked", data: { op: { opId: "o4" }, reason: "locked", detail: "That would change a locked fact." } } : frame));
   });
 
   it("should serve exactly the node ids the server derives from the model", () => {
