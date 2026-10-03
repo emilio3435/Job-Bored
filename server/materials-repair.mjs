@@ -1,3 +1,4 @@
+import { readQaVerdict, repairInstructionsFromQa } from "./materials-qa.mjs";
 /** Build a document-specific repair request from an immutable run source. */
 import { usableDraft } from "./materials-history.mjs";
 
@@ -59,12 +60,16 @@ export function buildRepairRequestPayload(manifest, options = {}) {
       : [];
   if (!instruction && !selected.length) throw httpError("Choose a review issue or enter a repair instruction.", 400, "repair_intent_missing");
   const resolvedIds = selected.map(issueId);
+  const view = readQaVerdict(source.qa);
+  const targets = view ? repairInstructionsFromQa([view]) : [];
+  const targetedIds = new Set([...selected, ...targets].flatMap(issue => Array.isArray(issue?.sentenceIds) ? issue.sentenceIds : []));
+  const preserveSentenceIds = view && !targets.some(target => !target.sentenceIds.length) ? view.sentences.filter((/** @type {any} */ sentence) => !targetedIds.has(sentence.id)).map((/** @type {any} */ sentence) => sentence.id) : [];
   const requestId = cleanString(options.requestId);
-  /** @type {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} */
+  /** @type {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], targets: Record<string, unknown>[], preserveSentenceIds: string[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} */
   const repairInput = {
     feature: /** @type {"resume" | "cover_letter"} */ (feature),
     instruction,
-    issues: selected,
+    issues: selected, targets, preserveSentenceIds,
     issueIds: resolvedIds,
     parentRunId: source.parentRunId,
     sourceText: source.sourceText,

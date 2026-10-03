@@ -324,11 +324,15 @@ async function writeJson(path, value) {
 /**
  * @typedef {object} RunRecordInput
  * @property {string} runId
+ * @property {"run"|"pass"} [kind]
+ * @property {string} [parentRunId]
+ * @property {"Original draft"|"Repaired"} [label]
+ * @property {{reason:string}|null} [held]
  * @property {string} slug
  * @property {string} feature
  * @property {string | Record<string, string>} [textHash]
  * @property {{ selected: number, featured: number, earlier: number, pageBudgetExcluded: number }} [selectionSummary]
- * @property {{ parentRunId?: string | null, instruction?: string, issueIds?: string[], changed?: boolean | null, adopted?: boolean | null, reason?: string }} [repair]
+ * @property {{ parentRunId?: string | null, instruction?: string, issueIds?: string[], changed?: boolean | null, adopted?: boolean | null, reason?: string, before?: {runId:string,disposition:string|null,failedCheckIds:string[]}|null }} [repair]
  * @property {string} requestedAt
  * @property {string} finishedAt
  * @property {RenderModel} model
@@ -339,6 +343,8 @@ async function writeJson(path, value) {
  * @property {{ provider?: string, requestedModel?: string, resolvedModel?: string }} [pin]
  * @property {{ stage: string, status: "ok" | "skipped" | "review" | "failed", ms?: number, llm?: boolean, out?: string[], detail?: string }[]} stages
  * @property {{ path: string, bytes?: number, sha256?: string, pages?: number }[]} [artifacts]
+ * @property {"legacy" | "lean"} [engine]
+ * @property {string} [leanPromptVersion]
  * @property {string} [cacheKey]
  * @property {{ code: string, reenteredAt: string, detail?: string }[]} [repairs]
  * @property {import("./materials-resume-source.mjs").RunResumeBlock} [resume]
@@ -392,6 +398,8 @@ export function buildRunRecord(input) {
     template: templateBlock(input.model, input.feature, input.source, input.regeneratedFrom),
     stages: input.stages,
   };
+  if (input.engine) run.engine = input.engine;
+  if (input.leanPromptVersion) run.leanPromptVersion = input.leanPromptVersion;
   if (input.pin && (input.pin.provider || input.pin.resolvedModel)) run.pin = input.pin;
   if (input.artifacts && input.artifacts.length) run.artifacts = input.artifacts;
   if (typeof input.cacheKey === "string" && input.cacheKey) run.cacheKey = input.cacheKey;
@@ -403,6 +411,10 @@ export function buildRunRecord(input) {
   if (input.textHash) run.textHash = input.textHash;
   if (input.selectionSummary) run.selectionSummary = input.selectionSummary;
   if (input.repair) run.repair = input.repair;
+  if (input.kind) run.kind = input.kind;
+  if (input.parentRunId) run.parentRunId = input.parentRunId;
+  if (input.label) run.label = input.label;
+  if (input.held !== undefined) run.held = input.held;
   return run;
 }
 

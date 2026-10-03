@@ -269,26 +269,29 @@ describe("W2 · rows with a pipeline verdict", () => {
   /* HOLES SCORE (spec §0.3): the row shows the grade button and nothing
      of the scorecard; the why and the fix moved to the score modal
      (tests/holes-score-dossier.test.mjs). */
-  it("should show the FAIL verdict as a grade button and keep the scorecard out of the row", () => {
+  /* GRADE D7: the button is the verdict word and its first reason. */
+  it("should show the FAIL verdict as a verdict button and keep the scorecard out of the row", () => {
     const r = row(render(manifest()), "resume");
     assert.match(r, /data-qa="fail"/);
-    assert.match(r, /class="jb-grade"[^>]*data-score-open data-feature="resume"[^>]*aria-label="Grade F, 50 of 100 — open score details"/);
+    assert.match(r, /class="jb-grade"[^>]*data-score-open data-feature="resume"[^>]*aria-label="Resume: Fails — [^"]+\. Open the quality check\."/);
+    assert.doesNotMatch(r, /of 100|Grade [A-F]/);
     /* Grok review: the pill says the document's own state, not the verdict. */
-    assert.match(r, /case__docst--ready" data-status="review">ready</);
+    assert.match(r, /case__docst--drafted" data-status="review">drafted</);
     assert.doesNotMatch(r, /6 \/ 12|failed its quality check|fell back to rules|Review your details/);
     assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0);
   });
 
-  it("should gate every Download entry of a FAIL draft, and none of a REVIEW draft", () => {
+  /* GRADE G7: a FAIL root is held; every entry asks first, with the reason. */
+  it("should gate every Download entry of a FAIL draft as held, and none of a REVIEW draft", () => {
     const html = render(manifest());
     const resume = row(html, "resume");
     const letter = row(html, "cover_letter");
     assert.match(resume, /data-action="materials-download-menu"/);
-    assert.equal((resume.match(/data-gate="fail"/g) || []).length, 4, "PDF, text, Word and LinkedIn copy");
+    assert.equal((resume.match(/data-gate="held" data-held="[^"]+"/g) || []).length, 4, "PDF, text, Word and LinkedIn copy");
     assert.match(resume, /\/files\/resume\.txt\?download=1/);
     assert.match(resume, /\/export\/resume\.docx\?download=1/);
     assert.doesNotMatch(letter, /data-gate/);
-    assert.match(letter, /case__docst--ready" data-status="review">ready</);
+    assert.match(letter, /case__docst--drafted" data-status="review">drafted</);
     assert.doesNotMatch(letter, /LinkedIn/);
   });
 
@@ -303,18 +306,18 @@ describe("W2 · rows with a pipeline verdict", () => {
 });
 
 describe("MREV D1 · rows with a judge verdict (materials.qa.v2)", () => {
-  it("should show the v2 verdict as one grade button, capped at D on FAIL, with no inline scorecard", async () => {
+  it("should show the v2 verdict as one verdict button, with no score and no inline scorecard", async () => {
     const { V2_LETTER_FAIL } = await import("./fixtures/materials-qa-v2.mjs");
     const base = manifest();
     const html = render({ ...base, quality: { documents: { ...base.quality.documents, cover_letter: V2_LETTER_FAIL } } });
     const r = row(html, "cover_letter");
-    assert.match(r, /class="jb-grade"[^>]*data-feature="cover_letter"[^>]*aria-label="Grade (D|D-|F), \d+ of 100 — open score details"/);
+    assert.match(r, /class="jb-grade"[^>]*data-feature="cover_letter"[^>]*aria-label="Cover letter: Fails — 1 claim needs a source\. Open the quality check\."/);
     /* Grok review: the pill says the document's own state, not the verdict. */
-    assert.match(r, /case__docst--ready" data-status="review">ready</);
+    assert.match(r, /case__docst--drafted" data-status="review">drafted</);
     assert.doesNotMatch(r, /data-qa-contract|Factual blockers|64 \/ 100/);
     assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0, "Repair lives in the modal");
     /* A v2 FAIL still gates Download. */
-    assert.equal((r.match(/data-gate="fail"/g) || []).length, 3, "PDF, text and Word");
+    assert.equal((r.match(/data-gate="held"/g) || []).length, 3, "PDF, text and Word");
   });
 });
 

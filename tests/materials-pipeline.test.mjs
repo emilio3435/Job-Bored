@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -11,8 +11,8 @@ import { buildOutline, summarizeRenderedResumeSelection } from "../server/materi
 import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { validateRenderModel } from "../server/materials-render.mjs";
-import { runPipeline } from "../server/materials-pipeline.mjs";
-import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
+import { runPipeline, renderedBodyText } from "../server/materials-pipeline.mjs";
+import { rescoreRun, withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
 const RESUME = [
   "Jordan Rivera", "Northwind — Operations Analyst, 2021–2026",
@@ -224,7 +224,7 @@ describe("MREV B1 pipeline", () => {
     assert.equal(run.feature, "both");
     assert.deepEqual(Object.keys(run.textHash).sort(), ["letter", "resume"]);
     for (const name of ["draft.resume.json", "draft.cover_letter.json", "qa.resume.json", "qa.letter.json", "qa.json", "resume.html", "cover-letter.html"]) assert.ok(await readFile(join(dir, name), "utf8"), name);
-    assert.equal((await json(dir, "qa.json")).contract, "materials.qa.v2");
+    assert.equal((await json(dir, "qa.json")).contract, "materials.qa.v3");
     assert.ok(await readFile(join(dir, "runs/run-mrev-1/resume-source.json"), "utf8"), "the immutable run keeps its source resume");
     const next = testServices();
     await runPipeline(base(dir, next.services, "cover_letter", "run-mrev-2"));
@@ -269,6 +269,8 @@ describe("MREV B1 pipeline", () => {
     assert.equal((await json(dir, "run.json")).textHash, hash);
     const txt = await readFile(join(dir, "resume.txt"), "utf8");
     for (const line of judged.text.split("\n").filter(Boolean)) assert.ok(txt.replace(/\s+/g, " ").includes(line.replace(/\s+/g, " ").slice(0, 25)));
+    const saved = await json(dir, "render-model.json");
+    assert.equal(`sha256:${createHash("sha256").update(renderedBodyText(saved, "resume")).digest("hex")}`, qa.textHash, "stored model is the delivered fitted body for Rescore");
   });
 
   it("RESD R4 records selected claims removed by final one-page fitting", async () => {
@@ -458,12 +460,12 @@ describe("MREV B1 pipeline", () => {
     assert.equal(await readFile(join(dir, "qa.letter.json"), "utf8"), letterQa);
   });
 
-  it("B8: removes stale PDFs that the adopted feature did not render", async () => {
+  it("B8: removes stale requested PDFs and preserves unrequested PDFs", async () => {
     await writeFile(join(dir, "resume.pdf"), "stale resume PDF");
     await writeFile(join(dir, "cover-letter.pdf"), "stale cover letter PDF");
     const letter = testServices();
     await runPipeline(base(dir, letter.services, "cover_letter", "run-mrev-pdf-letter"));
-    await assert.rejects(readFile(join(dir, "resume.pdf"), "utf8"));
+    assert.equal(await readFile(join(dir, "resume.pdf"), "utf8"), "stale resume PDF");
     await assert.rejects(readFile(join(dir, "cover-letter.pdf"), "utf8"));
 
     await writeFile(join(dir, "resume.pdf"), "stale resume PDF");
@@ -471,7 +473,7 @@ describe("MREV B1 pipeline", () => {
     const resume = testServices();
     await runPipeline(base(dir, resume.services, "resume", "run-mrev-pdf-resume"));
     await assert.rejects(readFile(join(dir, "resume.pdf"), "utf8"));
-    await assert.rejects(readFile(join(dir, "cover-letter.pdf"), "utf8"));
+    assert.equal(await readFile(join(dir, "cover-letter.pdf"), "utf8"), "stale cover letter PDF");
   });
 
   it("B10: records delint findings as advisory without another writer call", async () => {
@@ -525,4 +527,78 @@ describe("MREV B1 pipeline", () => {
     await assert.rejects(runPipeline({ ...base(dir, services), ledger: { claims: [], employers: [] } }), (error) => error.code === "ledger_empty");
     assert.equal(calls.write.length, 0);
   });
+});
+
+describe("GRADE backend pass persistence and adoption", () => {
+  let dir;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "grade-passes-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  for (const newCheck of [false, true]) it(`GRADE-B FIX1-B10: ${newCheck ? "rejects a smaller failure set with a new check" : "chooses and publishes a still-FAIL strict improvement"}`, async () => {
+    const gates = ids => ids.map(id => ({ id, kind: "hard", pass: false, reason: id, sentenceIds: [] }));
+    await runPipeline(base(dir, testServices({ hardGate: () => gates(["a", "b", "c"]) }).services, "cover_letter", "held-root"));
+    let call = 0;
+    const { services } = testServices({ rewriteClose: true, hardGate: () => gates(++call === 1 ? ["a", "b", "c"] : newCheck ? ["a", "z"] : ["a"]) });
+    const request = base(dir, services, "cover_letter", "candidate"); request.payload.notes = "new attempt";
+    const result = await runPipeline(request);
+    assert.equal(result.adopted, !newCheck);
+    assert.equal((await json(dir, "run.json")).runId, newCheck ? "held-root" : "candidate");
+    const candidate = await json(join(dir, "runs", "candidate"), "run.json");
+    assert.equal(candidate.label, newCheck ? "Original draft" : "Repaired");
+    assert.ok(candidate.held);
+  });
+  it("GRADE-B FIX1-B4: the identical draft request writes again after a failing Rescore", async () => {
+    const app = join(dir, "harbor-fleet-role"); await mkdir(app);
+    const { services, calls } = testServices();
+    await runPipeline(base(app, services, "cover_letter", "eligible"));
+    assert.equal((await runPipeline(base(app, services, "cover_letter", "cache-check"))).outcome, "cached");
+    await rescoreRun({ slug: "harbor-fleet-role", runId: "eligible" }, { applicationsRoot: dir, qaTools: {
+      runHardGates: () => [], judgeMaterials: input => ({ status: "ok", judgment: { documents: input.documents.map(doc => ({ ...doc, ratings: [], issues: [], qualificationGaps: [], sentences: doc.sentences.map(s => ({ id: s.id, status: "unsupported", reason: "Needs a source.", citations: [] })) })) } }),
+    } });
+    const before = calls.write.length;
+    assert.notEqual((await runPipeline(base(app, services, "cover_letter", "redraft"))).outcome, "cached");
+    assert.ok(calls.write.length > before);
+  });
+  it("GRADE-B G5: every FAIL triggers repair even without a hard rewrite issue", async () => {
+    const { services, calls } = testServices({ hardGate: () => [{ id: "artifact_usable", kind: "hard", pass: false, reason: "Check artifact.", sentenceIds: [] }] });
+    await runPipeline(base(dir, services, "cover_letter", "failed-artifact"));
+    assert.equal(calls.write.length, 2);
+  });
+  it("GRADE-B G5: manual repair forwards failed-check targets and preserved sentences", async () => {
+    const { services } = testServices();
+    const prompts = [];
+    services.buildRepairPrompt = async input => { prompts.push(input); return "Repair the failed claim."; };
+    const request = base(dir, services, "cover_letter", "manual-targets");
+    request.repair = { feature: "cover_letter", parentRunId: "original", instruction: "Fix the unsupported claim", sourceText: "Original text.", issues: [], targets: [{ id: "sentence:L1", kind: "fact", reason: "Needs a source", sentenceIds: ["L1"] }], preserveSentenceIds: ["L2"] };
+    await runPipeline(request);
+    assert.deepEqual(prompts[0].issues[0].sentenceIds, ["L1"]);
+    assert.deepEqual(prompts[0].preserveSentenceIds, ["L2"]);
+  });
+  it("GRADE-B G6: both passes keep draft, verdict, HTML, text and model in sibling runs", async () => {
+    const { services } = testServices({ rewriteClose: true, qaIssue: (_args, n) => n === 1 ? { id: "i1", kind: "fact", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] } : null });
+    await runPipeline(base(dir, services, "cover_letter", "passing-repair"));
+    const sibling = join(dir, "runs", "passing-repair-pass-1");
+    const run = await json(sibling, "run.json");
+    assert.equal(run.kind, "pass"); assert.equal(run.parentRunId, "passing-repair"); assert.equal(run.label, "Original draft");
+    for (const file of ["draft.cover_letter.json", "qa.letter.json", "cover-letter.html", "cover-letter.txt", "render-model.json"]) assert.ok((await readFile(join(sibling, file))).length, file);
+    assert.equal((await json(join(dir, "runs", "passing-repair"), "run.json")).label, "Repaired");
+  });
+  it("GRADE-B G7: a later held repair keeps the previous good root as default", async () => {
+    const first = testServices(); await runPipeline(base(dir, first.services, "cover_letter", "previous-good"));
+    const { services } = testServices({ rewriteClose: true, hardGate: () => [{ id: "tool_support", kind: "hard", pass: false, reason: "Unknown tool.", sentenceIds: ["L1"] }] });
+    const request = base(dir, services, "cover_letter", "still-failing"); request.payload.notes = "new draft";
+    const result = await runPipeline(request);
+    assert.equal(result.adopted, false);
+    assert.equal((await json(dir, "run.json")).runId, "previous-good");
+    assert.ok((await json(join(dir, "runs", "still-failing"), "run.json")).held);
+  });
+});
+it("GRADE-B D6: pipeline derives bounded requirements from the posting extraction sections", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "grade-coverage-"));
+  try {
+    const { services, calls } = testServices();
+    await runPipeline(base(dir, services, "cover_letter"));
+    assert.ok(calls.judge[0].sources.requirements.length > 0);
+    assert.ok(calls.judge[0].sources.requirements.every(r => r.id && r.text && POSTING.includes(r.text)));
+    assert.ok(calls.judge[0].sources.requirements.length <= 20);
+  } finally { await rm(dir, {recursive:true,force:true}); }
 });

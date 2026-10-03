@@ -84,15 +84,16 @@
     return name + " fell back to rules" + (why ? ": " + why : "") + ".";
   }
 
-  /* The verdict's reason: rubric shortfalls and degraded notes rewritten,
-     a plain message passed through. */
+  /* The verdict's reason: degraded notes rewritten, a plain message passed
+     through. GRADE (D4): an old record's stored score ("rubric 9/12 below
+     10", "Quality score 64 is below 80.") is never printed. */
   function plainDisposition(qa) {
     var reason = String((qa && qa.dispositionReason) || "").trim();
     if (!reason) return "";
-    var rub = /^rubric\s+(\d+)\/(\d+)\s+below\s+(\d+)/i.exec(reason);
-    if (rub) return "It scored " + rub[1] + " of " + rub[2] + "; a ready draft needs " + rub[3] + ".";
+    if (/^rubric\s+\d+\/\d+\s+below\s+\d+/i.test(reason)) return "It fell short of the old checker’s rubric.";
     if (/^degraded:\s*/i.test(reason)) return plainDegraded(reason.replace(/^degraded:\s*/i, ""));
     reason = reason.replace(/^[a-z_]+\s+\d+\/\d+:\s*/i, "");
+    if (/\d+\s*\/\s*\d+|\bscored?\b[^.]*\d|\d+\s+of\s+\d+/i.test(reason)) return "The old checker sent it to review.";
     return cap(reason) + (/[.!?]$/.test(reason) ? "" : ".");
   }
 
@@ -287,11 +288,14 @@
   }
 
   /* 1 for an old run's rubric record (materials.qa.v1), 2 for the judge's
-     K3 record (materials.qa.v2), 0 for no verdict. The manifest may copy a
-     v2 record without its contract field, so the fields decide. */
+     K3 record (materials.qa.v2), 3 for GRADE's verdict record
+     (materials.qa.v3), 0 for no verdict. The manifest may copy a record
+     without its contract field, so the fields decide. Keep in step with
+     materials-score.js qaVersion. */
   function qaVersion(qa) {
     if (!qa || typeof qa !== "object") return 0;
     if (qa.rubric && typeof qa.rubric === "object") return 1;
+    if (qa.contract === "materials.qa.v3" || (Array.isArray(qa.reasons) && Array.isArray(qa.checks))) return 3;
     if (qa.contract === "materials.qa.v2" || (qa.quality && typeof qa.quality === "object") || Array.isArray(qa.gates)) return 2;
     return 0;
   }
@@ -303,6 +307,8 @@
 
   function dispositionOf(qualityDoc) {
     var qa = qaOf(qualityDoc);
+    /* G8: a version that was not rescored has no verdict until it is. */
+    if (qa && qa.state === "not_rescored") return "";
     if (qa && qa.disposition) return String(qa.disposition).toUpperCase();
     var status = String((qualityDoc && qualityDoc.status) || "").toLowerCase();
     if (status === "fail") return "FAIL";
@@ -328,7 +334,7 @@
   function fixActions(qualityDoc, type) {
     var d = dispositionOf(qualityDoc);
     var qa = qaOf(qualityDoc);
-    if (qaVersion(qa) === 2) {
+    if (qaVersion(qa) >= 2) {
       var issues = Array.isArray(qa.issues) ? qa.issues : [];
       var acts = [{ action: "materials-repair", feature: type, label: "Repair" }];
       if (issues.some(function (i) { return i && i.action === "needs_evidence"; })) acts.push({ action: "materials-open-profile", focus: "details", label: "Review your details" });
@@ -424,6 +430,7 @@
   };
 
   function gradeFailureReason(j) {
+    if (j.status === "unavailable" && !j.errorCode && j.reason) return String(j.reason);
     var code = String(j.errorCode || "");
     if (code === "timeout") {
       var s = Math.round(Number(j.latencyMs) / 1000);
@@ -464,7 +471,7 @@
      send, so the instruction box covers it. */
   function repairTargets(qualityDoc) {
     var qa = qaOf(qualityDoc);
-    if (qaVersion(qa) !== 2) return [];
+    if (qaVersion(qa) < 2) return [];
     return qaIssues(qa).filter(function (it) { return it.id; });
   }
 
@@ -571,15 +578,18 @@
   };
 
   /**
-   * opts: { type, pdfHref, htmlHref, txtHref, docxHref, linkedin: bool, fail: bool }
+   * opts: { type, pdfHref, htmlHref, txtHref, docxHref, linkedin: bool, fail: bool, held: reason }
    * htmlHref stands in for a PDF that never rendered (U17).
    * Every entry keeps data-action="materials-download" (or the copy action)
-   * so role-materials.js can gate it on a FAIL verdict.
+   * so role-materials.js can gate it on a FAIL verdict, or (GRADE G7) on a
+   * held version, whose confirm names the reason.
    */
   function downloadMenuHtml(opts) {
     var type = opts.type;
     var names = FILE_NAMES[type] || FILE_NAMES.resume;
-    var gate = opts.fail ? ' data-gate="fail"' : "";
+    var gate = opts.held
+      ? ' data-gate="held" data-held="' + esc(opts.held) + '"'
+      : (opts.fail ? ' data-gate="fail"' : "");
     var items = [];
     function link(href, filename, title, sub) {
       items.push('<a class="mat-dl__item" role="menuitem" href="' + esc(href) + '" download'
@@ -603,14 +613,17 @@
   }
 
   /* The in-page confirm a FAIL download asks before it goes (never
-     window.confirm). */
+     window.confirm). opts.held (GRADE G7): the held version's reason. */
   function failConfirmHtml(type, target, opts) {
     var id = "mat-confirm-" + esc(type);
+    var held = opts && opts.held ? String(opts.held).trim().replace(/[.!?]+$/, "") : "";
+    var question = held ? "This version is held — " + held + ". Download anyway?" : "This draft failed its quality check. Download anyway?";
     var second = opts && opts.repair === false
       ? '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-confirm-cancel">Cancel</button>'
       : '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-repair" data-feature="' + esc(type) + '">Repair first</button>';
-    return '<div class="mat-confirm" role="alertdialog" aria-modal="false" aria-labelledby="' + id + '" data-confirm-for="' + esc(type) + '">'
-      + '<p class="mat-confirm__q" id="' + id + '">This draft failed its quality check. Download anyway?</p>'
+    return '<div class="mat-confirm" role="alertdialog" aria-modal="false" aria-labelledby="' + id + '" data-confirm-for="' + esc(type) + '"'
+      + (held ? ' data-gate="held"' : "") + ">"
+      + '<p class="mat-confirm__q" id="' + id + '">' + esc(question) + "</p>"
       + '<div class="mat-confirm__acts">'
       + '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-download-anyway"'
       + ' data-kind="' + esc(target.kind) + '"'
@@ -657,34 +670,29 @@
     });
   }
 
-  function historyHtml(runs, type) {
+  /* opts: { base, promote, rescore } — GRADE G6/G7: the rows are the score
+     modal's own (materials-score.js versionsHtml): label, verdict, Held,
+     Preview and Download from the run's files, Use this version. */
+  function historyHtml(runs, type, opts) {
     var list = runsFor(runs, type);
     if (!list.length) return '<p class="mat-hist__empty">No earlier versions of this ' + esc(docWords(type)) + " yet.</p>";
-    /* HOLES SCORE (§0.3): each version's grade is in the score modal's
-       History; this list is for switching and comparing versions. */
-    var rows = list.map(function (r) {
-      var active = Array.isArray(r.active) && r.active.indexOf(type) >= 0;
-      return '<li class="mat-hist__run" data-run="' + esc(r.runId) + '">'
-        + '<span class="mat-hist__when">' + esc(shortDate(r.date) || r.runId) + "</span>"
-        + '<span class="mat-hist__tpl">' + esc(r.template ? cap(r.template) : "") + (r.source === "regenerate" ? " · regenerated" : "") + "</span>"
-        + (active
-          ? '<span class="mat-hist__active">In use</span>'
-          : '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-promote" data-run="' + esc(r.runId) + '" data-feature="' + esc(type) + '">Use this version</button>')
-        + "</li>";
-    }).join("");
-    var opts = function (sel) {
+    var ms = root.JobBoredMaterialsScore;
+    var o = opts || {};
+    if (!ms || typeof ms.versionsHtml !== "function") return '<p class="mat-hist__empty">Versions aren\u2019t available on this page.</p>';
+    var rows = ms.versionsHtml(list, type, { base: o.base || "", promote: o.promote !== false, rescore: !!o.rescore });
+    var choices = function (sel) {
       return list.map(function (r) {
         return '<option value="' + esc(r.runId) + '"' + (r.runId === sel ? " selected" : "") + ">" + esc(shortDate(r.date) || r.runId) + "</option>";
       }).join("");
     };
     var compare = list.length > 1
       ? '<div class="mat-hist__cmp">'
-        + '<label><span>From</span><select data-hist-a>' + opts(list[1].runId) + "</select></label>"
-        + '<label><span>To</span><select data-hist-b>' + opts(list[0].runId) + "</select></label>"
+        + '<label><span>From</span><select data-hist-a>' + choices(list[1].runId) + "</select></label>"
+        + '<label><span>To</span><select data-hist-b>' + choices(list[0].runId) + "</select></label>"
         + '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-diff" data-feature="' + esc(type) + '">Compare</button>'
         + "</div>"
       : "";
-    return '<ol class="mat-hist__runs">' + rows + "</ol>" + compare + '<div class="mat-hist__diff" data-hist-diff></div>';
+    return rows + compare + '<div class="mat-hist__diff" data-hist-diff></div>';
   }
 
   function diffHtml(diff) {
@@ -822,6 +830,7 @@
        record through these. */
     qaIssues: qaIssues,
     judgeLine: judgeLine,
+    gradeFailureReason: gradeFailureReason,
     kindWord: kindWord,
     rubricLabel: rubricLabel,
     shortDate: shortDate,

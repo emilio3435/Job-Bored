@@ -1,0 +1,485 @@
+import assert from 'node:assert/strict';
+import { test, after } from 'node:test';
+import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Ajv2020 from 'ajv/dist/2020.js';
+import { resumeText, jdText, ledger, resumeRead, response, provider, pin, fakeSession } from './fixtures/lean/fixture.mjs';
+import * as adapter from '../server/materials-render-model-adapter.mjs';
+import { pipelineCacheKey } from '../server/materials-cache.mjs';
+import { runJsonStage } from '../server/materials-writer.mjs';
+import { runPipeline } from '../server/materials-pipeline.mjs';
+import { normalizeRequestBody } from '../server/materials-request.mjs';
+import { deriveNodes, applyOps } from '../server/materials-nodes.mjs';
+import { renderDocument, runsToText } from '../server/materials-render.mjs';
+import { resolveFamily } from '../server/materials-templates.mjs';
+import { regeneratePackage, commitModelAsRun, rescoreRun } from '../server/materials-regenerate.mjs';
+import { proposeEdits } from '../server/materials-edit.mjs';
+import { extractMetrics } from '../server/materials-ledger-build.mjs';
+import { JUDGE_DIMENSIONS } from '../server/materials-judge.mjs';
+const sandbox = await mkdtemp(join(tmpdir(), 'jb-lean-tests-'));
+process.env.JOBBORED_PROFILE_PATH = join(sandbox, 'profile.json');
+after(async () => rm(sandbox, { recursive: true, force: true }));
+const lean = await import('../server/materials-lean.mjs').catch(() => ({}));
+function api(name) { assert.equal(typeof lean[name], 'function', `missing lean capability: ${name}`); return lean[name]; }
+function input(extra = {}) { return { ledger: structuredClone(ledger), resumeText, jdText, resumeRead, feature: 'both', ...extra }; }
+function check(value = response(), extra = {}) { return api('checkLean')({ ...input(extra), value }); }
+function model(value = response(), extra = {}) {
+  const checked = check(value);
+  assert.equal(typeof adapter.buildRenderModelFromLean, 'function', 'missing lean render adapter');
+  return adapter.buildRenderModelFromLean({ ...input(), ...checked, family: resolveFamily('signal'), request: { company: 'Harbor Fleet', title: 'Operations Analyst', hiringManager: 'Casey' }, nowIso: '2026-10-03T12:00:00.000Z', ...extra });
+}
+async function pipeline(feature = 'both', values = [response()], extra = {}) {
+  const dir = extra.dir || await mkdtemp(join(sandbox, 'run-'));
+  const stub = provider(values);
+  const result = await runPipeline({ ...input(), dir, runId: extra.runId || 'lean-1', payload: { slug: 'harbor-role', company: 'Harbor Fleet', title: 'Operations Analyst', feature, engine: 'lean', enrichment: { contact: 'Casey' } },
+    pin, fetchImpl: stub.fetchImpl, voiceProfile: null, readMarks: async () => [], openSession: fakeSession, requirePdf: true,
+    services: { resumeRead, resolveMaterialLogos: async () => ({ marks: [], targetMark: null }),
+      extractJd: () => { throw new Error('lean must not call extraction model'); }, draftSlots: () => { throw new Error('lean must not call legacy writer'); }, judgeMaterials: () => { throw new Error('lean must not judge'); }, ...extra.services }, ...extra });
+  return { result, dir, stub };
+}
+const json = async (dir, name) => JSON.parse(await readFile(dir instanceof URL ? new URL(name, dir) : join(dir, name), 'utf8'));
+const words = text => text.split(/\s+/).filter(Boolean).length;
+
+test('L1 shared grammar parses eleven number probes, including approximate ranges', () => {
+  assert.equal(typeof adapter.METRIC_RE, 'object', 'export shared grammar');
+  const probes = ['$10M', '$10M+', '21+', '20+', '60%', '130%', '$2.4M', '8–10', '~8–10', 'top-3', '#19'];
+  assert.deepEqual(api('parseLeanNumbers')(probes.join('; ')).map(n => n.token), probes);
+  const v = response(); v.roles[2].bullets[0] = { text: 'Ranked top-3 among 19 analysts in 20+.', basedOn: 'C2' };
+  assert.equal(check(v).draft.bullets.find(b => b.claimId === 'claim-6').text, ledger.claims[5].text, 'years cannot round down');
+});
+test('L2 unit mismatch falls back; legal count rounding keeps units', () => {
+  const v = response(); v.roles[0].bullets[0].text = 'Supported 20+ direct reports.';
+  const c = check(v); assert.equal(c.draft.bullets[0].text, ledger.claims[0].text);
+  assert.ok(c.notes.some(n => n.field === 'bullet:claim-1' && n.check === 'numbers'));
+  assert.ok(!c.notes.some(n => n.field === 'bullet:claim-1' && n.check === 'ownership'), 'direct reports is a unit, not an ownership verb');
+  v.roles[0].bullets[0].text = 'Supported planning for 20+ accounts using Postgres.';
+  assert.equal(check(v).draft.bullets[0].text, v.roles[0].bullets[0].text);
+  v.roles[0].bullets[0].text = 'Supported planning for 999 accounts using Postgres.';
+  assert.equal(check(v, { resumeText: resumeText + '\nMapTool 999', resumeRead: { ...resumeRead, skills: { tools: ['Postgres', 'Kafka', 'MapTool 999'] } } }).draft.bullets[0].text, ledger.claims[0].text, 'skills cannot supply bullet numbers');
+});
+test('L3 cross-role basedOn is dropped without a second model call', async () => {
+  const bad = response(); bad.roles[0].bullets[0].basedOn = 'B1';
+  const stub = provider([bad, response()]); const out = await api('runLean')({ ...input(), pin: { ...pin, fallback: { stages: { '*': pin } } }, fetchImpl: stub.fetchImpl });
+  assert.equal(stub.requests.length, 1); assert.equal(out.disposition, 'REVIEW');
+  assert.ok(!out.draft.bullets.some(b => b.claimId === 'claim-1'));
+  assert.ok(out.shapeErrors.some(e => e.includes('another role')));
+});
+test('L4 invented Meta and TikTok fall back to the source', () => {
+  const v = response(); v.roles[0].bullets[0].text += ' Used Meta and TikTok.';
+  assert.equal(check(v).draft.bullets[0].text, ledger.claims[0].text);
+  v.roles[0].bullets[0].text = ledger.claims[0].text + ' Used dbt.';
+  assert.equal(check(v).draft.bullets[0].text, ledger.claims[0].text);
+});
+test('L5 posting salary and benefits cannot support letter prose', () => {
+  const v = response(); v.letter.hook += ' I earned $180000 in salary.';
+  v.letter.companyInsight += ' I used Meta rewards and 30 days of leave.';
+  v.letter.hook += ' I value the Meta wellness rewards you offer.';
+  const c = check(v); assert.equal(c.disposition, 'REVIEW');
+  assert.doesNotMatch(Object.values(c.draft.letter).join(' '), /180000|Meta|30 days/);
+});
+test('L6 skills outside saved skills are removed', () => {
+  const v = response(); v.skills.push('TikTok'); assert.deepEqual(check(v).skills, ['Postgres', 'Kafka']);
+});
+test('L7 employer and role facts come from ledger; titles are never offered as bullets', () => {
+  const v = response(); v.roles[0].bullets[0].text += ' At FakeCorp as Director in 2030.';
+  const m = model(v); const entries = m.documents.resume.sections.find(s => s.kind === 'experience').entries;
+  assert.match(entries[0].org, /^Northwind/); assert.deepEqual(entries[0].roles.map(r => runsToText(r.seat)), ledger.employers[0].roles.map(r => r.title));
+  assert.doesNotMatch(JSON.stringify(m), /FakeCorp|2030/);
+  const prompt = api('buildLeanPrompt')(input());
+  assert.doesNotMatch(prompt.userText.split('BULLETS\n')[1].split('\nSKILLS')[0], /A3 · north-r1 · Operations Analyst|Profile only claim/);
+});
+test('L8 education and certificates are literal and optional, including unbulleted text', async () => {
+  const m = model(); const lines = m.documents.resume.sections.filter(s => s.kind === 'credentials').flatMap(s => s.lines.map(l => runsToText(l.runs)));
+  assert.deepEqual(lines, ['State College — BA Economics', 'Data Certificate']);
+  const v = model(response(), { resumeRead: { education: ['Imaginary University'], certifications: [] }, resumeText: 'Jordan Rivera\nField Analyst' });
+  assert.equal(v.documents.resume.sections.some(s => s.kind === 'credentials'), false);
+  const raw = await readFile(new URL('./fixtures/lean/resume-unbulleted.txt', import.meta.url), 'utf8');
+  const prompt = api('buildLeanPrompt')(input({ resumeText: raw })); assert.ok(prompt.userText.includes(raw));
+});
+test('L9 lean dates and verified alias display; manager reaches the letter rail', () => {
+  const m = model(); const e = m.documents.resume.sections.find(s => s.kind === 'experience').entries;
+  assert.match(e[0].org, /\(formerly Entercom\)/); assert.ok(e[0].meta.includes('Sep 2017 – 2026'));
+  assert.ok(e[1].meta.includes('2024 – Present')); assert.equal(m.documents.coverLetter.salutation, 'Dear Casey,');
+});
+test('L10 resume-only publish skips absent artifacts and preserves existing letter PDF', async () => {
+  const dir = await mkdtemp(join(sandbox, 'single-')); await writeFile(join(dir, 'cover-letter.pdf'), 'previous letter');
+  const v = response(); delete v.letter;
+  const { result } = await pipeline('resume', [v], { dir }); assert.equal(result.adopted, true);
+  assert.equal(await readFile(join(dir, 'cover-letter.pdf'), 'utf8'), 'previous letter');
+  await assert.rejects(readFile(join(dir, 'outline.json')), { code: 'ENOENT' });
+});
+test('L11 cache separates engine and lean prompt versions', () => {
+  const base = { jdHash: 'sha256:1', ledgerHash: 'sha256:2', templateFamily: 'signal', templateVersion: '1.4', feature: 'both' };
+  assert.notEqual(pipelineCacheKey(base), pipelineCacheKey({ ...base, engine: 'lean', leanPromptVersion: 'v1' }));
+  assert.notEqual(pipelineCacheKey({ ...base, engine: 'lean', leanPromptVersion: 'v1' }), pipelineCacheKey({ ...base, engine: 'lean', leanPromptVersion: 'v2' }));
+});
+test('L12 engine off keeps golden legacy request bodies; overrides require eval mode', async () => {
+  const golden = await json(new URL('./fixtures/lean/', import.meta.url), 'legacy-requests.json');
+  for (const providerName of ['gemini', 'openai', 'anthropic', 'local']) {
+    let body;
+    await runJsonStage({ pin: { ...pin, provider: providerName, resolvedModel: 'stub', baseUrl: 'https://example.com/v1' }, systemPrompt: 's', userText: 'u', fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body); return { ok: true, json: async () => providerName === 'gemini' ? { candidates: [{ content: { parts: [{ text: '{}' }] } }] } : providerName === 'anthropic' ? { content: [{ type: 'text', text: '{}' }] } : { choices: [{ message: { content: '{}' } }] } };
+    } }); assert.deepEqual(body, golden[providerName]);
+  }
+  const previous = { material: process.env.MATERIALS_ENGINE, eval: process.env.JOBBORED_EVAL };
+  try {
+    delete process.env.MATERIALS_ENGINE; delete process.env.JOBBORED_EVAL;
+    const req = { slug: 'role', company: 'Example', title: 'Analyst', feature: 'resume', resume: { source: 'upload', filename: 'resume.txt', text: resumeText }, engine: 'lean' };
+    assert.equal(normalizeRequestBody(req).engine, undefined);
+    process.env.JOBBORED_EVAL = '1'; assert.equal(normalizeRequestBody(req).engine, 'lean');
+    delete process.env.JOBBORED_EVAL; process.env.MATERIALS_ENGINE = 'lean'; assert.equal(normalizeRequestBody(req).engine, 'lean');
+  } finally { for (const [key, value] of [['MATERIALS_ENGINE', previous.material], ['JOBBORED_EVAL', previous.eval]]) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+});
+test('L13 native schema and per-call temperature; compatible providers keep json_object', async () => {
+  const schema = { type: 'object', properties: { needs: { type: 'array', items: { type: 'string' } } }, required: ['needs'], additionalProperties: false };
+  for (const providerName of ['gemini', 'openai', 'anthropic', 'local', 'openrouter']) {
+    let body;
+    await runJsonStage({ pin: { ...pin, provider: providerName, baseUrl: 'https://example.com/v1' }, systemPrompt: 's', userText: 'u', responseSchema: schema, temperature: 0.3, fetchImpl: async (_url, init) => {
+      body = JSON.parse(init.body); const text = '{"needs":["routes"]}'; return { ok: true, json: async () => providerName === 'gemini' ? { candidates: [{ content: { parts: [{ text }] } }] } : providerName === 'anthropic' ? { content: [{ type: 'text', text }] } : { choices: [{ message: { content: text } }] } };
+    } });
+    if (providerName === 'gemini') { assert.deepEqual(body.generationConfig.responseSchema.properties, schema.properties); assert.deepEqual(body.generationConfig.responseSchema.required, schema.required); assert.equal(body.generationConfig.responseSchema.additionalProperties, undefined); assert.equal(body.generationConfig.temperature, 0.3); }
+    else if (providerName === 'openai') { assert.deepEqual(body.response_format.json_schema.schema, schema); assert.equal(body.response_format.json_schema.strict, true); assert.equal(body.temperature, 0.3); }
+    else if (providerName === 'anthropic') { assert.deepEqual(body.output_config.format.schema, schema); assert.equal(body.temperature, undefined); }
+    else { assert.equal(body.response_format.type, 'json_object'); assert.equal(body.temperature, 0.3); }
+  }
+});
+test('L14 one stubbed call renders PDFs and READY qa.v3 with ledger claimIds', async () => {
+  const { result, dir, stub } = await pipeline(); assert.equal(stub.requests.length, 1); assert.equal(result.qa.disposition, 'READY');
+  assert.equal(result.adopted, true); const qa = await json(dir, 'qa.resume.json');
+  const ajv = new Ajv2020({ strict: false }); const validate = ajv.compile(await json(new URL('../schemas/', import.meta.url), 'materials-qa.v3.schema.json'));
+  assert.equal(validate(qa), true, JSON.stringify(validate.errors)); assert.deepEqual(qa.reviews, []); assert.deepEqual(qa.ratings, []);
+  assert.equal(validate(await json(dir, 'qa.letter.json')), true, JSON.stringify(validate.errors));
+  assert.equal((await json(dir, 'run.json')).engine, 'lean');
+  for (const entry of result.model.documents.resume.sections.find(s => s.kind === 'experience').entries) {
+    assert.ok(entry.bullets.length >= 2 && entry.bullets.length <= 5);
+    assert.ok(entry.bullets.every(b => ledger.claims.some(c => c.id === b.claimId && c.kind !== 'role')));
+  }
+  assert.match(await readFile(join(dir, 'resume.pdf'), 'utf8'), /^%PDF/);
+  assert.match(await readFile(join(dir, 'cover-letter.pdf'), 'utf8'), /^%PDF/);
+  const draft = await json(dir, 'draft.json'); assert.ok(words(Object.values(draft.letter).join(' ')) >= 120);
+  assert.deepEqual(result.stages.filter(s => s.llm).map(s => s.stage), ['write']);
+  const provenance = (await json(dir, 'lean.json')).provenance;
+  assert.ok(provenance.some(p => p.field === 'letter.proof1' && p.facts.some(f => f.token === '620' && f.source.includes('620 vans'))));
+  assert.ok(provenance.every(p => p.facts.every(f => typeof f.source === 'string' && f.source.length > 0)));
+});
+test('L15 failed image has a monogram fallback in rendered HTML', () => {
+  const m = model(); m.documents.resume.sections.find(s => s.kind === 'experience').entries[0].logo = { src: 'https://example.com/missing.png', alt: 'Northwind', source: 'favicon', shape: 'mark' };
+  const html = renderDocument(m, 'resume'); assert.match(html, /onerror=.*data:image\/svg\+xml/);
+  const handler = html.match(/<img[^>]*src="https:\/\/example.com\/missing.png"[^>]*onerror="([^"]+)"/)[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  const img = { src: 'https://example.com/missing.png', onerror: true }; Function(handler).call(img);
+  assert.match(img.src, /^data:image\/svg\+xml/); assert.equal(img.onerror, null);
+});
+test('L16 template regenerate of a lean run works and preserves engine metadata', async () => {
+  const root = await mkdtemp(join(sandbox, 'regen-')); const dir = join(root, 'harbor-role'); await mkdir(dir);
+  await pipeline('both', [response()], { dir });
+  const result = await regeneratePackage({ slug: 'harbor-role', template: 'signal' }, { applicationsRoot: root, pdfSession: fakeSession, readSavedResume: async () => null, targetLogoLoader: async () => null, employerLogoLoader: async () => [] });
+  assert.equal(result.ok, true); assert.equal((await json(dir, 'run.json')).engine, 'lean');
+  assert.ok((await json(dir, 'writer-sources.json')).resume.length);
+});
+test('L17 one employer entry across three roles keeps node IDs unique', () => {
+  const nodes = deriveNodes(model()); assert.equal(nodes.length, new Set(nodes.map(n => n.id)).size);
+  assert.equal(nodes.filter(n => n.kind === 'bullet').length, 6);
+});
+test('L18 editing an employer with five bullets succeeds', () => {
+  const v = response(); v.roles[1].bullets.push({ text: ledger.claims[3].text, basedOn: 'B2' });
+  const m = model(v); const node = deriveNodes(m).find(n => n.kind === 'bullet');
+  const edited = applyOps(m, [{ op: 'replace', opId: 'edit-1', node: node.id, text: node.text + ' Used field reports.' }]);
+  assert.equal(edited.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets.length, 5);
+});
+test('L19 insert into a multi-role employer maintains visible role membership', () => {
+  const m = model(); const node = deriveNodes(m).find(n => n.kind === 'bullet');
+  const text = 'Supported planning for 21+ accounts using Postgres and field reports.';
+  const edited = applyOps(m, [{ op: 'insert', opId: 'insert-1', after: node.id, claimId: 'inserted', text }]);
+  assert.match(renderDocument(edited, 'resume'), /field reports/);
+  assert.ok(edited.documents.resume.sections.find(s => s.kind === 'experience').entries[0].roles[0].claimIds.includes('inserted'));
+});
+test('L20 first-run unusable reply is held; one call, no default', async () => {
+  const bad = response(); bad.statement = ''; bad.roles = []; bad.earlier = [];
+  for (const beat of Object.keys(bad.letter)) bad.letter[beat] = '';
+  const { result, dir, stub } = await pipeline('both', [bad]);
+  assert.equal(stub.requests.length, 1); assert.equal(result.outcome, 'held'); assert.equal(result.qa.disposition, 'FAIL');
+  await assert.rejects(readFile(join(dir, 'run.json')), { code: 'ENOENT' });
+  assert.equal((await json(join(dir, 'runs', 'lean-1'), 'run.json')).held !== null, true);
+});
+test('L21 fabricated earlier line falls back to its own source', () => {
+  const v = response(); v.earlier[0].text = 'Led TikTok delivery for 999 clients.';
+  assert.equal(check(v).draft.earlier[0].text, ledger.claims[8].text);
+});
+test('L22 statement tools are checked against the resume', () => {
+  const v = response(); v.statement += ' Used TikTok.'; assert.doesNotMatch(check(v).draft.statement, /TikTok/);
+  v.statement = 'Zendesk supports route tools.'; assert.equal(check(v).draft.statement, '', 'sentence-initial proper names still need evidence');
+});
+test('L23 supported cannot become led; final fallback rechecked', () => {
+  const v = response(); v.roles[0].bullets[0].text = 'Led planning for 21+ accounts using Postgres.';
+  const c = check(v); assert.equal(c.draft.bullets[0].text, ledger.claims[0].text);
+  assert.equal(c.disposition, 'READY'); assert.ok(c.notes.some(n => n.check === 'ownership'));
+  assert.equal(c.provenance.find(p => p.claimId === 'claim-1').source, ledger.claims[0].text);
+});
+
+test('F1-6 schema call retains transient retries and fallback pin', async () => {
+  const stub = provider(); let calls = 0;
+  const out = await api('runLean')({ ...input(), pin, sleep: async () => {}, fetchImpl: async (...args) => ++calls === 1 ? { ok: false, status: 429, json: async () => ({ error: { message: 'fixture rate limit' } }) } : stub.fetchImpl(...args) });
+  assert.equal(calls, 2); assert.equal(out.call.errorCode, undefined); assert.notEqual(out.disposition, 'FAIL');
+  const fallback = { ...pin, resolvedModel: 'fallback-fixture' }; calls = 0;
+  const next = await api('runLean')({ ...input(), pin: { ...pin, fallback: { stages: { 'materials.lean': fallback } } }, sleep: async () => {}, log: () => {}, fetchImpl: async (url, init) => {
+    calls++;
+    if (!url.includes('fallback-fixture')) return { ok: false, status: 503, json: async () => ({ error: { message: 'fixture unavailable' } }) };
+    return stub.fetchImpl(url, init);
+  } });
+  assert.equal(calls, 4); assert.equal(next.call.fallback.model, 'fallback-fixture'); assert.equal(next.call.errorCode, undefined);
+});
+test('F1-6 exhausted provider error is a plain qa.v3 reason', async () => {
+  let calls = 0;
+  const out = await api('runLean')({ ...input(), pin, sleep: async () => {}, fetchImpl: async () => { calls++; return { ok: false, status: 503, json: async () => ({ error: { message: 'fixture unavailable' } }) }; } });
+  assert.equal(calls, 3); assert.equal(out.call.errorCode, 'http_503'); assert.equal(out.disposition, 'FAIL');
+  const qa = api('leanQa')({ document: 'resume', runId: 'unavailable', finalText: '', ...out });
+  assert.match(JSON.stringify(qa.reasons), /provider error.*503/i);
+  assert.doesNotMatch(JSON.stringify(qa.reasons), /must be object|ajv/i);
+});
+test('F1-7 non-pass checks identify each fallback and drop and validate qa.v3', async () => {
+  const v = response(); v.roles[0].bullets[0].text = 'Supported 999 accounts.'; v.letter.proof2 += ' I used TikTok.';
+  const c = check(v);
+  const validate = new Ajv2020({ strict: false }).compile(await json(new URL('../schemas/', import.meta.url), 'materials-qa.v3.schema.json'));
+  for (const document of ['resume', 'letter']) {
+    const qa = api('leanQa')({ document, runId: 'checks', finalText: 'checked', ...c });
+    assert.equal(validate(qa), true, JSON.stringify(validate.errors));
+    const id = document === 'resume' ? 'lean.numbers' : 'lean.names';
+    const failed = qa.checks.find(check => check.id === id);
+    assert.equal(failed.status, 'review'); assert.match(failed.detail, /fallback|drop/);
+  }
+});
+test('F1-8 OpenAI strict body omits unsupported bounds; Ajv retains them', async () => {
+  const schema = api('leanSchema')(); schema.properties.statement.pattern = '^Field';
+  let body;
+  await runJsonStage({ pin: { ...pin, provider: 'openai' }, systemPrompt: 's', userText: 'u', responseSchema: schema, fetchImpl: async (_url, init) => {
+    body = JSON.parse(init.body); return { ok: true, json: async () => ({ choices: [{ message: { content: '{}' } }] }) };
+  } });
+  const transformed = body.response_format.json_schema.schema;
+  assert.doesNotMatch(JSON.stringify(transformed), /"(?:minLength|maxLength|minItems|maxItems|pattern|uniqueItems)"/);
+  assert.equal(transformed.additionalProperties, false); assert.deepEqual(transformed.required, schema.required);
+  const bad = response(); bad.statement = ''; bad.roles = []; assert.equal(check(bad).disposition, 'FAIL');
+});
+test('F1-9 node validation reads the configured employer bullet budget', async () => {
+  // Inject a tighter budget into this module only, while running the real edit code.
+  const path = new URL('../server/materials-nodes.mjs', import.meta.url);
+  const source = (await readFile(path, 'utf8')).replace(/from "([^\"]+)"/g, (_match, target) => {
+    const url = target === './materials-fit-budget.mjs' ? 'data:text/javascript,' + encodeURIComponent('export const MATERIALS_BUDGETS = {resume:{bulletsPerFeatured:[2,3]}};') : target.startsWith('.') ? new URL(target, path).href : target.startsWith('node:') ? target : import.meta.resolve(target);
+    return `from "${url}"`;
+  }).replaceAll('import.meta.url', JSON.stringify(path.href));
+  const configured = await import('data:text/javascript,' + encodeURIComponent(source));
+  const m = model(); const node = deriveNodes(m).find(n => n.kind === 'bullet');
+  assert.throws(() => configured.applyOps(m, [{ op: 'replace', opId: 'cap', node: node.id, text: node.text }]), { reason: 'shape' });
+});
+test('F1-11 basedOn cannot repeat within bullets or earlier lines', () => {
+  const v = response(); v.roles[0].bullets[1].basedOn = 'A1'; const c = check(v); assert.equal(c.disposition, 'REVIEW'); assert.equal(c.draft.bullets.filter(b => b.claimId === 'claim-1').length, 1);
+  const earlier = response(); earlier.earlier.push({ ...earlier.earlier[0] }); assert.equal(check(earlier).disposition, 'REVIEW'); assert.equal(check(earlier).draft.earlier.length, 1);
+});
+test('F1-11 employer shape requires 2–5 bullets and at most three employers', () => {
+  const short = response(); short.roles = [short.roles[3]]; short.roles[0].bullets.pop(); assert.equal(check(short).disposition, 'FAIL'); // one lone bullet leaves no featured employer (F3-1)
+  const long = response(); long.roles[1].bullets.push({ text: ledger.claims[3].text, basedOn: 'B2' }); long.roles[2].bullets.push({ text: ledger.claims[5].text, basedOn: 'C2' });
+  assert.equal(check(long).disposition, 'REVIEW'); assert.equal(check(long).outline.featured.find(g => g.employerId === 'north').claimIds.length, 5); // Six source bullets are trimmed to five.
+  const v = response(); const l = structuredClone(ledger); let text = resumeText;
+  v.earlier = [];
+  v.roles.push({ roleId: 'harbor-r1', bullets: [{ text: ledger.claims[8].text, basedOn: 'E1' }, { text: 'Supported field reports.', basedOn: 'E2' }] });
+  l.claims.push({ ...ledger.claims[8], id: 'harbor-second', text: 'Supported field reports.' }); text += '\nSupported field reports.';
+  l.employers.push({ id: 'fourth', name: 'Fourth', roles: [{ id: 'fourth-r1', title: 'Analyst' }] });
+  for (let n = 1; n <= 2; n++) l.claims.push({ ...ledger.claims[8], id: `fourth-${n}`, roleId: 'fourth-r1', employerId: 'fourth', text: `Supported field reports for ${n} clients.` });
+  text += '\nSupported field reports for 1 clients.\nSupported field reports for 2 clients.';
+  v.roles.push({ roleId: 'fourth-r1', bullets: [{ text: l.claims.at(-2).text, basedOn: 'F1' }, { text: l.claims.at(-1).text, basedOn: 'F2' }] });
+  const normalized = check(v, { ledger: l, resumeText: text }); assert.equal(normalized.disposition, 'REVIEW'); assert.equal(normalized.outline.featured.length, 3); assert.ok(normalized.draft.earlier.some(b => b.claimId === 'fourth-1'));
+});
+test('F1-11 letter shape enforces 120–200 words', () => {
+  const short = response(); for (const key of Object.keys(short.letter)) short.letter[key] = 'I supported route planning.';
+  assert.equal(check(short).disposition, 'REVIEW');
+  const long = response(); long.letter.ask = Array(201).fill('route').join(' '); assert.equal(check(long).disposition, 'REVIEW'); assert.equal(check(long).draft.letter.ask, long.letter.ask);
+});
+test('F1-11 actual pipelines sharing a cache miss across engines', async () => {
+  const { dir, result } = await pipeline();
+  const hit = await pipeline('both', [response()], { dir, runId: 'same-engine' }); assert.equal(hit.result.outcome, 'cached');
+  // Run the other engine against the exact published cache. Its first uncached stage is a sentinel.
+  await assert.rejects(runPipeline({ ...input(), dir, pin, payload: { slug: 'harbor-role', company: 'Harbor Fleet', title: 'Operations Analyst', feature: 'both', engine: 'legacy' }, voiceProfile: null,
+    fetchImpl: async () => { throw new Error('unexpected network'); }, services: { extractJd: async () => { throw new Error('legacy cache missed'); }, draftSlots: async () => { throw new Error('legacy cache missed'); } } }), /legacy cache missed/);
+  // A genuine legacy cache key in the same folder must also miss for the lean engine.
+  const legacyKey = result.cacheKey.replace(/\|engine:lean\|leanPrompt:[^|]+$/, '');
+  const run = await json(dir, 'run.json'); await writeFile(join(dir, 'run.json'), JSON.stringify({ ...run, engine: 'legacy', cacheKey: legacyKey }));
+  const next = await pipeline('both', [response()], { dir, runId: 'after-legacy' });
+  assert.equal(next.stub.requests.length, 1); assert.notEqual(next.result.outcome, 'cached');
+});
+test('F1-11 A9 final fallback that still contains markup is dropped', () => {
+  const l = structuredClone(ledger); l.claims[0].text = 'Supported **planning** for 21+ accounts using Postgres.';
+  const v = response(); v.roles[0].bullets[0].text = 'Supported 999 accounts.';
+  const c = check(v, { ledger: l, resumeText: resumeText + '\n' + l.claims[0].text });
+  assert.ok(!c.draft.bullets.some(b => b.claimId === 'claim-1'));
+  assert.ok(c.notes.some(n => n.field === 'bullet:claim-1' && n.check.includes('markup') && n.action === 'drop'));
+});
+test('F1-6 two transient 503s then success retain the normal retry ladder', async () => {
+  const stub = provider(); let calls = 0;
+  const out = await api('runLean')({ ...input(), pin, sleep: async () => {}, fetchImpl: async (...args) => ++calls <= 2 ? { ok: false, status: 503, json: async () => ({ error: { message: 'fixture unavailable' } }) } : stub.fetchImpl(...args) });
+  assert.equal(calls, 3); assert.equal(out.disposition, 'READY'); assert.equal(out.call.errorCode, undefined);
+});
+test('F1-11 pre-fix lean cache cannot bypass the repaired truth checks', async () => {
+  const { dir } = await pipeline(); const run = await json(dir, 'run.json');
+  const staleKey = run.cacheKey.replace(/\|leanPrompt:[^|]+$/, '|leanPrompt:materials.lean.v1');
+  await writeFile(join(dir, 'run.json'), JSON.stringify({ ...run, leanPromptVersion: 'materials.lean.v1', cacheKey: staleKey }));
+  const next = await pipeline('both', [response()], { dir, runId: 'truth-fix' });
+  assert.equal(next.stub.requests.length, 1); assert.notEqual(next.result.outcome, 'cached');
+});
+
+// Stub only the provider boundary: real packet validation, gates, QA and writes run.
+function judgmentProvider() {
+  const packets = [];
+  return { packets, fetchImpl: async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const wire = body.messages[1].content;
+    const packet = JSON.parse(wire.slice(wire.indexOf('>') + 1, wire.lastIndexOf('</untrusted-data>')));
+    packets.push(packet);
+    const value = { contract: 'materials.judge.v1', documents: packet.documents.map(doc => ({
+      document: doc.document, textHash: doc.textHash,
+      ratings: JUDGE_DIMENSIONS.map(dimension => ({ dimension, score: 4, reason: 'Fixture review', sentenceIds: [] })),
+      sentences: doc.sentences.map(sentence => ({ id: sentence.id, status: 'nonfactual', reason: 'Transport fixture', citations: [] })),
+      issues: [], qualificationGaps: [],
+      ...(packet.sources.requirements ? { coverage: { requirements: packet.sources.requirements.map(req => ({ ...req, status: 'missing', sentenceIds: [] })) } } : {}),
+    })) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(value) } }] }) };
+  } };
+}
+const judgmentPin = { provider: 'openai', model: 'stub', resolvedModel: 'stub', apiKey: 'fixture-key' };
+test('F2-6 Edit persists and judges a changed lean run', async () => {
+  const root = await mkdtemp(join(sandbox, 'edit-root-'));
+  const dir = join(root, 'lean-edit'); await mkdir(dir);
+  const v = response(); delete v.letter;
+  await pipeline('resume', [v], { dir, ledger: { ...structuredClone(ledger), claims: ledger.claims.map(c => ({ ...c, metrics: extractMetrics(c.text) })) } });
+  const original = await json(dir, 'render-model.json');
+  const nodes = deriveNodes(original);
+  const node = nodes.find(n => n.id.endsWith(':claim-1'));
+  assert.ok(node);
+  const ops = [{ opId: 'e1', op: 'replace', node: node.id, text: 'Assisted planning for 21+ accounts using Postgres.' }];
+  const proposal = await proposeEdits({ model: original, nodes, instruction: 'Use Assisted instead of Supported', scope: [node.id], lockFacts: true, jdExtract: {}, ledger, pin: judgmentPin,
+    fetchImpl: async (_url, init) => {
+      const wire = JSON.parse(init.body); assert.match(wire.messages[0].content, /materials\.edit\.v1/);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops }) } }] }) };
+    } });
+  assert.equal(proposal.ops.length, 1); assert.deepEqual(proposal.blocked, []);
+  const edited = applyOps(original, proposal.ops, { ledger });
+  const judge = judgmentProvider();
+  const saved = await commitModelAsRun({ dir, model: edited, feature: 'resume', source: 'edit', parentRunId: 'lean-1', edit: { prompt: 'Use Assisted', accepted: ['e1'], rejected: [], ops: proposal.ops } }, {
+    pdfSession: fakeSession, critic: async () => ({ issues: [] }), targetLogoLoader: async () => null, employerLogoLoader: async () => [], pin: judgmentPin, fetchImpl: judge.fetchImpl,
+  });
+  assert.equal(saved.ok, true); assert.notEqual(saved.runId, 'lean-1'); assert.equal(judge.packets.length, 1);
+  assert.match(judge.packets[0].documents[0].text, /Assisted planning/);
+  assert.ok(judge.packets[0].sources.claims.some(c => c.id === 'claim:claim-1'));
+  const persisted = await json(join(dir, 'runs', saved.runId), 'run.json');
+  assert.equal(persisted.engine, 'lean'); assert.equal(persisted.template.source, 'edit');
+  assert.equal(persisted.leanPromptVersion, lean.LEAN_PROMPT_VERSION);
+  const qa = await json(join(dir, 'runs', saved.runId), 'qa.resume.json');
+  assert.equal(qa.state, 'graded'); assert.ok(qa.reviews.some(r => r.status === 'ok'));
+  assert.ok(['READY', 'REVIEW', 'FAIL'].includes(qa.disposition));
+  assert.notEqual(qa.textHash, (await json(join(dir, 'runs', 'lean-1'), 'qa.resume.json')).textHash);
+  assert.deepEqual(await json(dir, 'qa.resume.json'), qa);
+  assert.match(await readFile(join(dir, 'resume.txt'), 'utf8'), /Assisted planning/);
+});
+test('F2-6 Rescore judges a lean run in place and persists real qa.v3', async () => {
+  const root = await mkdtemp(join(sandbox, 'rescore-root-'));
+  const dir = join(root, 'lean-rescore'); await mkdir(dir);
+  await pipeline('both', [response()], { dir, ledger: { ...structuredClone(ledger), claims: ledger.claims.map(c => ({ ...c, metrics: extractMetrics(c.text) })) } });
+  const pdf = await readFile(join(dir, 'resume.pdf'));
+  const before = await json(dir, 'qa.resume.json'); const judge = judgmentProvider();
+  const result = await rescoreRun({ slug: 'lean-rescore', runId: 'lean-1' }, { applicationsRoot: root, pin: judgmentPin, fetchImpl: judge.fetchImpl });
+  assert.equal(result.ok, true); assert.equal(result.runId, 'lean-1'); assert.equal(judge.packets.length, 2);
+  assert.deepEqual(judge.packets.map(p => p.documents[0].document), ['resume', 'letter']);
+  const qa = await json(join(dir, 'runs', 'lean-1'), 'qa.resume.json');
+  assert.equal(qa.contract, 'materials.qa.v3'); assert.equal(qa.textHash, before.textHash);
+  assert.ok(qa.reviews.some(r => r.status === 'ok')); assert.ok(qa.gates.length > 0);
+  assert.ok(['READY', 'REVIEW', 'FAIL'].includes(qa.disposition));
+  assert.deepEqual(await json(dir, 'qa.resume.json'), qa);
+  assert.equal((await json(dir, 'run.json')).engine, 'lean');
+  assert.deepEqual(await readFile(join(dir, 'resume.pdf')), pdf, 'Rescore retains the rendered artifact');
+});
+test('F2-7 repair membership and optional arrays before shape validation', () => {
+  const v = response(); delete v.needs; delete v.skills; delete v.earlier;
+  v.roles[0].bullets.push({ basedOn: 'B1', text: ledger.claims[2].text }, { basedOn: 'A1', text: ledger.claims[0].text }, { basedOn: 'absent', text: 'Supported planning.' });
+  v.roles.push({ roleId: 'missing-role', bullets: [{ basedOn: 'A2', text: ledger.claims[1].text }] });
+  const c = check(v);
+  assert.notEqual(c.disposition, 'FAIL');
+  assert.equal(new Set(c.draft.bullets.map(b => b.claimId)).size, c.draft.bullets.length);
+  assert.ok(c.shapeErrors.some(e => e.includes('B1') && e.includes('role')));
+  assert.ok(c.shapeErrors.some(e => e.includes('duplicate') && e.includes('A1')));
+  assert.ok(c.shapeErrors.some(e => e.includes('absent')));
+  assert.deepEqual(c.skills, []);
+});
+test('F2-8 unparseable provider reply is kept exactly', async () => {
+  const rawReply = 'broken JSON: { definitely not valid';
+  const {result, dir} = await pipeline('resume', [], { fetchImpl: async () => ({ok:true,json:async()=>({candidates:[{content:{parts:[{text:rawReply}]},finishReason:'STOP'}]})}) });
+  assert.equal(result.qa.disposition, 'FAIL');
+  const saved = await json(join(dir,'runs','lean-1'),'lean.json');
+  assert.equal(saved.rawReply, rawReply);
+  assert.ok(saved.checks.shapeErrors.length);
+});
+test('F2-9 real-shaped output normalizes and keeps raw response and exact QA reasons', async () => {
+  const fixture = await json(new URL('./fixtures/lean/', import.meta.url), 'real-shaped-reply.json');
+  const {result,dir,stub}=await pipeline('both',[fixture.value],{ledger:fixture.ledger,resumeText:fixture.resumeText});
+  assert.equal(stub.requests.length,1);
+  assert.notEqual(result.qa.disposition,'FAIL');
+  const saved=await json(dir,'lean.json'); assert.deepEqual(saved.response,fixture.value);
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('5 bullets')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('earlier')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('unknown')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('230')&&e.includes('120')));
+  const draft=await json(dir,'draft.json');
+  assert.equal(draft.bullets.filter(b=>fixture.ledger.claims.find(c=>c.id===b.claimId).employerId==='north').length,5);
+  assert.ok(draft.earlier.some(b=>b.claimId==='fourth-1'));
+  assert.equal(words(Object.values(draft.letter).join(' ')),230);
+  const qa=await json(dir,'qa.resume.json');
+  for(const error of saved.checks.shapeErrors) assert.ok(qa.reasons.some(r=>r.checkId==='lean.shape'&&r.text===error),error);
+  assert.doesNotMatch(JSON.stringify(stub.requests[0].generationConfig.responseSchema), /"maxItems"/);
+});
+test('F2-8 valid JSON with unusable shape keeps its value and names the shape error', async () => {
+  const stub = provider([[]]); const out = await api('runLean')({...input(),pin,fetchImpl:stub.fetchImpl});
+  assert.equal(out.disposition,'FAIL'); assert.deepEqual(out.response,[]);
+  assert.ok(out.shapeErrors.some(e=>e.includes('must be object')));
+  assert.doesNotMatch(JSON.stringify(out.call), /not valid JSON/);
+});
+test('F3-1 a resume reply with no featured employer is FAIL and held, never READY', async () => {
+  const empty = response(); empty.roles = []; delete empty.letter;
+  const c = check(empty, { feature: 'resume' });
+  assert.equal(c.disposition, 'FAIL');
+  assert.ok(c.shapeErrors.some(e => e.includes('no featured employer')));
+  const { result } = await pipeline('resume', [empty]);
+  assert.equal(result.adopted, false); assert.equal(result.qa.disposition, 'FAIL');
+  const unusable = response(); delete unusable.letter;
+  for (const role of unusable.roles) for (const bullet of role.bullets) bullet.basedOn = 'absent';
+  unusable.earlier = [];
+  const dropped = check(unusable, { feature: 'resume' });
+  assert.equal(dropped.disposition, 'FAIL');
+  assert.equal((await pipeline('resume', [unusable])).result.adopted, false);
+});
+test('F3-2 an empty or absent statement for a resume is REVIEW with a named reason, never READY', () => {
+  for (const statement of ['', undefined]) {
+    const v = response(); delete v.letter; if (statement === undefined) delete v.statement; else v.statement = statement;
+    const c = check(v, { feature: 'resume' });
+    assert.equal(c.disposition, 'REVIEW');
+    assert.ok(c.shapeErrors.some(e => /statement/.test(e)), `named reason for ${statement}`);
+    assert.ok(c.notes.some(n => n.field === 'shape' && /statement/.test(n.detail)));
+  }
+});
+test('F3-3 a clean letter-only reply is READY and is not flagged for resume arrays', () => {
+  const v = { needs: response().needs, letter: response().letter };
+  const c = check(v, { feature: 'cover_letter' });
+  assert.deepEqual(c.shapeErrors, []);
+  assert.equal(c.disposition, 'READY');
+});
+test('F3-4 a 100k "<" reply is checked in under 500ms', () => {
+  const v = response(); v.statement = '<'.repeat(100000);
+  const start = performance.now(); const c = check(v, { feature: 'both' });
+  const ms = performance.now() - start;
+  assert.ok(ms < 500, `took ${ms}ms`); assert.ok(c.draft.statement.length > 0 || c.disposition !== 'FAIL');
+});
+test('F3-5 a bullet dropped after checking prevents READY and names the bullet', () => {
+  const l = structuredClone(ledger); l.claims[0].text = 'Supported **planning** for 21+ accounts using Postgres.';
+  const v = response(); v.roles[0].bullets[0].text = 'Supported 999 accounts.';
+  const c = check(v, { ledger: l, resumeText: resumeText + '\n' + l.claims[0].text });
+  assert.equal(c.disposition, 'REVIEW');
+  assert.ok(c.notes.some(n => n.action === 'drop' && n.field === 'bullet:claim-1' && /claim-1/.test(n.detail || '')));
+  assert.ok(c.shapeErrors.some(e => e.includes('claim-1')));
+});

@@ -1,9 +1,11 @@
-/* HOLES lane SCORE · the Case (role-case-model.js, role-case.js).
+/* HOLES lane SCORE · the Case (role-case-model.js, role-case.js), as
+   GRADE re-scoped it (SPEC-GRADE D6, D7).
 
-   Spec §0.3: the ATS tile and the "You have" block show one grade button
-   and nothing of the scorecard. The button grades the document the stored
-   scorecard rated, agrees with the row on staleness (U12), and a click on
-   it outside the materials rows opens the score modal. */
+   The coverage tile and the "You have" block show the package's verdict
+   and nothing of the ATS scorecard: the tile is that draft's requirement
+   coverage, "You have" its verdict button. Both agree with the row on
+   staleness (U12), and a click outside the materials rows opens the
+   quality-check modal. */
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -11,6 +13,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { describe, it } from "node:test";
+
+import { V3_COVERAGE_MISSES, V3_UNSUPPORTED } from "./fixtures/materials-qa-v3.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STAGES = ["new", "researching", "applied", "rejected"];
@@ -40,6 +44,10 @@ const SCORECARD = {
     dimensionScores: { requirementsCoverage: 84 },
   },
 };
+const QUALITY = { documents: {
+  resume: { status: "pass", issues: [], qa: { ...V3_COVERAGE_MISSES, document: "resume" } },
+  cover_letter: { status: "fail", issues: [], qa: V3_UNSUPPORTED },
+} };
 
 function deps(over = {}) {
   return {
@@ -50,29 +58,35 @@ function deps(over = {}) {
   };
 }
 
-describe("HOLES SCORE · the Case's score model", () => {
-  it("should grade the document the stored scorecard rated, with the row's staleness", () => {
+/* GRADE (D6, D7): the Case reads the package's own verdict — the resume's,
+   else the letter's — and that draft's requirement coverage; the stored ATS
+   scorecard's number never grades anything. */
+describe("HOLES SCORE · the Case's score model, as GRADE reads it", () => {
+  it("should read the package resume's verdict and coverage, with the row's staleness", () => {
     const w = load();
     const asked = [];
-    const m = w.JobBoredCase.model.buildCaseModel("job-1", deps({ scorecard: SCORECARD, scoreStale: (f) => { asked.push(f); return true; } }));
-    assert.equal(m.score.feature, "cover_letter");
-    assert.equal(m.score.grade.letter, "B+");
-    assert.equal(m.score.grade.score, 88);
+    const m = w.JobBoredCase.model.buildCaseModel("job-1", deps({ scorecard: SCORECARD, manifest: { documents: [], pending: null, quality: QUALITY }, scoreStale: (f) => { asked.push(f); return true; } }));
+    assert.equal(m.score.feature, "resume");
+    assert.equal(m.score.verdict.word, "Ready");
     assert.equal(m.score.stale, true);
-    assert.deepEqual(asked, ["cover_letter"]);
+    assert.equal(m.score.coverage.covered, 1);
+    assert.equal(m.score.coverage.total, 3);
+    assert.equal(m.score.coverage.stale, true);
+    assert.deepEqual(asked, ["resume"]);
   });
 
-  it("should grade the package's resume when no scorecard is stored, and nothing when there is no verdict", () => {
+  it("should fall back to the letter, and give nothing — not an ATS grade — without a verdict", () => {
     const w = load();
-    const manifest = { documents: [], pending: null, quality: { documents: { resume: { status: "pass", issues: [], qa: { disposition: "READY", degraded: [], rubric: { score: 12, max: 12, rows: [] } } } } } };
-    const m = w.JobBoredCase.model.buildCaseModel("job-1", deps({ manifest }));
-    assert.equal(m.score.feature, "resume");
-    assert.equal(m.score.grade.letter, "A+");
-    assert.equal(w.JobBoredCase.model.buildCaseModel("job-1", deps()).score, null);
+    const letterOnly = { documents: [], pending: null, quality: { documents: { cover_letter: QUALITY.documents.cover_letter } } };
+    const m = w.JobBoredCase.model.buildCaseModel("job-1", deps({ manifest: letterOnly }));
+    assert.equal(m.score.feature, "cover_letter");
+    assert.equal(m.score.verdict.word, "Fails");
+    assert.equal(m.score.coverage, null);
+    assert.equal(w.JobBoredCase.model.buildCaseModel("job-1", deps({ scorecard: SCORECARD })).score, null);
   });
 });
 
-describe("HOLES SCORE · the tile and You have are the grade button only", () => {
+describe("HOLES SCORE · the tile and You have", () => {
   function render(over) {
     const w = load();
     const mount = { innerHTML: "" };
@@ -80,14 +94,14 @@ describe("HOLES SCORE · the tile and You have are the grade button only", () =>
     return mount.innerHTML;
   }
 
-  it("should put the button in the tile, named with grade and score", () => {
-    const html = render({ scorecard: SCORECARD });
-    assert.match(html, /data-num="ats"[\s\S]*?Cover letter draft score[\s\S]*?<button type="button" class="jb-grade"[^>]*data-feature="cover_letter" data-scope="tile"[^>]*aria-label="Grade B\+, 88 of 100 — open score details"/);
-    assert.doesNotMatch(html, /<small>\/100<\/small>/);
+  it("should put the coverage in the tile, as a button that opens the quality check", () => {
+    const html = render({ scorecard: SCORECARD, manifest: { documents: [], pending: null, quality: QUALITY } });
+    assert.match(html, /<button type="button" class="case__num case__num--btn" data-num="coverage" data-score-open data-feature="resume"[^>]*aria-label="Resume coverage: Covers 1 of 3 requirements; missing: Team mentoring\. Open the quality check\."/);
+    assert.doesNotMatch(html, /<small>\/100<\/small>|data-num="ats"|88/);
   });
 
-  it("should render You have as its heading and the button, no strengths, evidence, gaps or dimensions", () => {
-    const html = render({ scorecard: SCORECARD });
+  it("should render You have as its heading and the verdict button, no strengths, evidence, gaps or dimensions", () => {
+    const html = render({ scorecard: SCORECARD, manifest: { documents: [], pending: null, quality: QUALITY } });
     const you = /<section class="case__section case__section--you">([\s\S]*?)<\/section>/.exec(html);
     assert.ok(you, "You have renders");
     assert.match(you[1], />You have</);
@@ -106,18 +120,21 @@ describe("HOLES SCORE · a grade click on the board opens the score modal", () =
     w.JobBoredRoleMaterials = { openScore: (feature, opener) => { opened.push({ feature, opener }); return {}; } };
     const handlers = {};
     const mount = { innerHTML: "", addEventListener: (t, fn) => { handlers[t] = fn; } };
-    w.JobBoredCase.render(mount, w.JobBoredCase.model.buildCaseModel("job-1", deps({ scorecard: SCORECARD })));
+    w.JobBoredCase.render(mount, w.JobBoredCase.model.buildCaseModel("job-1", deps({ manifest: { documents: [], pending: null, quality: QUALITY } })));
     return { opened, click: (target) => handlers.click({ target, preventDefault() {} }) };
   }
 
   it("should open it for the button's document, with the button as the opener", () => {
     const env = boot();
-    const tileNum = node({ class: "case__num", "data-num": "ats" });
-    const btn = node({ class: "jb-grade", "data-score-open": "", "data-feature": "cover_letter" }, tileNum);
-    env.click(node({ class: "jb-grade__ring" }, btn));
+    const tile = node({ class: "case__num case__num--btn", "data-num": "coverage", "data-score-open": "", "data-feature": "resume" });
+    env.click(node({ class: "case__num-v" }, tile));
     assert.equal(env.opened.length, 1);
-    assert.equal(env.opened[0].feature, "cover_letter");
-    assert.equal(env.opened[0].opener, btn);
+    assert.equal(env.opened[0].feature, "resume");
+    assert.equal(env.opened[0].opener, tile);
+    const btn = node({ class: "jb-grade", "data-score-open": "", "data-feature": "cover_letter" });
+    env.click(node({ class: "jb-grade__word" }, btn));
+    assert.equal(env.opened[1].feature, "cover_letter");
+    assert.equal(env.opened[1].opener, btn);
   });
 
   it("should leave a button inside the materials rows to role-materials", () => {

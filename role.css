@@ -439,6 +439,13 @@ body.jb-v2 .brief-materials {
   background: rgba(231, 181, 73, 0.14);
   border-color: rgba(231, 181, 73, 0.4);
 }
+/* GRADE FIX4-R4-3: "Drafted" only says the file exists; the verdict button
+   carries how it did, so the status is neutral, never green. */
+.brief-materials__card-status[data-status="drafted"] {
+  color: var(--jb-ink-2);
+  background: var(--jb-paper-2);
+  border-color: var(--jb-line);
+}
 .brief-materials__card-status[data-status="pending"] {
   color: var(--amber);
   background: rgba(231, 181, 73, 0.14);

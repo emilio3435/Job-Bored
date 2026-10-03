@@ -1,0 +1,365 @@
+{
+  "value": {
+    "needs": [
+      "Route forecasts",
+      "Delivery reliability",
+      "Dispatch reporting"
+    ],
+    "statement": "Field analyst who supported route planning and built reports for dispatch teams, with practical experience reviewing forecasts and helping drivers use scheduling tools during their daily work.",
+    "roles": [
+      {
+        "roleId": "north-r1",
+        "bullets": [
+          {
+            "text": "Supported planning for 21+ accounts using Postgres.",
+            "basedOn": "A1"
+          },
+          {
+            "text": "Reduced missed windows from 9.1% to 4.3% for 620 vans.",
+            "basedOn": "A2"
+          }
+        ]
+      },
+      {
+        "roleId": "north-r2",
+        "bullets": [
+          {
+            "text": "Ran weekly readouts for 14 dispatch leads and 40 stores.",
+            "basedOn": "B1"
+          },
+          {
+            "text": "Built a route forecast that saved $2.4M in costs.",
+            "basedOn": "B2"
+          }
+        ]
+      },
+      {
+        "roleId": "north-r3",
+        "bullets": [
+          {
+            "text": "Reviewed 130% growth across 60% of routes.",
+            "basedOn": "C1"
+          },
+          {
+            "text": "Ranked top-3 among 19 analysts in 2019.",
+            "basedOn": "C2"
+          }
+        ]
+      },
+      {
+        "roleId": "route-r1",
+        "bullets": [
+          {
+            "text": "Shipped a scheduling tool for 80 drivers using Kafka.",
+            "basedOn": "D1"
+          },
+          {
+            "text": "Built reports for 8–10 clients using Postgres.",
+            "basedOn": "D2"
+          },
+          {
+            "text": "Supported route planning.",
+            "basedOn": "unknown"
+          }
+        ]
+      },
+      {
+        "roleId": "harbor-r1",
+        "bullets": [
+          {
+            "text": "Supported field reports for 12 clients.",
+            "basedOn": "E1"
+          },
+          {
+            "text": "Supported route reports.",
+            "basedOn": "E2"
+          }
+        ]
+      },
+      {
+        "roleId": "fourth-r1",
+        "bullets": [
+          {
+            "text": "Supported scheduling tools.",
+            "basedOn": "F1"
+          },
+          {
+            "text": "Supported route forecasts.",
+            "basedOn": "F2"
+          }
+        ]
+      }
+    ],
+    "earlier": [],
+    "skills": [
+      "Postgres",
+      "Kafka"
+    ],
+    "letter": {
+      "hook": "I build route tools for the people who use them. Harbor Fleet coordinates regional delivery routes, and that daily dispatch work connects to the reports I supported at Northwind. I would bring the same care to understanding how your team plans a route.",
+      "companyInsight": "Your posting asks for route forecasts and better delivery reliability.",
+      "proof1": "At Northwind I supported planning for 21+ accounts using Postgres. I reduced missed windows from 9.1% to 4.3% for 620 vans and used those results to help the team review the next route plan.",
+      "proof2": "At RouteLab I shipped a scheduling tool for 80 drivers using Kafka. I kept the work tied to the drivers and their daily schedule, so the reports could help with decisions they needed to make.",
+      "ask": "Could we review a route together? I would start with your dispatch team and compare the forecast with a field report before proposing the next step. route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route route"
+    }
+  },
+  "ledger": {
+    "contract": "materials.ledger.v1",
+    "ledgerHash": "sha256:1234",
+    "employers": [
+      {
+        "id": "north",
+        "name": "Northwind",
+        "title": "Operations Analyst",
+        "start": "2017-09",
+        "end": "2026",
+        "location": "Little Rock",
+        "roles": [
+          {
+            "id": "north-r1",
+            "title": "Operations Analyst",
+            "start": "2022",
+            "end": "2026"
+          },
+          {
+            "id": "north-r2",
+            "title": "Dispatch Analyst",
+            "start": "2020",
+            "end": "2022"
+          },
+          {
+            "id": "north-r3",
+            "title": "Field Analyst",
+            "start": "2017-09",
+            "end": "2020"
+          }
+        ]
+      },
+      {
+        "id": "route",
+        "name": "RouteLab",
+        "title": "Founder",
+        "start": "2024",
+        "end": null,
+        "roles": [
+          {
+            "id": "route-r1",
+            "title": "Founder",
+            "start": "2024",
+            "end": null
+          }
+        ]
+      },
+      {
+        "id": "harbor",
+        "name": "Harbor Works",
+        "title": "Coordinator",
+        "start": "2014",
+        "end": "2017",
+        "roles": [
+          {
+            "id": "harbor-r1",
+            "title": "Coordinator",
+            "start": "2014",
+            "end": "2017"
+          }
+        ]
+      },
+      {
+        "id": "fourth",
+        "name": "Fourth",
+        "roles": [
+          {
+            "id": "fourth-r1",
+            "title": "Analyst"
+          }
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "id": "claim-1",
+        "roleId": "north-r1",
+        "employerId": "north",
+        "text": "Supported planning for 21+ accounts using Postgres.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-2",
+        "roleId": "north-r1",
+        "employerId": "north",
+        "text": "Reduced missed windows from 9.1% to 4.3% for 620 vans.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-3",
+        "roleId": "north-r2",
+        "employerId": "north",
+        "text": "Ran weekly readouts for 14 dispatch leads and 40 stores.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-4",
+        "roleId": "north-r2",
+        "employerId": "north",
+        "text": "Built a route forecast that saved $2.4M in costs.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-5",
+        "roleId": "north-r3",
+        "employerId": "north",
+        "text": "Reviewed 130% growth across 60% of routes.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-6",
+        "roleId": "north-r3",
+        "employerId": "north",
+        "text": "Ranked top-3 among 19 analysts in 2019.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-7",
+        "roleId": "route-r1",
+        "employerId": "route",
+        "text": "Shipped a scheduling tool for 80 drivers using Kafka.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-8",
+        "roleId": "route-r1",
+        "employerId": "route",
+        "text": "Built reports for 8–10 clients using Postgres.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "claim-9",
+        "roleId": "harbor-r1",
+        "employerId": "harbor",
+        "text": "Supported field reports for 12 clients.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "role-only",
+        "employerId": "north",
+        "roleId": "north-r1",
+        "kind": "role",
+        "text": "Operations Analyst",
+        "sourceRefs": [
+          "resume-fixture"
+        ]
+      },
+      {
+        "id": "profile-only",
+        "employerId": "north",
+        "roleId": "north-r1",
+        "kind": "achievement",
+        "text": "Profile only claim",
+        "sourceRefs": [
+          "profile"
+        ]
+      },
+      {
+        "id": "harbor-second",
+        "roleId": "harbor-r1",
+        "employerId": "harbor",
+        "text": "Supported route reports.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "fourth-1",
+        "roleId": "fourth-r1",
+        "employerId": "fourth",
+        "text": "Supported scheduling tools.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      },
+      {
+        "id": "fourth-2",
+        "roleId": "fourth-r1",
+        "employerId": "fourth",
+        "text": "Supported route forecasts.",
+        "kind": "achievement",
+        "verified": true,
+        "sourceRefs": [
+          "resume-fixture"
+        ],
+        "metrics": []
+      }
+    ],
+    "sources": [
+      {
+        "id": "resume-fixture",
+        "kind": "resume"
+      }
+    ],
+    "resumeStructure": {
+      "source": "model",
+      "employers": [
+        {
+          "name": "Northwind",
+          "aliases": [
+            "northwind"
+          ],
+          "aliasClause": "formerly Entercom"
+        }
+      ]
+    }
+  },
+  "resumeText": "Jordan Rivera\nOperations Analyst\nuser@example.com | Little Rock\nEXPERIENCE\nNorthwind (formerly Entercom) — Little Rock — Sep 2017 – 2026\nOperations Analyst — 2022 – 2026\n- Supported planning for 21+ accounts using Postgres.\n- Reduced missed windows from 9.1% to 4.3% for 620 vans.\nDispatch Analyst — 2020 – 2022\n- Ran weekly readouts for 14 dispatch leads and 40 stores.\n- Built a route forecast that saved $2.4M in costs.\nField Analyst — Sep 2017 – 2020\n- Reviewed 130% growth across 60% of routes.\n- Ranked top-3 among 19 analysts in 2019.\nRouteLab — Founder — 2024 – Present\n- Shipped a scheduling tool for 80 drivers using Kafka.\n- Built reports for 8–10 clients using Postgres.\nHarbor Works — Coordinator — 2014 – 2017\n- Supported field reports for 12 clients.\nSKILLS\nPostgres, Kafka\nEDUCATION\nState College — BA Economics\nCERTIFICATIONS\nData Certificate\nSupported route reports.\nFourth\nSupported scheduling tools.\nSupported route forecasts."
+}

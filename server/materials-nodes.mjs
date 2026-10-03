@@ -82,7 +82,7 @@ function addressBook(model) {
         const employerId = entry.employerId;
         if (entry.seat !== undefined) add(`seat:${employerId}`, "seat", runsToText(entry.seat), { kind: "seat", entry }, [], true);
         for (const bullet of entry.bullets || []) {
-          add(`b:${employerId}:${bullet.claimId}`, "bullet", runsToText(bullet.runs), { kind: "bullet", target: bullet, owner: entry.bullets }, metricSpans(bullet.runs));
+          add(`b:${employerId}:${bullet.claimId}`, "bullet", runsToText(bullet.runs), { kind: "bullet", target: bullet, owner: entry.bullets, entry }, metricSpans(bullet.runs));
         }
         if (entry.line !== undefined) add(`line:${employerId}`, "line", entry.line, { kind: "line", entry });
       }
@@ -272,6 +272,8 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], befor
       if (ref.kind === "bullet") {
         if (ref.owner.some((/** @type {{claimId:string}} */ b) => b.claimId === op.claimId)) throw new MaterialsEditError("invalid_model", `duplicate claimId: ${op.claimId}`);
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { claimId: op.claimId, runs: toRuns(text, tokens) });
+        const role = (ref.entry.roles || []).find((/** @type {any} */ row) => row.claimIds.includes(ref.target.claimId));
+        if (role) role.claimIds.splice(role.claimIds.indexOf(ref.target.claimId) + 1, 0, op.claimId);
       } else if (ref.kind === "paragraph") {
         const paragraphId = op.paragraphId || op.opId;
         if (typeof paragraphId !== "string" || ref.owner.some((/** @type {{id:string}} */ p) => p.id === paragraphId)) throw new MaterialsEditError("invalid_model", `duplicate paragraph id: ${paragraphId}`);
@@ -293,7 +295,10 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], befor
       if (ref.kind === "statement" && "words" in ref.target) ref.target.words = wordCount(text);
     } else {
       assertUnlocked(node, null);
-      if (["bullet", "credential", "toolkit", "paragraph"].includes(ref.kind)) ref.owner.splice(ref.owner.indexOf(ref.target), 1);
+      if (["bullet", "credential", "toolkit", "paragraph"].includes(ref.kind)) {
+        ref.owner.splice(ref.owner.indexOf(ref.target), 1);
+        if (ref.kind === "bullet") for (const role of ref.entry.roles || []) role.claimIds = role.claimIds.filter((/** @type {string} */ id) => id !== ref.target.claimId);
+      }
       else if (ref.kind === "intro") delete ref.owner.intro;
       else if (ref.kind === "line") delete ref.entry.line;
       else throw new MaterialsEditError("invalid_model", `cannot remove ${id}`);

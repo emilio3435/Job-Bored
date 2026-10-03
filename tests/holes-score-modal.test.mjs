@@ -1,16 +1,20 @@
-/* holes-score-modal.test.mjs — HOLES lane SCORE, spec §0.3 and §2 SCORE.
+/* holes-score-modal.test.mjs — HOLES lane SCORE's modal, spec §0.3 and
+   §2 SCORE, as GRADE re-scoped it (SPEC-GRADE D7).
 
-   The score modal: everything the graders said, behind the grade button.
-     header  grade, score, one-line verdict, who graded it and which
-             version, a stale badge when the draft changed since
-     steps   Blockers and gaps (each with Fix this), Dimensions, Evidence,
-             Rewrite suggestions (each with Apply), Keyword coverage,
-             History — revealed one step at a time
+   The quality-check modal: everything the reviews said, behind the
+   verdict button.
+     header  the verdict word, its first reason and who reviewed it
+             (no letter, no dial, no "N of 100"); a stale badge
+     steps   Why (each deciding check with Fix this), Coverage, Writing,
+             Reviews, Versions — then the ATS check's rewrite suggestions
+             (each with Apply) and keyword coverage when there are some —
+             revealed one step at a time
      footer  Repair, Rescore (with a busy state), Close
    It opens through JobBoredA11y.dialog (focus inside, background inert,
-   Esc closes it, focus returns), wraps Tab, and announces a score that
-   lands. Closes U6 (Fix this on gaps, rewrite suggestions shown), U16
-   (every flag listed) and the dead-modal half of U3/U10.
+   Esc closes it, focus returns), wraps Tab, and announces a verdict that
+   lands — in words, never a number. Closes U6 (Fix this, rewrite
+   suggestions shown), U16 (every flag listed) and the dead-modal half of
+   U3/U10.
 
    Harness: tests/fixtures/holes-score-dom.mjs — jb-dom plus a parsing
    innerHTML, with the shipped jb-a11y.js. */
@@ -18,7 +22,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { V1_RESUME_FAIL, V2_LETTER_FAIL, V2_RESUME_READY_SAME_MODEL } from "./fixtures/materials-qa-v2.mjs";
+import { V1_RESUME_FAIL } from "./fixtures/materials-qa-v2.mjs";
+import { RUNS_REPAIR_PASSED, V3_READY, V3_UNSUPPORTED } from "./fixtures/materials-qa-v3.mjs";
 import { click, keydown, load, makeScoreEnv, read, text } from "./fixtures/holes-score-dom.mjs";
 
 const ATS = {
@@ -26,11 +31,8 @@ const ATS = {
   overallScore: 72,
   dimensionScores: { requirementsCoverage: 70, experienceRelevance: 80, impactClarity: 64, atsParseability: 90, toneFit: 75 },
   topStrengths: ["Owns pricing from research to launch."],
-  criticalGaps: [
-    { gap: "No marketplace pricing work shown.", whyItMatters: "The role prices a two-sided marketplace.", severity: "high" },
-    { gap: "Team size is unclear.", whyItMatters: "They want a lead for 10+.", severity: "low" },
-  ],
-  evidence: [{ claim: "Shipped usage-based pricing.", sourceSnippet: "lifted expansion revenue 18%", sourceType: "resume" }],
+  criticalGaps: [{ gap: "No marketplace pricing work shown.", whyItMatters: "The role prices a two-sided marketplace.", severity: "high" }],
+  evidence: [],
   rewriteSuggestions: [
     { targetSection: "Summary", before: "Product manager.", after: "Pricing product manager who ships usage-based plans.", rationale: "Leads with the role's core." },
     { targetSection: "Contoso", before: "", after: "Rebuilt the renewal pricing review.", rationale: "Specific and supported." },
@@ -39,12 +41,8 @@ const ATS = {
   model: "ats-model-1",
 };
 
-const RUNS = [
-  { runId: "r3", date: "2026-09-28T09:00:00.000Z", documents: ["cover_letter"], verdicts: { cover_letter: { disposition: "FAIL", score: 64, max: 100 } }, active: ["cover_letter"], template: "signal", source: "draft" },
-  { runId: "r2", date: "2026-09-27T09:00:00.000Z", documents: ["cover_letter"], verdicts: { cover_letter: { disposition: "READY", score: 88, max: 100 } }, active: [], template: "signal", source: "edit" },
-];
-
 const CAN = { fix: true, apply: true, repair: true, rescore: true, promote: true };
+const LETTER = { status: "fail", issues: [], qa: { ...V3_UNSUPPORTED, qualificationGaps: ["No marketplace experience on file."] } };
 
 function boot() {
   const win = makeScoreEnv({ bodyClass: "jb-v2" });
@@ -53,7 +51,7 @@ function boot() {
 }
 
 function letterData(over = {}) {
-  return { feature: "cover_letter", role: "Senior PM · Meridian Labs", qualityDoc: V2_LETTER_FAIL, ats: { result: ATS, feature: "cover_letter", storedAt: "2026-09-28T10:00:00.000Z" }, coverage: { matched: ["pricing", "roadmap"], missing: ["marketplace"], total: 3 }, can: CAN, ...over };
+  return { feature: "cover_letter", role: "Dispatch analyst · Acme Robotics", qualityDoc: LETTER, ats: { result: ATS, feature: "cover_letter", storedAt: "2026-10-02T10:00:00.000Z" }, keywords: { matched: ["dispatch", "forecast"], missing: ["mentoring"], total: 3 }, can: CAN, ...over };
 }
 
 /* Parse the markup with the harness parser so a step is a node, not a regex slice. */
@@ -69,54 +67,45 @@ describe("modalHtml · what the modal holds", () => {
   const win = boot();
   const ms = win.JobBoredMaterialsScore;
 
-  it("should hold the header, the six steps in order and the footer", () => {
+  it("should hold the verdict header, the steps in order and the footer", () => {
     const html = ms.modalHtml(ms.modelOf(letterData()));
     assert.match(html, /^<div class="jb-score"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="(jb-score-title-\d+)"/);
     const title = /aria-labelledby="(jb-score-title-\d+)"/.exec(html)[1];
-    assert.match(html, new RegExp(`id="${title}"[^>]*>[\\s\\S]*?Cover letter grade`));
-    assert.match(html, /class="jb-score__letter"[^>]*>D</, "64 with a FAIL verdict reads D");
-    assert.match(html, /64 \/ 100/);
-    assert.match(html, /One sentence claims a result your background doesn(?:'|&#39;|’)t support\./, "the verdict line is the grader's own");
+    assert.match(html, new RegExp(`id="${title}"[\\s\\S]*?Cover letter[\\s\\S]*?Fails`));
+    assert.match(html, /class="jb-score__verdict"[^>]*>1 claim needs a source</);
+    assert.doesNotMatch(html, /jb-score__letter|jb-score__dial|\/ 100|of 100/);
     const steps = [...html.matchAll(/data-step="([a-z]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(steps, ["blockers", "dimensions", "evidence", "rewrites", "keywords", "history"]);
-    for (const title of ["Blockers and gaps", "Dimensions", "Evidence", "Rewrite suggestions", "Keyword coverage", "History"]) {
+    assert.deepEqual(steps, ["why", "coverage", "writing", "reviews", "versions", "rewrites", "keywords"]);
+    for (const title of ["Why", "Coverage", "Writing", "Reviews", "Versions", "Rewrite suggestions", "Keyword coverage"]) {
       assert.match(html, new RegExp(`class="jb-score__step-title">${title}<`), `${title} is a step`);
     }
     const foot = /<footer class="jb-score__foot"[\s\S]*<\/footer>/.exec(html)[0];
     assert.deepEqual([...foot.matchAll(/data-score-(repair|rescore|close)/g)].map((m) => m[1]), ["repair", "rescore", "close"]);
   });
 
-  it("should name who graded it, its grader version and the draft it graded, never 'judge'", () => {
-    const html = ms.modalHtml(ms.modelOf(letterData({ drafted: "2026-09-28T12:00:00.000Z" })));
-    const line = /class="jb-score__judge"[^>]*>([^<]*)/.exec(html)[1];
-    assert.match(line, /^Graded by grok-judge-1 · grading v1 · draft of Sep 2[78]/);
-    assert.doesNotMatch(line.replace(/grok-judge-1/g, ""), /judge/i, "our own words never say judge");
+  it("should leave out the ATS steps when the ATS check suggested nothing", () => {
+    const html = ms.modalHtml(ms.modelOf(letterData({ ats: null, keywords: null })));
+    const steps = [...html.matchAll(/data-step="([a-z]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(steps, ["why", "coverage", "writing", "reviews", "versions"]);
   });
 
-  it("should say why a grade didn't finish, with Try again and Change grading model (J-FE4)", () => {
-    const down = { ...V2_LETTER_FAIL, qa: { ...V2_LETTER_FAIL.qa, quality: { score: null, ratings: [] }, judge: { status: "unavailable", model: "grok-judge-1", errorCode: "timeout", latencyMs: 240000 } } };
-    const html = ms.modalHtml(ms.modelOf(letterData({ qualityDoc: down, ats: null, can: { ...CAN, retry: true } })));
-    const line = /<p class="jb-score__judge"[^>]*>[\s\S]*?<\/p>/.exec(html)[0];
-    assert.match(line, /data-judge="unavailable"/);
-    assert.match(line, /Grading by grok-judge-1 didn(’|&#39;)t finish: it timed out after 240 s/);
-    assert.match(line, /<button[^>]*data-score-retry[^>]*>Try again<\/button>/);
-    assert.match(line, /<button[^>]*data-action="settings-open-grading"[^>]*data-score-handoff[^>]*>Change grading model<\/button>/);
-    const same = ms.modalHtml(ms.modelOf({ feature: "resume", qualityDoc: V2_RESUME_READY_SAME_MODEL, can: CAN }));
-    assert.match(same, /Graded by your writing model \(gemini-writer-1\)/);
-    assert.match(same, /data-action="settings-open-grading"[^>]*>Add a second opinion</);
-    assert.doesNotMatch(same, /data-score-retry/, "nothing to retry on a grade that finished");
+  it("should name who reviewed it, never 'judge'", () => {
+    const html = ms.modalHtml(ms.modelOf(letterData()));
+    const line = /class="jb-score__prov"[^>]*>([^<]*)/.exec(html)[1];
+    assert.equal(line, "First review: writer-example");
+    assert.doesNotMatch(html.replace(/judge-example/g, ""), />[^<]*\bjudge\b/i, "our own words never say judge");
   });
 
-  it("should give every blocker and gap a Fix this (U6)", () => {
-    const step = stepOf(win, ms.modalHtml(ms.modelOf(letterData())), "blockers");
-    /* three judge issues, two background gaps, two role-match gaps */
-    assert.equal(step.querySelectorAll(".jb-score__item").length, 7);
+  it("should give every deciding check and background gap a Fix this (U6)", () => {
+    const step = stepOf(win, ms.modalHtml(ms.modelOf(letterData())), "why");
+    /* the unsupported claim and one background gap */
+    assert.equal(step.querySelectorAll(".jb-score__item").length, 2);
     const fixes = step.querySelectorAll("[data-score-fix]");
-    assert.equal(fixes.length, 7);
+    assert.equal(fixes.length, 2);
     assert.ok(fixes.every((b) => text(b) === "Fix this"));
-    assert.match(text(step), /At Contoso I cut churn by 40% across the enterprise book\./, "the blocker quotes its sentence");
-    assert.match(text(step), /No marketplace pricing work shown\./);
+    assert.match(text(step), /I built a dispatch forecast at Acme Robotics\./, "the check quotes its sentence");
     assert.match(text(step), /No marketplace experience on file\./);
+    assert.doesNotMatch(text(step), /No marketplace pricing work shown/, "the ATS check's gaps are not the verdict's");
   });
 
   it("should show every rewrite suggestion with an Apply (U6)", () => {
@@ -128,34 +117,32 @@ describe("modalHtml · what the modal holds", () => {
     assert.match(text(step), /Leads with the role's core\./);
   });
 
-  it("should fill Dimensions, Evidence and Keyword coverage from the graders", () => {
+  it("should fill Writing from the first review and Keyword coverage from the posting, with no Role match meters", () => {
     const html = ms.modalHtml(ms.modelOf(letterData()));
-    const dims = stepOf(win, html, "dimensions");
-    assert.equal(dims.querySelectorAll(".jb-score__dim").length, 10, "five judge dimensions and five role-match ones");
-    assert.match(text(dims), /Fits this role/);
-    const ev = stepOf(win, html, "evidence");
-    assert.match(text(ev), /lifted expansion revenue 18%/);
-    assert.match(text(ev), /Owns pricing from research to launch\./);
+    const writing = stepOf(win, html, "writing");
+    assert.equal(writing.querySelectorAll(".jb-score__dim").length, 5, "the five dimensions, 0–4 each");
+    assert.match(text(writing), /Fits this role/);
     const kw = stepOf(win, html, "keywords");
     assert.match(text(kw), /2 of 3/);
-    assert.match(text(kw), /marketplace/);
+    assert.match(text(kw), /mentoring/);
+    assert.doesNotMatch(html, /Role match|Requirements covered|Reads cleanly for screeners/);
   });
 
   it("should list every flag, never the first one and a count (U16)", () => {
     const flagged = { ...V1_RESUME_FAIL, issues: [
       { code: "resume_experience_missing", message: "Resume is missing an experience section.", severity: "fail" },
-      { code: "underfill", message: "The page is 48% full.", severity: "review" },
+      { code: "underfill", message: "The page is half full.", severity: "review" },
       { code: "metric_dropped", message: "A number from your background was dropped.", severity: "review" },
     ] };
     const html = ms.modalHtml(ms.modelOf({ feature: "resume", qualityDoc: flagged, can: CAN }));
-    const step = text(stepOf(win, html, "blockers"));
-    for (const msg of ["Resume is missing an experience section.", "The page is 48% full.", "A number from your background was dropped."]) {
+    const step = text(stepOf(win, html, "why"));
+    for (const msg of ["Resume is missing an experience section.", "The page is half full.", "A number from your background was dropped."]) {
       assert.ok(step.includes(msg), `"${msg}" is listed`);
     }
     assert.doesNotMatch(html, /\+\d+ more/);
   });
 
-  it("should badge a grade the draft has moved on from", () => {
+  it("should badge a verdict the draft has moved on from", () => {
     const fresh = ms.modalHtml(ms.modelOf(letterData()));
     assert.doesNotMatch(fresh, /jb-score__badge--stale/);
     const stale = ms.modalHtml(ms.modelOf(letterData({ stale: true })));
@@ -164,20 +151,19 @@ describe("modalHtml · what the modal holds", () => {
 
   it("should explain why when nothing graded it", () => {
     const html = ms.modalHtml(ms.modelOf({ feature: "resume", qualityDoc: undefined, ats: null, can: CAN }));
-    assert.match(html, /class="jb-score__letter"[^>]*>Grade</);
-    assert.match(html, /Not graded/);
-    assert.match(html, /Nothing has graded this draft yet/);
+    assert.match(html, /class="jb-score__word"[^>]*>Not graded</);
+    assert.match(html, /Nothing has checked this draft yet/);
   });
 
-  it("should read a saved-but-unscored version as ungraded, never as an F", () => {
+  it("should read a saved-but-unscored version as Not rescored, never as a Fail", () => {
     const stub = { status: "review", issues: [], qa: { disposition: "REVIEW", dispositionReason: "This version was rendered from a stored model; draft evidence was not rescored.", rubric: { score: 0, max: 1, threshold: 1, rows: [{ id: "version_recheck", score: 0, max: 1 }] } } };
-    const g = ms.gradeOf(stub, null);
-    assert.equal(g.letter, "Grade");
-    assert.equal(g.score, null);
-    assert.match(g.why, /not rescored|without a grade/i);
+    const v = ms.verdictView(stub);
+    assert.equal(v.word, "Not rescored");
+    assert.equal(v.disposition, null);
+    assert.match(ms.modalHtml(ms.modelOf({ feature: "resume", qualityDoc: stub, can: CAN })), /Not rescored — Rescore/);
   });
 
-  it("should mark Rescore busy while a score is on its way", () => {
+  it("should mark Rescore busy while a verdict is on its way", () => {
     const html = ms.modalHtml(ms.modelOf(letterData()), { busy: true });
     assert.match(html, /<button[^>]*data-score-rescore[^>]*aria-busy="true"[^>]*aria-disabled="true"[^>]*>[\s\S]*?Rescoring/);
   });
@@ -188,10 +174,10 @@ describe("modalHtml · what the modal holds", () => {
     assert.match(html, /data-score-close/);
   });
 
-  it("should escape what the graders wrote", () => {
-    const evil = { ...ATS, criticalGaps: [{ gap: '<img src=x onerror="boom">', whyItMatters: "x", severity: "high" }] };
-    const html = ms.modalHtml(ms.modelOf(letterData({ ats: evil })));
-    assert.doesNotMatch(html, /<img src=x/);
+  it("should escape what the reviews and the ATS check wrote", () => {
+    const evil = { ...LETTER, qa: { ...LETTER.qa, checks: [{ ...LETTER.qa.checks[0], detail: '<img src=x onerror="boom">' }] } };
+    const html = ms.modalHtml(ms.modelOf(letterData({ qualityDoc: evil, ats: { result: { ...ATS, rewriteSuggestions: [{ after: "<b>x</b>" }] } } })));
+    assert.doesNotMatch(html, /<img src=x|<b>x<\/b>/);
     assert.match(html, /&lt;img src=x onerror=&quot;boom&quot;&gt;/);
   });
 });
@@ -222,7 +208,7 @@ describe("open() · the modal as a dialog", () => {
     doc.activeElement.dispatchEvent(keydown(doc.activeElement, "Escape"));
     assert.ok(modal() === null, "Esc closed it");
     assert.equal(main.inert, false, "the page is live again");
-    assert.ok(doc.activeElement === opener, "focus went back to the grade button");
+    assert.ok(doc.activeElement === opener, "focus went back to the verdict button");
   });
 
   it("should keep Tab inside the modal", () => {
@@ -231,31 +217,30 @@ describe("open() · the modal as a dialog", () => {
     const first = buttons[0];
     const last = buttons[buttons.length - 1];
     last.focus();
-    const ev = keydown(last, "Tab");
-    last.dispatchEvent(ev);
+    last.dispatchEvent(keydown(last, "Tab"));
     assert.ok(doc.activeElement === first, "Tab from the last control wraps to the first");
     first.dispatchEvent(keydown(first, "Tab", { shiftKey: true }));
     assert.ok(doc.activeElement === last, "Shift+Tab from the first wraps to the last");
   });
 
-  it("should run Rescore once, show busy, and announce the score when it lands", async () => {
+  it("should run Rescore once, show busy, and announce the verdict in words when it lands", async () => {
     let calls = 0;
     let finish;
     const env = openFor({}, { rescore: () => { calls += 1; return new Promise((r) => { finish = r; }); } });
-    const btn = () => env.modal().querySelector("[data-score-rescore]");
+    const btn = () => env.modal().querySelector("footer [data-score-rescore]");
     btn().dispatchEvent(click(btn()));
     assert.equal(calls, 1);
     assert.equal(btn().getAttribute("aria-busy"), "true");
     btn().dispatchEvent(click(btn()));
     assert.equal(calls, 1, "a second click while busy starts nothing");
-    env.setData(letterData({ qualityDoc: { qa: { contract: "materials.qa.v2", disposition: "READY", quality: { score: 88, ratings: [] } } } }));
+    env.setData(letterData({ qualityDoc: { status: "pass", issues: [], qa: V3_READY } }));
     finish();
     await new Promise((r) => setImmediate(r));
     assert.equal(btn().getAttribute("aria-busy"), "false");
-    assert.match(text(env.modal().querySelector(".jb-score__letter")), /^B\+$/);
+    assert.equal(text(env.modal().querySelector(".jb-score__word")), "Ready");
     const live = env.doc.querySelector('[data-jb-a11y-live="polite"]');
     assert.ok(live, "an announcement was made");
-    assert.equal(live.textContent, "Rescored: grade B+, 88 of 100.");
+    assert.equal(live.textContent, "Rescored: Ready.");
   });
 
   it("should close first, then hand Fix this, Apply and Repair to the host", () => {
@@ -268,8 +253,8 @@ describe("open() · the modal as a dialog", () => {
     const fix = env.modal().querySelector('[data-score-fix="0"]');
     fix.dispatchEvent(click(fix));
     assert.equal(seen[0][0], "fix");
-    assert.match(seen[0][1], /40% churn cut/);
-    assert.equal(seen[0][2], "i1", "the blocker's own issue id travels with it");
+    assert.match(seen[0][1], /No source for this result/);
+    assert.equal(seen[0][2], "i1", "the check's own issue id travels with it");
     assert.equal(seen[0][3], false, "the modal was gone before the host moved focus");
 
     env.win.JobBoredMaterialsScore.open({ opener: env.opener, read: () => letterData(), apply: (s) => seen.push(["apply", s.after, !!env.modal()]), repair: () => seen.push(["repair", !!env.modal()]) });
@@ -283,26 +268,26 @@ describe("open() · the modal as a dialog", () => {
     assert.deepEqual(seen[2], ["repair", false]);
   });
 
-  it("should reveal one step at a time and read History when its step opens", async () => {
+  it("should reveal one step at a time and read Versions when its step opens", async () => {
     let loads = 0;
     let land;
     const env = openFor({}, { loadHistory: () => { loads += 1; return new Promise((r) => { land = r; }); } });
     const step = (id) => env.modal().querySelector(`[data-step="${id}"]`);
     const toggle = (id) => step(id).querySelector("[data-score-step]");
     const panel = (id) => step(id).querySelector(".jb-score__panel");
-    assert.equal(toggle("blockers").getAttribute("aria-expanded"), "true", "the first step with something in it starts open");
-    assert.equal(panel("blockers").hidden, false);
-    assert.equal(toggle("history").getAttribute("aria-expanded"), "false");
-    assert.equal(panel("history").hidden, true);
-    toggle("history").dispatchEvent(click(toggle("history")));
-    assert.equal(toggle("history").getAttribute("aria-expanded"), "true");
+    assert.equal(toggle("why").getAttribute("aria-expanded"), "true", "the first step with something in it starts open");
+    assert.equal(panel("why").hidden, false);
+    assert.equal(toggle("versions").getAttribute("aria-expanded"), "false");
+    assert.equal(panel("versions").hidden, true);
+    toggle("versions").dispatchEvent(click(toggle("versions")));
+    assert.equal(toggle("versions").getAttribute("aria-expanded"), "true");
     assert.equal(loads, 1);
-    assert.match(text(panel("history")), /Loading/);
-    land(RUNS);
+    assert.match(text(panel("versions")), /Loading/);
+    land(RUNS_REPAIR_PASSED);
     await new Promise((r) => setImmediate(r));
-    assert.match(text(panel("history")), /In use/);
-    assert.equal(env.modal().querySelectorAll(".jb-score__run").length, 2);
-    assert.equal(toggle("blockers").getAttribute("aria-expanded"), "true", "a refresh keeps the open steps open");
+    assert.match(text(panel("versions")), /Default/);
+    assert.equal(env.modal().querySelectorAll(".jb-ver__run").length, 2);
+    assert.equal(toggle("why").getAttribute("aria-expanded"), "true", "a refresh keeps the open steps open");
   });
 });
 
@@ -326,5 +311,10 @@ describe("css/materials-score.css · Scribe v2's language, tokens only", () => {
   it("should carry no colour literal", () => {
     const body = css.replace(/\/\*[\s\S]*?\*\//g, "");
     assert.doesNotMatch(body, /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
+  });
+
+  it("GRADE-F D7: the verdict button is a text chip whose reason truncates, not a ring", () => {
+    assert.doesNotMatch(css, /jb-grade__ring|jb-score__dial|jb-score__letter/);
+    assert.match(css, /\.jb-grade\[data-tone\] \.jb-grade__reason \{[^}]*text-overflow: ellipsis/);
   });
 });

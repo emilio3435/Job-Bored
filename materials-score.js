@@ -1,24 +1,19 @@
 /* ============================================================
-   materials-score.js — HOLES lane SCORE: the letter grade and the
-   score modal
+   materials-score.js — the quality-check button and its modal
    ------------------------------------------------------------
-   Spec: docs/programs/holes-20261002/SPEC-HOLES-2026-10-02.md
-         §0.3 (modal, one minimal button), §0.8 (the grade), §2 SCORE.
+   HOLES lane SCORE built the one-button + modal layout (§0.3); GRADE
+   (docs/programs/grade-20261002/SPEC-GRADE.md D1, D7, A3) retired its
+   letter grade and every "N of 100": a document shows its verdict word
+   and the first reason ("Fails · 1 claim needs a source", "Ready").
 
-   A document's score shows as ONE button: its letter in a small ring.
-   Everything the graders said (blockers, dimensions, evidence, rewrite
-   suggestions, keyword coverage, history) lives in one modal, opened
-   through JobBoredA11y.dialog and revealed one step at a time. The
-   dossier rows, the Case and Scribe paint nothing else of the score.
-
-   Pure: gradeOf, buttonHtml, modelOf, modalHtml (strings, no DOM).
-   open(spec) puts the modal in the page; the host passes read() for
-   the data and the actions it can take (fix, apply, repair, rescore,
-   loadHistory, promote). A host that cannot take one leaves it out,
-   and its buttons are not drawn.
-
-   The detail sections reuse materials-insights.js's readers of the
-   judge's record (issue groups, rubric labels, run history).
+   One pure view, verdictView(qualityDoc), feeds every surface: the
+   button, the modal (Why, Coverage, Writing, Reviews, Versions), the
+   version rows both lists share (versionsHtml), the Case tile and
+   Scribe's header. open(spec) puts the modal in the page through
+   JobBoredA11y.dialog; the host passes read() for the data and the
+   actions it can take (fix, apply, repair, rescore, loadHistory,
+   promote, download). A host that cannot take one leaves it out, and its
+   buttons are not drawn.
 
    Published as window.JobBoredMaterialsScore.
    ============================================================ */
@@ -38,202 +33,243 @@
       .replace(/'/g, "&#39;");
   }
 
-  /* -------------------- §0.8 the grade -------------------- */
+  /* -------------------- GRADE: the verdict view -------------------- */
 
-  /* Within a band the bottom three points are "-" and the top three "+",
-     F (0–59) included. */
-  var BANDS = [
-    { base: "A", lo: 90, hi: 100 },
-    { base: "B", lo: 80, hi: 89 },
-    { base: "C", lo: 70, hi: 79 },
-    { base: "D", lo: 60, hi: 69 },
-    { base: "F", lo: 0, hi: 59 },
-  ];
-  var RANK = ["F-", "F", "F+", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
-  var FAIL_CAP = "D";
-
-  function letterFor(score) {
-    for (var i = 0; i < BANDS.length; i++) {
-      var b = BANDS[i];
-      if (score < b.lo) continue;
-      if (score <= b.lo + 2) return b.base + "-";
-      if (score >= b.hi - 2) return b.base + "+";
-      return b.base;
-    }
-    return "F-";
-  }
+  /* SPEC-GRADE A3 "Front-end view": a document's quality check is its
+     verdict word and the first reason — never a letter, a total or an ATS
+     percentage. Every surface (button, modal, version rows, Case tile,
+     Scribe header) renders from verdictView. */
+  var WORDS = { READY: "Ready", REVIEW: "Needs review", FAIL: "Fails" };
+  var TONES = { READY: "ok", REVIEW: "warn", FAIL: "err" };
+  var DOC_LABEL = { resume: "Resume", cover_letter: "Cover letter" };
+  var DOC_NOUN = { resume: "resume", cover_letter: "cover letter" };
 
   function finite(n) {
     return typeof n === "number" && isFinite(n);
   }
 
-  function toScore(n) {
-    return Math.max(0, Math.min(100, Math.round(n)));
-  }
-
-  /* The manifest's quality record, read the way materials-insights.js reads
-     it: a v1 record carries a rubric, a v2 record a quality block or gates
-     (the manifest may copy a v2 record without its contract field). */
-  function qaOf(qualityDoc) {
-    var qa = qualityDoc && qualityDoc.qa;
-    return qa && typeof qa === "object" ? qa : null;
-  }
-
-  function qaVersion(qa) {
-    if (!qa) return 0;
-    if (qa.rubric && typeof qa.rubric === "object") return 1;
-    if (qa.contract === "materials.qa.v2" || (qa.quality && typeof qa.quality === "object") || Array.isArray(qa.gates)) return 2;
-    return 0;
-  }
-
-  /* A version saved from a stored model gets a placeholder rubric (one
-     version_recheck row, 0 of 1; server/materials-regenerate.mjs
-     writeVersionQa): nothing was graded, so it is no score, never an F. */
-  function isUnscoredStub(qa) {
-    var rows = qa && qa.rubric && Array.isArray(qa.rubric.rows) ? qa.rubric.rows : [];
-    return rows.length > 0 && rows.every(function (r) { return r && r.id === "version_recheck"; });
-  }
-
-  function verdictOf(qualityDoc) {
-    var qa = qaOf(qualityDoc);
-    if (qa && qa.disposition) return String(qa.disposition).toUpperCase();
-    var status = String((qualityDoc && qualityDoc.status) || "").toLowerCase();
-    if (status === "fail") return "FAIL";
-    if (status === "review") return "REVIEW";
-    return qualityDoc ? "READY" : "";
-  }
-
-  /* A stored scorecard entry is { result, feature, storedAt }; the bus and
-     the legacy modal hand over the result itself. */
-  function atsResultOf(ats) {
-    if (!ats || typeof ats !== "object") return null;
-    if (ats.result && typeof ats.result === "object") return ats.result;
-    return ats;
-  }
-
-  /* Why there is no score; the modal's judge line (materials-insights.js
-     judgeLine) says why the grading model didn’t finish. */
-  function whyUngraded(qa) {
-    if (isUnscoredStub(qa)) {
-      return "This version was saved without a grade: its evidence was not rescored. Rescore grades it against the role.";
-    }
-    if (qa) return "The grading model gave this draft no score. Rescore grades it against the role.";
-    return "Nothing has graded this draft yet. Rescore grades it against the role.";
-  }
-
-  /**
-   * qualityDoc: the manifest's quality.documents[type] (or undefined).
-   * ats: an ATS scorecard result, or the stored { result, feature, storedAt }.
-   * Returns { letter, base, score, source, verdict, capped, why }.
-   */
-  function gradeOf(qualityDoc, ats) {
-    var qa = qaOf(qualityDoc);
-    var version = qaVersion(qa);
-    var verdict = verdictOf(qualityDoc);
-    var score = null;
-    var source = "none";
-    if (version === 2 && qa.quality && finite(qa.quality.score)) {
-      score = toScore(qa.quality.score);
-      source = "judge";
-    } else if (version === 1 && !isUnscoredStub(qa) && finite(qa.rubric.score) && finite(qa.rubric.max) && qa.rubric.max > 0) {
-      score = toScore((qa.rubric.score / qa.rubric.max) * 100);
-      source = "rubric";
-    } else {
-      var result = atsResultOf(ats);
-      if (result && finite(result.overallScore)) {
-        score = toScore(result.overallScore);
-        source = "ats";
-      }
-    }
-    if (score == null) {
-      return { letter: "Grade", base: "", score: null, source: "none", verdict: verdict, capped: false, why: whyUngraded(qa) };
-    }
-    var letter = letterFor(score);
-    var capped = verdict === "FAIL" && RANK.indexOf(letter) > RANK.indexOf(FAIL_CAP);
-    if (capped) letter = FAIL_CAP;
-    return { letter: letter, base: letter.charAt(0), score: score, source: source, verdict: verdict, capped: capped, why: "" };
-  }
-
-  /* -------------------- the button -------------------- */
-
-  function toneOf(grade) {
-    var b = grade && grade.base;
-    if (b === "A" || b === "B") return "good";
-    if (b === "C") return "fair";
-    if (b === "D" || b === "F") return "low";
-    return "none";
-  }
-
-  function accessibleName(grade, stale) {
-    if (!grade || grade.score == null) return "Grade: not graded yet — open score details";
-    return "Grade " + grade.letter + ", " + grade.score + " of 100"
-      + (grade.capped ? ", capped by a failed check" : "")
-      + (stale ? ", out of date" : "")
-      + " — open score details";
-  }
-
-  /**
-   * opts: { feature, scope, stale }. The visible face is the letter alone.
-   */
-  function buttonHtml(grade, opts) {
-    var o = opts || {};
-    var g = grade || gradeOf();
-    return '<button type="button" class="jb-grade" data-tone="' + toneOf(g) + '" data-score-open'
-      + (o.feature ? ' data-feature="' + esc(o.feature) + '"' : "")
-      + (o.scope ? ' data-scope="' + esc(o.scope) + '"' : "")
-      + ' data-grade="' + esc(g.letter) + '"'
-      + (o.stale ? ' data-stale="true"' : "")
-      + ' aria-haspopup="dialog" aria-label="' + esc(accessibleName(g, o.stale)) + '">'
-      + '<span class="jb-grade__ring" aria-hidden="true">' + esc(g.score == null ? "Grade" : g.letter) + "</span>"
-      + (o.stale ? '<span class="jb-grade__stale" aria-hidden="true"></span>' : "")
-      + "</button>";
-  }
-
-  /* -------------------- the modal: what it says -------------------- */
-
-  var DOC_LABEL = { resume: "Resume", cover_letter: "Cover letter" };
-  var DOC_NOUN = { resume: "resume", cover_letter: "cover letter" };
-  var ROLE_DIMENSIONS = [
-    { key: "requirementsCoverage", label: "Requirements covered" },
-    { key: "experienceRelevance", label: "Relevant experience" },
-    { key: "impactClarity", label: "Impact clarity" },
-    { key: "atsParseability", label: "Reads cleanly for screeners" },
-    { key: "toneFit", label: "Tone fit" },
-  ];
-  var SOURCE_WORDS = { resume: "your resume", cover_letter: "your cover letter", job: "the posting", profile: "your profile" };
-  var VERDICT_LINES = {
-    READY: "Ready to send.",
-    REVIEW: "Worth a look before you send it.",
-    FAIL: "It failed a hard check. Fix the blockers before you send it.",
-  };
-  var VERDICT_CHIPS = { READY: "Ready", REVIEW: "Review", FAIL: "Failed a check" };
-  /* Blockers first, the grader's notes last. */
-  var GROUPS = ["blocker", "flag", "check", "rubric", "gap", "background", "writing", "note"];
-  var BACKGROUND_HINT = "What the posting asks for that your background doesn’t show. This is information for you, not a problem with the writing.";
-  var GROUP_TAGS = {
-    blocker: "Blocker", flag: "Check", check: "To confirm", rubric: "Rubric",
-    gap: "Role gap", background: "Background gap", writing: "Writing", note: "Fallback",
-  };
-  var SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
-  var INSTRUCTION_MAX = 600;
-  var STEPS = [
-    { id: "blockers", title: "Blockers and gaps" },
-    { id: "dimensions", title: "Dimensions" },
-    { id: "evidence", title: "Evidence" },
-    { id: "rewrites", title: "Rewrite suggestions" },
-    { id: "keywords", title: "Keyword coverage" },
-    { id: "history", title: "History" },
-  ];
-
-  function insights() {
-    var mi = root.JobBoredMaterialsInsights;
-    return mi && typeof mi.qaIssues === "function" ? mi : null;
+  function list(v) {
+    return Array.isArray(v) ? v.filter(Boolean) : [];
   }
 
   function cap(s) {
     var t = String(s || "");
     return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
   }
+
+  function insights() {
+    var mi = root.JobBoredMaterialsInsights;
+    return mi && typeof mi.qaIssues === "function" ? mi : null;
+  }
+
+  /* The manifest's quality record (quality.documents[type].qa). */
+  function qaOf(qualityDoc) {
+    var qa = qualityDoc && qualityDoc.qa;
+    return qa && typeof qa === "object" ? qa : null;
+  }
+
+  /* 1 for an old rubric record, 2 for the judge's v2 record, 3 for GRADE's
+     verdict record; the same sniff as materials-insights.js qaVersion. */
+  function qaVersion(qa) {
+    if (!qa || typeof qa !== "object") return 0;
+    if (qa.rubric && typeof qa.rubric === "object") return 1;
+    if (qa.contract === "materials.qa.v3" || (Array.isArray(qa.reasons) && Array.isArray(qa.checks))) return 3;
+    if (qa.contract === "materials.qa.v2" || (qa.quality && typeof qa.quality === "object") || Array.isArray(qa.gates)) return 2;
+    return 0;
+  }
+
+  /* A version saved from a stored model gets a placeholder rubric (one
+     version_recheck row): nothing was graded, so it is "Not rescored". */
+  function isUnscoredStub(qa) {
+    var rows = qa && qa.rubric && Array.isArray(qa.rubric.rows) ? qa.rubric.rows : [];
+    return rows.length > 0 && rows.every(function (r) { return r && r.id === "version_recheck"; });
+  }
+
+  function checkLabel(id) {
+    var mi = insights();
+    return mi ? mi.rubricLabel(id) : cap(String(id || "").replace(/_/g, " "));
+  }
+
+  function claimsText(n, one, many) {
+    return n + " claim" + (n === 1 ? " " + one : "s " + many);
+  }
+
+  /* An old record (v1 rubric, v2 judge) read as the v3 shape: its stored
+     verdict, with reasons from its failed gates and flagged sentences. Its
+     stored prose ("Quality score 64 is below 80.", "6/16") is never read. */
+  function adaptLegacy(qa, version, qualityDoc) {
+    var checks = [];
+    if (version === 2) {
+      list(qa.gates).forEach(function (g) {
+        if (g.kind !== "hard" || g.pass !== false) return;
+        checks.push({ id: String(g.id || ""), kind: "gate", status: "fail", label: checkLabel(g.id), detail: String(g.reason || ""), sentenceIds: list(g.sentenceIds) });
+      });
+      list(qa.sentences).forEach(function (s) {
+        if (s.status !== "unsupported" && s.status !== "uncertain") return;
+        var bad = s.status === "unsupported";
+        checks.push({ id: "sentence:" + s.id, kind: "sentence", status: bad ? "fail" : "review", label: bad ? "Claim needs a source" : "Claim to confirm", detail: String(s.reason || ""), sentenceIds: [s.id] });
+      });
+    } else {
+      var flags = list(qa.checks).length ? qa.checks : list(qualityDoc && qualityDoc.issues);
+      flags.forEach(function (c) {
+        if (c.severity !== "fail" && c.severity !== "review") return;
+        checks.push({ id: String(c.code || ""), kind: "gate", status: c.severity === "fail" ? "fail" : "review", label: checkLabel(c.code), detail: String(c.message || ""), sentenceIds: [] });
+      });
+    }
+    var reasons = checks.filter(function (c) { return c.kind === "gate"; }).map(function (c) { return { checkId: c.id, text: c.detail || c.label }; });
+    var unsupported = checks.filter(function (c) { return c.kind === "sentence" && c.status === "fail"; });
+    var uncertain = checks.filter(function (c) { return c.kind === "sentence" && c.status === "review"; });
+    if (unsupported.length) reasons.push({ checkId: unsupported[0].id, text: claimsText(unsupported.length, "needs a source", "need a source") });
+    if (uncertain.length) reasons.push({ checkId: uncertain[0].id, text: claimsText(uncertain.length, "to confirm", "to confirm") });
+    return {
+      runId: qa.runId || "", passId: null, state: "graded", disposition: qa.disposition, reasons: reasons, checks: checks,
+      sentences: version === 2 ? list(qa.sentences) : [], issues: version === 2 ? list(qa.issues) : [], ratings: [], coverage: null,
+      reviews: [], qualificationGaps: version === 2 ? list(qa.qualificationGaps) : [], degraded: list(qa.degraded), repair: qa.repair || null, legacy: "old_checker",
+    };
+  }
+
+  function coverageView(c, stale) {
+    if (!c || typeof c !== "object" || !finite(c.total) || c.total <= 0) return null;
+    var reqs = list(c.requirements);
+    var named = function (status) {
+      return reqs.filter(function (r) { return r.status === status; }).map(function (r) { return String(r.text || r.id || ""); }).filter(Boolean);
+    };
+    var covered = finite(c.covered) ? c.covered : reqs.filter(function (r) { return r.status === "covered"; }).length;
+    return { covered: covered, total: c.total, missing: named("missing"), partial: named("partial"), requirements: reqs, stale: !!stale };
+  }
+
+  /** "Covers 7 of 9 requirements; missing: X, Y" (D6). */
+  function coverageLine(cov) {
+    if (!cov) return "";
+    return "Covers " + cov.covered + " of " + cov.total + " requirement" + (cov.total === 1 ? "" : "s")
+      + (cov.missing.length ? "; missing: " + cov.missing.join(", ") : "");
+  }
+
+  /* G3 (FIX1-F7): a carried-over record's coverage was measured on another
+     run — the one it was carried from — so it reads "From an earlier
+     version" whatever the host says. */
+  function carriedFromOtherRun(rec) {
+    var from = rec && rec.state === "carried_over" && rec.carriedFrom ? String(rec.carriedFrom.runId || "") : "";
+    return !!from && from !== String(rec.runId || "");
+  }
+
+  function noPeriod(s) {
+    return String(s || "").trim().replace(/[.!?]+$/, "");
+  }
+
+  /**
+   * qualityDoc: the manifest's quality.documents[type] (or undefined).
+   * opts: { stale } — the host knows when the text moved on.
+   * Returns { disposition, state, word, reason, reasonFull, tone, runId,
+   * stale, held, legacy, reviews, coverage, checks, sentences, ratings, … }.
+   */
+  function verdictView(qualityDoc, opts) {
+    var o = opts || {};
+    var qa = qaOf(qualityDoc);
+    var version = qaVersion(qa);
+    var rec = version === 3 ? qa : (version === 1 && isUnscoredStub(qa)
+      ? { runId: qa.runId || "", state: "not_rescored", disposition: null, reasons: [], checks: [], legacy: "old_checker" }
+      : (version ? adaptLegacy(qa, version, qualityDoc) : null));
+    var state = rec ? String(rec.state || "graded") : "none";
+    var disposition = rec && state !== "not_rescored" && WORDS[String(rec.disposition || "").toUpperCase()]
+      ? String(rec.disposition).toUpperCase() : null;
+    var checks = rec ? list(rec.checks) : [];
+    var first = rec && state !== "not_rescored" ? list(rec.reasons)[0] : null;
+    var check = first ? checks.filter(function (c) { return c.id === first.checkId; })[0] : null;
+    /* A failed gate leads with its name ("Tool support"); every other reason
+       is already a sentence ("1 claim needs a source"). */
+    var gate = !!(check && check.kind === "gate" && check.label);
+    var reason = first ? noPeriod(gate ? check.label : first.text) : "";
+    var detail = first ? noPeriod(first.text) : "";
+    var reasonFull = gate && detail && detail !== reason ? reason + ": " + detail : reason;
+    return {
+      disposition: disposition,
+      state: state,
+      word: state === "not_rescored" ? "Not rescored" : (WORDS[disposition] || "Not graded"),
+      reason: reason,
+      reasonFull: reasonFull,
+      tone: TONES[disposition] || "none",
+      runId: rec ? String(rec.runId || "") : "",
+      passId: rec && rec.passId ? String(rec.passId) : "",
+      stale: !!o.stale,
+      held: disposition === "FAIL" ? { reason: reason || WORDS.FAIL } : null,
+      legacy: rec && rec.legacy ? String(rec.legacy) : "",
+      reviews: rec ? list(rec.reviews) : [],
+      coverage: coverageView(rec && rec.coverage, o.stale || carriedFromOtherRun(rec)),
+      checks: checks,
+      sentences: rec ? list(rec.sentences) : [],
+      issues: rec ? list(rec.issues) : [],
+      ratings: rec ? list(rec.ratings) : [],
+      qualificationGaps: rec ? list(rec.qualificationGaps) : [],
+      degraded: rec ? list(rec.degraded) : [],
+      carriedFrom: rec && rec.carriedFrom ? rec.carriedFrom : null,
+      rescore: rec && rec.rescore ? rec.rescore : null,
+    };
+  }
+
+  /* -------------------- the button -------------------- */
+
+  function accessibleName(view, opts) {
+    var o = opts || {};
+    var v = view || verdictView();
+    return (DOC_LABEL[o.feature] || "Quality check") + ": " + v.word
+      + (v.reasonFull ? " — " + noPeriod(v.reasonFull) : "") + "."
+      + (o.stale ? " Out of date." : "")
+      + " Open the quality check.";
+  }
+
+  /**
+   * opts: { feature, scope, stale }. The face is "<word> · <first reason>",
+   * "Ready" alone when there is no reason; the full sentence is the name.
+   */
+  function buttonHtml(view, opts) {
+    var o = opts || {};
+    var v = view || verdictView();
+    return '<button type="button" class="jb-grade" data-tone="' + esc(v.tone) + '" data-verdict="' + esc(v.disposition || v.state) + '" data-score-open'
+      + (o.feature ? ' data-feature="' + esc(o.feature) + '"' : "")
+      + (o.scope ? ' data-scope="' + esc(o.scope) + '"' : "")
+      + (o.stale ? ' data-stale="true"' : "")
+      + ' aria-haspopup="dialog" aria-label="' + esc(accessibleName(v, o)) + '">'
+      + '<span class="jb-grade__word" aria-hidden="true">' + esc(v.word) + "</span>"
+      + (v.reason ? '<span class="jb-grade__reason" aria-hidden="true"> · ' + esc(v.reason) + "</span>" : "")
+      + (o.stale ? '<span class="jb-grade__stale" aria-hidden="true"></span>' : "")
+      + "</button>";
+  }
+
+  /* -------------------- the modal: what it says -------------------- */
+
+  var VERDICT_LINES = {
+    READY: "Ready to send.",
+    REVIEW: "Worth a look before you send it.",
+    FAIL: "It failed a check. Fix it before you send it.",
+  };
+  /* Why: the checks that decided the verdict, deciding kinds first. */
+  var WHY_GROUPS = [
+    { kind: "gate", title: "Hard checks" },
+    { kind: "sentence", title: "Claims" },
+    { kind: "review", title: "Reviews" },
+    { kind: "constraint", title: "Constraints" },
+    { kind: "dimension", title: "Writing" },
+    { kind: "rescore", title: "Rescore" },
+    { kind: "audit", title: "Other checks" },
+    { kind: "note", title: "Fallbacks" },
+    { kind: "background", title: "Background gaps" },
+  ];
+  var BACKGROUND_HINT = "What the posting asks for that your background doesn’t show. This is information for you, not a problem with the writing.";
+  var REQ_WORDS = { covered: "covered", partial: "partly covered", missing: "missing" };
+  var REQ_TONES = { covered: "ok", partial: "warn", missing: "miss" };
+  var INSTRUCTION_MAX = 600;
+  var STEPS = [
+    { id: "why", title: "Why" },
+    { id: "coverage", title: "Coverage" },
+    { id: "writing", title: "Writing" },
+    { id: "reviews", title: "Reviews" },
+    { id: "versions", title: "Versions" },
+    /* The ATS check's line edits and the posting's role terms, below
+       GRADE's sections and only when there are some: no score in either. */
+    { id: "rewrites", title: "Rewrite suggestions", extra: true },
+    { id: "keywords", title: "Keyword coverage", extra: true },
+  ];
 
   function clip(s) {
     var t = String(s || "").replace(/\s+/g, " ").trim();
@@ -244,111 +280,124 @@
     return clip("Fix this: " + String(reason || "").trim() + (quote ? " (“" + quote + "”)" : ""));
   }
 
-  function list(v) {
-    return Array.isArray(v) ? v.filter(Boolean) : [];
+  function sentenceTexts(view, ids) {
+    var by = {};
+    view.sentences.forEach(function (s) { if (s.id) by[s.id] = String(s.text || ""); });
+    return list(ids).map(function (id) { return by[id] || ""; }).filter(Boolean);
   }
 
-  function blockerItems(qualityDoc, qa, version, ats, mi) {
+  /* The issue Repair can tick for a check: a gate's own issue, or the issue
+     that names the check's sentence. */
+  function issueFor(view, c) {
+    var ids = list(c.sentenceIds);
+    var hit = view.issues.filter(function (i) {
+      if (c.kind === "gate") return i.origin === "gate" && (i.gateId === c.id || String(i.reason || "") === String(c.detail || ""));
+      return ids.length && list(i.sentenceIds).indexOf(ids[0]) >= 0;
+    })[0];
+    return hit ? String(hit.id || hit.code || "") : "";
+  }
+
+  function whyItems(view, qualityDoc) {
     var items = [];
-    var judged = {};
-    if (version === 2 && mi) {
-      mi.qaIssues(qa).forEach(function (it) {
-        if (it.id) judged[it.id] = 1;
-        var group = it.group === "facts" ? "blocker" : (it.group === "check" ? "check" : "writing");
-        items.push({
-          group: group, kind: it.kind ? mi.kindWord(it.kind) : "", quotes: it.quotes, why: it.reason,
-          issueId: it.id, instruction: fixText(it.reason, it.quotes[0]),
-        });
+    var seen = {};
+    view.checks.forEach(function (c) {
+      seen[c.id] = 1;
+      if (c.status !== "fail" && c.status !== "review") return;
+      var quotes = sentenceTexts(view, c.sentenceIds);
+      var said = String(c.detail || c.label || "");
+      var fixable = c.kind !== "review" && c.kind !== "rescore";
+      items.push({
+        group: c.kind || "gate", status: c.status, label: String(c.label || ""), why: c.detail && c.detail !== c.label ? String(c.detail) : "",
+        quotes: quotes, issueId: fixable ? issueFor(view, c) : "", instruction: fixable ? fixText(said, quotes[0]) : "", noFix: !fixable,
       });
-    }
+    });
+    view.issues.forEach(function (i) { seen[i.id] = 1; seen[i.code] = 1; });
     /* The deterministic audit's flags, every one of them (U16). */
     list(qualityDoc && qualityDoc.issues).forEach(function (f) {
       var said = String(f.message || f.code || "").trim();
-      if (!said || judged[f.code]) return;
-      items.push({ group: f.severity === "fail" ? "blocker" : "flag", kind: "", quotes: [], why: said, issueId: "", instruction: fixText(said) });
+      if (!said || seen[f.code] || (f.severity !== "fail" && f.severity !== "review")) return;
+      items.push({ group: "audit", status: f.severity === "fail" ? "fail" : "review", label: said, why: "", quotes: [], issueId: "", instruction: fixText(said) });
     });
-    if (version === 1 && !isUnscoredStub(qa)) {
-      list(qa.rubric.rows).forEach(function (r) {
-        if (!(r.score < r.max)) return;
-        var label = mi ? mi.rubricLabel(r.id) : cap(String(r.id || "").replace(/_/g, " "));
-        items.push({
-          group: "rubric", kind: label + " · " + r.score + " / " + r.max, quotes: [], why: String(r.note || label),
-          issueId: "", instruction: clip("Improve “" + label + "”" + (r.note ? ": " + r.note : "")),
-        });
-      });
-      list(qa.degraded).forEach(function (x) {
-        items.push({ group: "note", kind: "", quotes: [], why: mi ? mi.plainDegraded(x) : String(x), issueId: "", instruction: "", noFix: true });
-      });
-    }
-    list(ats && ats.criticalGaps).slice().sort(function (a, b) {
-      return (SEVERITY_ORDER[a.severity] == null ? 1 : SEVERITY_ORDER[a.severity]) - (SEVERITY_ORDER[b.severity] == null ? 1 : SEVERITY_ORDER[b.severity]);
-    }).forEach(function (g) {
-      if (!g.gap) return;
-      items.push({
-        group: "gap", kind: g.severity ? cap(g.severity) : "", quotes: [], why: String(g.gap), sub: String(g.whyItMatters || ""),
-        issueId: "", instruction: clip("Address this gap: " + g.gap + (g.whyItMatters ? " — " + g.whyItMatters : "")),
-      });
+    /* A step that fell back to rules says so; there is nothing to fix. */
+    var mi = insights();
+    view.degraded.forEach(function (x) {
+      var said = mi ? mi.plainDegraded(x) : String(x || "");
+      if (said) items.push({ group: "note", status: "info", label: said, why: "", quotes: [], issueId: "", instruction: "", noFix: true });
     });
-    if (version === 2) {
-      list(qa.qualificationGaps).forEach(function (g) {
-        var gap = String(g).trim();
-        if (!gap) return;
-        items.push({
-          group: "background", kind: "", quotes: [], why: gap, sub: BACKGROUND_HINT,
-          issueId: "", instruction: clip("Address this gap honestly, using only what my background supports: " + gap),
-        });
-      });
-    }
+    view.qualificationGaps.forEach(function (g) {
+      var gap = String(g).trim();
+      if (!gap) return;
+      items.push({ group: "background", status: "info", label: gap, why: BACKGROUND_HINT, quotes: [], issueId: "", instruction: clip("Address this gap honestly, using only what my background supports: " + gap) });
+    });
+    var order = WHY_GROUPS.map(function (g) { return g.kind; });
     return items.map(function (it, i) { it.order = i; return it; }).sort(function (a, b) {
-      return GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group) || a.order - b.order;
+      return order.indexOf(a.group) - order.indexOf(b.group) || a.order - b.order;
     });
   }
 
-  function dimensionGroups(qa, version, ats, mi) {
-    var groups = [];
-    if (version === 2 && qa.quality && Array.isArray(qa.quality.ratings)) {
-      var dims = mi ? mi.JUDGE_DIMENSIONS : [];
-      var rows = qa.quality.ratings.filter(Boolean).map(function (r) {
-        var named = dims.filter(function (d) { return d.id === r.dimension; })[0];
-        return {
-          label: named ? named.label : cap(String(r.dimension || "").replace(/_/g, " ")),
-          value: Math.max(0, Math.min(4, Number(r.score) || 0)), max: 4, why: String(r.reason || ""),
-        };
-      });
-      if (rows.length) groups.push({ title: "Writing", note: "0–4 from the grading model", rows: rows });
-    }
-    if (version === 1 && !isUnscoredStub(qa)) {
-      var rubric = list(qa.rubric.rows).filter(function (r) { return finite(r.score) && finite(r.max) && r.max > 0; }).map(function (r) {
-        return { label: mi ? mi.rubricLabel(r.id) : cap(String(r.id || "").replace(/_/g, " ")), value: r.score, max: r.max, why: String(r.note || "") };
-      });
-      if (rubric.length) groups.push({ title: "Rubric", note: "the old checker", rows: rubric });
-    }
-    var ds = ats && ats.dimensionScores && typeof ats.dimensionScores === "object" ? ats.dimensionScores : null;
-    if (ds) {
-      var role = ROLE_DIMENSIONS.filter(function (d) { return finite(ds[d.key]); }).map(function (d) {
-        return { label: d.label, value: toScore(ds[d.key]), max: 100, why: "" };
-      });
-      if (role.length) groups.push({ title: "Role match", note: "0–100 from the role-match check", rows: role });
-    }
-    return groups;
+  function writingRows(view) {
+    var mi = insights();
+    var dims = mi ? mi.JUDGE_DIMENSIONS : [];
+    return view.ratings.map(function (r) {
+      var named = dims.filter(function (d) { return d.id === r.dimension; })[0];
+      return {
+        label: named ? named.label : cap(String(r.dimension || "").replace(/_/g, " ")),
+        value: Math.max(0, Math.min(4, Number(r.score) || 0)), max: 4, why: String(r.reason || ""),
+      };
+    });
   }
 
-  function evidenceOf(qa, version, ats) {
-    var out = { items: [], strengths: list(ats && ats.topStrengths).map(String), backed: "" };
-    list(ats && ats.evidence).forEach(function (e) {
-      if (!e.claim && !e.sourceSnippet) return;
-      out.items.push({ claim: String(e.claim || ""), snippet: String(e.sourceSnippet || ""), source: SOURCE_WORDS[e.sourceType] || "your profile" });
-    });
-    if (version === 2) {
-      var factual = list(qa.sentences).filter(function (x) { return x.status === "supported" || x.status === "unsupported" || x.status === "uncertain"; });
-      var supported = factual.filter(function (x) { return x.status === "supported"; });
-      if (factual.length) out.backed = supported.length + " of " + factual.length + " factual sentence" + (factual.length === 1 ? " is" : "s are") + " backed by your background.";
-      supported.forEach(function (x) {
-        var quotes = list(x.citations).map(function (c) { return String(c.quote || "").trim(); }).filter(Boolean);
-        if (quotes.length) out.items.push({ claim: String(x.text || ""), snippet: quotes.join(" · "), source: "your background" });
-      });
+  var ROLE_WORDS = { first: "First review", second: "Second review" };
+
+  function reviewModel(r) {
+    return String(r.model || r.provider || "a model");
+  }
+
+  /* G4: who reviewed it and what each said; a review that didn't run says
+     why, with Try again and Change grading model. */
+  function reviewRows(view) {
+    var mi = insights();
+    var rows = [];
+    var ok = view.reviews.filter(function (r) { return r.status === "ok" && WORDS[r.disposition]; });
+    if (ok.length > 1 && ok.some(function (r) { return r.disposition !== ok[0].disposition; })) {
+      rows.push({ kind: "disagree", text: "Reviewers disagree", acts: [] });
     }
-    return out;
+    view.reviews.forEach(function (r) {
+      var who = ROLE_WORDS[r.role] || "Review";
+      if (r.status === "ok") {
+        rows.push({ kind: "ok", tone: TONES[r.disposition] || "none", text: who + ": " + reviewModel(r) + " — " + (WORDS[r.disposition] || "no verdict"), acts: [] });
+      } else if (r.status === "skipped") {
+        rows.push({ kind: "skipped", text: who + " skipped — " + (r.reason ? noPeriod(r.reason) : "it uses the same model as the first review"), acts: [] });
+      } else {
+        var why = mi && typeof mi.gradeFailureReason === "function" ? mi.gradeFailureReason(r) : "it didn’t answer.";
+        rows.push({
+          kind: "unavailable", text: who + " didn’t run — " + why,
+          acts: r.role === "second" ? ["retry", "grading"] : ["retry"],
+        });
+      }
+    });
+    if (!view.legacy && view.reviews.length === 1 && view.reviews[0].role === "first" && view.reviews[0].status === "ok") {
+      rows.push({ kind: "note", text: "A grading model in Settings adds a second review.", acts: ["second"] });
+    }
+    return rows;
+  }
+
+  function provenanceOf(view) {
+    if (view.legacy) return "Graded by the old checker";
+    return view.reviews.filter(function (r) { return r.status === "ok"; }).map(function (r) {
+      return (ROLE_WORDS[r.role] || "Review") + ": " + reviewModel(r);
+    }).join(" · ");
+  }
+
+  function notesOf(view) {
+    var mi = insights();
+    var notes = [];
+    if (view.state === "carried_over") {
+      var when = view.carriedFrom && mi ? mi.shortDate(view.carriedFrom.date) : "";
+      notes.push("Same text as " + (when || "an earlier version") + " — verdict carried over");
+    }
+    if (view.rescore && view.rescore.reducedEvidence) notes.push("Rescored with less context than the original draft");
+    return notes;
   }
 
   function rewritesOf(ats) {
@@ -365,107 +414,71 @@
     });
   }
 
-  /* Who graded it and which version: the grading model (by name, or the
-     writer's own) and its grader version, the old checker, or the role-match
-     check; then the draft it graded. A grade that didn't finish says why,
-     with Try again and Change grading model (materials-insights judgeLine). */
-  function judgeOf(grade, qa, version, atsEntry, ats, feature, drafted, mi) {
-    var j = { kind: "", text: "", acts: [] };
-    if (version === 2 && mi) {
-      var line = mi.judgeLine(qa, feature);
-      if (line) j = { kind: line.kind, text: line.text.replace(/\.$/, ""), acts: line.acts };
-      var v = /v(\d+(?:\.\d+)*)$/i.exec(String((qa.judge && qa.judge.promptVersion) || ""));
-      if (v && (j.kind === "independent" || j.kind === "same")) j.text += " · grading v" + v[1];
-    } else if (version === 1) {
-      j.text = "Graded by the old checker";
-    }
-    if (grade.source === "ats") {
-      var pct = finite(ats.confidence) ? Math.round(ats.confidence * 100) : null;
-      var when = atsEntry && atsEntry.storedAt && mi ? mi.shortDate(atsEntry.storedAt) : "";
-      j.text = (j.text ? j.text + ". " : "") + "Role match by " + (ats.model || "the role-match check")
-        + (pct != null ? " · " + pct + "% confidence" : "")
-        + (ats.overallScoreSource === "dimensions" ? " · averaged from its five dimensions" : "")
-        + (when ? " · scored " + when : "");
-    } else if (j.text && drafted && mi && mi.shortDate(drafted)) {
-      j.text += " · draft of " + mi.shortDate(drafted);
-    }
-    return j;
+  /* A stored scorecard entry is { result, feature, storedAt }; the bus
+     hands over the result itself. Only its line edits are read. */
+  function atsResultOf(ats) {
+    if (!ats || typeof ats !== "object") return null;
+    return ats.result && typeof ats.result === "object" ? ats.result : ats;
   }
 
-  var SOURCE_NOTES = { ats: "role match", rubric: "old checker" };
-
   /**
-   * data: { feature, role, drafted, qualityDoc, ats, stale, coverage, busy,
+   * data: { feature, role, qualityDoc, ats, stale, keywords, base, busy,
    * can: { fix, apply, repair, rescore, promote, retry, profile } }.
    * Everything the modal shows, as plain values.
    */
   function modelOf(data) {
     var d = data || {};
     var mi = insights();
-    var qa = qaOf(d.qualityDoc);
-    var version = qaVersion(qa);
-    var atsEntry = d.ats && d.ats.result ? d.ats : null;
-    var ats = atsResultOf(d.ats);
-    var grade = gradeOf(d.qualityDoc, d.ats);
-    /* The grader's own one-line reason leads; without one, the verdict's
-       plain words, or why there is no score. */
-    var reason = version === 2 ? String(qa.dispositionReason || "").trim()
-      : (version === 1 && mi && !isUnscoredStub(qa) ? mi.plainDisposition(qa) : "");
-    var verdictLine = reason
-      || (grade.score == null ? grade.why : VERDICT_LINES[grade.verdict] || "How well this draft matches the role, from the role-match check.");
-    var cov = d.coverage && typeof d.coverage === "object" && finite(d.coverage.total) && d.coverage.total > 0 ? d.coverage : null;
     var feature = d.feature === "cover_letter" ? "cover_letter" : (d.feature === "resume" ? "resume" : "");
+    var view = verdictView(d.qualityDoc, { stale: d.stale });
+    var kw = d.keywords && typeof d.keywords === "object" && finite(d.keywords.total) && d.keywords.total > 0 ? d.keywords : null;
     /* "Review your details" and "Add a voice guide": the fixes the verdict
        points at outside the draft itself. */
     var profile = mi && d.qualityDoc ? mi.fixActions(d.qualityDoc, feature).filter(function (a) {
       return a.action === "materials-open-profile";
     }).map(function (a) { return { focus: a.focus, label: a.label }; }) : [];
+    var line = view.reasonFull || (view.state === "not_rescored" ? "Not rescored — Rescore"
+      : (VERDICT_LINES[view.disposition] || "Nothing has checked this draft yet. Rescore checks it against the role."));
     return {
       feature: feature,
       role: String(d.role || ""),
-      grade: grade,
-      sourceNote: SOURCE_NOTES[grade.source] || "",
-      verdictLine: verdictLine,
-      capNote: grade.capped ? "Capped at D: a failed hard check caps the grade, whatever the score." : "",
-      noScoreNote: grade.score == null && reason ? grade.why : "",
-      judge: judgeOf(grade, qa, version, atsEntry, ats || {}, feature, d.drafted, mi),
-      profile: profile,
+      view: view,
+      verdictLine: line,
+      provenance: provenanceOf(view),
+      notes: notesOf(view),
       stale: !!d.stale,
-      blockers: blockerItems(d.qualityDoc, qa, version, ats, mi),
-      dimensions: dimensionGroups(qa, version, ats, mi),
-      evidence: evidenceOf(qa, version, ats),
-      rewrites: rewritesOf(ats),
-      coverage: cov ? { matched: list(cov.matched).map(String), missing: list(cov.missing).map(String), total: cov.total } : null,
+      base: String(d.base || ""),
+      profile: profile,
+      why: whyItems(view, d.qualityDoc),
+      writing: writingRows(view),
+      reviews: reviewRows(view),
+      rewrites: rewritesOf(atsResultOf(d.ats)),
+      keywords: kw ? { matched: list(kw.matched).map(String), missing: list(kw.missing).map(String), total: kw.total } : null,
       busy: !!d.busy,
       can: d.can && typeof d.can === "object" ? d.can : {},
     };
   }
 
-  /* The save-time stub is 0 of 1 (or of 2 for both documents) in /runs. */
-  function verdictGrade(v) {
-    if (!v || !finite(v.score) || !finite(v.max) || v.max <= 0) return null;
-    if (v.score === 0 && v.max <= 2) return null;
-    var score = toScore(v.max === 100 ? v.score : (v.score / v.max) * 100);
-    var letter = letterFor(score);
-    if (String(v.disposition || "").toUpperCase() === "FAIL" && RANK.indexOf(letter) > RANK.indexOf(FAIL_CAP)) letter = FAIL_CAP;
-    return { letter: letter, score: score };
-  }
-
   function stepCount(model, id) {
-    if (id === "blockers") return model.blockers.length;
-    if (id === "dimensions") return model.dimensions.reduce(function (n, g) { return n + g.rows.length; }, 0);
-    if (id === "evidence") return model.evidence.items.length + model.evidence.strengths.length;
+    if (id === "why") return model.why.length;
+    if (id === "writing") return model.writing.length;
+    if (id === "reviews") return model.view.reviews.length;
     if (id === "rewrites") return model.rewrites.length;
-    if (id === "keywords") return model.coverage ? model.coverage.total : 0;
+    if (id === "keywords") return model.keywords ? model.keywords.total : 0;
     return 0;
   }
 
-  /* The first step with something in it starts open; History waits to be asked. */
+  function stepsOf(model) {
+    return STEPS.filter(function (s) { return !s.extra || stepCount(model, s.id); });
+  }
+
+  /* The first step with something in it starts open; Versions waits to be asked. */
   function defaultOpen(model) {
     var open = {};
-    for (var i = 0; i < STEPS.length - 1; i++) {
-      if (stepCount(model, STEPS[i].id)) { open[STEPS[i].id] = true; break; }
-    }
+    if (model.why.length) open.why = true;
+    else if (model.view.coverage) open.coverage = true;
+    else if (model.writing.length) open.writing = true;
+    else if (model.reviews.length) open.reviews = true;
     return open;
   }
 
@@ -475,21 +488,12 @@
     return '<button type="button" class="jb-score__btn' + (cls ? " " + cls : "") + '"' + attrs + ">" + label + "</button>";
   }
 
-  function itemHtml(it, i, can) {
-    var fix = can.fix && !it.noFix && it.instruction
-      ? btn("jb-score__btn--small", ' data-score-fix="' + i + '"', "Fix this")
-      : "";
-    return '<li class="jb-score__item" data-group="' + esc(it.group) + '">'
-      + '<p class="jb-score__tag">' + esc(GROUP_TAGS[it.group] + (it.kind ? " · " + it.kind : "")) + "</p>"
-      + it.quotes.map(function (q) { return '<q class="jb-score__quote">' + esc(q) + "</q>"; }).join("")
-      + (it.why ? '<p class="jb-score__why">' + esc(it.why) + "</p>" : "")
-      + (it.sub ? '<p class="jb-score__sub">' + esc(it.sub) + "</p>" : "")
-      + fix
-      + "</li>";
-  }
-
   function emptyHtml(words) {
     return '<p class="jb-score__empty">' + esc(words) + "</p>";
+  }
+
+  function chipHtml(tone, word) {
+    return '<span class="jb-chip" data-tone="' + esc(tone) + '">' + esc(word) + "</span>";
   }
 
   function meterHtml(value, max) {
@@ -497,92 +501,139 @@
     return '<span class="jb-score__meter" aria-hidden="true"><i style="--jb-score-fill: ' + pct + '%"></i></span>';
   }
 
-  function panelBody(model, id, ui) {
+  function whyItemHtml(it, i, can) {
+    var fix = can.fix && !it.noFix && it.instruction
+      ? btn("jb-score__btn--small", ' data-score-fix="' + i + '"', "Fix this")
+      : "";
+    return '<li class="jb-score__item" data-group="' + esc(it.group) + '" data-status="' + esc(it.status) + '">'
+      + '<p class="jb-score__label">' + esc(it.label) + "</p>"
+      + it.quotes.map(function (q) { return '<q class="jb-score__quote">' + esc(q) + "</q>"; }).join("")
+      + (it.why ? '<p class="jb-score__why">' + esc(it.why) + "</p>" : "")
+      + fix
+      + "</li>";
+  }
+
+  function whyHtml(model) {
     var can = model.can;
     var noun = DOC_NOUN[model.feature] || "draft";
-    if (id === "blockers") {
-      var fixes = can.profile && model.profile.length
-        ? '<p class="jb-score__acts">' + model.profile.map(function (a) {
-          return btn("jb-score__btn--small", ' data-score-profile="' + esc(a.focus) + '"', esc(a.label));
-        }).join("") + "</p>"
-        : "";
-      if (!model.blockers.length) return emptyHtml("Nothing is blocking this " + noun + ".") + fixes;
-      return '<ul class="jb-score__items">' + model.blockers.map(function (it, i) { return itemHtml(it, i, can); }).join("") + "</ul>" + fixes;
+    var fixes = can.profile && model.profile.length
+      ? '<p class="jb-score__acts">' + model.profile.map(function (a) {
+        return btn("jb-score__btn--small", ' data-score-profile="' + esc(a.focus) + '"', esc(a.label));
+      }).join("") + "</p>"
+      : "";
+    if (!model.why.length) {
+      return emptyHtml(model.view.state === "not_rescored" || model.view.state === "none"
+        ? "Nothing has checked this " + noun + " yet." : "Nothing is holding this " + noun + " back.") + fixes;
     }
-    if (id === "dimensions") {
-      if (!model.dimensions.length) return emptyHtml("No dimension scores yet." + (can.rescore ? " Rescore grades this " + noun + " against the role." : ""));
-      return model.dimensions.map(function (g) {
-        return '<div class="jb-score__dims"><p class="jb-score__group">' + esc(g.title) + ' <span class="jb-score__note">' + esc(g.note) + "</span></p>"
-          + '<ul class="jb-score__dimlist">' + g.rows.map(function (r) {
-            return '<li class="jb-score__dim"><span class="jb-score__dim-label">' + esc(r.label) + "</span>"
-              + meterHtml(r.value, r.max)
-              + '<span class="jb-score__dim-n">' + esc(r.value + " / " + r.max) + "</span>"
-              + (r.why ? '<span class="jb-score__dim-why">' + esc(r.why) + "</span>" : "")
-              + "</li>";
-          }).join("") + "</ul></div>";
-      }).join("");
+    var html = "";
+    WHY_GROUPS.forEach(function (g) {
+      var idx = [];
+      model.why.forEach(function (it, i) { if (it.group === g.kind) idx.push(i); });
+      if (!idx.length) return;
+      html += '<p class="jb-score__group">' + esc(g.title) + "</p>"
+        + '<ul class="jb-score__items">' + idx.map(function (i) { return whyItemHtml(model.why[i], i, can); }).join("") + "</ul>";
+    });
+    return html + fixes;
+  }
+
+  function coverageHtml(model) {
+    var cov = model.view.coverage;
+    var noun = DOC_NOUN[model.feature] || "draft";
+    if (!cov) {
+      return emptyHtml((model.view.legacy ? "The old checker didn’t record which requirements this " + noun + " covers."
+        : "Which requirements this " + noun + " covers wasn’t recorded.") + (model.can.rescore ? " Rescore records it." : ""));
     }
-    if (id === "evidence") {
-      var ev = model.evidence;
-      if (!ev.items.length && !ev.strengths.length && !ev.backed) return emptyHtml("No evidence cited yet.");
-      return (ev.backed ? '<p class="jb-score__lede">' + esc(ev.backed) + "</p>" : "")
-        + (ev.items.length ? '<ul class="jb-score__items">' + ev.items.map(function (e) {
-          return '<li class="jb-score__item jb-score__item--evidence"><p class="jb-score__why">' + esc(e.claim) + "</p>"
-            + (e.snippet ? '<q class="jb-score__quote">' + esc(e.snippet) + "</q>" : "")
-            + '<p class="jb-score__tag">From ' + esc(e.source) + "</p></li>";
-        }).join("") + "</ul>" : "")
-        + (ev.strengths.length ? '<p class="jb-score__group">Strengths</p><ul class="jb-score__plain">'
-          + ev.strengths.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul>" : "");
-    }
+    return '<p class="jb-score__lede"><b>' + esc(coverageLine(cov)) + "</b></p>"
+      + (cov.stale ? '<p class="jb-score__sub jb-score__stale-note">From an earlier version</p>' : "")
+      + (cov.requirements.length ? '<ul class="jb-score__reqs">' + cov.requirements.map(function (r) {
+        var st = REQ_WORDS[r.status] ? r.status : "missing";
+        return '<li class="jb-score__req">' + chipHtml(REQ_TONES[st], REQ_WORDS[st]) + ' <span>' + esc(r.text || r.id) + "</span></li>";
+      }).join("") + "</ul>" : "");
+  }
+
+  /* G4 (FIX1-F5): the ratings are the first successful review's — the
+     second's when the first didn't run (server/materials-qa.mjs). */
+  function ratedBy(view) {
+    var ok = view.reviews.filter(function (r) { return r.status === "ok"; });
+    var r = ok.filter(function (x) { return x.role === "first"; })[0] || ok[0];
+    if (!r) return "";
+    return (r.role === "second" ? "the second review" : "the first review") + " (" + reviewModel(r) + ")";
+  }
+
+  function writingHtml(model) {
+    if (!model.writing.length) return emptyHtml("No writing ratings for this version.");
+    var by = ratedBy(model.view);
+    return '<p class="jb-score__sub">Advisory: each rating is 0–4' + esc(by ? " from " + by : "") + ", and one under 3 sends the draft to review.</p>"
+      + '<ul class="jb-score__dimlist">' + model.writing.map(function (r) {
+        return '<li class="jb-score__dim"><span class="jb-score__dim-label">' + esc(r.label) + "</span>"
+          + meterHtml(r.value, r.max)
+          + '<span class="jb-score__dim-n">' + esc(r.value + " / " + r.max) + "</span>"
+          + (r.why ? '<span class="jb-score__dim-why">' + esc(r.why) + "</span>" : "")
+          + "</li>";
+      }).join("") + "</ul>";
+  }
+
+  /* Change grading model and Add a second review are settings-modal.js's
+     own document-level action: the modal closes and lets the click through. */
+  function reviewActHtml(act, can) {
+    if (act === "retry" && can.rescore) return '<button type="button" class="jb-score__link" data-score-rescore>Try again</button>';
+    if (act === "retry" && can.retry) return '<button type="button" class="jb-score__link" data-score-retry>Try again</button>';
+    if (act === "grading") return '<button type="button" class="jb-score__link" data-action="settings-open-grading" data-score-handoff>Change grading model</button>';
+    if (act === "second") return '<button type="button" class="jb-score__link" data-action="settings-open-grading" data-score-handoff>Add a second review</button>';
+    return "";
+  }
+
+  function reviewsHtml(model) {
+    if (model.view.legacy) return emptyHtml("Graded by the old checker. Rescore runs today’s reviews.");
+    if (!model.reviews.length) return emptyHtml("No review ran for this version.");
+    return '<ul class="jb-score__reviews">' + model.reviews.map(function (r) {
+      var acts = r.acts.map(function (a) { return reviewActHtml(a, model.can); }).filter(Boolean).join(" ");
+      return '<li class="jb-score__review" data-review="' + esc(r.kind) + '">' + esc(r.text)
+        + (acts ? ' <span class="jb-score__judge-acts">' + acts + "</span>" : "") + "</li>";
+    }).join("") + "</ul>";
+  }
+
+  function versionsPanel(model, ui) {
+    var h = ui.history;
+    var noun = DOC_NOUN[model.feature] || "draft";
+    if (h === "loading") return emptyHtml("Loading versions…");
+    if (h && h.error) return emptyHtml("Couldn’t load versions: " + h.error);
+    if (!Array.isArray(h)) return emptyHtml("Open to see every version of this " + noun + ".");
+    return versionsHtml(h, model.feature, { base: model.base, promote: model.can.promote, rescore: model.can.rescore, confirm: ui.confirm });
+  }
+
+  function panelBody(model, id, ui) {
+    if (id === "why") return whyHtml(model);
+    if (id === "coverage") return coverageHtml(model);
+    if (id === "writing") return writingHtml(model);
+    if (id === "reviews") return reviewsHtml(model);
+    if (id === "versions") return versionsPanel(model, ui);
+    var noun = DOC_NOUN[model.feature] || "draft";
     if (id === "rewrites") {
-      if (!model.rewrites.length) return emptyHtml("No rewrite suggestions yet." + (can.rescore ? " Rescore asks for line-level suggestions." : ""));
       return '<ul class="jb-score__items">' + model.rewrites.map(function (s, i) {
         return '<li class="jb-score__item jb-score__item--rewrite">'
           + (s.section ? '<p class="jb-score__tag">' + esc(s.section) + "</p>" : "")
           + (s.before ? '<p class="jb-score__before"><span class="jb-score__vh">Before: </span>' + esc(s.before) + "</p>" : "")
           + '<p class="jb-score__after"><span class="jb-score__vh">After: </span>' + esc(s.after) + "</p>"
           + (s.why ? '<p class="jb-score__sub">' + esc(s.why) + "</p>" : "")
-          + (can.apply ? btn("jb-score__btn--small", ' data-score-apply="' + i + '"', "Apply") : "")
+          + (model.can.apply ? btn("jb-score__btn--small", ' data-score-apply="' + i + '"', "Apply") : "")
           + "</li>";
       }).join("") + "</ul>";
     }
-    if (id === "keywords") {
-      var c = model.coverage;
-      if (!c) return emptyHtml("The posting’s role terms aren’t loaded for this " + noun + ".");
-      return '<p class="jb-score__lede"><b>' + esc(c.matched.length + " of " + c.total) + "</b> role terms appear in this " + esc(noun) + ".</p>"
-        + meterHtml(c.matched.length, c.total)
-        + (c.missing.length
-          ? '<p class="jb-score__group">Missing</p><p class="jb-score__chips">' + c.missing.map(function (t) { return '<span class="jb-score__chip">' + esc(t) + "</span>"; }).join("") + "</p>"
-          : '<p class="jb-score__sub">It covers every term the posting names.</p>');
-    }
-    /* history */
-    var h = ui.history;
-    if (h === "loading") return emptyHtml("Loading versions…");
-    if (h && h.error) return emptyHtml("Couldn’t load versions: " + h.error);
-    if (!Array.isArray(h)) return emptyHtml("Open to read this " + noun + "’s earlier grades.");
-    var mi = insights();
-    var runs = h.filter(function (r) { return r && Array.isArray(r.documents) && r.documents.indexOf(model.feature) >= 0; });
-    if (!runs.length) return emptyHtml("No earlier versions of this " + noun + " yet.");
-    return '<ol class="jb-score__runs">' + runs.map(function (r) {
-      var g = verdictGrade(r.verdicts && r.verdicts[model.feature]);
-      var active = Array.isArray(r.active) && r.active.indexOf(model.feature) >= 0;
-      return '<li class="jb-score__run" data-run="' + esc(r.runId) + '">'
-        + '<span class="jb-score__run-when">' + esc((mi && mi.shortDate(r.date)) || r.runId) + "</span>"
-        + '<span class="jb-score__run-what">' + esc(cap(r.template || "") + (r.source && r.source !== "draft" ? " · " + r.source : "")) + "</span>"
-        + '<span class="jb-score__run-grade">' + esc(g ? g.letter + " · " + g.score : "—") + "</span>"
-        + (active
-          ? '<span class="jb-score__run-use">In use</span>'
-          : (can.promote ? btn("jb-score__btn--small", ' data-score-promote="' + esc(r.runId) + '"', "Use this version") : "<span></span>"))
-        + "</li>";
-    }).join("") + "</ol>";
+    /* keywords */
+    var c = model.keywords;
+    return '<p class="jb-score__lede"><b>' + esc(c.matched.length + " of " + c.total) + "</b> role terms appear in this " + esc(noun) + ".</p>"
+      + (c.missing.length
+        ? '<p class="jb-score__group">Missing</p><p class="jb-score__chips">' + c.missing.map(function (t) { return '<span class="jb-score__chip">' + esc(t) + "</span>"; }).join("") + "</p>"
+        : '<p class="jb-score__sub">It covers every term the posting names.</p>');
   }
 
   function stepsHtml(model, ui, n) {
     var open = ui.open || defaultOpen(model);
-    return '<ol class="jb-score__steps">' + STEPS.map(function (s, i) {
+    return '<ol class="jb-score__steps">' + stepsOf(model).map(function (s, i) {
       var id = "jb-score-" + s.id + "-" + n;
       var isOpen = !!open[s.id];
-      var count = s.id === "history" ? "" : String(stepCount(model, s.id));
+      var count = s.id === "why" || s.id === "writing" || s.id === "reviews" || s.extra ? String(stepCount(model, s.id)) : "";
       return '<li class="jb-score__step" data-step="' + s.id + '" style="--jb-step: ' + i + '">'
         + '<h3 class="jb-score__step-h"><button type="button" class="jb-score__step-btn" id="' + id + '-h" data-score-step="' + s.id + '"'
         + ' aria-expanded="' + (isOpen ? "true" : "false") + '" aria-controls="' + id + '">'
@@ -598,50 +649,23 @@
   }
 
   function headHtml(model, n) {
-    var g = model.grade;
-    var pct = g.score == null ? 0 : g.score;
-    var title = (DOC_LABEL[model.feature] || "Draft") + " grade";
+    var v = model.view;
     return '<header class="jb-score__head">'
-      + '<div class="jb-score__dial" data-tone="' + toneOf(g) + '" aria-hidden="true">'
-      + '<svg class="jb-score__ring" viewBox="0 0 64 64" focusable="false"><circle class="jb-score__track" cx="32" cy="32" r="28" pathLength="100"></circle>'
-      + '<circle class="jb-score__arc" cx="32" cy="32" r="28" pathLength="100" style="--jb-score-pct: ' + pct + '"></circle></svg>'
-      + '<span class="jb-score__letter">' + esc(g.score == null ? "Grade" : g.letter) + "</span></div>"
       + '<div class="jb-score__headline">'
       + (model.role ? '<p class="jb-score__eyebrow">' + esc(model.role) + "</p>" : "")
-      + '<h2 class="jb-score__title" id="jb-score-title-' + n + '"><span>' + esc(title) + "</span> "
-      + '<span class="jb-score__of">' + esc(g.score == null ? "Not graded" : g.score + " / 100" + (model.sourceNote ? " · " + model.sourceNote : "")) + "</span></h2>"
+      + '<h2 class="jb-score__title" id="jb-score-title-' + n + '"><span class="jb-score__doc">' + esc(DOC_LABEL[model.feature] || "Draft") + "</span> "
+      + '<span class="jb-score__word" data-tone="' + esc(v.tone) + '">' + esc(v.word) + "</span></h2>"
       + '<p class="jb-score__verdict" id="jb-score-verdict-' + n + '">' + esc(model.verdictLine) + "</p>"
-      + (model.capNote ? '<p class="jb-score__cap">' + esc(model.capNote) + "</p>" : "")
-      + (model.noScoreNote ? '<p class="jb-score__unscored">' + esc(model.noScoreNote) + "</p>" : "")
-      + judgeHtml(model)
-      + '<p class="jb-score__badges">'
-      + (VERDICT_CHIPS[g.verdict] ? '<span class="jb-score__badge jb-score__badge--' + esc(g.verdict.toLowerCase()) + '">' + esc(VERDICT_CHIPS[g.verdict]) + "</span>" : "")
-      + (model.stale ? '<span class="jb-score__badge jb-score__badge--stale">Changed since graded</span>' : "")
-      + "</p></div></header>";
-  }
-
-  /* Change grading model and Add a second opinion are settings-modal.js's
-     own document-level action: the modal closes and lets the click through. */
-  function judgeHtml(model) {
-    var j = model.judge;
-    if (!j || !j.text) return "";
-    var acts = j.acts.map(function (a) {
-      if (a.action === "settings-open-grading") {
-        return '<button type="button" class="jb-score__link" data-action="settings-open-grading" data-score-handoff>' + esc(a.label) + "</button>";
-      }
-      if (a.action === "materials-retry" && model.can.retry) {
-        return '<button type="button" class="jb-score__link" data-score-retry>' + esc(a.label) + "</button>";
-      }
-      return "";
-    }).filter(Boolean).join(" ");
-    return '<p class="jb-score__judge"' + (j.kind ? ' data-judge="' + esc(j.kind) + '"' : "") + ">" + esc(j.text)
-      + (acts ? ' <span class="jb-score__judge-acts">' + acts + "</span>" : "") + "</p>";
+      + (model.provenance ? '<p class="jb-score__prov">' + esc(model.provenance) + "</p>" : "")
+      + model.notes.map(function (t) { return '<p class="jb-score__judge">' + esc(t) + "</p>"; }).join("")
+      + (model.stale ? '<p class="jb-score__badges"><span class="jb-score__badge jb-score__badge--stale">Changed since graded</span></p>' : "")
+      + "</div></header>";
   }
 
   function footHtml(model, ui) {
     var can = model.can;
     var busy = !!(ui.busy || model.busy);
-    var urgent = model.grade.verdict === "FAIL" || model.grade.verdict === "REVIEW";
+    var urgent = model.view.disposition === "FAIL" || model.view.disposition === "REVIEW";
     return '<footer class="jb-score__foot">'
       + (ui.error ? '<p class="jb-score__error" role="alert">' + esc(ui.error) + "</p>" : "")
       + (can.repair ? btn(urgent ? "jb-score__btn--primary" : "", " data-score-repair", "Repair") : "")
@@ -667,15 +691,135 @@
 
   /**
    * The whole modal as one escaped string. ui: { n, open, busy, error,
-   * history } — the controller's state; omitted, it is a fresh modal.
+   * history, confirm } — the controller's state; omitted, a fresh modal.
    */
   function modalHtml(model, uiState) {
     var ui = uiState || {};
     if (!ui.n) ui = Object.assign({}, ui, { n: ++idSeq });
     return '<div class="jb-score" role="dialog" aria-modal="true" aria-labelledby="jb-score-title-' + ui.n + '"'
-      + ' aria-describedby="jb-score-verdict-' + ui.n + '" data-feature="' + esc(model.feature) + '" data-tone="' + toneOf(model.grade) + '">'
+      + ' aria-describedby="jb-score-verdict-' + ui.n + '" data-feature="' + esc(model.feature) + '" data-tone="' + esc(model.view.tone) + '">'
       + innerHtml(model, ui)
       + "</div>";
+  }
+
+  /* -------------------- G6/G7 · the version rows -------------------- */
+
+  var SOURCE_WORDS = { regenerate: "regenerated", repair: "repaired", manual: "edited", restore: "restored", edit: "edited" };
+
+  function withQuery(href, q) {
+    return href + (href.indexOf("?") >= 0 ? "&" : "?") + q;
+  }
+
+  /* RunSummary.verdicts[doc] = { disposition, state, reason, failedChecks, legacy }. */
+  function runVerdict(v) {
+    var x = v && typeof v === "object" ? v : {};
+    var d = String(x.disposition || "").toUpperCase();
+    var state = String(x.state || (WORDS[d] ? "graded" : "none"));
+    if (state === "not_rescored") return { state: state, word: "Not rescored", tone: "miss", reason: "", legacy: "" };
+    return { state: state, word: WORDS[d] || "Not graded", tone: TONES[d] || "none", reason: noPeriod(x.reason), legacy: x.legacy ? String(x.legacy) : "" };
+  }
+
+  /* The verdict a manual repair started from, for this row's document.
+     FIX1-F1: a repair is known by its repair record, not by the run's
+     source (the template's). FIX2-N3: only a manual repair names a parent
+     run — the pipeline also writes `before` on an automatic two-pass run,
+     with parentRunId null — and a per-document record (or a repair of one
+     named document) gives each document its own before. */
+  function repairBefore(r, feature) {
+    var rep = r && r.kind !== "pass" && r.repair && typeof r.repair === "object" ? r.repair : null;
+    if (!rep || !rep.parentRunId || !rep.before || typeof rep.before !== "object") return "";
+    if (rep.feature && rep.feature !== feature) return "";
+    var b = rep.before[feature] && typeof rep.before[feature] === "object" ? rep.before[feature] : rep.before;
+    return WORDS[String(b.disposition || "").toUpperCase()] || "";
+  }
+
+  var CHECK_WORDS = { fail: "Fails", review: "Needs review" };
+
+  /* FIX1-F3: a version's own failed and review checks
+     (RunSummary.verdicts[doc].checks), readable without promoting it.
+     FIX2-N8: identical labels with the same status are one line, counted. */
+  function checksHtml(v) {
+    var groups = [];
+    var at = {};
+    list(v && v.checks).forEach(function (c) {
+      if (!CHECK_WORDS[c.status]) return;
+      var label = String(c.label || c.id || "");
+      var key = c.status + "|" + label;
+      if (at[key] == null) { at[key] = groups.length; groups.push({ label: label, status: c.status, n: 0 }); }
+      groups[at[key]].n += 1;
+    });
+    if (!groups.length) return "";
+    return '<details class="jb-ver__checks"><summary>Checks for this version</summary><ul>'
+      + groups.map(function (g) {
+        return "<li>" + esc(g.label + (g.n > 1 ? " ×" + g.n : "")) + " — " + esc(CHECK_WORDS[g.status]) + "</li>";
+      }).join("") + "</ul></details>";
+  }
+
+  function runRowHtml(r, feature, o) {
+    var mi = insights();
+    var v = runVerdict(r.verdicts && r.verdicts[feature]);
+    var isDefault = typeof r.isDefault === "boolean" ? r.isDefault : (Array.isArray(r.active) && r.active.indexOf(feature) >= 0);
+    var held = r.held && r.held.reason ? noPeriod(r.held.reason) : "";
+    var files = r.files && r.files[feature] ? r.files[feature] : {};
+    var base = String(o.base || "");
+    var preview = files.html || files.pdf || "";
+    var download = files.pdf || files.html || files.txt || "";
+    var filename = String(download).split("?")[0].split("/").pop();
+    var dlHref = download ? withQuery(base + download, "download=1") : "";
+    var what = cap(r.template || "") + (SOURCE_WORDS[r.source] ? " · " + SOURCE_WORDS[r.source] : "");
+    var before = repairBefore(r, feature);
+    var acts = [];
+    if (preview) {
+      acts.push('<a class="jb-ver__btn" href="' + esc(base + preview) + '" target="_blank" rel="noopener" data-action="materials-preview"'
+        + ' data-filename="' + esc(String(preview).split("?")[0].split("/").pop()) + '">Preview</a>');
+    }
+    if (download) {
+      acts.push('<a class="jb-ver__btn" href="' + esc(dlHref) + '" download data-action="materials-download" data-filename="' + esc(filename) + '"'
+        + (held ? ' data-gate="held" data-held="' + esc(held) + '"' : "") + ">Download</a>");
+    }
+    /* FIX1-F2: the server refuses to promote a pass (409 pass_not_promotable). */
+    if (!isDefault && o.promote && r.kind !== "pass") {
+      acts.push('<button type="button" class="jb-ver__btn" data-action="materials-promote" data-score-promote="' + esc(r.runId) + '"'
+        + ' data-run="' + esc(r.runId) + '" data-feature="' + esc(feature) + '">Use this version</button>');
+    }
+    var verdict = v.state === "not_rescored"
+      ? chipHtml(v.tone, v.word) + " — " + (o.rescore
+        ? '<button type="button" class="jb-score__link" data-action="materials-rescore" data-score-rescore-run="' + esc(r.runId) + '" data-run="' + esc(r.runId) + '" data-feature="' + esc(feature) + '">Rescore</button>'
+        : "Rescore")
+      : chipHtml(v.tone, v.word) + (v.reason ? ' <span class="jb-ver__reason">' + esc(v.reason) + "</span>" : "");
+    var confirm = o.confirm && o.confirm.runId === r.runId && mi
+      ? mi.failConfirmHtml(feature, { kind: "link", href: o.confirm.href, filename: o.confirm.filename }, { repair: false, held: o.confirm.reason })
+      : "";
+    return '<li class="jb-ver__run" data-run="' + esc(r.runId) + '"' + (isDefault ? " data-default" : "") + (held ? " data-held" : "") + ">"
+      + '<p class="jb-ver__head">'
+      + (r.label ? '<span class="jb-ver__label">' + esc(r.label) + "</span>" : "")
+      + '<span class="jb-ver__when">' + esc((mi && mi.shortDate(r.date)) || r.runId) + "</span>"
+      + (what ? '<span class="jb-ver__what">' + esc(what) + "</span>" : "")
+      + (isDefault ? '<span class="jb-ver__default">Default</span>' : "")
+      + "</p>"
+      + '<p class="jb-ver__verdict">' + verdict + "</p>"
+      + (held ? '<p class="jb-ver__note jb-ver__note--held">Held — ' + esc(held) + "</p>" : "")
+      + (before ? '<p class="jb-ver__note">' + esc(before + " → " + v.word) + "</p>" : "")
+      + (v.state === "carried_over" ? '<p class="jb-ver__note">Same text as an earlier version — verdict carried over</p>' : "")
+      + (v.legacy ? '<p class="jb-ver__note">Graded by the old checker</p>' : "")
+      + checksHtml(r.verdicts && r.verdicts[feature])
+      + (acts.length ? '<p class="jb-ver__acts">' + acts.join("") + "</p>" : "")
+      + confirm
+      + "</li>";
+  }
+
+  /**
+   * One document's versions from GET /runs (RunSummary[]): the modal's
+   * Versions step and the row's inline list render these same rows.
+   * opts: { base, promote, rescore, confirm: { runId, href, filename, reason } }.
+   */
+  function versionsHtml(runs, feature, opts) {
+    var o = opts || {};
+    var rows = list(runs).filter(function (r) {
+      return (Array.isArray(r.documents) && r.documents.indexOf(feature) >= 0) || (r.verdicts && r.verdicts[feature]);
+    });
+    if (!rows.length) return '<p class="jb-ver__empty">No earlier versions of this ' + esc(DOC_NOUN[feature] || "draft") + " yet.</p>";
+    return '<ol class="jb-ver" data-ver-for="' + esc(feature) + '">' + rows.map(function (r) { return runRowHtml(r, feature, o); }).join("") + "</ol>";
   }
 
   /* -------------------- the modal: in the page -------------------- */
@@ -704,7 +848,7 @@
   }
 
   /* A repaint replaces every node, so focus is found again by what it was. */
-  var FOCUS_KEYS = ["data-score-step", "data-score-fix", "data-score-apply", "data-score-promote"];
+  var FOCUS_KEYS = ["data-score-step", "data-score-fix", "data-score-apply", "data-score-promote", "data-score-rescore-run"];
   function focusKeyOf(node) {
     if (!node || !node.getAttribute) return "";
     for (var i = 0; i < FOCUS_KEYS.length; i++) {
@@ -717,8 +861,12 @@
     return "";
   }
 
-  function gradeKey(g) {
-    return g.letter + "|" + g.score;
+  function viewKey(v) {
+    return [v.disposition, v.state, v.reason].join("|");
+  }
+
+  function spoken(v) {
+    return v.word + (v.reasonFull ? " — " + noPeriod(v.reasonFull) : "") + ".";
   }
 
   function paint(ctl) {
@@ -735,7 +883,7 @@
     ctl.el.innerHTML = innerHtml(model, ctl.ui);
     /* A step animates in once, when it is opened, never on a repaint. */
     ctl.ui.reveal = null;
-    ctl.el.setAttribute("data-tone", toneOf(model.grade));
+    ctl.el.setAttribute("data-tone", model.view.tone);
     ctl.el.setAttribute("data-feature", model.feature);
     var again = ctl.el.querySelector(".jb-score__body");
     if (again && scroll) again.scrollTop = scroll;
@@ -748,10 +896,10 @@
 
   function refresh(ctl, quiet) {
     if (ctl.closed) return;
-    var before = ctl.model ? gradeKey(ctl.model.grade) : "";
+    var before = ctl.model ? viewKey(ctl.model.view) : "";
     var model = paint(ctl);
-    if (!quiet && before && gradeKey(model.grade) !== before && model.grade.score != null) {
-      announce("Score updated: grade " + model.grade.letter + ", " + model.grade.score + " of 100.");
+    if (!quiet && before && viewKey(model.view) !== before) {
+      announce("Quality check updated: " + spoken(model.view));
     }
   }
 
@@ -780,26 +928,59 @@
     teardown(ctl);
   }
 
-  function runRescore(ctl) {
+  /* G8: Rescore re-runs the quality check on a version in place; with a
+     runId, on that row's version, and the version list reloads. */
+  function runRescore(ctl, runId) {
     if (ctl.ui.busy || (ctl.model && ctl.model.busy) || typeof ctl.spec.rescore !== "function") return;
     ctl.ui.busy = true;
     ctl.ui.error = "";
     refresh(ctl, true);
     var p;
-    try { p = ctl.spec.rescore(); } catch (err) { p = Promise.reject(err); }
+    try { p = ctl.spec.rescore(runId || ""); } catch (err) { p = Promise.reject(err); }
     Promise.resolve(p).then(function () {
       if (ctl.closed) return;
       ctl.ui.busy = false;
+      if (runId || ctl.ui.history !== undefined) { ctl.ui.history = undefined; if (ctl.ui.open.versions) loadHistory(ctl); }
       refresh(ctl, true);
-      var g = ctl.model.grade;
-      announce(g.score == null ? "Rescore finished, but no score came back." : "Rescored: grade " + g.letter + ", " + g.score + " of 100.");
+      announce("Rescored: " + spoken(ctl.model.view));
     }, function (err) {
       if (ctl.closed) return;
       ctl.ui.busy = false;
-      ctl.ui.error = "Rescore didn’t finish: " + ((err && err.message) || "unknown error");
+      /* FIX2-N1: a refused Rescore's api-error envelope already says
+         "Rescore didn't finish — <why>"; show it once, as sent. */
+      var said = String((err && err.message) || "unknown error");
+      ctl.ui.error = /^Rescore didn[’']t finish/.test(said) ? said : "Rescore didn’t finish: " + said;
       refresh(ctl, true);
       announce(ctl.ui.error, true);
     });
+  }
+
+  /* A held version downloads only after the in-page confirm (G7). */
+  function download(ctl, href, filename) {
+    if (typeof ctl.spec.download === "function") { ctl.spec.download(href, filename); return; }
+    var d = root.document;
+    var a = d.createElement("a");
+    a.setAttribute("href", href);
+    a.setAttribute("download", "");
+    d.body.appendChild(a);
+    if (typeof a.click === "function") a.click();
+    if (a.parentNode) a.parentNode.removeChild(a);
+  }
+
+  /* FIX3-W1: closing the held confirm gives focus back to the Download
+     that opened it (the version list repaints, so it is found again). */
+  function closeConfirm(ctl) {
+    var runId = ctl.ui.confirm && ctl.ui.confirm.runId;
+    ctl.ui.confirm = null;
+    refresh(ctl, true);
+    var back = runId ? ctl.el.querySelector('li[data-run="' + String(runId).replace(/"/g, "") + '"] [data-action="materials-download"]') : null;
+    if (back && typeof back.focus === "function") back.focus();
+    else focusIn(ctl, '[data-score-step="versions"]');
+  }
+
+  function focusIn(ctl, sel) {
+    var target = ctl.el.querySelector(sel);
+    if (target && typeof target.focus === "function") target.focus();
   }
 
   function loadHistory(ctl) {
@@ -817,7 +998,7 @@
   function toggleStep(ctl, id) {
     ctl.ui.open[id] = !ctl.ui.open[id];
     ctl.ui.reveal = ctl.ui.open[id] ? id : null;
-    if (ctl.ui.open[id] && id === "history") loadHistory(ctl);
+    if (ctl.ui.open[id] && id === "versions") loadHistory(ctl);
     refresh(ctl, true);
   }
 
@@ -829,10 +1010,38 @@
     if (typeof fn === "function") fn(arg);
   }
 
+  function closestRun(node, stop) {
+    for (var n = node; n && n !== stop; n = n.parentNode) {
+      if (n.getAttribute && n.getAttribute("data-run") != null && /\bjb-ver__run\b/.test(String(n.getAttribute("class") || ""))) return n.getAttribute("data-run");
+    }
+    return "";
+  }
+
   function onClick(ctl, e) {
     var t = e.target;
     while (t && t !== ctl.el.parentNode) {
       if (t.getAttribute) {
+        var action = t.getAttribute("data-action");
+        if (action === "materials-download" && t.getAttribute("data-gate") === "held") {
+          if (typeof e.preventDefault === "function") e.preventDefault();
+          ctl.ui.confirm = { runId: (closestRun(t, ctl.el) || ""), href: t.getAttribute("href") || "", filename: t.getAttribute("data-filename") || "", reason: t.getAttribute("data-held") || "" };
+          refresh(ctl, true);
+          focusIn(ctl, ".mat-confirm button");
+          return;
+        }
+        if (action === "materials-download-anyway") {
+          if (typeof e.preventDefault === "function") e.preventDefault();
+          download(ctl, t.getAttribute("data-href") || "", t.getAttribute("data-filename") || "");
+          closeConfirm(ctl);
+          return;
+        }
+        if (action === "materials-confirm-cancel") {
+          closeConfirm(ctl);
+          return;
+        }
+        if (action === "materials-download" || action === "materials-preview") return;
+        var rerun = t.getAttribute("data-score-rescore-run");
+        if (rerun) { runRescore(ctl, rerun); return; }
         if (t.hasAttribute("data-score-close")) { closeCtl(ctl, "button"); return; }
         if (t.hasAttribute("data-score-handoff")) { closeCtl(ctl, "handoff"); return; }
         if (t.hasAttribute("data-score-retry")) { handOff(ctl, ctl.spec.retry, { feature: ctl.model.feature }); return; }
@@ -840,12 +1049,12 @@
         if (focus) { handOff(ctl, ctl.spec.profile, focus); return; }
         var step = t.getAttribute("data-score-step");
         if (step) { toggleStep(ctl, step); return; }
-        if (t.hasAttribute("data-score-rescore")) { runRescore(ctl); return; }
+        if (t.hasAttribute("data-score-rescore")) { runRescore(ctl, ""); return; }
         if (t.hasAttribute("data-score-repair")) { handOff(ctl, ctl.spec.repair, { feature: ctl.model.feature }); return; }
         var fix = t.getAttribute("data-score-fix");
         if (fix != null) {
-          var item = ctl.model.blockers[Number(fix)];
-          if (item) handOff(ctl, ctl.spec.fix, { feature: ctl.model.feature, instruction: item.instruction, issueId: item.issueId, why: item.why });
+          var item = ctl.model.why[Number(fix)];
+          if (item) handOff(ctl, ctl.spec.fix, { feature: ctl.model.feature, instruction: item.instruction, issueId: item.issueId, why: item.why || item.label });
           return;
         }
         var apply = t.getAttribute("data-score-apply");
@@ -856,11 +1065,17 @@
         }
         var run = t.getAttribute("data-score-promote");
         if (run && typeof ctl.spec.promote === "function") {
+          ctl.ui.error = "";
           Promise.resolve(ctl.spec.promote(run)).then(function () {
             ctl.ui.history = undefined;
             loadHistory(ctl);
             refresh(ctl);
-          }, function () { refresh(ctl, true); });
+          }, function (err) {
+            if (ctl.closed) return;
+            ctl.ui.error = "Couldn’t switch versions: " + ((err && err.message) || "unknown error");
+            refresh(ctl, true);
+            announce(ctl.ui.error, true);
+          });
           return;
         }
       }
@@ -875,6 +1090,8 @@
     if (e.key === "Escape") {
       if (typeof e.preventDefault === "function") e.preventDefault();
       if (typeof e.stopPropagation === "function") e.stopPropagation();
+      /* FIX3-W1: an open held confirm closes first, and only it. */
+      if (ctl.ui.confirm) { closeConfirm(ctl); return; }
       closeCtl(ctl, "escape");
       return;
     }
@@ -897,8 +1114,9 @@
 
   /**
    * spec: { opener, read() -> data (see modelOf), fix(item), apply(s),
-   * repair(), retry(), profile(focus), rescore() -> Promise,
-   * loadHistory() -> Promise<runs>, promote(runId) -> Promise, onClose() }.
+   * repair(), retry(), profile(focus), rescore(runId) -> Promise,
+   * loadHistory() -> Promise<runs>, promote(runId) -> Promise,
+   * download(href, filename), onClose() }.
    * Returns { el, refresh, close, isOpen }.
    */
   function open(spec) {
@@ -906,7 +1124,7 @@
     var s = spec || {};
     if (!d || !d.body || typeof s.read !== "function") return null;
     if (current) closeCtl(current, "replaced");
-    var ctl = { spec: s, ui: { n: ++idSeq, open: null, busy: false, error: "", history: undefined }, el: null, dialog: null, closed: false, model: null };
+    var ctl = { spec: s, ui: { n: ++idSeq, open: null, busy: false, error: "", history: undefined, confirm: null }, el: null, dialog: null, closed: false, model: null };
     var holder = d.createElement("div");
     var model = modelOf(s.read() || {});
     ctl.model = model;
@@ -930,8 +1148,8 @@
     } else if (first) {
       first.focus();
     }
-    /* The card rises, the dial fills and the steps arrive one after
-       another; is-entering lasts only as long as that entrance. */
+    /* The card rises and the steps arrive one after another;
+       is-entering lasts only as long as that entrance. */
     var raf = typeof root.requestAnimationFrame === "function" ? root.requestAnimationFrame : function (fn) { fn(); };
     raf(function () {
       if (ctl.closed) return;
@@ -949,12 +1167,14 @@
   }
 
   root.JobBoredMaterialsScore = {
-    gradeOf: gradeOf,
-    letterFor: letterFor,
+    verdictView: verdictView,
+    qaVersion: qaVersion,
+    coverageLine: coverageLine,
     buttonHtml: buttonHtml,
     accessibleName: accessibleName,
     modelOf: modelOf,
     modalHtml: modalHtml,
+    versionsHtml: versionsHtml,
     open: open,
     current: function () { return current ? current.handle : null; },
   };

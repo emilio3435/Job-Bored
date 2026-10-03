@@ -460,30 +460,19 @@
        stand down whenever it renders — the dial is the Fit tile's one home
        and the Keywords drawer carries the full-match action. */
     if (n.fit && !m.fitGauge) tiles.push(tile("fit", "Fit", src("sheet"), esc(String(n.fit.value)) + "<small>/" + n.fit.max + "</small>", "Your agent's score", "sheet"));
-    /* P2-3: "ATS" is never expanded anywhere in the product, and crimson is
-       this design's missing/high-severity color — a 94/100 painted crimson
-       reads as bad news. The number is named for what it is, and only a low
-       score gets the alarm color. */
-    /* HOLES SCORE (§0.3): the tile's value is the grade button; the number,
-       its dimensions and its critique open in the score modal. */
-    var gradeBtn = scoreButton(m, "tile");
-    if (gradeBtn) {
-      var gDoc = n.ats ? (n.ats.doc || "draft") : (m.score.feature === "cover_letter" ? "cover letter" : "resume");
-      var gKey = gDoc === "draft" ? "Draft score" : (gDoc.charAt(0).toUpperCase() + gDoc.slice(1) + " draft score");
-      var gSub = n.ats ? "scored " + gDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "") : "";
-      tiles.push(tile("ats", gKey, src("ai"), gradeBtn, esc(gSub), "ai"));
-    } else if (n.ats) {
-      var atsLow = Number(n.ats.value) < 70;
-      /* C13 (TA-13): the score names the document it rates, and which
-         version on which day, so it can never pass for the PDF you send.
-         DFIT: it rates a draft, so it says "draft score" and can never
-         pass for the fit number. */
-      var atsDoc = n.ats.doc || "draft";
-      var atsKey = atsDoc === "draft" ? "Draft score" : (atsDoc.charAt(0).toUpperCase() + atsDoc.slice(1) + " draft score");
-      var atsSub = "scored " + atsDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "");
-      tiles.push(tile("ats", atsKey, src("ai"),
-        (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
-        esc(atsSub), "ai"));
+    /* GRADE (D6): the tile is this draft's requirement coverage, from the
+       run its quality check graded; it opens that check. A record that
+       recorded no coverage (an old checker's) has no tile. */
+    var cov = m.score && m.score.coverage;
+    var ms = root.JobBoredMaterialsScore;
+    if (cov && ms && typeof ms.coverageLine === "function") {
+      var covDoc = m.score.feature === "cover_letter" ? "Cover letter" : "Resume";
+      var covLine = ms.coverageLine({ covered: cov.covered, total: cov.total, missing: [] });
+      var covSub = [cov.stale ? "From an earlier version" : "", cov.missing.length ? "missing: " + cov.missing.join(", ") : ""].filter(Boolean).join(" · ");
+      tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="coverage" data-score-open data-feature="' + attr(m.score.feature) + '"' +
+        ' aria-label="' + attr(covDoc + " coverage: " + ms.coverageLine(cov) + (cov.stale ? ", from an earlier version" : "") + ". Open the quality check.") + '">' +
+        '<div class="case__num-k">' + esc(covDoc + " coverage") + " " + src("ai") + '</div><div class="case__num-v">' + esc(covLine) + "</div>" +
+        (covSub ? '<div class="case__num-sub">' + esc(covSub) + "</div>" : "") + "</button></li>");
     }
     /* DFIT-2: a closed role shows no keywords anywhere, so the tile stays
        down on terminal stages even when there is no plate to own it. */
@@ -665,8 +654,8 @@
       fitUi.openKey = "";
     }
   }
-  /* HOLES SCORE: a grade button outside the materials rows (the ATS tile,
-     "You have") opens the score modal; the rows' own buttons are
+  /* A verdict button outside the materials rows (the coverage tile, "You
+     have") opens the quality-check modal; the rows' own buttons are
      role-materials.js's. */
   function closestGrade(node) {
     var grade = null;
@@ -731,42 +720,24 @@
     return '<div class="case__skeleton" aria-busy="true" role="status" aria-live="polite">' + s + "</div>";
   }
 
-  /* The grade button from materials-score.js, or "" when it isn't loaded
-     or there is nothing to grade. */
+  /* The verdict button from materials-score.js, or "" when it isn't loaded
+     or there is nothing graded. */
   function scoreButton(m, scope) {
     var ms = root.JobBoredMaterialsScore;
     if (!m.score || !ms || typeof ms.buttonHtml !== "function") return "";
-    return ms.buttonHtml(m.score.grade, { feature: m.score.feature, scope: scope, stale: m.score.stale });
+    return ms.buttonHtml(m.score.verdict, { feature: m.score.feature, scope: scope, stale: m.score.stale });
   }
 
+  /* GRADE (D7): "You have" is the package's verdict button; what decided
+     it — checks, sentences, reviews, coverage — opens in its modal. */
   function renderYouHave(m) {
-    var y = m.youHave;
-    /* HOLES SCORE (§0.3): a scorecard's strengths, evidence, gaps and
-       dimensions are the score modal's now; here, only its grade button. */
-    var gradeBtn = y.source === "scorecard" ? scoreButton(m, "case") : "";
-    if (gradeBtn) {
-      return '<section class="case__section case__section--you">' +
-        sectionHead("You have", src("ai", "ai · scorecard")) +
-        '<p class="case__grade">' + gradeBtn + "</p></section>";
-    }
-    if (y.source === "scorecard") return "";
-    /* P0-9 (spec §3): the early return only fired on source "none", but a
-       keyword analysis whose terms are all `partial` yields no strengths and
-       no gaps — the lane emitted a header and closed. */
-    if (y.source === "none") return "";
-    if (!y.strengths.length && !y.evidence.length && !y.gaps.length && !y.dimensions.length) return "";
-    /* Stacked directly under "They want", at the same measure: a requirement
-       and whether you answer it are a pair, and splitting them into adjacent
-       columns separated by a rule made the reader saccade horizontally between
-       two lists whose vertical positions never corresponded (TEARDOWN §6). */
-    var html = '<section class="case__section case__section--you">' +
-      sectionHead("You have", y.source === "scorecard" ? src("ai", "ai · scorecard") : src("derived", "keyword match"));
-    if (y.strengths.length) html += '<div class="case__sub">Strengths</div>' + y.strengths.map(function (s) { return '<div class="case__strength">' + esc(s) + "</div>"; }).join("");
-    if (y.evidence.length) html += y.evidence.map(function (e) { return '<div class="case__evidence"><span class="case__from">Evidence' + (e.sourceType ? " · from your " + esc(e.sourceType) : "") + "</span>&ldquo;" + esc(e.sourceSnippet || e.claim) + "&rdquo;</div>"; }).join("");
-    if (y.gaps.length) html += '<div class="case__sub">Gaps</div>' + y.gaps.map(function (g) { return '<div class="case__gap"><span class="case__sev case__sev--' + esc(g.severity) + '">' + esc(g.severity === "medium" ? "med" : g.severity) + "</span><span>" + esc(g.gap) + (g.whyItMatters ? '<span class="case__why">' + esc(g.whyItMatters) + "</span>" : "") + "</span></div>"; }).join("");
-    if (y.dimensions.length) html += '<div class="case__sub">Scorecard dimensions</div><div class="case__dims">' + y.dimensions.map(function (d) { return '<div class="case__dim"><span>' + esc(d.label) + '</span><span class="case__bar"><i style="width: ' + d.score + '%;"></i></span><b>' + d.score + "</b></div>"; }).join("") + "</div>";
-    if (y.storedAt) html += '<div class="case__stamp">Scored ' + esc(String(y.storedAt).slice(0, 10)) + "</div>";
-    return html + "</section>";
+    var btn = scoreButton(m, "case");
+    if (!btn) return "";
+    /* FIX3-W2: it names the document whose verdict it shows. */
+    var doc = m.score.feature === "cover_letter" ? "Cover letter" : "Resume";
+    return '<section class="case__section case__section--you">' +
+      sectionHead("You have", src("ai", "ai · quality check")) +
+      '<p class="case__grade"><span class="case__grade-doc">' + esc(doc) + "</span>" + btn + "</p></section>";
   }
 
   /* Replied is three-state, so it is a segmented control, not a toggle that

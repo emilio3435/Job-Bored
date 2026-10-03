@@ -66,6 +66,8 @@ describe("materials node ids and edits", () => {
     const fiveBullets = applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]);
     assert.equal(fiveBullets.documents.resume.sections.find((section) => section.kind === "experience").entries[0].bullets.length, 5);
     assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Reviewed weekly reports." }]), { reason: "shape" });
+    assert.equal(deriveNodes(fiveBullets).filter(node => node.kind === "bullet").length, 5);
+    assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Prepared route reports." }]), { reason: "shape" });
   });
 });
 

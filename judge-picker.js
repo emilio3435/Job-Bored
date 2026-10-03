@@ -366,6 +366,10 @@
     }
 
     const root = node("div", "jb-grading", { "data-surface": surface });
+    /* GRADE G4: the drafting model always reviews first; this field only
+       adds a second review, at one more model call per document. */
+    root.appendChild(node("p", "jb-grading__hint", { id: id("Purpose") },
+      "Your drafting model gives the first review. A grading model here adds a second review: one more model call per document."));
 
     const provider = node("select", "jb-grading__select", { id: id("Provider") });
     for (const c of FIELD_CHOICES) option(provider, c.id, c.label);

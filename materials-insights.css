@@ -10,24 +10,26 @@
    ============================================================ */
 
 /* The row gains a band between its meta line and its actions (the
-   checklist), and a drafted resume or letter its grade beside the pill. */
+   checklist), and a drafted resume or letter its verdict button on a line
+   of its own under the name (GRADE D7: "Fails · 1 claim needs a source"
+   is a sentence, so it never shares a track with the name). */
 body.jb-v2 [data-region="role"] .case .brief-materials .case__doc {
   grid-template-areas: "name state" "meta meta" "qa qa" "acts acts";
 }
 body.jb-v2 [data-region="role"] .case .brief-materials .case__doc.case__doc--graded {
-  grid-template-columns: minmax(8rem, 1fr) auto auto;
-  grid-template-areas: "name grade state" "meta meta meta" "qa qa qa" "acts acts acts";
+  grid-template-columns: minmax(8rem, 1fr) auto;
+  grid-template-areas: "name state" "grade grade" "meta meta" "qa qa" "acts acts";
 }
 @container ledger (inline-size < 15rem) {
   body.jb-v2 [data-region="role"] .case .brief-materials .case__doc {
     grid-template-areas: "name" "state" "meta" "qa" "acts";
   }
   body.jb-v2 [data-region="role"] .case .brief-materials .case__doc.case__doc--graded {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name grade" "state state" "meta meta" "qa qa" "acts acts";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "name" "state" "grade" "meta" "qa" "acts";
   }
 }
-body.jb-v2 [data-region="role"] .brief-materials .case__doc-grade { grid-area: grade; align-self: start; display: inline-flex; }
+body.jb-v2 [data-region="role"] .brief-materials .case__doc-grade { grid-area: grade; justify-self: start; min-width: 0; max-width: 100%; display: inline-flex; }
 body.jb-v2 [data-region="role"] .brief-materials .brief-materials__card-grade { margin: var(--jb-space-2) 0 0; }
 body.jb-v2 [data-region="role"] .brief-materials .case__doc-qa { grid-area: qa; min-width: 0; display: grid; gap: var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .case__doc--qafail { border-color: var(--jb-err); }
@@ -89,6 +91,13 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-confirm {
 }
 body.jb-v2 [data-region="role"] .brief-materials .mat-confirm .mat-confirm__q { margin: 0; font-family: var(--jb-font-body); font-size: var(--jb-type-small); font-weight: 600; color: var(--jb-ink); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-confirm__acts { display: flex; flex-wrap: wrap; gap: var(--jb-space-2); margin-top: var(--jb-space-2); }
+/* GRADE FIX3-W1: the confirm takes focus on open, often after a pointer
+   click, when :focus-visible would paint nothing — so ring :focus here. */
+body.jb-v2 [data-region="role"] .brief-materials .mat-confirm .case__doc-btn:focus,
+.jb-score .mat-confirm .case__doc-btn:focus { outline: none; box-shadow: var(--jb-shadow-focus); }
+/* GRADE FIX3-W2: a drafted document's pill is neutral; its verdict is the
+   verdict button's. */
+body.jb-v2 [data-region="role"] .brief-materials .case__docst--drafted { background: var(--jb-paper-2); color: var(--jb-ink-2); }
 
 body.jb-v2 [data-region="role"] .brief-materials .mat-copy { grid-column: 1 / -1; margin-top: var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-copy .mat-copy__hint { margin: 0 0 var(--jb-space-1); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
@@ -100,15 +109,6 @@ body.jb-v2 [data-region="role"] .brief-materials .mat-copy__text {
 /* ---------------- U-6 versions ---------------- */
 body.jb-v2 [data-region="role"] .brief-materials .mat-hist { grid-column: 1 / -1; margin-top: var(--jb-space-2); font-family: var(--jb-font-body); font-size: var(--jb-type-small); color: var(--jb-ink); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-hist .mat-hist__empty { margin: 0; color: var(--jb-ink-2); font-size: var(--jb-type-small); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__runs { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--jb-space-1); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__run {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--jb-space-1) var(--jb-space-2);
-  padding: var(--jb-space-2); border: 1px solid var(--jb-line-soft); border-radius: var(--jb-radius-sm); background: var(--jb-paper);
-}
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__when { font-weight: 600; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__tpl { color: var(--jb-ink-2); justify-self: end; }
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__active { justify-self: end; font-family: var(--jb-font-mono); font-size: var(--jb-type-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-accent-ink); }
-body.jb-v2 [data-region="role"] .brief-materials .mat-hist__run .case__doc-btn { justify-self: end; }
 body.jb-v2 [data-region="role"] .brief-materials .mat-hist__cmp { display: flex; flex-wrap: wrap; align-items: end; gap: var(--jb-space-2); margin-top: var(--jb-space-2); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-hist__cmp label { display: grid; gap: 2px; color: var(--jb-ink-2); }
 body.jb-v2 [data-region="role"] .brief-materials .mat-hist__cmp select {

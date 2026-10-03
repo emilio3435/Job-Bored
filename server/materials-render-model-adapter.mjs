@@ -26,6 +26,7 @@
  * resume text, the request, or the logo resolver.
  */
 
+import { locateLiteral } from "./resume-text-fold.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { isReadoutMetric, maskNonMetrics, productNumeralSpans } from "./materials-numerals.mjs";
 import { companyKey } from "./materials-monogram.mjs";
@@ -291,7 +292,7 @@ export function overlayProfileIdentity(stored, profile) {
  * Metric runs, traced to the user's resume
  * ------------------------------------------------------------------ */
 
-const METRIC_RE = /(?<![\w$#.])((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)(?![\w%])/g;
+export const METRIC_RE = /(?<![\w$#.])((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)(?![\w%])/g;
 
 /** @param {string} token */
 function isYear(token) {
@@ -971,5 +972,75 @@ export function refreshStoredModel(stored, resumeText) {
       else delete letter.readouts;
     }
   }
+  return model;
+}
+
+/** Date display for the lean path; saved ledger dates remain unchanged. @param {unknown} value */
+export function formatLeanDate(value) {
+  const text = str(value);
+  if (!text || /^(?:present|current|now)$/i.test(text)) return "Present";
+  const iso = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(text);
+  if (iso) return `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(iso[2]) - 1] || iso[2]} ${iso[1]}`;
+  return text.replace(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{4})$/, "$1 $2");
+}
+
+/** Facts are projected from the ledger; prose already passed checkLean. @param {Record<string, any>} input @returns {RenderModel} */
+export function buildRenderModelFromLean(input) {
+  const { draft, outline, ledger, resumeText = "", resumeRead = null, request = {} } = input;
+  const model = buildRenderModelFromDraft(/** @type {any} */ (input));
+  model.provenance = { ...model.provenance, engine: "lean" };
+  const employers = new Map((ledger.employers || []).map((/** @type {any} */ e) => [e.id, e]));
+  const aliases = ledger.resumeStructure?.employers || [];
+  const literal = (/** @type {unknown} */ value) => typeof value === "string" && locateLiteral(resumeText, value) ? value : "";
+  for (const section of model.documents.resume?.sections || []) for (const entry of section.entries || []) {
+    const employer = /** @type {any} */ (employers.get(entry.employerId));
+    if (!employer) continue;
+    const structure = aliases.find((/** @type {any} */ e) => companyKey(e.name) === companyKey(employer.name));
+    const clause = literal(structure?.aliasClause);
+    entry.org = `${employer.name}${clause ? ` (${clause.replace(/^\(|\)$/g, "")})` : ""}`;
+    entry.meta = [employer.start ? `${formatLeanDate(employer.start)} – ${formatLeanDate(employer.end)}` : "", str(employer.location)].filter(Boolean);
+    for (const bullet of entry.bullets || []) {
+      const text = bullet.runs.map(run => run.t ?? run.n ?? run.hl ?? "").join("");
+      // These strings have already passed the lean checks, including legal rounding.
+      bullet.runs = tagMetrics(text, text);
+    }
+    const group = outline.featured.find((/** @type {any} */ g) => g.employerId === entry.employerId);
+    if (group?.roles?.length >= 2) {
+      entry.roles = group.roles.map((/** @type {any} */ row) => {
+        const role = (employer.roles || []).find((/** @type {any} */ r) => r.id === row.id);
+        return { seat: role?.title || "", meta: role?.start ? [`${formatLeanDate(role.start)} – ${formatLeanDate(role.end)}`] : [], claimIds: row.claimIds };
+      });
+      delete entry.seat;
+    } else if (group?.roles?.length === 1) {
+      const role = (employer.roles || []).find((/** @type {any} */ r) => r.id === group.roles[0].id);
+      if (role) { entry.seat = role.title; if (role.start && (employer.roles || []).length > 1) entry.meta = [`${formatLeanDate(role.start)} – ${formatLeanDate(role.end)}`, str(employer.location)].filter(Boolean); }
+    }
+  }
+  if (model.documents.resume) {
+    const sections = model.documents.resume.sections.filter(section => section.kind !== "credentials" && section.kind !== "readouts");
+    const figures = pickReadouts(sections.filter(section => section.kind === "experience").flatMap(section => section.entries || []), MATERIALS_BUDGETS.resume.featuredEmployersMax * 2);
+    if (figures.length >= 3) sections.unshift({ kind: "readouts", label: "Verified figures", readouts: figures });
+    const fallback = (/** @type {string} */ heading) => {
+      const lines = resumeText.split(/\r?\n/).map((/** @type {string} */ line) => line.trim());
+      const at = lines.findIndex((/** @type {string} */ line) => new RegExp(`^${heading}\\s*:?$`, "i").test(line));
+      /** @type {string[]} */ const found = [];
+      if (at >= 0) for (const line of lines.slice(at + 1)) { if (HEADING_RE.test(line)) break; if (line) found.push(line); }
+      return found;
+    };
+    for (const [key, label, heading] of [["education", "Education", "education"], ["certifications", "Certifications", "certifications?"]]) {
+      const lines = (Array.isArray(resumeRead?.[key]) ? resumeRead[key] : fallback(heading)).map(literal).filter(Boolean);
+      if (lines.length) sections.push({ kind: "credentials", label, lines: lines.map((/** @type {string} */ line, /** @type {number} */ index) => ({ claimId: `lean-${key}-${index + 1}`, runs: [{ t: line }] })) });
+    }
+    model.documents.resume.sections = sections;
+    model.documents.resume.statement = { runs: draft.statement ? tagMetrics(draft.statement, resumeText) : [{ t: "" }] };
+  }
+  const manager = str(request.hiringManager);
+  if (model.documents.coverLetter && manager) {
+    model.documents.coverLetter.salutation = `Dear ${manager},`;
+    const rail = model.documents.coverLetter.rail?.find(item => item.label === "To");
+    if (rail) rail.lines[0] = manager;
+  }
+  if (input.feature === "resume") delete model.documents.coverLetter;
+  if (input.feature === "cover_letter") delete model.documents.resume;
   return model;
 }

@@ -1,0 +1,25 @@
+Jordan Rivera
+Operations Analyst
+user@example.com | Little Rock
+EXPERIENCE
+Northwind (formerly Entercom) — Little Rock — Sep 2017 – 2026
+Operations Analyst — 2022 – 2026
+- Supported planning for 21+ accounts using Postgres.
+- Reduced missed windows from 9.1% to 4.3% for 620 vans.
+Dispatch Analyst — 2020 – 2022
+- Ran weekly readouts for 14 dispatch leads and 40 stores.
+- Built a route forecast that saved $2.4M in costs.
+Field Analyst — Sep 2017 – 2020
+- Reviewed 130% growth across 60% of routes.
+- Ranked top-3 among 19 analysts in 2019.
+RouteLab — Founder — 2024 – Present
+- Shipped a scheduling tool for 80 drivers using Kafka.
+- Built reports for 8–10 clients using Postgres.
+Harbor Works — Coordinator — 2014 – 2017
+- Supported field reports for 12 clients.
+SKILLS
+Postgres, Kafka
+EDUCATION
+State College — BA Economics
+CERTIFICATIONS
+Data Certificate

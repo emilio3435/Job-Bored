@@ -147,9 +147,14 @@ describe("U-4 · stage timeline mapping", () => {
   });
 });
 
-describe("U-1 · quality scorecard (now the score modal)", () => {
-  it("should grade the verdict from its score", () => {
-    assert.deepEqual(JSON.parse(JSON.stringify(ms.gradeOf(NORTHWIND_FAIL))), { letter: "F", base: "F", score: 50, source: "rubric", verdict: "FAIL", capped: false, why: "" });
+/* GRADE (SPEC-GRADE D1, D4): an old rubric run shows its stored verdict,
+   the flags and fallbacks behind it and "Graded by the old checker" —
+   never its score over max, its rubric rows or its stored numbers. */
+describe("U-1 · quality scorecard (now the quality-check modal)", () => {
+  it("should read the verdict, never its score", () => {
+    const v = ms.verdictView(NORTHWIND_FAIL);
+    assert.equal(v.word, "Fails");
+    assert.equal(v.legacy, "old_checker");
     assert.equal(mi.isFail(NORTHWIND_FAIL), true);
     assert.equal(mi.isFail({ status: "review", issues: [], qa: { ...NORTHWIND_FAIL.qa, disposition: "REVIEW" } }), false);
   });
@@ -157,38 +162,36 @@ describe("U-1 · quality scorecard (now the score modal)", () => {
   it("should explain the Northwind failure and offer the fix", () => {
     /* role-materials passes repair: mi.canRepair(record), false on a v1 run. */
     const html = modal(NORTHWIND_FAIL, "resume", { can: { ...CAN, repair: mi.canRepair(NORTHWIND_FAIL) } });
-    assert.match(html, /jb-score__badge--fail">Failed a check</);
-    assert.match(html, /jb-score__verdict"[^>]*>Resume is missing an experience section\.</);
-    assert.match(step(html, "blockers"), /Reading the job fell back to rules: the AI’s answer was cut off\./);
-    assert.match(step(html, "blockers"), /Picking your facts fell back to rules: the AI’s answer couldn’t be read\./);
+    assert.match(html, /jb-score__word" data-tone="err">Fails</);
+    assert.match(html, /jb-score__verdict"[^>]*>[^<]*Resume is missing an experience section</);
+    assert.match(step(html, "why"), /Reading the job fell back to rules: the AI’s answer was cut off\./);
+    assert.match(step(html, "why"), /Picking your facts fell back to rules: the AI’s answer couldn’t be read\./);
     assert.match(html, /data-score-profile="details">Review your details</);
     /* MREV D2: an old (rubric) run is read-only; Repair needs a v2 run. */
     assert.doesNotMatch(html, /data-score-repair/);
     assert.match(html, /Graded by the old checker/);
-    /* Rubric rows as meters in Dimensions. */
-    assert.match(step(html, "dimensions"), /Job outcomes covered[\s\S]*?0 \/ 2/);
-    assert.match(step(html, "dimensions"), /0 experience bullets/);
+    assert.doesNotMatch(html, /0 \/ 2|0 experience bullets|48%|\b50\b/, "no rubric rows, no stored numbers");
   });
 
-  it("should point a letter that sounds machine-made at the voice guide", () => {
+  it("should point a letter that sounds machine-made at the voice guide, without its rubric score", () => {
     const html = modal({
       status: "review",
       issues: [{ code: "sounds_machine", message: "Two stock phrases.", severity: "review" }],
       qa: { disposition: "REVIEW", dispositionReason: "rubric 9/12 below 10", degraded: [], rubric: { score: 9, max: 12, rows: [{ id: "sounds_human", score: 1, max: 2, note: "two tells" }] } },
     }, "cover_letter");
-    assert.match(html, /It scored 9 of 12; a ready draft needs 10\./);
-    assert.match(html, /jb-score__badge--review">Review</);
+    assert.doesNotMatch(html, /9 of 12|9\/12/);
+    assert.match(html, /jb-score__word" data-tone="warn">Needs review</);
     assert.match(html, /data-score-profile="voice">Add a voice guide</);
   });
 
-  it("should show a READY verdict without a failure badge", () => {
+  it("should show a READY verdict without a failure", () => {
     const html = modal({ status: "pass", issues: [], qa: { disposition: "READY", degraded: [], rubric: { score: 12, max: 12, rows: [] } } }, "resume");
-    assert.match(html, /jb-score__letter">A\+</);
-    assert.doesNotMatch(html, /jb-score__badge--fail/);
+    assert.match(html, /jb-score__word" data-tone="ok">Ready</);
+    assert.doesNotMatch(html, /data-tone="err"|A\+/);
   });
 
-  it("should give no grade without a pipeline verdict", () => {
-    assert.equal(ms.gradeOf({ status: "review", issues: [{ code: "x", message: "y" }] }).score, null);
+  it("should give no verdict without a pipeline record", () => {
+    assert.equal(ms.verdictView({ status: "review", issues: [{ code: "x", message: "y" }] }).word, "Not graded");
   });
 
   it("should say a missing model in plain words", () => {
@@ -241,14 +244,13 @@ describe("U-7 · role-term coverage (now the modal's keyword step)", () => {
     const terms = mi.termsFromExtract({ nouns: [{ term: "streaming audio" }, { term: "Podcast" }, { term: "podcast" }, { term: "CTV" }, { term: "" }] });
     assert.deepEqual([...terms], ["streaming audio", "Podcast", "CTV"]);
     const coverage = win.JobBoredScribeScore.keywordCoverage("Led streaming audio and podcast sales.", terms);
-    const kw = step(modal(NORTHWIND_FAIL, "resume", { coverage }), "keywords");
+    const kw = step(modal(NORTHWIND_FAIL, "resume", { keywords: coverage }), "keywords");
     assert.match(kw, /<b>2 of 3<\/b> role terms/);
     assert.match(kw, /jb-score__chip">CTV</);
   });
 
-  it("should say the terms aren't loaded when the posting named none", () => {
-    const kw = step(modal(NORTHWIND_FAIL, "resume", { coverage: { matched: [], missing: [], total: 0 } }), "keywords");
-    assert.match(kw, /role terms aren’t loaded/);
+  it("should leave the keyword step out when the posting named no terms", () => {
+    assert.equal(step(modal(NORTHWIND_FAIL, "resume", { keywords: { matched: [], missing: [], total: 0 } }), "keywords"), "");
   });
 });
 
@@ -259,16 +261,17 @@ describe("U-6 · versions and diff", () => {
     { runId: "mr_1", date: "2026-09-27T13:00:00.000Z", template: "signal", documents: ["resume"], verdicts: { resume: { disposition: "FAIL", score: 6, max: 12 } }, active: [] },
   ];
 
+  /* GRADE G6: the inline list and the modal's Versions step render the
+     same rows — each run's verdict word, never its score over max. */
   it("should list this document's runs with verdicts, the one in use, and a compare form", () => {
     const html = mi.historyHtml(runs, "resume");
-    assert.equal((html.match(/mat-hist__run"/g) || []).length, 2);
-    /* HOLES SCORE: the per-run verdict pill moved to the modal's History step. */
-    assert.doesNotMatch(html, /READY · 11|FAIL · 6/);
-    assert.match(html, /data-run="mr_3"[\s\S]*?In use/);
-    assert.match(html, /data-run="mr_1"[\s\S]*?data-action="materials-promote" data-run="mr_1"/);
-    const hist = step(modal(NORTHWIND_FAIL, "resume", {}, { open: { history: true }, history: runs }), "history");
-    assert.match(hist, /data-run="mr_3"[\s\S]*?B · 92|data-run="mr_3"[\s\S]*?A- · 92/);
-    assert.match(hist, /data-run="mr_1"[\s\S]*?D · 50|data-run="mr_1"[\s\S]*?F · 50/);
+    assert.equal((html.match(/class="jb-ver__run"/g) || []).length, 2);
+    assert.doesNotMatch(html, /READY · 11|FAIL · 6|\/ 12/);
+    assert.match(html, /data-run="mr_3"[\s\S]*?Default[\s\S]*?>Ready</);
+    assert.match(html, /data-run="mr_1"[\s\S]*?>Fails<[\s\S]*?data-action="materials-promote" data-score-promote="mr_1" data-run="mr_1"/);
+    const hist = step(modal(NORTHWIND_FAIL, "resume", {}, { open: { versions: true }, history: runs }), "versions");
+    assert.equal((hist.match(/class="jb-ver__run"/g) || []).length, 2);
+    assert.doesNotMatch(hist, /B · 92|D · 50|\b92\b|\b50\b/);
     assert.match(html, /<select data-hist-a><option value="mr_3">[^<]*<\/option><option value="mr_1" selected>/);
   });
 

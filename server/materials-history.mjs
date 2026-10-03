@@ -1,3 +1,4 @@
+import { readQaVerdict, verdictSnapshot } from "./materials-qa.mjs";
 /**
  * Materials version history (Wave 2 · U-6).
  *
@@ -18,10 +19,10 @@
  * way application-materials.mjs guards the file routes.
  */
 
-import { copyFile, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, sep } from "node:path";
-import { resolveApplicationDir } from "./application-materials.mjs";
+import { resolveApplicationDir, resolveContainedFile } from "./application-materials.mjs";
 import { RUNS_DIR } from "./materials-package.mjs";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
@@ -99,7 +100,7 @@ async function readText(path) {
  * @param {string} appDir
  * @param {string} runId
  */
-async function resolveRunDir(appDir, runId) {
+export async function resolveRunDir(appDir, runId) {
   if (!isValidRunId(runId)) throw httpError("Invalid run id", 400, "invalid_run_id");
   const runsRoot = join(appDir, RUNS_DIR);
   const dir = join(runsRoot, runId);
@@ -111,31 +112,17 @@ async function resolveRunDir(appDir, runId) {
     throw httpError("Run not found", 404, "run_not_found");
   }
   const realRoot = await realpath(runsRoot);
+  if (!realRoot.startsWith(appDir + sep)) throw httpError("Path escape detected", 400);
   if (!real.startsWith(realRoot + sep)) throw httpError("Path escape detected", 400);
   const st = await stat(real);
   if (!st.isDirectory()) throw httpError("Run not found", 404, "run_not_found");
   return real;
 }
 
-/**
- * @param {Record<string, unknown> | null} qa
- * @returns {{ disposition: string, score: number | null, max: number | null } | null}
- */
-function verdictOf(qa) {
-  if (!qa) return null;
-  const quality = qa.quality && typeof qa.quality === "object" ? /** @type {Record<string, unknown>} */ (qa.quality) : null;
-  if (qa.contract === "materials.qa.v2") {
-    return {
-      disposition: typeof qa.disposition === "string" ? qa.disposition : "",
-      score: quality && typeof quality.score === "number" ? quality.score : null,
-      max: 100,
-    };
-  }
-  const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : null;
-  const score = rubric && typeof rubric.score === "number" ? rubric.score : null;
-  const max = rubric && typeof rubric.max === "number" ? rubric.max : null;
-  const disposition = typeof qa.disposition === "string" ? qa.disposition : "";
-  return { disposition, score, max };
+/** @param {Record<string, unknown> | null} qa */
+export function verdictOf(qa) {
+  const view = readQaVerdict(qa);
+  return view ? { disposition: view.disposition, state: view.state, reason: view.reasons[0]?.text || "", failedChecks: verdictSnapshot(view)?.failedCheckIds || [], checks: view.checks.filter((/** @type {any} */ c) => ["fail", "review"].includes(c.status)).map((/** @type {any} */ c) => ({ id: c.id, kind: c.kind, status: c.status, label: c.label })), ...(view.legacy ? { legacy: view.legacy } : {}) } : null;
 }
 
 /**
@@ -175,7 +162,13 @@ async function docFingerprint(dir, doc) {
  * @property {string} [regeneratedFrom]
  * @property {Record<string, unknown>} [repair]
  * @property {HistoryDoc[]} documents
- * @property {Partial<Record<HistoryDoc, { disposition: string, score: number | null, max: number | null }>>} verdicts
+ * @property {Partial<Record<HistoryDoc, { disposition: string | null, state: string, reason: string, failedChecks: string[], checks: Array<{id:string,kind:string,status:string,label:string}>, legacy?: string }>>} verdicts
+ * @property {"run"|"pass"} kind
+ * @property {string} [parentRunId]
+ * @property {string} [label]
+ * @property {{reason:string}|null} held
+ * @property {boolean} isDefault
+ * @property {Partial<Record<HistoryDoc, Record<string,string>>>} files
  * @property {HistoryDoc[]} active documents whose served copy is this run's
  */
 
@@ -229,11 +222,11 @@ export async function listRuns(slug, { root } = {}) {
       const verdict = verdictOf(await readJson(join(runDir, DOC_FILES[doc].qa)));
       if (verdict) verdicts[doc] = verdict;
       const print = await docFingerprint(runDir, doc);
-      if (print != null && print === served[doc]) active.push(doc);
+      if (run?.kind !== "pass" && print != null && print === served[doc]) active.push(doc);
     }
     /** @type {RunSummary} */
     const summary = {
-      runId,
+      runId, kind: run?.kind === "pass" ? "pass" : "run", held: null, isDefault: false, files: {},
       date,
       feature: run && typeof run.feature === "string" ? run.feature : documents.length === 2 ? "both" : documents[0] || "",
       template: template && typeof template.family === "string" ? template.family : "",
@@ -242,6 +235,18 @@ export async function listRuns(slug, { root } = {}) {
       verdicts,
       active,
     };
+    if (typeof run?.parentRunId === "string") summary.parentRunId = run.parentRunId;
+    if (typeof run?.label === "string") summary.label = run.label;
+    const fail = Object.values(verdicts).find(v => v.disposition === "FAIL");
+    summary.held = fail ? { reason: fail.reason || "Document fails checks" } : null;
+    for (const doc of documents) {
+      const hrefs = {};
+      for (const ext of ["pdf", "html", "txt"]) {
+        const filename = DOC_FILES[doc][/** @type {"pdf"|"html"|"txt"} */ (ext)];
+        if (existsSync(join(runDir, filename))) /** @type {Record<string,string>} */ (hrefs)[ext] = `/api/applications/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}/files/${filename}`;
+      }
+      summary.files[doc] = hrefs;
+    }
     if (template && typeof template.regeneratedFrom === "string") summary.regeneratedFrom = template.regeneratedFrom;
     if (run && run.repair && typeof run.repair === "object") summary.repair = /** @type {Record<string, unknown>} */ (run.repair);
     runs.push(summary);
@@ -257,6 +262,8 @@ export async function listRuns(slug, { root } = {}) {
     const keep = holders.find((r) => r.runId === manifestRun) || holders[0];
     for (const run of holders) if (run !== keep) run.active = run.active.filter((d) => d !== doc);
   }
+  const defaultRun = runs.find(r => r.kind !== "pass" && r.runId === manifestRun && !r.held) || runs.find(r => r.kind !== "pass" && r.active.length && !r.held);
+  if (defaultRun) defaultRun.isDefault = true;
   return { slug, runs: runs.slice(0, MAX_RUNS) };
 }
 
@@ -272,13 +279,20 @@ export async function listRuns(slug, { root } = {}) {
 export async function promoteRun(slug, runId, { root, now = () => new Date() } = {}) {
   const appDir = await resolveApplicationDir(slug, { root });
   const runDir = await resolveRunDir(appDir, runId);
-  const pending = await readJson(join(appDir, "pending.json"));
+  const names = [...new Set([...Object.values(DOC_FILES).flatMap(files => Object.values(files)), ...RUN_LEVEL_FILES, "judge-context.resume.json", "judge-context.letter.json", "writer-sources.json", "draft.json", "manifest.json", "pending.json"])];
+  // Reject an unsafe source or destination before replacing any published file.
+  for (const dir of [runDir, appDir]) for (const name of names) await resolveContainedFile(dir, name, { optional: true });
+  const sourcePath = (/** @type {string} */ name) => resolveContainedFile(runDir, name, { optional: true });
+  const destinationPath = (/** @type {string} */ name) => resolveContainedFile(appDir, name, { optional: true });
+  const pending = await readJson(await destinationPath("pending.json"));
   const phase = pending && pending.progress && typeof pending.progress === "object"
     ? String(/** @type {Record<string, unknown>} */ (pending.progress).phase || "")
     : "";
   if (pending && !/^(failed|complete|done)$/i.test(phase)) {
     throw httpError("A draft is running for this role. Wait for it to finish, then try again.", 409, "draft_in_flight");
   }
+  const storedRun = await readJson(await sourcePath("run.json"));
+  if (storedRun?.kind === "pass") throw httpError("Restore a document version through the editor", 409, "pass_not_promotable");
   const documents = docsInRun(runDir);
   if (!documents.length) throw httpError("This version has no documents to restore.", 404, "run_empty");
   /** @type {string[]} */
@@ -286,27 +300,43 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
   for (const doc of documents) {
     const files = DOC_FILES[doc];
     for (const name of [files.html, files.pdf, files.txt, files.qa, files.draft]) {
-      if (!existsSync(join(runDir, name))) continue;
-      await copyFile(join(runDir, name), join(appDir, name));
+      const source = await sourcePath(name);
+      if (!existsSync(source)) continue;
+      await copyFile(source, await destinationPath(name));
       copied.push(name);
+    }
+    const context = `judge-context.${doc === "cover_letter" ? "letter" : "resume"}.json`;
+    const source = await sourcePath(context);
+    if (existsSync(source)) {
+      await copyFile(source, await destinationPath(context)); copied.push(context);
+    } else await rm(await destinationPath(context), { force: true });
+  }
+  const writerSources = await readJson(await sourcePath("writer-sources.json"));
+  if (writerSources) {
+    const merged = await readJson(await destinationPath("writer-sources.json")) || {};
+    let changed = false;
+    for (const doc of documents) if (Array.isArray(writerSources[doc])) { merged[doc] = writerSources[doc]; changed = true; }
+    if (changed) {
+      await writeFile(await destinationPath("writer-sources.json"), `${JSON.stringify(merged, null, 2)}\n`);
+      copied.push("writer-sources.json");
     }
   }
   for (const name of RUN_LEVEL_FILES) {
-    if (!existsSync(join(runDir, name))) continue;
-    await copyFile(join(runDir, name), join(appDir, name));
+    const source = await sourcePath(name);
+    if (!existsSync(source)) continue;
+    await copyFile(source, await destinationPath(name));
     copied.push(name);
   }
-  if (documents.length === 2 && existsSync(join(runDir, "draft.json"))) {
-    await copyFile(join(runDir, "draft.json"), join(appDir, "draft.json"));
+  if (documents.length === 2 && existsSync(await sourcePath("draft.json"))) {
+    await copyFile(await sourcePath("draft.json"), await destinationPath("draft.json"));
     copied.push("draft.json");
   }
-  const run = await readJson(join(runDir, "run.json"));
-  const manifestPath = join(appDir, "manifest.json");
-  const manifest = (await readJson(manifestPath)) || {};
+  const run = storedRun;
+  const manifest = (await readJson(await destinationPath("manifest.json"))) || {};
   /** @type {Record<string, unknown>} */
   const next = { ...manifest, runId, updated_at: now().toISOString(), promotedFrom: runId };
   if (run && run.template && typeof run.template === "object") next.template = run.template;
-  await writeFile(manifestPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFile(await destinationPath("manifest.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return { ok: true, slug, runId, documents, copied };
 }
 
@@ -344,7 +374,7 @@ async function newestFeatureRunId(appDir, feature) {
     if (!entry.isDirectory() || !isValidRunId(entry.name)) continue;
     const dir = join(runsRoot, entry.name);
     const run = await readJson(join(dir, "run.json"));
-    if (!run || (run.feature !== feature && run.feature !== "both")) continue;
+    if (!run || run.kind === "pass" || (run.feature !== feature && run.feature !== "both")) continue;
     let date = typeof run.finishedAt === "string" ? run.finishedAt
       : typeof run.requestedAt === "string" ? run.requestedAt : "";
     if (!date) {
@@ -418,6 +448,7 @@ export async function recordRepairOutcome({ root, slug, runId, repair, pipelineR
     issueIds: repair.issueIds,
     changed: normalizedText(childText) !== normalizedText(repair.sourceText),
     adopted,
+    before: savedRepair.before || pipelineRepair.before || verdictSnapshot({ ...await readJson(join(appDir, RUNS_DIR, repair.parentRunId, files.qa)), runId: repair.parentRunId }),
     reason: String(pipelineRepair.reason || savedRepair.reason || (adopted ? "candidate adopted" : "candidate retained for review")),
   };
   await writeFile(join(runDir, "run.json"), `${JSON.stringify({ ...run, repair: result }, null, 2)}\n`, "utf8");

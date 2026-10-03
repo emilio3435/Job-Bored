@@ -17,7 +17,7 @@ import { buildManifest } from "../server/application-materials.mjs";
 import { critiqueMaterials } from "../server/materials-critic.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
-import { regeneratePackage } from "../server/materials-regenerate.mjs";
+import { regeneratePackage, writeVersionQa } from "../server/materials-regenerate.mjs";
 import { readLedger } from "../server/materials-ledger.mjs";
 import { tenureFloorIds } from "../server/materials-outline.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
@@ -262,7 +262,7 @@ describe("regenerate in another template", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("should re-render in editorial, rejudge changed prose, and leave the original byte-identical", async () => {
+  it("should re-render in editorial, mark unconfigured changes not-rescored, and leave the original byte-identical", async () => {
     await draft(drafterFor(dir), "acme-regen");
     const original = await readJson(join(dir, "acme-regen", "run.json"));
     const originalDir = join(dir, "acme-regen", "runs", original.runId);
@@ -301,7 +301,8 @@ describe("regenerate in another template", () => {
     assert.equal(run.template.regeneratedFrom, original.runId);
     assert.notEqual(run.runId, original.runId);
     assert.equal(run.stages.some((s) => s.stage === "write"), false, "regenerate never rewrites the document");
-    assert.equal(run.stages.some((s) => s.stage === "qa" && s.llm === true), true, "a changed body goes through the judge");
+    assert.equal(run.stages.some((s) => s.stage === "qa" && s.llm === true), false, "no model is configured in this isolated HOME");
+    assert.equal((await readJson(join(dir, "acme-regen", "qa.resume.json"))).state, "not_rescored");
 
     const html = await readFile(join(dir, "acme-regen", "resume.html"), "utf8");
     assert.match(html, /data-family="editorial"/);
@@ -383,11 +384,12 @@ describe("regenerate in another template", () => {
       });
       assert.equal(scoredText, saved.text, `${snapshotKind}: the critic scores the selected source`);
       const qa = await readJson(join(pkg, "qa.resume.json"));
-      const invented = qa.contract === "materials.qa.v2"
+      const invented = ["materials.qa.v2", "materials.qa.v3"].includes(qa.contract)
         ? qa.gates.find((gate) => gate.id === "invented_employer")
         : qa.checks.find((check) => check.code === "invented_employer");
       assert.match(invented?.reason || invented?.message || "", /Northwind Logistics/);
-      assert.equal(qa.disposition, "FAIL");
+      assert.equal(qa.disposition, null);
+      assert.equal(qa.state, "not_rescored");
       const run = await readJson(join(pkg, "run.json"));
       assert.equal(run.resume.reason, snapshotKind === "missing" ? "saved_only" : "request_garbled");
     }
@@ -415,7 +417,7 @@ describe("regenerate in another template", () => {
     assert.ok(existsSync(join(dir, "acme-resume-only", "resume.html")));
   });
 
-  it("G4: keeps v2 QA when the judged resume body is unchanged", async () => {
+  it("GRADE-B G8: unchanged text carries its verdict with provenance", async () => {
     await draft(drafterFor(dir), "acme-v2-same", { feature: "resume" });
     const app = join(dir, "acme-v2-same");
     const qa = await readJson(join(app, "qa.resume.json"));
@@ -428,7 +430,11 @@ describe("regenerate in another template", () => {
         runHardGates: noJudge, judgeMaterials: noJudge, buildQaRecord: noJudge, splitSentences: noJudge,
       },
     });
-    assert.deepEqual(await readJson(join(app, "qa.resume.json")), qa);
+    const carried = await readJson(join(app, "qa.resume.json"));
+    assert.equal(carried.state, "carried_over");
+    assert.equal(carried.disposition, qa.disposition);
+    assert.equal(carried.carriedFrom.runId, qa.runId);
+    assert.notEqual(carried.runId, qa.runId);
   });
 
   it("G4: judges a changed v2 body before saving its new QA", async () => {
@@ -472,4 +478,13 @@ describe("regenerate in another template", () => {
       (e) => e.statusCode === 409 && e.code === "render_model_missing",
     );
   });
+});
+
+it("GRADE-B G8: no-browser version writes v3 not-rescored without a verdict", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "grade-unrescored-"));
+  try {
+    await writeVersionQa({ dir, rendered: { resumeHtml: "<p>Fictional draft.</p>", fit: {}, pdf: {} }, runId: "edited", issues: [], notes: [], pdfReady: false });
+    const qa = await readJson(join(dir, "qa.resume.json"));
+    assert.equal(qa.contract, "materials.qa.v3"); assert.equal(qa.state, "not_rescored"); assert.equal(qa.disposition, null);
+  } finally { await rm(dir, {recursive:true,force:true}); }
 });

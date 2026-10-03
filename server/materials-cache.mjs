@@ -16,7 +16,7 @@ import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 
 /* v3.3: Wave 3 (company intel, outreach, per-role headline); v3.2: voice v4.1 (band fill, claim-close proofs, AI-role proofs); v3.1: voice v4. So a
  * package drafted under the old voice is never served from cache. */
-export const PIPELINE_PROMPT_VERSION = "materials.pipeline.mrev.v1";
+export const PIPELINE_PROMPT_VERSION = "materials.pipeline.grade.v3";
 export const CACHE_BUDGET_VERSION = MATERIALS_BUDGETS.version;
 
 /**
@@ -29,6 +29,8 @@ export const CACHE_BUDGET_VERSION = MATERIALS_BUDGETS.version;
  * @param {string} [input.budgetVersion]
  * @param {string} input.feature
  * @param {string} [input.model] provider:resolvedModel, or "none" with no pin
+ * @param {"legacy" | "lean"} [input.engine]
+ * @param {string} [input.leanPromptVersion]
  * @param {string} [input.notesHash] hash of the editor instructions, when any
  */
 export function pipelineCacheKey({
@@ -41,9 +43,12 @@ export function pipelineCacheKey({
   feature,
   model = "none",
   notesHash = "",
+  engine = "legacy",
+  leanPromptVersion = "",
 }) {
   return [jdHash, ledgerHash, `${templateFamily}@${templateVersion}`, promptVersion, budgetVersion, feature, model,
-    ...(notesHash ? [`notes:${notesHash}`] : [])].join("|");
+    ...(notesHash ? [`notes:${notesHash}`] : []),
+    ...(engine === "lean" ? [`engine:lean`, `leanPrompt:${leanPromptVersion}`] : [])].join("|");
 }
 
 /**

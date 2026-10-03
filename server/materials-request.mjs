@@ -28,6 +28,7 @@ const MAX_JD_LEN = 60_000;
 
 /**
  * @typedef {object} MaterialsRequestPayload
+ * @property {"legacy" | "lean"} [engine]
  * @property {string} slug
  * @property {string} company
  * @property {string} title
@@ -199,6 +200,8 @@ export function normalizeRequestBody(body) {
   }
   /** @type {MaterialsRequestPayload} */
   const payload = { slug, company, title, feature, jobUrl, notes, resume };
+  const engine = process.env.JOBBORED_EVAL === "1" && (body?.engine === "lean" || body?.engine === "legacy") ? body.engine : process.env.MATERIALS_ENGINE;
+  if (engine === "lean" || engine === "legacy") payload.engine = engine;
   if (jobDescription) payload.jobDescription = jobDescription;
   if (resumeFrom && !resume) payload.resumeFrom = resumeFrom;
   if (template) payload.template = template;

@@ -374,12 +374,12 @@ describe("C13 · review rows and the QA report", () => {
 
   /* HOLES SCORE (U16): the flags moved off the row into the score modal,
      which lists every one (tests/holes-score-dossier.test.mjs). */
-  it("should show a flagged document as review with its grade button, flags in the modal", () => {
+  it("should show a flagged document as review with its verdict button, flags in the modal", () => {
     const h = load();
     h.api.renderManifest(h.mount, MANIFEST, "http://127.0.0.1:3847");
     const out = h.lastHtml();
     assert.match(out, /case__docst--review" data-status="review">review</);
-    assert.match(out, /class="jb-grade"[^>]*data-feature="resume"[^>]*aria-label="Grade: not graded yet — open score details"/);
+    assert.match(out, /class="jb-grade"[^>]*data-feature="resume"[^>]*aria-label="Resume: Not graded\. Open the quality check\."/);
     assert.doesNotMatch(out, /Runs to 2 pages|2 flags|\+1 more/);
   });
 

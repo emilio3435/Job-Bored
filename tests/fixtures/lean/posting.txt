@@ -1,0 +1,9 @@
+About us:
+Harbor Fleet coordinates regional delivery routes.
+Responsibilities:
+Build route forecasts for dispatch leads and improve delivery reliability.
+Requirements:
+Experience with data analysis, scheduling tools, Postgres and dispatch operations.
+Salary: $180000 and $5000 signing bonus.
+Benefits:
+30 days of paid leave and Meta wellness rewards.

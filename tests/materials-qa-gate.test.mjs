@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
-import { buildQaRecord, combinedStatus, readDocumentQa, repairInstructionsFromQa } from "../server/materials-qa.mjs";
+import { buildQaRecord, combinedStatus, readDocumentQa, repairInstructionsFromQa, readQaVerdict } from "../server/materials-qa.mjs";
 import { auditApplicationMaterials } from "../server/materials-quality.mjs";
 import { buildManifest, isAllowedFilename } from "../server/application-materials.mjs";
 import { runHardGates } from "../server/materials-rubric.mjs";
@@ -31,14 +31,14 @@ function qa({ gates = [], constraints = [], judge = makeJudgment(), degraded = [
   return buildQaRecord({ document: "letter", runId: "fictional-run", finalText, textHash, gates, constraints, judge, degraded });
 }
 
-it("J-BE2d: QA v2 preserves the judge errorCode and model under its strict schema", () => {
+it("J-BE2d: QA v3 preserves the judge errorCode and model under its strict schema", () => {
   const record = qa({ judge: { status: "unavailable", meta: {
     provider: "openai_compatible", model: "grok-example", independent: true,
     promptVersion: "materials-judge-v2", latencyMs: 12, errorCode: "rate_limited",
   } } });
-  assert.equal(record.judge.model, "grok-example");
-  assert.equal(record.judge.errorCode, "rate_limited");
-  const schema = JSON.parse(readFileSync(new URL("../schemas/materials-qa.v2.schema.json", import.meta.url), "utf8"));
+  assert.equal(record.reviews[0].model, "grok-example");
+  assert.equal(record.reviews[0].errorCode, "rate_limited");
+  const schema = JSON.parse(readFileSync(new URL("../schemas/materials-qa.v3.schema.json", import.meta.url), "utf8"));
   const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type {unknown} */ (Ajv2020));
   const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
   assert.equal(validate(record), true, JSON.stringify(validate.errors));
@@ -57,8 +57,8 @@ it("K3/G4: verdict precedence is table-driven, including every review rule", () 
     ["judge invalid", { judge: { status: "invalid", meta: {} } }, "REVIEW"],
     ["uncertain sentence", { judge: uncertain }, "REVIEW"],
     ["unmet constraint", { constraints: [{ id: "letter_words", pass: false, reason: "Too short.", sentenceIds: [] }] }, "REVIEW"],
-    ["score below 80", { judge: below80 }, "REVIEW"],
-    ["any dimension below 2", { judge: dim("economy", 1) }, "REVIEW"],
+    ["all dimensions at three pass", { judge: below80 }, "READY"],
+    ["any dimension below 3", { judge: dim("economy", 1) }, "REVIEW"],
     ["relevance below 3", { judge: dim("role_relevance", 2) }, "REVIEW"],
     ["voice below 3", { judge: dim("voice", 2) }, "REVIEW"],
     ["advisory and gap cannot fail", { gates: [{ id: "posting_overlap", kind: "advisory", pass: false, reason: "Weak match.", sentenceIds: [] }], judge: makeJudgment({ qualificationGaps: ["No management evidence."] }) }, "READY"],
@@ -125,16 +125,18 @@ it("S5: grounded confident spin is READY-eligible; invented employers and inflat
   assert.equal(makeRecord(inventedText, inventedDraft).disposition, "FAIL");
 });
 
-it("K3/G6: QA v2 has schema-valid score, issue ids, repair filtering and combined status", () => {
+it("K3/G6: QA v3 has a schema-valid verdict, issue ids, repair targets and combined status", () => {
   const record = qa({ gates: [{ id: "tool_support", kind: "hard", pass: false, reason: "Unknown tool.", sentenceIds: ["L1"], action: "rewrite" }] });
-  const schema = JSON.parse(readFileSync(new URL("../schemas/materials-qa.v2.schema.json", import.meta.url), "utf8"));
+  const schema = JSON.parse(readFileSync(new URL("../schemas/materials-qa.v3.schema.json", import.meta.url), "utf8"));
   const Ajv = /** @type {typeof import("ajv/dist/2020.js").default} */ (/** @type {unknown} */ (Ajv2020));
   const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
   assert.equal(validate(record), true, JSON.stringify(validate.errors));
-  assert.equal(record.quality.score, 100);
-  assert.deepEqual(record.quality.ratings.map((rating) => rating.weight), [30, 25, 20, 15, 10]);
+  assert.equal(record.disposition, "FAIL");
+  assert.equal(record.reasons[0].checkId, "tool_support");
+  assert.ok(!("quality" in record));
+  assert.ok(record.ratings.every(rating => !("weight" in rating)));
   assert.deepEqual(record.issues.map((issue) => [issue.id, issue.code, issue.severity]), [["i1", "i1", "hard"]]);
-  assert.deepEqual(repairInstructionsFromQa([record]), [{ id: "i1", kind: "fact", reason: "Unknown tool.", sentenceIds: ["L1"], text: "Unknown tool." }]);
+  assert.deepEqual(repairInstructionsFromQa([record]), [{ id: "i1", checkId: "tool_support", kind: "format", reason: "Unknown tool.", sentenceIds: ["L1"], text: "Unknown tool.", preserveSentenceIds: [] }]);
   assert.equal(combinedStatus([record, qa()]), "fail");
 });
 
@@ -145,8 +147,8 @@ it("K3/G6: readDocumentQa keeps legacy v1 alongside v2", async () => {
     await writeFile(join(dir, "qa.resume.json"), JSON.stringify(v1));
     await writeFile(join(dir, "qa.letter.json"), JSON.stringify(qa()));
     const read = await readDocumentQa(dir);
-    assert.deepEqual(read.resume, v1);
-    assert.equal(read.letter.contract, "materials.qa.v2");
+    assert.deepEqual(read.resume, readQaVerdict(v1));
+    assert.equal(read.letter.contract, "materials.qa.v3");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -158,7 +160,7 @@ it("review P2: quality audit preserves the complete legacy v1 QA object", async 
     await writeFile(join(dir, "cover-letter.pdf"), "%PDF-1.4\n/Type /Page\n");
     await writeFile(join(dir, "qa.letter.json"), JSON.stringify(v1));
     const audit = await auditApplicationMaterials(dir);
-    assert.deepEqual(audit.documents.cover_letter.qa, v1);
+    assert.deepEqual(audit.documents.cover_letter.qa, readQaVerdict(v1));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -173,9 +175,9 @@ it("G8: the quality audit and manifest carry v2 fields, and both per-feature dra
     await writeFile(join(dir, "qa.letter.json"), JSON.stringify(qa()));
     const audit = await auditApplicationMaterials(dir);
     const fields = audit.documents.cover_letter.qa;
-    for (const key of ["disposition", "quality", "gates", "issues", "qualificationGaps", "sentences"]) assert.ok(key in fields, key);
+    for (const key of ["disposition", "ratings", "gates", "issues", "qualificationGaps", "sentences"]) assert.ok(key in fields, key);
     const manifest = await buildManifest(slug, { root });
-    assert.deepEqual(manifest.quality.documents.cover_letter.qa.quality, fields.quality);
+    assert.deepEqual(manifest.quality.documents.cover_letter.qa, fields);
     assert.equal(isAllowedFilename("draft.cover_letter.json"), true);
     assert.equal(isAllowedFilename("draft.resume.json"), true);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -206,4 +208,15 @@ it("review extra P1: a READY QA record stays pass when it carries advisory writi
     assert.equal(audit.documents.cover_letter.status, "pass");
     assert.equal(audit.status, "pass");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+it("GRADE-B G1: advisory gate findings cannot change a READY manifest into REVIEW", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "grade-advisory-"));
+  try {
+    const record = qa({ gates: [{ id: "posting_overlap", kind: "advisory", pass: false, reason: "Weak overlap hint.", sentenceIds: [] }] });
+    assert.equal(record.disposition, "READY");
+    await writeFile(join(dir, "cover-letter.html"), `<html><body><article class="page"><p data-paragraph="1">${"route forecast ".repeat(80)}</p></article></body></html>`);
+    await writeFile(join(dir, "cover-letter.pdf"), "%PDF-1.4\n/Type /Page\n");
+    await writeFile(join(dir, "qa.letter.json"), JSON.stringify(record));
+    assert.equal((await auditApplicationMaterials(dir)).status, "pass");
+  } finally { await rm(dir, {recursive:true,force:true}); }
 });

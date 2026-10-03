@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { V3_COVERAGE_MISSES } from "./fixtures/materials-qa-v3.mjs";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -76,7 +77,9 @@ function baseDeps(over = {}) {
       { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
       { type: "cover_letter", label: "Cover letter", status: "pending", files: [] },
       { type: "qa_report", label: "QA report", status: "ready", lastModifiedAt: "2026-08-30T09:05:00Z", files: [] },
-    ], pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 42, attempt: 1 } } },
+    ], pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 42, attempt: 1 } },
+      /* GRADE D6/D7: the resume's verdict and this draft's coverage. */
+      quality: { documents: { resume: { status: "pass", issues: [], qa: { ...V3_COVERAGE_MISSES, document: "resume" } } } } },
     materialsError: "",
     health: { state: "open", label: "Posting open", detail: "", checkedAt: "2026-08-31" },
     stages, providerLabel: "OpenAI", nowMs: NOW, parseDate: (s) => { const t = Date.parse(s); return Number.isFinite(t) ? t : null; },
@@ -230,8 +233,8 @@ describe("The Case renders every block from the model", () => {
     assert.match(canvas[1], /class="case__quote"[^>]*>[\s\S]*?In their words/, "the lede opens the canvas");
     assert.match(canvas[1], /class="case__section case__section--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
     assert.match(canvas[1], /class="case__chip"[^>]*data-status="partial"[^>]*>[\s\S]*?Storybook/);
-    /* HOLES SCORE (§0.3): "You have" is the grade button; the gaps and
-       dimensions it listed open in the score modal. */
+    /* HOLES SCORE (§0.3) + GRADE D7: "You have" is the verdict button; the
+       ATS gaps and dimensions it once listed are gone. */
     assert.match(canvas[1], /class="case__section case__section--you"[\s\S]*?<button type="button" class="jb-grade"[^>]*data-score-open[^>]*data-scope="case"/);
     assert.doesNotMatch(canvas[1], /case__sev--|class="case__dim"|Experimentation/);
     assert.match(canvas[1], /class="case__section case__section--say"[\s\S]*?<span class="case__idx">01<\/span>/);
@@ -249,9 +252,9 @@ describe("The Case renders every block from the model", () => {
      a section with nothing to show is not emitted at all. */
   it("a section with nothing to show is never emitted as an empty column", () => {
     const full = renderHtml(model());
-    assert.match(full, /case__section--you/, "precondition: the scorecard model renders You have");
+    assert.match(full, /case__section--you/, "precondition: the verdict model renders You have");
     assert.doesNotMatch(full, /case__board|data-lanes=/, "the three-lane board is retired");
-    const two = renderHtml(model({ keywords: null, scorecard: null }));
+    const two = renderHtml(model({ keywords: null, scorecard: null, manifest: { documents: [], pending: null } }));
     assert.doesNotMatch(two, /case__section--you/);
     assert.equal((two.match(/<section class="case__section case__section--they"/g) || []).length, 1);
   });
@@ -269,13 +272,14 @@ describe("The Case renders every block from the model", () => {
     /* UX01 C11 (TA-15): the hint is also the way to fix it. */
     assert.match(html, /data-action="open-resume"[^>]*>Add your resume<\/button> to see what matches/);
   });
-  /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone — keywords
-     with no scorecard yield source "none", and the renderer hides on it. */
+  /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone; since
+     GRADE D7, "You have" is the package's verdict, so keywords and a
+     scorecard with no verdict render no You-have lane. */
   it("a keyword-only model renders no You-have lane", () => {
-    const out = renderHtml(model({ scorecard: null }));
+    const out = renderHtml(model({ manifest: { documents: [], pending: null } }));
     assert.doesNotMatch(out, /case__section--you/);
     assert.doesNotMatch(out, />You have</);
-    assert.match(renderHtml(model()), /case__section--you/, "precondition: the scorecard model still renders the section");
+    assert.match(renderHtml(model()), /case__section--you/, "precondition: the verdict model still renders the section");
   });
   /* Spec §3.7: the follow-up date keeps type="date" but never reads its raw
      placeholder as content — a Not-set sibling shows only while empty. */
@@ -790,7 +794,7 @@ describe("DFIT — the fit instrument renders one number and its evidence", () =
     assert.doesNotMatch(html, /case__fitwhy/);
   });
 
-  it("10. the plate absorbs the Fit and Keywords tiles; the draft score is named for what it rates", () => {
+  it("10. the plate absorbs the Fit and Keywords tiles; the coverage tile names the draft it covers", () => {
     const html = renderHtml(dfitModel({ fitScore: 6, enrichment: { fitAssessment: K } }, {
       scorecard: { feature: "resume", version: 2, storedAt: "2026-09-27T00:00:00Z",
         result: { overallScore: 86, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [],
@@ -799,8 +803,9 @@ describe("DFIT — the fit instrument renders one number and its evidence", () =
     assert.ok(plate(html), "precondition: the plate renders");
     assert.doesNotMatch(html, /data-num="fit"/);
     assert.doesNotMatch(html, /data-num="keywords"/);
-    assert.match(html, /Resume draft score/);
-    assert.match(html, /scored resume v2 · 2026-09-27/);
+    assert.match(html, /Resume coverage/);
+    assert.match(html, /Covers 1 of 3 requirements/);
+    assert.doesNotMatch(html, /draft score|\b86\b/);
   });
 
   it("11. every state renders its readout set and never a 0, 0% or Unknown value", () => {

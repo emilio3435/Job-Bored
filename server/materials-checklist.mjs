@@ -1,3 +1,4 @@
+import { readQaVerdict } from "./materials-qa.mjs";
 /**
  * The manual-apply checklist (Wave 2 addition).
  *
@@ -42,7 +43,7 @@ const OUTREACH_FILES = ["outreach.json", "outreach-note.md", "outreach.md"];
  * @property {string} [href] an http(s) link (open)
  * @property {string} [filename] a package file (download / preview)
  * @property {string} [doc] "resume" | "cover_letter"
- * @property {boolean} [gate] the document failed QA: ask before download
+ * @property {boolean | "held"} [gate] the run is Held: ask before download
  * @property {string} [text] text to copy
  * @property {string} [stage] pipeline stage (stage)
  * @property {string} label the button's words
@@ -65,7 +66,7 @@ const OUTREACH_FILES = ["outreach.json", "outreach-note.md", "outreach.md"];
  * @property {string} title
  * @property {string} jobUrl http(s) or ""
  * @property {{ resume: boolean, coverLetter: boolean }} docs
- * @property {{ resume?: { disposition: string, score?: number, max?: number }, letter?: { disposition: string, score?: number, max?: number } }} verdicts
+ * @property {{ resume?: { disposition: string | null, state?: string, runId?: string, reason?: string }, letter?: { disposition: string | null, state?: string, runId?: string, reason?: string } }} verdicts
  * @property {string} outreachText "" when no note exists
  * @property {string[]} bars the posting's stated disqualifiers
  * @property {string} contact the hiring contact's name, "" when unknown
@@ -80,14 +81,14 @@ function safeHttp(url) {
 }
 
 /**
- * @param {{ disposition: string, score?: number, max?: number } | undefined} v
+ * @param {{ disposition: string | null, state?: string } | undefined} v
  */
 function verdictWords(v) {
+  if (v?.state === "not_rescored") return "Not rescored yet — Rescore it before you send it.";
   if (!v || !v.disposition) return "";
-  const score = typeof v.score === "number" && typeof v.max === "number" ? ` (${v.score} / ${v.max})` : "";
-  if (v.disposition === "FAIL") return `It failed its quality check${score}. Repair it or read it closely first.`;
-  if (v.disposition === "REVIEW") return `Quality check says review${score}. Give it a read.`;
-  return `Passed its quality check${score}.`;
+  if (v.disposition === "FAIL") return "It failed its quality check. Repair it or read it closely first.";
+  if (v.disposition === "REVIEW") return "Quality check says review. Give it a read.";
+  return "Passed its quality check.";
 }
 
 /**
@@ -116,13 +117,14 @@ export function buildChecklistItems(facts, state = {}) {
   const company = facts.company || "the company";
 
   if (facts.docs.resume) {
-    const fail = facts.verdicts.resume?.disposition === "FAIL";
+    const resume = facts.verdicts.resume;
+    const held = resume?.disposition === "FAIL" ? resume : Object.values(facts.verdicts).find(v => v?.disposition === "FAIL" && resume?.runId && v.runId === resume.runId);
     items.push({
       id: "resume",
       label: "Download your tailored resume (PDF)",
-      detail: verdictWords(facts.verdicts.resume) || "Your resume for this role is ready.",
-      ...(fail ? { tone: /** @type {const} */ ("warn") } : {}),
-      action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: fail, label: "Download" },
+      detail: held ? `Held — ${held.reason || "A document in this run fails checks. Repair it or read it closely before you send it."}` : verdictWords(resume) || "Your resume for this role is ready.",
+      ...(held ? { tone: /** @type {const} */ ("warn") } : {}),
+      action: { kind: "download", doc: "resume", filename: "resume.pdf", gate: held ? "held" : false, label: "Download" },
     });
   } else {
     items.push({
@@ -250,17 +252,8 @@ async function readJson(path) {
  * @param {Record<string, unknown> | null} qa
  */
 function verdictOf(qa) {
-  if (!qa || typeof qa.disposition !== "string") return undefined;
-  if (qa.contract === "materials.qa.v2") {
-    const quality = qa.quality && typeof qa.quality === "object" ? /** @type {Record<string, unknown>} */ (qa.quality) : {};
-    return { disposition: qa.disposition, ...(typeof quality.score === "number" ? { score: quality.score, max: 100 } : {}) };
-  }
-  const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : {};
-  return {
-    disposition: qa.disposition,
-    ...(typeof rubric.score === "number" ? { score: rubric.score } : {}),
-    ...(typeof rubric.max === "number" ? { max: rubric.max } : {}),
-  };
+  const view = readQaVerdict(qa);
+  return view ? { disposition: view.disposition, state: view.state, runId: view.runId, reason: view.reasons[0]?.text || "" } : undefined;
 }
 
 /** @param {string} dir */

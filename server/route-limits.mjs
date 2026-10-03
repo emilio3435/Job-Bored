@@ -17,7 +17,7 @@ const LIMITED_ROUTES = [
   ["POST", /^\/api\/llm-config\/judge-models$/],
   [
     "POST",
-    /^\/api\/applications\/[^/]+\/(?:request|repair|regenerate|scrape-job-description|edits|edits\/manual|edits\/[^/]+\/accept|versions\/[^/]+\/restore)$/,
+    /^\/api\/applications\/[^/]+\/(?:request|repair|regenerate|scrape-job-description|edits|edits\/manual|edits\/[^/]+\/accept|versions\/[^/]+\/restore|runs\/[^/]+\/rescore)$/,
   ],
 ];
 

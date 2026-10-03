@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "materials.lean.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["letter"],
+  "properties": {
+    "needs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "statement": {"type": "string"},
+    "roles": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["roleId", "bullets"],
+      "properties": {
+        "roleId": {"type": "string", "minLength": 1},
+        "bullets": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["text", "basedOn"],
+          "properties": {"text": {"type": "string", "minLength": 1}, "basedOn": {"type": "string", "minLength": 1}}
+        }}
+      }
+    }},
+    "earlier": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["roleId", "text", "basedOn"],
+      "properties": {"roleId": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1}, "basedOn": {"type": "string", "minLength": 1}}
+    }},
+    "skills": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "letter": {"type": "object", "additionalProperties": false, "required": ["hook", "companyInsight", "proof1", "proof2", "ask"], "properties": {
+      "hook": {"type": "string", "minLength": 1}, "companyInsight": {"type": "string", "minLength": 1},
+      "proof1": {"type": "string", "minLength": 1}, "proof2": {"type": "string", "minLength": 1}, "ask": {"type": "string", "minLength": 1}
+    }}
+  }
+}

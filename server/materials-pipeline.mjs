@@ -1,9 +1,10 @@
+import { buildJudgePacket, documentAdvisory } from "./materials-judge.mjs";
 /** One materials funnel: prepare, write, validate, render, judge, save. */
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildOutline, summarizeRenderedResumeSelection } from "./materials-outline.mjs";
-import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs";
+import { buildRenderModelFromDraft, buildRenderModelFromLean } from "./materials-render-model-adapter.mjs";
 import { PIPELINE_PROMPT_VERSION, findCachedPackage, pipelineCacheKey } from "./materials-cache.mjs";
 import { scoreClaims } from "./materials-claim-score.mjs";
 import { delint, loadVoicePack } from "./materials-delint.mjs";
@@ -15,16 +16,17 @@ import { claimById } from "./materials-ledger.mjs";
 import { loadVoiceProfile, withVoiceClaims } from "./materials-voice-profile.mjs";
 import { runStageWithExecutor } from "./materials-executor.mjs";
 import { formatProvenanceLine, runResumeBlock } from "./materials-resume-source.mjs";
-import { boundEchoBans, extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
+import { boundEchoBans, deterministicExtract, extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
 import { withPackagePublishClaim } from "./materials-regenerate.mjs";
-import { buildQaRecord, repairInstructionsFromQa } from "./materials-qa.mjs";
+import { buildQaRecord, repairInstructionsFromQa, readQaVerdict, passesOrStrictlyBetter, verdictSnapshot, formatDocumentQaReport } from "./materials-qa.mjs";
 import { selectRankedClaims } from "./materials-select.mjs";
-import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
 import { runsToText } from "./materials-render.mjs";
+import { readSavedResumeRead } from "./resume-read.mjs";
+import { LEAN_PROMPT_VERSION, runLean, leanQa } from "./materials-lean.mjs";
 import { letterWordBand, resolveRunFamily } from "./materials-templates.mjs";
 
 const RAW_REPLY_MAX_CHARS = 16_000;
@@ -153,52 +155,6 @@ function comparableText(text) {
   return String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-/** @param {string} field */
-function fieldDocument(field) {
-  return field === "letter" || field.startsWith("letter.") ? "letter" : "resume";
-}
-
-/** @param {Array<{ id: string, text: string }>} sentences @param {string} needle */
-function matchingSentenceIds(sentences, needle) {
-  const match = comparableText(needle);
-  return match ? sentences.filter((sentence) => comparableText(sentence.text).includes(match)).map((sentence) => sentence.id) : [];
-}
-
-/** @param {string} field @param {any} draft */
-function draftFieldText(field, draft) {
-  if (field === "statement") return draft.statement || "";
-  if (field.startsWith("letter.")) return draft.letter?.[field.slice(7)] || "";
-  if (field.startsWith("earlier:")) return draft.earlier.find((/** @type {any} */ line) => `earlier:${line.claimId}` === field)?.text || "";
-  if (field.startsWith("bullet:")) return draft.bullets.find((/** @type {any} */ bullet) => `bullet:${bullet.claimId}` === field)?.text || "";
-  if (field.startsWith("bullets.")) return draft.bullets.find((/** @type {any} */ bullet) => `bullets.${bullet.claimId}` === field)?.text || "";
-  return "";
-}
-
-/** @param {"letter" | "resume"} document @param {Array<{ id: string, text: string }>} sentences @param {any} draft @param {any} delintResult @param {any} tagged @param {any} ledger */
-function documentAdvisory(document, sentences, draft, delintResult, tagged, ledger) {
-  const claimTexts = (ledger.claims || []).map((/** @type {any} */ claim) => String(claim.text || ""));
-  const advisory = sentences.flatMap((sentence) => {
-    const upgrades = scopeUpgrades(sentence.text, claimTexts);
-    return upgrades.length ? [{ id: `scope:${sentence.id}`, kind: "scope", sentenceIds: [sentence.id], detail: describeUpgrades(upgrades) }] : [];
-  });
-  for (const [index, span] of delintResult.spans.entries()) {
-    if (fieldDocument(String(span.field || "")) !== document) continue;
-    let sentenceIds = matchingSentenceIds(sentences, span.text);
-    if (!sentenceIds.length) {
-      const fieldText = draftFieldText(String(span.field || ""), draft);
-      if (fieldText) sentenceIds = sentences.filter((sentence) => comparableText(fieldText).includes(comparableText(sentence.text))).map((sentence) => sentence.id);
-    }
-    if (!sentenceIds.length && span.field === "letter") sentenceIds = sentences.map((sentence) => sentence.id);
-    if (sentenceIds.length) advisory.push({ id: `voice:${index + 1}`, kind: "voice", sentenceIds, detail: `${span.code}: ${String(span.text || "").replace(/\s+/gu, " ").trim()}` });
-  }
-  for (const [index, issue] of tagged.issues.entries()) {
-    if (fieldDocument(String(issue.field || "")) !== document) continue;
-    const sentenceIds = matchingSentenceIds(sentences, issue.token);
-    if (sentenceIds.length) advisory.push({ id: `metric:${index + 1}`, kind: "metric", sentenceIds, detail: issue.message });
-  }
-  return advisory;
-}
-
 /** @param {unknown} value */
 function statusOf(value) {
   return value === "FAIL" || value === "REVIEW" || value === "READY" ? value : "REVIEW";
@@ -213,12 +169,6 @@ function worst(values) {
 function repairIssueIds(repair) {
   const issues = readObject(repair).issues;
   return Array.isArray(issues) ? issues.map((issue) => String(issue.id || issue.code || "")).filter(Boolean) : [];
-}
-
-/** @param {unknown} qa */
-function rewriteIssues(qa) {
-  const issues = readObject(qa).issues;
-  return Array.isArray(issues) ? issues.filter((issue) => issue.severity === "hard" && issue.action === "rewrite") : [];
 }
 
 /** @param {any} issue @param {"letter" | "resume"} document */
@@ -284,6 +234,7 @@ async function runPipelineBody(input, assertBase) {
     /** @type {any} */ (error).code = "repair_source_missing";
     throw error;
   }
+  if ((payload.engine || process.env.MATERIALS_ENGINE) === "lean") return runLeanPipeline(input, assertBase);
   const deps = await contractServices(services);
   const startedAt = now instanceof Date ? now : new Date(now || Date.now());
   const isoNow = () => new Date().toISOString();
@@ -391,13 +342,17 @@ async function runPipelineBody(input, assertBase) {
   const pack = profileVoice ? { ...packBase, aiTells: [...(packBase.aiTells || []), ...profileVoice.avoid], signatureLines: profileVoice.signatureLines, signatureTellLines: profileVoice.signatureTellLines || [] } : packBase;
   const posting = originalPostingSources(jdText);
   const claims = (groundingLedger.claims || []).filter((/** @type {any} */ claim) => claim && typeof claim.id === "string" && typeof claim.text === "string")
-    .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text }));
+    .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text, verified: claim.verified === true }));
   const researchSources = research.map((fact) => ({ id: fact.id, text: fact.text, url: fact.url }));
-  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources };
+  // The existing extract has bars/stack, not a requirements field. Use its
+  // section parser to retain the posting's requirement text as coverage targets.
+  const requirementTexts = splitSections(jdText).filter(section => section.kind === "requirements").flatMap(section => section.lines).filter(Boolean).slice(0, 20);
+  const requirements = requirementTexts.map((text, i) => ({ id: `req:${i + 1}`, text }));
+  const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources, ...(requirements.length ? { requirements } : {}) };
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
-  const manualIssues = Array.isArray(repair?.issues) ? [...repair.issues] : [];
+  const manualIssues = [...(Array.isArray(repair?.issues) ? repair.issues : []), ...(Array.isArray(repair?.targets) ? repair.targets : [])];
   const originalInstruction = String(repair?.instruction || "");
 
   for (let passIndex = 0; passIndex < 2; passIndex += 1) {
@@ -409,16 +364,16 @@ async function runPipelineBody(input, assertBase) {
     if (passIndex === 1) {
       for (const document of documents) {
         const qa = previous.qaRecords.find((/** @type {any} */ record) => record.document === document);
-        const hardIds = new Set(rewriteIssues(qa).filter((/** @type {any} */ issue) => issueBelongsToDocument(issue, document)).map((/** @type {any} */ issue) => issue.id || issue.code));
-        const fromQa = deps.repairInstructionsFromQa(qa ? [qa] : []);
-        const issues = Array.isArray(fromQa) ? fromQa.filter((/** @type {any} */ issue) => issue && hardIds.has(issue.id || issue.code) && issueBelongsToDocument(issue, document)) : [];
-        if (issues.length) automaticIssues.set(document, issues);
+        if (qa?.disposition !== "FAIL") continue;
+        const fromQa = repairInstructionsFromQa(qa ? [qa] : []);
+        const issues = fromQa.length ? fromQa : [{ id: "failed_document", kind: "format", reason: qa.reasons?.[0]?.text || "Repair the failing document", sentenceIds: [], preserveSentenceIds: [] }];
+        automaticIssues.set(document, issues);
       }
       if (!llmAvailable || !automaticIssues.size) break;
       try {
         for (const [document, issues] of automaticIssues) {
           const feature = document === "letter" ? "cover_letter" : "resume";
-          automaticPrompts.set(document, await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, sourceText: previous.texts[document] }));
+          automaticPrompts.set(document, await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, preserveSentenceIds: issues[0]?.preserveSentenceIds || [], sourceText: previous.texts[document] }));
         }
       } catch (error) {
         if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ERR_MODULE_NOT_FOUND") throw error;
@@ -451,7 +406,7 @@ async function runPipelineBody(input, assertBase) {
       const source = String(repair?.sourceText || "");
       const issues = manualIssues.filter((issue) => issueBelongsToDocument(issue, document));
       const repairPrompt = passIndex === 1 ? automaticPrompts.get(document) : repair
-        ? await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, sourceText: source }) : "";
+        ? await deps.buildRepairPrompt({ feature, instruction: originalInstruction, issues, preserveSentenceIds: repair?.preserveSentenceIds || [], sourceText: source }) : "";
       const draftWriter = services.draftSlots || draftSlots;
       const writeInput = {
         outline, ledger, extract, feature, voice: voiceSamples, voiceProfile: profileVoice,
@@ -626,15 +581,18 @@ async function runPipelineBody(input, assertBase) {
     const qaRecords = [];
     const judgeStarted = Date.now();
     for (const { document, finalText, hash, sentences, gates, constraints, advisory } of validated) {
-      const judge = llmAvailable ? await deps.judgeMaterials({
-        writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }],
-        sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
-      }) : { status: "unavailable", meta: { provider: "", model: "", independent: false, promptVersion: "", latencyMs: 0 } };
-      const qa = deps.buildQaRecord({
-        document, runId, finalText, textHash: hash, gates,
+      const packet = buildJudgePacket({
+        writer: pin, judge: pin?.judge, documents: [{ document, text: finalText, textHash: hash, sentences }], sources: { ...sourceText, advisory }, signal: input.signal, fetchImpl,
+      });
+      await writeJson(join(passDir, `judge-context.${document}.json`), { sources: packet.sources, constraints, ledger: groundingLedger, requirePdf });
+      const judge = llmAvailable ? await deps.judgeMaterials(packet) : { status: "unavailable", meta: { provider: "", model: "", promptVersion: "", latencyMs: 0 } };
+      /* Previous packet assembly is centralized above. */
+
+      const qa = readQaVerdict(deps.buildQaRecord({
+        document, runId, passId: `pass-${passIndex + 1}`, finalText, textHash: hash, gates,
         judge, constraints, degraded,
         repair: { attempted: passIndex > 0 || Boolean(repair), parentRunId: repair?.parentRunId || null, changed: null, adopted: null, before: null, after: null },
-      });
+      }));
       qaRecords.push(qa);
     }
     record({ stage: "judge", status: worst(qaRecords.map((qa) => statusOf(qa.disposition))) === "FAIL" ? "failed" : "ok",
@@ -642,36 +600,65 @@ async function runPipelineBody(input, assertBase) {
       out: qaRecords.map((qa) => `qa.${qa.document}.json`),
       detail: qaRecords.map((qa) => `${qa.document} ${qa.disposition}`).join("; "),
     });
-    passes.push({ draft, drafts, sourceRefs, model, rendered, qaRecords, texts, hashes, passDir });
+    const deliveredModel = { ...model, documents: { ...model.documents,
+      ...(rendered.fit.resume?.model?.documents.resume ? { resume: rendered.fit.resume.model.documents.resume } : {}),
+      ...(rendered.fit.coverLetter?.model?.documents.coverLetter ? { coverLetter: rendered.fit.coverLetter.model.documents.coverLetter } : {}),
+    } };
+    passes.push({ draft, drafts, sourceRefs, model: deliveredModel, rendered, qaRecords, texts, hashes, passDir });
   }
 
   let chosen = passes[passes.length - 1];
-  if (passes.length === 2 && (chosen.qaRecords.some((/** @type {any} */ qa) => {
-    const parent = passes[0].qaRecords.find((/** @type {any} */ item) => item.document === qa.document);
-    return addsHardFailure(qa, parent);
-  }) || !documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])))) {
-    chosen = passes[0];
-  }
+  if (passes.length === 2 && !passesOrStrictlyBetter(chosen.qaRecords, passes[0].qaRecords)) chosen = passes[0];
   const fittedSelectionSummary = documents.includes("resume")
     ? summarizeRenderedResumeSelection({ selection, ledger, model: chosen.rendered.fit.resume?.model })
     : undefined;
   const parentQa = repair ? await readJson(join(dir, "runs", repair.parentRunId, `qa.${DOCUMENT_FOR[repair.feature]}.json`)) : null;
   const changed = repair ? documents.some((document) => materiallyChanged(repair.sourceText, chosen.texts[document])) : passes.length === 2
     ? documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])) : null;
-  const adopted = repair ? Boolean(changed) && !chosen.qaRecords.some((/** @type {any} */ qa) => addsHardFailure(qa, parentQa)) : true;
-  const reason = !repair ? "" : !changed ? "No material change" : adopted ? "Repair adopted" : "Repair introduced a hard failure";
+  const rootQa = (await Promise.all(["resume", "letter"].map(d => readJson(join(dir, `qa.${d}.json`))))).filter(Boolean);
+  const projected = ["resume", "letter"].map(d => chosen.qaRecords.find((/** @type {any} */ r) => r.document === d) || rootQa.find((/** @type {any} */ r) => r.document === d)).filter(Boolean);
+  const hasRoot = Boolean(await readJson(join(dir, "run.json")));
+  const adopted = (!repair || Boolean(changed)) && (!hasRoot || passesOrStrictlyBetter(projected, rootQa));
+  const reason = repair && !changed ? "No material change" : adopted ? "Candidate adopted" : "Held — previous version remains default";
+  const before = repair ? verdictSnapshot(parentQa) : passes.length === 2 ? verdictSnapshot(passes[0].qaRecords.find((/** @type {any} */ q) => q.document === documents[0])) : null;
   const repairRecord = repair || passes.length === 2 ? {
-    parentRunId: repair?.parentRunId || null, instruction: originalInstruction, issueIds: repairIssueIds(repair),
-    changed, adopted, reason,
+    parentRunId: repair?.parentRunId || null, instruction: originalInstruction, issueIds: repairIssueIds(repair), changed, adopted, reason, before,
   } : undefined;
+  // Keep both complete automatic passes as immutable, independently servable packages.
+  if (passes.length === 2) {
+    const other = passes.find(p => p !== chosen);
+    const n = passes.indexOf(other) + 1;
+    const siblingId = `${runId}-pass-${n}`;
+    const siblingDir = join(dir, "runs", siblingId);
+    await mkdir(siblingDir, { recursive: true });
+    for (const document of documents) {
+      const feature = document === "letter" ? "cover_letter" : "resume";
+      const record = { ...other.qaRecords.find((/** @type {any} */ q) => q.document === document), runId: siblingId, passId: `pass-${n}` };
+      await writeJson(join(siblingDir, `draft.${feature}.json`), other.drafts[feature]);
+      await writeJson(join(siblingDir, `qa.${document}.json`), record);
+      await copyFile(join(other.passDir, `judge-context.${document}.json`), join(siblingDir, `judge-context.${document}.json`));
+    }
+    await writeJson(join(siblingDir, "draft.json"), other.draft);
+    await writeJson(join(siblingDir, "writer-sources.json"), other.sourceRefs);
+    await writeJson(join(siblingDir, "qa.json"), { contract: "materials.qa.v3", runId: siblingId, disposition: worst(other.qaRecords.map((/** @type {any} */ q) => q.disposition)), textHashes: other.hashes, documents: Object.fromEntries(other.qaRecords.map((/** @type {any} */ q) => [q.document, q.disposition])) });
+    await writeFile(join(siblingDir, "qa-report.md"), formatDocumentQaReport({ records: other.qaRecords }));
+    if (other.rendered.resumeHtml) await writeFile(join(siblingDir, "resume.html"), other.rendered.resumeHtml);
+    if (other.rendered.letterHtml) await writeFile(join(siblingDir, "cover-letter.html"), other.rendered.letterHtml);
+    for (const name of ["resume.pdf", "cover-letter.pdf"]) try { await copyFile(join(other.passDir, name), join(siblingDir, name)); } catch { /* PDF unavailable */ }
+    for (const name of ["jd-extract.json", "selection.json", "outline.json", "intel.json", "resume-source.json"]) try { await copyFile(join(runDir, name), join(siblingDir, name)); } catch { /* optional source */ }
+    const otherFail = other.qaRecords.find((/** @type {any} */ q) => q.disposition === "FAIL");
+    await writePackageRecords({ dir: siblingDir, rendered: other.rendered, model: other.model, snapshot: false, manifestBaseDir: dir,
+      run: { runId: siblingId, kind: "pass", parentRunId: runId, label: n === 1 ? "Original draft" : "Repaired", held: otherFail ? { reason: otherFail.reasons[0]?.text || "Document fails checks" } : null,
+        slug: payload.slug, feature: payload.feature, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource, stages } });
+  }
   for (const document of documents) {
     const feature = document === "letter" ? "cover_letter" : "resume";
     await writeJson(join(runDir, `draft.${feature}.json`), chosen.drafts[feature]);
     const qa = chosen.qaRecords.find((/** @type {any} */ item) => item.document === document);
-    if (qa) await writeJson(join(runDir, `qa.${document}.json`), {
-      ...qa, repair: { ...(qa.repair || {}), attempted: passes.length === 2 || Boolean(repair),
-        parentRunId: repair?.parentRunId || null, changed, adopted },
-    });
+    await copyFile(join(chosen.passDir, `judge-context.${document}.json`), join(runDir, `judge-context.${document}.json`));
+    if (qa) qa.repair = { ...(qa.repair || {}), attempted: passes.length === 2 || Boolean(repair),
+        parentRunId: repair?.parentRunId || null, changed, adopted, before, after: verdictSnapshot(qa) };
+    if (qa) await writeJson(join(runDir, `qa.${document}.json`), qa);
   }
   /* The legacy draft stays a combined view; per-document files are the repair sources. */
   const previousCombined = readObject(await readJson(join(dir, "draft.json")));
@@ -691,13 +678,12 @@ async function runPipelineBody(input, assertBase) {
   const dispositions = Object.fromEntries(Object.entries(currentQa).filter(([, qa]) => qa).map(([document, qa]) => [document, statusOf(qa.disposition)]));
   const disposition = worst(Object.values(dispositions));
   const textHashes = Object.fromEntries(Object.entries(currentQa).filter(([, qa]) => qa?.textHash).map(([document, qa]) => [document, qa.textHash]));
-  await writeJson(join(runDir, "qa.json"), { contract: "materials.qa.v2", runId, disposition, textHashes, documents: dispositions });
+  await writeJson(join(runDir, "qa.json"), { contract: "materials.qa.v3", runId, disposition, textHashes, documents: dispositions });
   const resumeRecord = payload.resume ? runResumeBlock(payload.resume, payload.resumeChoice) : null;
   const notes = resumeRecord ? [formatProvenanceLine(payload.resume),
     ...(resumeRecord.degraded ? [`degraded: ${resumeRecord.degraded.code}: ${resumeRecord.degraded.message}`] : resumeRecord.message ? [resumeRecord.message] : []),
   ] : [];
-  await writeFile(join(runDir, "qa-report.md"), ["# QA report", "", `Status: ${disposition}`, ...notes,
-    ...Object.entries(currentQa).filter(([, qa]) => qa).flatMap(([document, qa]) => ["", `## ${document}: ${qa.disposition}`, qa.dispositionReason || ""]), ""].join("\n"), "utf8");
+  await writeFile(join(runDir, "qa-report.md"), formatDocumentQaReport({ records: Object.values(currentQa).filter(Boolean), notes }), "utf8");
   if (chosen.rendered.resumeHtml) await writeFile(join(runDir, "resume.html"), chosen.rendered.resumeHtml, "utf8");
   if (chosen.rendered.letterHtml) await writeFile(join(runDir, "cover-letter.html"), chosen.rendered.letterHtml, "utf8");
   for (const name of ["resume.pdf", "cover-letter.pdf"]) {
@@ -735,7 +721,9 @@ async function runPipelineBody(input, assertBase) {
     snapshot: false, manifestBaseDir: dir, manifestExtra, extraFiles,
     manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" },
     run: {
-      runId, slug: payload.slug, feature: payload.feature, textHash: documents.length === 1 ? chosen.hashes[documents[0]] : chosen.hashes,
+      runId, ...(payload.engine ? { engine: payload.engine } : {}), kind: "run", ...(passes.length === 2 ? { label: chosen === passes[0] ? "Original draft" : "Repaired" } : {}),
+      held: disposition === "FAIL" ? { reason: Object.values(currentQa).find(q => q?.disposition === "FAIL")?.reasons?.[0]?.text || "Document fails checks" } : null,
+      slug: payload.slug, feature: payload.feature, textHash: documents.length === 1 ? chosen.hashes[documents[0]] : chosen.hashes,
       repair: repairRecord, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource,
       pin: pin ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel } : undefined,
       resume: resumeRecord || undefined,
@@ -746,29 +734,141 @@ async function runPipelineBody(input, assertBase) {
   });
   if (adopted) {
     await assertBase();
-    const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "selection.json", "outline.json", "draft.json", "writer-sources.json",
+    const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "selection.json", "outline.json", "draft.json", "writer-sources.json", ...documents.map(d => `judge-context.${d}.json`),
       ...(intelPack ? ["intel.json"] : []), ...(outreach ? ["outreach.json", "outreach.txt"] : []),
       ...(documents.includes("resume") ? ["resume.html", "resume.txt", "resume.pdf", "draft.resume.json", "qa.resume.json"] : []),
       ...(documents.includes("letter") ? ["cover-letter.html", "cover-letter.txt", "cover-letter.pdf", "draft.cover_letter.json", "qa.letter.json"] : []),
     ];
     for (const name of names) {
-      if (name.endsWith(".pdf")) {
-        try { await copyFile(join(runDir, name), join(dir, name)); } catch { /* optional in a run without a PDF session */ }
-      } else {
-        await copyFile(join(runDir, name), join(dir, name));
+      try { await copyFile(join(runDir, name), join(dir, name)); } catch (error) {
+        if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") throw error;
       }
     }
     const renderedPdfs = new Set([
       ...(documents.includes("resume") && chosen.rendered.pdf.resume ? ["resume.pdf"] : []),
       ...(documents.includes("letter") && chosen.rendered.pdf.coverLetter ? ["cover-letter.pdf"] : []),
     ]);
-    for (const name of ["resume.pdf", "cover-letter.pdf"]) {
+    for (const name of [...(documents.includes("resume") ? ["resume.pdf"] : []), ...(documents.includes("letter") ? ["cover-letter.pdf"] : [])]) {
       if (!renderedPdfs.has(name)) await rm(join(dir, name), { force: true });
     }
   }
   return {
-    outcome: "published", runId, cacheKey, model: chosen.model, stages, degraded, adopted,
+    outcome: adopted ? "published" : "held", runId, cacheKey, model: chosen.model, stages, degraded, adopted,
     repair: repairRecord,
     qa: { status: disposition.toLowerCase(), disposition, documents: chosen.qaRecords, repaired: passes.length === 2 },
   };
+}
+
+/** Lean bypasses the legacy selection, extraction-model, judge and repair stages. @param {Record<string, any>} input @param {() => Promise<void>} assertBase */
+async function runLeanPipeline(input, assertBase) {
+  const { dir, payload, ledger, resumeText, jdText, jdSource, pin, fetchImpl, services = {}, runId = `run-${Date.now()}`, onStage = () => {}, requirePdf = false } = input;
+  const startedAt = input.now instanceof Date ? input.now : new Date(input.now || Date.now());
+  const { family, source } = resolveRunFamily({ template: payload.template, preferredTemplate: payload.preferredTemplate });
+  const voiceProfile = input.voiceProfile === undefined ? loadVoiceProfile() : input.voiceProfile;
+  const jdHash = hashJd(jdText);
+  const cacheKey = pipelineCacheKey({ jdHash, ledgerHash: ledger.ledgerHash || "sha256:0", templateFamily: family.id, templateVersion: family.version, feature: payload.feature,
+    model: `${pinSegment(pin)}${voiceProfile ? `+voice:${hashJd(voiceProfile.guideText + voiceProfile.facts.join("\n"))}` : ""}`,
+    notesHash: payload.notes ? hashJd(editorInstructionsText(payload.notes)) : "", engine: "lean", leanPromptVersion: LEAN_PROMPT_VERSION });
+  if (!input.repair) {
+    const cached = await findCachedPackage({ dir, cacheKey, feature: payload.feature });
+    if (cached.hit) return { outcome: "cached", runId: cached.runId, cacheKey, stages: [] };
+  }
+  const runDir = join(dir, "runs", runId);
+  await mkdir(runDir, { recursive: true });
+  try { await copyFile(join(dir, "resume-source.json"), join(runDir, "resume-source.json")); } catch (error) { if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") throw error; }
+  /** @type {Array<any>} */ const stages = [];
+  const record = (/** @type {any} */ entry) => { stages.push(entry); onStage(entry.stage, entry.status); };
+  const prepareStart = Date.now();
+  const extract = deterministicExtract({ jdText, company: payload.company, title: payload.title, source: jdSource, gate: input.gate || { verdict: "usable", confidence: 1 } });
+  const resumeRead = services.resumeRead ?? await readSavedResumeRead(resumeText);
+  await writeJson(join(runDir, "jd-extract.json"), extract);
+  record({ stage: "prepare", status: "ok", ms: Date.now() - prepareStart, llm: false, out: ["jd-extract.json"], detail: "deterministic keyword extraction; saved ledger and voice" });
+  const writeStart = Date.now();
+  const checked = await runLean({ ledger, resumeText, jdText, feature: payload.feature, resumeRead, pin, fetchImpl, voiceProfile, voice: input.voice || [], notes: input.repair?.instruction || payload.notes, signal: input.signal });
+  await writeJson(join(runDir, "lean.json"), { response: checked.response, ...(checked.rawReply !== undefined ? { rawReply: checked.rawReply } : {}), checks: { notes: checked.notes, shapeErrors: checked.shapeErrors, disposition: checked.disposition }, provenance: checked.provenance, promptVersion: LEAN_PROMPT_VERSION });
+  await writeJson(join(runDir, "draft.json"), checked.draft);
+  for (const feature of ["resume", "cover_letter"]) await writeJson(join(runDir, `draft.${feature}.json`), {
+    ...checked.draft, ...(feature === "resume" ? { letter: { hook: "", companyInsight: "", proof1: "", proof2: "", ask: "" } } : { statement: "", bullets: [], earlier: [] }),
+  });
+  record({ stage: "write", status: checked.disposition === "FAIL" ? "failed" : checked.disposition === "REVIEW" ? "review" : "ok", ms: Date.now() - writeStart, llm: Boolean(pin), call: checked.call, out: ["lean.json", "draft.json"], detail: `${checked.call.attempts} prose call attempt(s); ${LEAN_PROMPT_VERSION}` });
+  const sourceRefs = {
+    resume: [...checked.draft.bullets, ...checked.draft.earlier].map(bullet => ({ sentence: bullet.text, claimIds: [bullet.claimId] })),
+    cover_letter: checked.provenance.filter(p => p.field.startsWith("letter.")).flatMap(p => p.text.split(/(?<=[.!?])\s+(?=[A-Z])/).map((/** @type {string} */ sentence) => ({ sentence, claimIds: [...new Set(p.facts.filter((/** @type {any} */ fact) => sentence.includes(fact.token) && (ledger.claims || []).some((/** @type {any} */ c) => c.id === fact.sourceId)).map((/** @type {any} */ fact) => fact.sourceId))] }))),
+  };
+  await writeJson(join(runDir, "writer-sources.json"), sourceRefs);
+  const logoStart = Date.now();
+  const materialLogos = checked.disposition === "FAIL" ? { marks: [], targetMark: null } : await (services.resolveMaterialLogos || resolveMaterialLogos)({ ledger, draft: checked.draft, sourceRefs, company: payload.company, companyDomain: payload.companyDomain, jobUrl: payload.jobUrl, postingText: jdText, home: services.logoHome, resolveAssets: services.resolveLogoAssets });
+  const marks = [...materialLogos.marks, ...(await (input.readMarks || (async () => []))().catch(() => []))];
+  const model = buildRenderModelFromLean({ ...checked, ledger, resumeText, resumeRead, feature: payload.feature, profile: input.profileIdentity, family, marks, links: voiceProfile?.links || [], request: { company: payload.company, title: payload.title, hiringManager: payload.enrichment?.contact }, nowIso: startedAt.toISOString() });
+  const logoMs = Date.now() - logoStart;
+  const renderStart = Date.now();
+  /** @type {Awaited<ReturnType<typeof renderPackage>>} */ let rendered = { fit: {}, pdf: {}, issues: [], notes: [] };
+  if (checked.disposition !== "FAIL") {
+    const session = input.openSession ? await input.openSession() : null;
+    try { rendered = await (services.renderPackage || renderPackage)({ model, feature: payload.feature, session, ledger, targetMark: materialLogos.targetMark, pdfPaths: { resumePdfPath: join(runDir, "resume.pdf"), coverLetterPdfPath: join(runDir, "cover-letter.pdf") } }); }
+    finally { if (session?.close) await session.close(); }
+  }
+  const delivered = { ...model, documents: { ...model.documents,
+    ...(rendered.fit.resume?.model?.documents.resume ? { resume: rendered.fit.resume.model.documents.resume } : {}),
+    ...(rendered.fit.coverLetter?.model?.documents.coverLetter ? { coverLetter: rendered.fit.coverLetter.model.documents.coverLetter } : {}),
+  } };
+  /** @type {Array<"resume"|"letter">} */ const documents = payload.feature === "both" ? ["resume", "letter"] : [DOCUMENT_FOR[payload.feature]];
+  /** @type {Array<any>} */ const qaRecords = [];
+  /** @type {Record<string,string>} */ const hashes = {};
+  const validateStart = Date.now();
+  const sources = { posting: originalPostingSources(jdText), claims: (ledger.claims || []).map((/** @type {any} */ c) => ({ id: `claim:${c.id}`, text: c.text, verified: c.verified === true })), voice: voiceProfile?.guideText || "", research: [] };
+  for (const document of documents) {
+    const key = document === "letter" ? "coverLetter" : "resume";
+    const finalText = renderedBodyText(delivered, document);
+    /** @type {Array<any>} */ const gates = [];
+    if (checked.disposition === "FAIL") gates.push({ id: "lean.shape", kind: "hard", pass: false, reason: checked.shapeErrors.join("; ") || "A required letter part became empty", sentenceIds: [] });
+    const fit = rendered.fit[key];
+    if (fit?.overflow) gates.push({ id: "lean.layout", kind: "hard", pass: false, reason: "Document exceeds one page after fit", sentenceIds: [] });
+    if (requirePdf && !rendered.pdf[key]) gates.push({ id: "lean.pdf", kind: "hard", pass: false, reason: "PDF was not rendered", sentenceIds: [] });
+    if ((rendered.pdf[key]?.pages || 0) > 1 || (rendered.pdf[key]?.blockedRequests || 0) > 0) gates.push({ id: "lean.pdf", kind: "hard", pass: false, reason: "PDF exceeded the page budget or requested network content", sentenceIds: [] });
+    const twin = comparableText(document === "letter" ? rendered.letterTxt : rendered.resumeTxt);
+    if (!twin || !finalText.trim() || finalText.split("\n").map(comparableText).filter(Boolean).some(line => !twin.includes(line))) gates.push({ id: "lean.text_parity", kind: "hard", pass: false, reason: "Final body and text twin disagree or are empty", sentenceIds: [] });
+    if (document === "letter") {
+      const words = finalText.split(/\s+/).filter(Boolean).length;
+      gates.push({ id: "lean.letter_words", kind: "constraint", pass: words >= 120 && words <= 200, reason: `${words} body words; target 120–200`, sentenceIds: [] });
+      gates.push({ id: "lean.letter_paragraphs", kind: "hard", pass: delivered.documents.coverLetter?.paragraphs?.length === 3, reason: "Letter has three nonempty paragraphs", sentenceIds: [] });
+    }
+    const qa = leanQa({ document, runId, finalText, disposition: checked.disposition, notes: checked.notes, gates });
+    qaRecords.push(qa); hashes[document] = qa.textHash;
+    const constraints = gates.filter(g => g.kind === "constraint").map(({ id, pass, reason }) => ({ id, pass, reason }));
+    await writeJson(join(runDir, `judge-context.${document}.json`), { sources, ledger, constraints, requirePdf });
+    await writeJson(join(runDir, `qa.${document}.json`), qa);
+  }
+  const disposition = worst(qaRecords.map(q => q.disposition));
+  record({ stage: "validate", status: disposition === "FAIL" ? "failed" : disposition === "REVIEW" ? "review" : "ok", ms: Date.now() - validateStart, llm: false, detail: `${checked.notes.length} checked fallback/drop note(s); ${disposition}` });
+  record({ stage: "render", status: disposition === "FAIL" ? "failed" : "ok", ms: logoMs + validateStart - renderStart, llm: false, detail: `logos ${logoMs}ms; fitted text hashes and PDF parity checked`, out: ["render-model.json"] });
+  record({ stage: "judge", status: "skipped", llm: false, detail: "lean uses code checks" });
+  record({ stage: "repair", status: "skipped", llm: false, detail: "lean has one pass" });
+  const adopted = disposition !== "FAIL";
+  for (const qa of qaRecords) { qa.repair.adopted = adopted; await writeJson(join(runDir, `qa.${qa.document}.json`), qa); }
+  await writeJson(join(runDir, "qa.json"), { contract: "materials.qa.v3", runId, disposition, textHashes: hashes, documents: Object.fromEntries(qaRecords.map(q => [q.document, q.disposition])) });
+  await writeFile(join(runDir, "qa-report.md"), formatDocumentQaReport({ records: qaRecords }));
+  if (rendered.resumeHtml) await writeFile(join(runDir, "resume.html"), rendered.resumeHtml);
+  if (rendered.letterHtml) await writeFile(join(runDir, "cover-letter.html"), rendered.letterHtml);
+  const saveStart = Date.now();
+  record({ stage: "save", status: "ok", ms: 0, llm: false, detail: adopted ? "candidate adopted" : "Held — FAIL never becomes default", out: ["run.json", "manifest.json"] });
+  await assertBase();
+  const run = { runId, engine: /** @type {const} */ ("lean"), leanPromptVersion: LEAN_PROMPT_VERSION, kind: /** @type {const} */ ("run"), held: adopted ? null : { reason: qaRecords.find(q => q.disposition === "FAIL")?.reasons[0]?.text || "Lean checks failed" }, slug: payload.slug, feature: payload.feature,
+    requestedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(), source, stages, textHash: documents.length === 1 ? hashes[documents[0]] : hashes,
+    inputs: runInputs({ resumeText, ledger, jdHash, jdText, jdSource }), ...(disposition === "READY" ? { cacheKey } : {}) };
+  await writePackageRecords({ dir: runDir, rendered, model: delivered, snapshot: false, manifestBaseDir: dir, extraFiles: ["lean.json", "writer-sources.json"], manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" }, run });
+  if (adopted) {
+    await assertBase();
+    const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "lean.json", "draft.json", "writer-sources.json", ...documents.map(d => `judge-context.${d}.json`),
+      ...(documents.includes("resume") ? ["resume.html", "resume.txt", "resume.pdf", "draft.resume.json", "qa.resume.json"] : []),
+      ...(documents.includes("letter") ? ["cover-letter.html", "cover-letter.txt", "cover-letter.pdf", "draft.cover_letter.json", "qa.letter.json"] : [])];
+    for (const name of names) try { await copyFile(join(runDir, name), join(dir, name)); } catch (error) { if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") throw error; }
+    for (const document of documents) if (!rendered.pdf[document === "letter" ? "coverLetter" : "resume"]) await rm(join(dir, document === "letter" ? "cover-letter.pdf" : "resume.pdf"), { force: true });
+  }
+  stages[stages.length - 1].ms = Date.now() - saveStart;
+  // Persist the full publish timing in the immutable record and its adopted twin.
+  const saved = await readJson(join(runDir, "run.json")); saved.stages = stages;
+  await writeJson(join(runDir, "run.json"), saved);
+  if (adopted) await copyFile(join(runDir, "run.json"), join(dir, "run.json"));
+  return { outcome: adopted ? "published" : "held", runId, cacheKey, model: delivered, stages, degraded: [], adopted, qa: { status: disposition.toLowerCase(), disposition, documents: qaRecords, repaired: false } };
 }
