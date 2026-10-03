@@ -1274,7 +1274,7 @@
     ctl.abort = typeof Abort === "function" ? new Abort() : null;
     return ctl.api.stream(request.proposalId, {
       signal: ctl.abort ? ctl.abort.signal : undefined,
-      onEvent: function (frame) { if (requestCurrent(ctl, request) && !request.stopRequested) onStreamEvent(ctl, frame); },
+      onEvent: function (frame) { if (requestCurrent(ctl, request)) onStreamEvent(ctl, frame); },
     }).then(function () {
       if (request.stopRequested) return request.stopReply;
       if (requestCurrent(ctl, request)) finishRun(ctl);
@@ -1355,10 +1355,12 @@
       return res;
     }).catch(function () {
       if (!requestCurrent(ctl, request)) return;
+      if (ctl.abort) ctl.abort.abort();
+      ctl.abort = null; ctl.request = null;
       ctl.state.busy = false; ctl.state.stage = null;
-      ctl.openProposal = { proposalId: request.proposalId, doc: request.doc, baseRunId: request.baseRunId, status: "pending", ops: [] };
-      status(ctl, "error", "That didn’t work. Try again.", "Try again", function () { request.stopReply = null; stopRequest(ctl, request); });
-      renderAll(ctl);
+      ctl.refs.docscroll.setAttribute("aria-busy", "false");
+      clearReview(ctl); ctl.state.proposal = null;
+      return readOpen(ctl).then(function () { renderAll(ctl); });
     });
     return request.stopReply;
   }

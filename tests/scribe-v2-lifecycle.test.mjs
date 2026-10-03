@@ -663,3 +663,26 @@ it('SCRP-R1-10 locked blocks use fixed copy rather than echoing detail', async (
   const ctl = t.mount(); await flush(); await t.submit(ctl);
   assert.equal(ctl.refs.log.querySelector('.scribe__msg--blocked').textContent, 'Blocked: that would change a locked fact.'); ctl.close();
 });
+
+for (const rejected of [false, true]) it(`SCRP-R1-11 stop ${rejected ? 'rejection hydrates terminal state' : 'keeps late stream frames'}`, async () => {
+  const t = reliabilityApi(); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; };
+  t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } });
+  handlers.onEvent({ event: 'proposal', data: { summary: { changes: 1, wordsDelta: -2 } } });
+  handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  assert.equal(ctl.state.proposal.ops.length, 1, 'validated frames survive a pending stop');
+  assert.equal(ctl.state.proposal.summary.wordsDelta, -2);
+  if (rejected) {
+    t.api.open = { proposalId: ctl.state.proposal.id, doc: 'resume', baseRunId: 'r2', status: 'ready', ops: [ROP] };
+    reply.reject({ code: 'proposal_not_running' });
+  } else reply.resolve({ status: 'partial', ops: [ROP] });
+  await flush();
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.request, null);
+  assert.equal(ctl.state.proposal.status, rejected ? 'ready' : 'partial');
+  assert.notEqual(ctl.refs.status.getAttribute('data-state'), 'error');
+  assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  stream.resolve(); ctl.close();
+});
