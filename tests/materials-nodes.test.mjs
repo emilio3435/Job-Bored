@@ -62,6 +62,8 @@ describe("materials node ids and edits", () => {
       { opId: "c22", op: "insert", after: "b:acme:c14", claimId: "c22", text: "Built a daily exception review." },
       { opId: "c23", op: "insert", after: "b:acme:c22", claimId: "c23", text: "Wrote a guide to act on exceptions." },
     ]);
-    assert.throws(() => applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]), { reason: "shape" });
+    const fiveBullets = applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]);
+    assert.equal(deriveNodes(fiveBullets).filter(node => node.kind === "bullet").length, 5);
+    assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Prepared route reports." }]), { reason: "shape" });
   });
 });

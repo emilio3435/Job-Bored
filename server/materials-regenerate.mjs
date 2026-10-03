@@ -736,6 +736,8 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         regeneratedFrom,
         resume: /** @type {Parameters<typeof writePackageRecords>[0]["run"]["resume"]} */ (resume || inheritedRun?.resume),
         inputs: /** @type {Parameters<typeof writePackageRecords>[0]["run"]["inputs"]} */ (inputs || inheritedRun?.inputs),
+        ...(inheritedRun?.engine === "lean" || inheritedRun?.engine === "legacy" ? { engine: inheritedRun.engine } : {}),
+        ...(typeof inheritedRun?.leanPromptVersion === "string" ? { leanPromptVersion: inheritedRun.leanPromptVersion } : {}),
         ...(source === "restore" && parentRunId ? { restoredFrom: parentRunId } : {}),
         ...((source === "edit" || source === "manual") && edit ? { edit } : {}),
         stages: [

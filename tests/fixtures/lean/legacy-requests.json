@@ -1,0 +1,69 @@
+{
+  "gemini": {
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "s"
+        }
+      ]
+    },
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "u"
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "temperature": 0.4,
+      "responseMimeType": "application/json"
+    }
+  },
+  "openai": {
+    "model": "stub",
+    "messages": [
+      {
+        "role": "system",
+        "content": "s"
+      },
+      {
+        "role": "user",
+        "content": "u"
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    },
+    "temperature": 0.4
+  },
+  "anthropic": {
+    "model": "stub",
+    "system": "s",
+    "messages": [
+      {
+        "role": "user",
+        "content": "u"
+      }
+    ]
+  },
+  "local": {
+    "model": "stub",
+    "messages": [
+      {
+        "role": "system",
+        "content": "s"
+      },
+      {
+        "role": "user",
+        "content": "u"
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    },
+    "temperature": 0.4
+  }
+}

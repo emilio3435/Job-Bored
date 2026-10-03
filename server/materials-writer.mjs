@@ -1,3 +1,4 @@
+import { toGeminiSchema } from "./ai/provider.mjs";
 import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
 
 const GEMINI_GENERATE_URL =
@@ -145,6 +146,9 @@ export const FACT_CHECK_PROMPT = [
  * @property {string} [systemPrompt] v3 narrow calls: replaces the wide writer prompt
  * @property {string} [userText] v3 narrow calls: replaces the assembled user prompt
  * @property {number} [maxOutputTokens] legacy stage hint; the model limit wins
+ * @property {Record<string, any>} [responseSchema] closed native schema for lean
+ * @property {number} [temperature] per-call temperature; legacy default is unchanged
+ * @property {(value: Record<string, unknown>) => void} [validate] lean shape and source membership
  * @property {number} [thinkingBudget] Gemini only: generationConfig.thinkingConfig.thinkingBudget
  * @property {(ms: number) => Promise<void>} [sleep] backoff sleeper (tests)
  */
@@ -704,14 +708,13 @@ async function generateGemini(input, extraUserText, maxTokens) {
   const body = {
     systemInstruction: { parts: [{ text: systemText(input) }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
-    // responseMimeType without responseSchema: property-less OBJECT nodes
-    // are rejected by the generateContent validator, and an open object
-    // cannot be expressed on that field — JSON syntax comes from the mime
-    // type, shape from the prompt plus the parser.
+    // Legacy remains mime-only. Lean projects the native schema's supported
+    // subset and validates every original constraint with Ajv after the call.
     generationConfig: {
-      temperature: TEMPERATURE,
+      temperature: input.temperature ?? TEMPERATURE,
       ...(maxTokens === undefined ? {} : { maxOutputTokens: maxTokens }),
       responseMimeType: "application/json",
+      ...(input.responseSchema ? { responseSchema: toGeminiSchema(input.responseSchema) } : {}),
       ...thinking,
     },
   };
@@ -758,9 +761,11 @@ async function generateOpenAICompatible(input, extraUserText, provider, _maxToke
     // json_object rather than a strict schema: the writer schema is
     // intentionally loose so resume facts pass through unfiltered.
     ...(provider === "openai" || typeof input.userText === "string"
-      ? { response_format: { type: "json_object" } }
+      ? { response_format: provider === "openai" && input.responseSchema
+        ? { type: "json_schema", json_schema: { name: "materials_lean", strict: true, schema: strictResponseSchema(input.responseSchema, "openai") } }
+        : { type: "json_object" } }
       : {}),
-    temperature: TEMPERATURE,
+    temperature: input.temperature ?? TEMPERATURE,
     ...outputLimitField(provider, resolvedModel),
   };
   const resp = await input.fetchImpl(url, {
@@ -773,6 +778,19 @@ async function generateOpenAICompatible(input, extraUserText, provider, _maxToke
   const label = provider === "openai" ? "OpenAI" : provider === "openrouter" ? "OpenRouter" : "Local";
   throwIfHttpError(resp, label, data);
   return textFromChatCompletions(data);
+}
+
+/** Anthropic accepts structural constraints; local validation retains length/count checks. @param {Record<string, any>} schema @param {string} [provider] */
+function strictResponseSchema(schema, provider = "anthropic") {
+  /** @type {Record<string, any>} */ const out = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key.startsWith("$") || key === "uniqueItems" || provider === "anthropic" && ["minimum", "maximum", "multipleOf", "minLength", "maxLength", "maxItems"].includes(key)) continue;
+    if (provider === "anthropic" && key === "minItems" && Number(value) > 1) continue;
+    if (key === "properties") out[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, strictResponseSchema(/** @type {Record<string, any>} */ (child), provider)]));
+    else if (key === "items") out[key] = strictResponseSchema(value, provider);
+    else out[key] = value;
+  }
+  return out;
 }
 
 /**
@@ -789,13 +807,12 @@ async function generateAnthropic(input, extraUserText, maxTokens) {
     throw new Error("pin.resolvedModel is required");
   }
   const url = String(pin.baseUrl || "").trim() || ANTHROPIC_MESSAGES_URL;
-  // Prompt-only JSON: no output_config, since the writer schema is
-  // intentionally loose and structured output for it is unverified.
-  // Truncation is still surfaced through stop_reason.
+  // Lean opts into structured output; the legacy body stays prompt-only.
   const body = {
     model: resolvedModel,
     ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
     system: systemText(input),
+    ...(input.responseSchema ? { output_config: { format: { type: "json_schema", schema: strictResponseSchema(input.responseSchema) } } } : {}),
     messages: [{ role: "user", content: buildUserPrompt(input, extraUserText) }],
   };
   const resp = await input.fetchImpl(url, {
@@ -958,7 +975,7 @@ async function runModelCall(input, extraUserText, { budget, parse, sleep = defau
       const info = classifyCallError(err);
       attempt.errorCode = info.code;
       if (err instanceof ModelHttpError && err.detail) attempt.errorDetail = err.detail;
-      if (info.transient && transientRetries < TRANSIENT_RETRIES) {
+      if (info.transient && !input.responseSchema && transientRetries < TRANSIENT_RETRIES) {
         await sleep(backoffMs(transientRetries, info.retryAfterMs));
         transientRetries += 1;
         continue;
@@ -1035,6 +1052,9 @@ export async function callWriter(input) {
  * @property {string} systemPrompt
  * @property {string} userText
  * @property {number} [maxOutputTokens] legacy stage hint; the model limit wins
+ * @property {Record<string, any>} [responseSchema] closed native schema for lean
+ * @property {number} [temperature] per-call temperature; legacy default is unchanged
+ * @property {(value: Record<string, unknown>) => void} [validate] lean shape and source membership
  * @property {number} [thinkingBudget] Gemini thinking budget (default JSON_STAGE_THINKING_BUDGET)
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
@@ -1115,6 +1135,8 @@ export async function runJsonStage(input) {
       fetchImpl: input.fetchImpl,
       timeoutMs: input.timeoutMs,
       signal: input.signal,
+      ...(input.responseSchema ? { responseSchema: input.responseSchema } : {}),
+      ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
       thinkingBudget: typeof input.thinkingBudget === "number" ? input.thinkingBudget : JSON_STAGE_THINKING_BUDGET,
     });
     const provider = normalizeWriterProvider(pin.provider);
@@ -1122,7 +1144,7 @@ export async function runJsonStage(input) {
     try {
       const { value, attempts } = await runModelCall(stageInput, "", {
         budget: maxTokens(stageInput),
-        parse: parseStageJson,
+        parse: (text) => { const value = parseStageJson(text); input.validate?.(value); return value; },
         sleep: input.sleep,
       });
       return { value, provider, model, attempts, error: null };
@@ -1139,7 +1161,7 @@ export async function runJsonStage(input) {
   /** @type {StageCallRecord["fallback"]} */
   let fallback;
   const failedAttempts = primary.attempts.filter((a) => a.errorCode).length;
-  const fallbackPin = primary.value === null && failedAttempts >= 2 ? fallbackPinFor(input.pin, input.stage) : null;
+  const fallbackPin = !input.responseSchema && primary.value === null && failedAttempts >= 2 ? fallbackPinFor(input.pin, input.stage) : null;
   if (fallbackPin) {
     const reason = errorCodeOf(primary.error);
     const provider = normalizeWriterProvider(fallbackPin.provider);

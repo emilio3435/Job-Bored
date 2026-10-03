@@ -29,6 +29,8 @@ export const CACHE_BUDGET_VERSION = MATERIALS_BUDGETS.version;
  * @param {string} [input.budgetVersion]
  * @param {string} input.feature
  * @param {string} [input.model] provider:resolvedModel, or "none" with no pin
+ * @param {"legacy" | "lean"} [input.engine]
+ * @param {string} [input.leanPromptVersion]
  * @param {string} [input.notesHash] hash of the editor instructions, when any
  */
 export function pipelineCacheKey({
@@ -41,9 +43,12 @@ export function pipelineCacheKey({
   feature,
   model = "none",
   notesHash = "",
+  engine = "legacy",
+  leanPromptVersion = "",
 }) {
   return [jdHash, ledgerHash, `${templateFamily}@${templateVersion}`, promptVersion, budgetVersion, feature, model,
-    ...(notesHash ? [`notes:${notesHash}`] : [])].join("|");
+    ...(notesHash ? [`notes:${notesHash}`] : []),
+    ...(engine === "lean" ? [`engine:lean`, `leanPrompt:${leanPromptVersion}`] : [])].join("|");
 }
 
 /**

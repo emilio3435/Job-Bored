@@ -343,6 +343,8 @@ async function writeJson(path, value) {
  * @property {{ provider?: string, requestedModel?: string, resolvedModel?: string }} [pin]
  * @property {{ stage: string, status: "ok" | "skipped" | "review" | "failed", ms?: number, llm?: boolean, out?: string[], detail?: string }[]} stages
  * @property {{ path: string, bytes?: number, sha256?: string, pages?: number }[]} [artifacts]
+ * @property {"legacy" | "lean"} [engine]
+ * @property {string} [leanPromptVersion]
  * @property {string} [cacheKey]
  * @property {{ code: string, reenteredAt: string, detail?: string }[]} [repairs]
  * @property {import("./materials-resume-source.mjs").RunResumeBlock} [resume]
@@ -396,6 +398,8 @@ export function buildRunRecord(input) {
     template: templateBlock(input.model, input.feature, input.source, input.regeneratedFrom),
     stages: input.stages,
   };
+  if (input.engine) run.engine = input.engine;
+  if (input.leanPromptVersion) run.leanPromptVersion = input.leanPromptVersion;
   if (input.pin && (input.pin.provider || input.pin.resolvedModel)) run.pin = input.pin;
   if (input.artifacts && input.artifacts.length) run.artifacts = input.artifacts;
   if (typeof input.cacheKey === "string" && input.cacheKey) run.cacheKey = input.cacheKey;
