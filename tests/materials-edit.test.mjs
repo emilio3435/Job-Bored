@@ -274,3 +274,30 @@ describe("materials edit proposal", () => {
     assert.equal(result.summary.changes, 0);
   });
 });
+
+
+it("assigns proposal-local IDs when the model omits edit IDs", async () => {
+  const result = await propose({ ops: [
+    { op: "replace", node: "line:beta", text: "Tracked daily shipments." },
+    { op: "replace", node: "b:acme:c14", text: "Measured carrier delays and reduced fulfillment delays 38%." },
+    { opId: "edit-1", op: "replace", node: "intro", text: "I build clear reports for operations teams." },
+  ] });
+  assert.deepEqual(result.blocked, []);
+  assert.equal(result.ops.length, 3);
+  assert.ok(result.ops.every((op) => typeof op.opId === "string" && op.opId.length));
+  assert.equal(new Set(result.ops.map((op) => op.opId)).size, 3);
+  assert.equal(result.ops[2].opId, "edit-1", "supplied IDs are preserved");
+});
+
+
+it("keeps duplicate IDs and malformed edit fields invalid", async () => {
+  const result = await propose({ ops: [
+    { opId: "same", op: "replace", node: "line:beta", text: "Tracked daily shipments." },
+    { opId: "same", op: "replace", node: "line:beta", text: "Tracked daily reports." },
+    { opId: null, op: "replace", node: "line:beta", text: "Tracked reports." },
+    { op: "replace", node: "line:beta", text: "Tracked reports.", unexpected: true },
+  ] });
+  assert.equal(result.ops.length, 1);
+  assert.equal(result.blocked.length, 3);
+  assert.ok(result.blocked.every((block) => block.reason === "invalid_model"));
+});

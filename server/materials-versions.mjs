@@ -81,6 +81,10 @@ async function runFiles(dir, runId) {
   const run = await json(join(runDir, "run.json"));
   const model = await json(join(runDir, "render-model.json"));
   if (!run || !model || run.runId !== id) throw failure("Version not found", 404, "version_not_found");
+  // Older single-document drafts stored an unrequested document shell.
+  // Expose the run's requested documents without changing its immutable files.
+  if (run.feature === "resume") delete model.documents?.coverLetter;
+  else if (run.feature === "cover_letter") delete model.documents?.resume;
   return { run, model };
 }
 
@@ -91,10 +95,18 @@ async function currentRun(dir) {
   return run;
 }
 
-/** @param {string} dir @param {unknown} runId */
-async function assertCurrent(dir, runId) {
+/** @param {string} dir @param {unknown} runId @param {string} doc */
+async function assertCurrent(dir, runId, doc) {
   const current = await currentRun(dir);
-  if (runId !== current.runId) throw failure("The base version is no longer current", 409, "stale_base");
+  if (runId === current.runId) return current;
+  // The sibling document can be the latest package run. Compare against the
+  // selected document while the publish claim still guards the whole package.
+  try { await runFiles(dir, current.runId); }
+  catch (error) {
+    if (/** @type {any} */ (error).code === "version_not_found") throw failure("The base version is no longer current", 409, "stale_base");
+    throw error;
+  }
+  if (runId !== (await versions(dir, doc)).currentRunId) throw failure("The base version is no longer current", 409, "stale_base");
   return current;
 }
 
@@ -182,7 +194,8 @@ async function versions(dir, doc) {
     if (row.source === "restore") row.label = `Restored from v${byId.get(rows[i].run.restoredFrom) ?? "?"}`;
   }
   const current = await currentRun(dir);
-  return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : indexed[0]?.runId || current.runId };
+  const latestAdopted = [...rows].reverse().find(({ run }) => run.repair?.adopted !== false);
+  return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : latestAdopted?.run.runId || current.runId };
 }
 
 /** @param {Record<string, any>} proposal @param {string} event @param {unknown} data */
@@ -254,7 +267,8 @@ export function createMaterialsVersionService(deps = {}) {
     for (const name of await readdir(join(dir, "proposals"))) {
       if (!name.endsWith(".json")) continue;
       const row = await json(join(dir, "proposals", name));
-      if (row && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
+      const emptyFinished = row && ["ready", "partial"].includes(row.status) && Array.isArray(row.ops) && row.ops.length === 0;
+      if (row && !emptyFinished && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
     }
     return false;
   };
@@ -273,9 +287,12 @@ export function createMaterialsVersionService(deps = {}) {
       if (!deps.pin && !config) throw failure("No LLM pin configured", 409, "llm_unconfigured");
       const pin = deps.pin || await resolveActivePin(/** @type {import('./llm-config.mjs').LlmConfig} */ (config));
       const jdExtract = await json(join(proposal.dir, "jd-extract.json")) || {};
+      const documentNodes = deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)))
+        .filter((node) => proposal.doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind));
+      const scope = proposal.scope === "all" ? documentNodes.map((node) => node.id) : proposal.scope;
       const result = await (deps.propose || proposeEdits)({
-        model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))), instruction: proposal.instruction,
-        scope: proposal.scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
+        model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: documentNodes.filter((node) => scope.includes(node.id)), instruction: proposal.instruction,
+        scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
         profile: profileResult.ok ? profileResult.profile : {}, jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
         onFactCheck: async (ops, summary) => {
           validated.set(proposal.id, { ops: structuredClone(ops), summary: { ...summary }, factCheck: "fallback", factCheckReason: "Fact check stopped; token check used." });
@@ -313,10 +330,10 @@ export function createMaterialsVersionService(deps = {}) {
       if (proposal.status !== "rejected") await writeJson(proposalPath(proposal), persisted(proposal));
     }
   };
-  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] */
-  const commit = async (dir, model, current, source, edit, restoredFrom) => {
+  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] @param {string} [editBaseRunId] */
+  const commit = async (dir, model, current, source, edit, restoredFrom, editBaseRunId) => {
     return withPackagePublishClaim(dir, current.runId, async (assertBase) => {
-      const input = { dir, model, feature: current.feature || "both", source, parentRunId: restoredFrom || current.runId, ...(edit ? { edit } : {}) };
+      const input = { dir, model, feature: model.documents.resume ? (model.documents.coverLetter ? "both" : "resume") : "cover_letter", source, parentRunId: restoredFrom || editBaseRunId || current.runId, ...(edit ? { edit } : {}) };
       try {
         const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession, assertBase });
         return { runId: result.runId, pdf: "ready", stale: false };
@@ -331,7 +348,7 @@ export function createMaterialsVersionService(deps = {}) {
         await rm(join(dir, "cover-letter.pdf"), { force: true });
         const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
         await writeVersionQa({ dir, rendered, runId, issues: rendered.issues || [], notes: ["PDF stale: browser unavailable."], pdfReady: false });
-        const provenance = source === "restore" && restoredFrom ? (await runFiles(dir, restoredFrom)).run : current;
+        const provenance = input.parentRunId === current.runId ? current : (await runFiles(dir, input.parentRunId)).run;
         await writePackageRecords({ dir, rendered, model, run: {
           runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
           requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
@@ -390,7 +407,7 @@ export function createMaterialsVersionService(deps = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const doc = documentName(body.doc);
-        await assertCurrent(dir, body.baseRunId);
+        await assertCurrent(dir, body.baseRunId, doc);
         const instruction = body.instruction;
         if (typeof instruction !== "string" || !instruction.trim() || instruction.length > 2000) throw failure("instruction must have 1–2000 characters", 400, "invalid_instruction");
         if (body.lockFacts !== true) throw failure("lockFacts must be true", 400, "facts_lock_required");
@@ -475,7 +492,7 @@ export function createMaterialsVersionService(deps = {}) {
       let priorStatus = "";
       let markedAccepting = false;
       try {
-        const current = await currentRun(dir);
+        let current = await currentRun(dir);
         if (!manual) {
           proposal = await loadProposal(dir, id);
           priorStatus = proposal.status;
@@ -484,10 +501,14 @@ export function createMaterialsVersionService(deps = {}) {
           markedAccepting = true;
           await writeJson(proposalPath(proposal), persisted(proposal));
         }
-        await assertCurrent(dir, manual ? body.baseRunId : proposal?.baseRunId);
         const doc = documentName(manual ? body.doc : proposal?.doc);
-        const { model } = await runFiles(dir, current.runId);
+        const baseRunId = manual ? body.baseRunId : proposal?.baseRunId;
+        current = await assertCurrent(dir, baseRunId, doc);
+        const { model } = await runFiles(dir, baseRunId);
         const base = /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model));
+        // A newer sibling run owns its own copy and artifacts. Publish only
+        // this selected document when editing its earlier combined version.
+        if (baseRunId !== current.runId) delete base.documents[doc === "resume" ? "coverLetter" : "resume"];
         const proposed = proposal?.ops || [];
         const manualOps = body.manualOps ?? [];
         const acceptedProposal = manual ? [] : body.accept;
@@ -518,7 +539,7 @@ export function createMaterialsVersionService(deps = {}) {
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
         if (proposal && (proposal.status !== "accepting" || (await json(proposalPath(proposal)))?.status !== "accepting")) throw failure("Proposal is no longer accepting", 409, "proposal_not_ready");
-        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit);
+        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit, undefined, baseRunId);
         if (proposal) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
         const listed = await versions(dir, doc);
         const row = listed.versions.find((v) => v.runId === committed.runId);

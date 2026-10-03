@@ -10,6 +10,7 @@ import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { buildOutline, summarizeRenderedResumeSelection } from "../server/materials-outline.mjs";
 import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
+import { validateRenderModel } from "../server/materials-render.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
@@ -146,6 +147,19 @@ describe("MREV B1 pipeline", () => {
   let dir;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "jb-mrev-b1-")); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  it("publishes only requested documents in single-document render models", async () => {
+    for (const [feature, doc] of [["resume", "resume"], ["cover_letter", "coverLetter"]]) {
+      const { services } = testServices();
+      const input = base(dir, services, feature, `single-${feature}`);
+      input.profileIdentity.email = "user@example.com";
+      await runPipeline(input);
+      const model = await json(dir, "render-model.json");
+      assert.deepEqual(Object.keys(model.documents), [doc]);
+      const checked = validateRenderModel(model);
+      assert.equal(checked.ok, true, checked.errors.join("; "));
+    }
+  });
 
   it("B2-10 shares the publish claim with the editor", async () => {
     await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));

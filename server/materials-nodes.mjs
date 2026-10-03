@@ -1,6 +1,7 @@
 /** Stable, template-independent address book for materials.render-model.v1. */
 import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
+import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { runsToText, validateRenderModel } from "./materials-render.mjs";
 
 const NUMBER = /(?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/g;
@@ -149,7 +150,8 @@ function checkShape(model) {
     const count = wordCount(runsToText(resume.statement.runs));
     if (count < 20 || count > 55) throw new MaterialsEditError("shape", `statement has ${count} words; expected 20–55`);
     for (const section of resume.sections) for (const entry of section.entries || []) {
-      if (entry.bullets && (entry.bullets.length < 2 || entry.bullets.length > 4)) throw new MaterialsEditError("shape", `${entry.employerId} has ${entry.bullets.length} bullets; expected 2–4`);
+      const [min, max] = MATERIALS_BUDGETS.resume.bulletsPerFeatured;
+      if (entry.bullets && (entry.bullets.length < min || entry.bullets.length > max)) throw new MaterialsEditError("shape", `${entry.employerId} has ${entry.bullets.length} bullets; expected ${min}–${max}`);
     }
   }
   const letter = model.documents?.coverLetter;

@@ -291,6 +291,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   const userText = [
     `<instruction>\n${JSON.stringify(instruction)}\n</instruction>`,
     `<constraints>\n${JSON.stringify({ scope, lockFacts })}\n</constraints>`,
+    dataBlock("edit_op_schema", JSON.parse(readFileSync(new URL("../schemas/materials-edit-op.v1.schema.json", import.meta.url), "utf8"))),
     dataBlock("nodes", suppliedNodes),
     dataBlock("job_posting", jdExtract),
     dataBlock("ledger_claims", ledger?.claims || []),
@@ -309,12 +310,22 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   const trusted = trustedFacts(ledger, model, baseNodes, jdExtract, profile);
   const ops = [];
   const blocked = [];
+  const suppliedIds = new Set(response.ops.map((/** @type {any} */ op) => op?.opId).filter((/** @type {any} */ id) => typeof id === "string"));
   const seen = new Set();
   let candidate = model;
   let removedWords = 0;
-  for (const proposed of response.ops) {
+  for (const [index, proposed] of response.ops.entries()) {
     const op = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? { ...proposed } : proposed;
-    if (op && typeof op === "object") { delete op.flags; delete op.facts; }
+    if (op && typeof op === "object") {
+      delete op.flags; delete op.facts;
+      // IDs identify decisions within this proposal; they carry no model authority.
+      if (!("opId" in op)) {
+        let id = `edit-${index + 1}`;
+        while (suppliedIds.has(id)) id += "-auto";
+        op.opId = id;
+        suppliedIds.add(id);
+      }
+    }
     const id = op?.op === "insert" ? op.after : op?.node;
     const candidateNodes = deriveNodes(candidate);
     const before = candidateNodes.find((node) => node.id === id)?.text || "";

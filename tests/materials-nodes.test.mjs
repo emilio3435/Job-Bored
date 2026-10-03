@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { deriveNodes, lockedSpans, applyOps } from "../server/materials-nodes.mjs";
-import { retargetModel, validateRenderModel } from "../server/materials-render.mjs";
+import { retargetModel, runsToText, validateRenderModel } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../docs/programs/editor-20260927/fixtures/${name}.json`, import.meta.url), "utf8"));
@@ -62,6 +62,20 @@ describe("materials node ids and edits", () => {
       { opId: "c22", op: "insert", after: "b:acme:c14", claimId: "c22", text: "Built a daily exception review." },
       { opId: "c23", op: "insert", after: "b:acme:c22", claimId: "c23", text: "Wrote a guide to act on exceptions." },
     ]);
-    assert.throws(() => applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]), { reason: "shape" });
+    const fiveBullets = applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]);
+    assert.equal(fiveBullets.documents.resume.sections.find((section) => section.kind === "experience").entries[0].bullets.length, 5);
+    assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Reviewed weekly reports." }]), { reason: "shape" });
   });
+});
+
+
+it("edits a published five-bullet employer without dropping its proof", () => {
+  const before = model();
+  const entry = before.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+  for (const id of ["c22", "c23", "c24"]) entry.bullets.push({ claimId: id, runs: [{ t: "Built a clear daily report for operations teams." }] });
+  const after = applyOps(before, [{ opId: "rewrite", op: "replace", node: "b:acme:c22", text: "Built clear daily reports for operations teams." }]);
+  const edited = after.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+  assert.equal(edited.bullets.length, 5);
+  assert.equal(runsToText(edited.bullets[2].runs), "Built clear daily reports for operations teams.");
+  assert.equal(runsToText(entry.bullets[2].runs), "Built a clear daily report for operations teams.");
 });

@@ -72,12 +72,12 @@ after(async () => {
 });
 
 let sequence = 0;
-async function seed(renderModel = model) {
+async function seed(renderModel = model, feature = "both") {
   const slug = `example-${++sequence}`;
   const dir = join(root, slug);
   const runDir = join(dir, "runs", "r0");
   await mkdir(runDir, { recursive: true });
-  const run = { runId: "r0", slug, feature: "both", requestedAt: "2026-09-27T10:00:00.000Z", finishedAt: "2026-09-27T10:00:00.000Z", template: { family: "signal", source: "default" }, artifacts: [{ path: "resume.pdf", pages: 1 }] };
+  const run = { runId: "r0", slug, feature, requestedAt: "2026-09-27T10:00:00.000Z", finishedAt: "2026-09-27T10:00:00.000Z", template: { family: "signal", source: "default" }, artifacts: [{ path: "resume.pdf", pages: 1 }] };
   for (const folder of [dir, runDir]) {
     await writeFile(join(folder, "run.json"), JSON.stringify(run));
     await writeFile(join(folder, "render-model.json"), JSON.stringify(renderModel));
@@ -633,4 +633,189 @@ it("all Scribe routes honor pending.json before edits", async (t) => {
     [`${pkg.path}/versions/r0/restore`, "POST", {}],
     [`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] }],
   ]) assert.equal((await request(path, method, body)).data.code, "materials_pending");
+});
+
+
+it("edits historical single-document runs without validating an unrequested shell", async () => {
+  for (const [feature, doc, other, change] of [
+    ["resume", "resume", "coverLetter", op],
+    ["cover_letter", "coverLetter", "resume", { opId: "letter-edit", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const legacy = structuredClone(model);
+    if (other === "coverLetter") {
+      legacy.documents.coverLetter.paragraphs = [];
+      const entry = legacy.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+      for (const claimId of ["c22", "c23", "c24"]) entry.bullets.push({ claimId, runs: [{ t: "Built clear daily reports." }] });
+    }
+    else legacy.documents.resume.statement.runs = [{ t: "Analyst" }];
+    const pkg = await seed(legacy, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, commit,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        const content = body.messages[0].content.includes("materials.fact-check.v1")
+          ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+      },
+    });
+    const loaded = await svc.model(pkg.slug, "r0");
+    assert.deepEqual(Object.keys(loaded.model.documents), [doc]);
+    assert.equal((await svc.versions(await svc.dirFor(pkg.slug), other)).versions.length, 0, "shell is absent from document history");
+    const started = await svc.start(pkg.slug, { doc, baseRunId: "r0", instruction: "Make the wording clearer", scope: "all", lockFacts: true });
+    const res = fakeStream();
+    const ended = once(res, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+    await ended;
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+    assert.deepEqual(stored.events.filter((e) => e.event === "blocked"), []);
+    assert.equal(stored.ops.length, 1);
+    const preview = await svc.preview(pkg.slug, { doc, baseRunId: "r0", ops: stored.ops });
+    assert.ok(preview.html.includes(change.text));
+    const accepted = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+    assert.equal(accepted.statusCode, 200);
+    const saved = await svc.model(pkg.slug, accepted.body.run.runId);
+    assert.equal(saved.nodes.find((node) => node.id === change.node).text, change.text);
+    assert.deepEqual(Object.keys(saved.model.documents), [doc]);
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8")), legacy, "historical source remains immutable");
+  }
+});
+
+it("all-scope proposals stay within the selected document", async () => {
+  const pkg = await seed();
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: "wrong-doc", op: "replace", node: "sal", text: "Hello team," }] }) } }] }) }),
+  });
+  const id = await readyProposal(svc, pkg);
+  const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${id}.json`), "utf8"));
+  assert.deepEqual(stored.ops, []);
+  assert.equal(stored.events.find((event) => event.event === "blocked").data.reason, "out_of_scope");
+});
+
+
+it("manual edits and restores retain the historical source document feature", async () => {
+  const legacy = structuredClone(model);
+  legacy.documents.coverLetter.paragraphs = [];
+  const pkg = await seed(legacy, "resume");
+  const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+  const manual = await svc.accept(pkg.slug, "manual", { doc: "resume", baseRunId: "r0", manualOps: [op] }, true);
+  assert.equal(manual.statusCode, 200);
+  const current = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  current.feature = "both";
+  await writeFile(join(pkg.dir, "run.json"), JSON.stringify(current));
+  const restored = await svc.restore(pkg.slug, "r0");
+  assert.equal(restored.statusCode, 200);
+  const run = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  assert.equal(run.feature, "resume");
+  assert.deepEqual(Object.keys((await svc.model(pkg.slug, run.runId)).model.documents), ["resume"]);
+});
+
+it("keeps malformed requested documents and ambiguous both-document runs blocked", async () => {
+  for (const feature of ["cover_letter", "both"]) {
+    const malformed = structuredClone(model);
+    malformed.documents.coverLetter.paragraphs = [];
+    const pkg = await seed(malformed, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+    const doc = feature === "cover_letter" ? "coverLetter" : "resume";
+    const edit = feature === "cover_letter" ? { opId: "salutation", op: "replace", node: "sal", text: "Hello team," } : op;
+    await assert.rejects(svc.preview(pkg.slug, { doc, baseRunId: "r0", ops: [edit] }), { reason: "invalid_model" });
+  }
+});
+
+
+it("edits the latest version of either document after a sibling-only run", async () => {
+  for (const [firstDoc, firstFeature, siblingDoc, siblingFeature, change] of [
+    ["resume", "resume", "coverLetter", "cover_letter", op],
+    ["coverLetter", "cover_letter", "resume", "resume", { opId: "letter-change", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const first = structuredClone(model);
+    delete first.documents[siblingDoc];
+    const pkg = await seed(first, firstFeature);
+    const sibling = structuredClone(model);
+    delete sibling.documents[firstDoc];
+    const siblingRunDir = join(pkg.dir, "runs/r1");
+    await mkdir(siblingRunDir);
+    const laterRun = { runId: "r1", slug: pkg.slug, feature: siblingFeature, requestedAt: "2026-09-28T10:00:00.000Z", finishedAt: "2026-09-28T10:00:00.000Z", template: { family: "signal", source: "default" } };
+    await writeFile(join(siblingRunDir, "render-model.json"), JSON.stringify(sibling));
+    await writeFile(join(siblingRunDir, "run.json"), JSON.stringify(laterRun));
+    await writeFile(join(pkg.dir, "run.json"), JSON.stringify(laterRun));
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, commit,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        const content = body.messages[0].content.includes("materials.fact-check.v1")
+          ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+      },
+    });
+    const listing = await svc.versions(await svc.dirFor(pkg.slug), firstDoc);
+    assert.equal(listing.currentRunId, "r0");
+    const started = await svc.start(pkg.slug, { doc: firstDoc, baseRunId: listing.currentRunId, instruction: "Clarify the wording", scope: "all", lockFacts: true });
+    const res = fakeStream(); const ended = once(res, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res); await ended;
+    const accepted = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+    assert.equal(accepted.statusCode, 200);
+    const saved = await svc.model(pkg.slug, accepted.body.run.runId);
+    assert.equal(saved.nodes.find((node) => node.id === change.node).text, change.text);
+    const siblingListing = await svc.versions(await svc.dirFor(pkg.slug), siblingDoc);
+    assert.equal(siblingListing.currentRunId, "r1", "sibling keeps its own model version");
+    assert.deepEqual((await svc.model(pkg.slug, "r1")).model, sibling);
+    await assert.rejects(svc.start(pkg.slug, { doc: firstDoc, baseRunId: "r0", instruction: "Edit again", scope: "all", lockFacts: true }), { code: "stale_base" });
+  }
+});
+
+it("rejected repair versions cannot become the current editable document", async () => {
+  const first = structuredClone(model); delete first.documents.coverLetter;
+  const pkg = await seed(first, "resume");
+  for (const [id, feature, adopted, day] of [["r1", "cover_letter", true, "28"], ["r2", "resume", false, "29"]]) {
+    const m = structuredClone(model); delete m.documents[feature === "resume" ? "coverLetter" : "resume"];
+    const run = { runId: id, slug: pkg.slug, feature, requestedAt: `2026-09-${day}T10:00:00.000Z`, finishedAt: `2026-09-${day}T10:00:00.000Z`, repair: { adopted }, template: { family: "signal", source: "default" } };
+    const runDir = join(pkg.dir, "runs", id); await mkdir(runDir);
+    await writeFile(join(runDir, "run.json"), JSON.stringify(run));
+    await writeFile(join(runDir, "render-model.json"), JSON.stringify(m));
+    if (adopted) await writeFile(join(pkg.dir, "run.json"), JSON.stringify(run));
+  }
+  const svc = createMaterialsVersionService({ applicationsRoot: root });
+  const list = await svc.versions(await svc.dirFor(pkg.slug), "resume");
+  assert.equal(list.currentRunId, "r0");
+  assert.equal(list.versions.length, 2, "rejected repair remains viewable");
+  await assert.rejects(svc.start(pkg.slug, { doc: "resume", baseRunId: "r2", instruction: "Edit rejected repair", scope: "all", lockFacts: true }), { code: "stale_base" });
+});
+
+
+it("allows retry after every proposed edit was blocked", async () => {
+  const pkg = await seed();
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: "blocked", op: "replace", node: "seat:acme", text: "Director" }] }) } }] }) }),
+  });
+  const blockedId = await readyProposal(svc, pkg);
+  const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${blockedId}.json`), "utf8"));
+  assert.deepEqual(stored.ops, []);
+  assert.equal(stored.status, "ready");
+  const retry = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Try a different edit", scope: "all", lockFacts: true });
+  assert.ok(retry.proposalId);
+  assert.notEqual(retry.proposalId, blockedId);
+});
+
+it("editing an older combined run preserves the newer sibling document", async () => {
+  for (const [doc, siblingDoc, siblingFeature, change] of [
+    ["resume", "coverLetter", "cover_letter", op],
+    ["coverLetter", "resume", "resume", { opId: "letter-change", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const pkg = await seed();
+    const sibling = structuredClone(model); delete sibling.documents[doc];
+    if (siblingDoc === "coverLetter") sibling.documents.coverLetter.salutation = "Hello updated team,";
+    else sibling.documents.resume.sections.find((s) => s.kind === "earlier").entries[0].line = "Updated daily reporting.";
+    const dir = join(pkg.dir, "runs/r1"); await mkdir(dir);
+    const run = { runId: "r1", slug: pkg.slug, feature: siblingFeature, requestedAt: "2026-09-28T10:00:00.000Z", finishedAt: "2026-09-28T10:00:00.000Z", template: { family: "signal", source: "default" } };
+    await writeFile(join(dir, "run.json"), JSON.stringify(run));
+    await writeFile(join(dir, "render-model.json"), JSON.stringify(sibling));
+    await writeFile(join(pkg.dir, "run.json"), JSON.stringify(run));
+    const siblingFile = siblingDoc === "resume" ? "resume.html" : "cover-letter.html";
+    await writeFile(join(pkg.dir, siblingFile), "current sibling artifact");
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+    const saved = await svc.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [change] }, true);
+    assert.equal(saved.statusCode, 200);
+    assert.deepEqual(Object.keys((await svc.model(pkg.slug, saved.body.run.runId)).model.documents), [doc]);
+    assert.equal((await svc.versions(await svc.dirFor(pkg.slug), siblingDoc)).currentRunId, "r1");
+    assert.deepEqual((await svc.model(pkg.slug, "r1")).model, sibling);
+    assert.equal(await readFile(join(pkg.dir, siblingFile), "utf8"), "current sibling artifact");
+  }
 });
