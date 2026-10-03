@@ -774,7 +774,11 @@
   function selectionAction(ctl, action) {
     var ids = scopePayload(ctl);
     if (!ids || ids === "all" || capabilityPaused(ctl)) return;
-    if (action === "edit") { if (ids.length === 1) beginManual(ctl, ctl.scope.anchor); return; }
+    if (action === "edit") {
+      if (ids.length === 1) beginManual(ctl, ctl.scope.anchor);
+      else status(ctl, "selection", "Select one block to edit its text.");
+      return;
+    }
     var words = { rewrite: "Rewrite the selected text.", shorten: "Shorten the selected text.", emphasize: "Emphasize the selected text.", ask: "" };
     ctl.refs.prompt.value = words[action] || "";
     hideSelectionActions(ctl); autogrow(ctl);

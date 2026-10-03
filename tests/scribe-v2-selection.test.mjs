@@ -106,3 +106,17 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F82 R3-#3 ${which} ma
   inner.dispatchEvent({ type: 'pointerup', target: inner.body });
   assert.equal(ctl.scope, scope); assert.equal(ctl.scope.stale, false); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F810 R3-#11 ${which} activating multi-block Edit text explains its restriction`, async () => {
+  const { ctl, inner, select } = await desk(which);
+  const ids = which === 'resume' ? ['line:beta', 'b:acme:c14'] : ['p:p3', 'p:p2'];
+  if (which === 'cover_letter') {
+    ctl.state.nodes.push({ id: 'p:p2', kind: 'paragraph', text: 'I led daily operations.', locked: { whole: false, spans: [] } });
+    const el = inner.createElement('p'); el.setAttribute('data-node', 'p:p2'); el.textContent = 'I led daily operations.'; inner.body.appendChild(el);
+  }
+  select(ids); const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+  assert.equal(edit.getAttribute('aria-disabled'), 'true');
+  edit.dispatchEvent({ type: 'click', target: edit, bubbles: true });
+  assert.equal(ctl.refs.statusText.textContent, 'Select one block to edit its text.');
+  assert.equal(ctl.manual.active, null); assert.equal(ctl.refs.selectionActions.hasAttribute('hidden'), false); ctl.close();
+});
