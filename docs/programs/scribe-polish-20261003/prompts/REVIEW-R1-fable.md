@@ -11,3 +11,4 @@ Focus: (1) R0 terminal ownership/queue: any interleaving left where Stop/reject/
 Floor (source the isolation env first: `source .lane-evidence/scrp-env/env.sh` inside whichever worktree you run in — create it there with JOBBORED_HOME/JOBBORED_LOGOS_DIR/JOBBORED_LOGO_RESOLVER=off/JOBBORED_PROFILE_PATH/JOBBORED_LLM_CONFIG_PATH pointing inside that worktree if absent; never touch ~/.jobbored): gates A, B (+tests/holes-score-scribe.test.mjs), C (journey+desk+pdf), CSP smoke, D, and 5 runs of E, per SPEC §6. Paste counts including skipped.
 
 Report every issue; do not filter by severity.
+You are the reviewer this round; the family that wrote the work never reviews it. Run the floor commands the kickoff names and paste their output. Report every issue you find, with file and line, and the command output or quote that proves it. Do not filter by severity; the integrator filters. Deliver review only: change no files.

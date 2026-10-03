@@ -1,0 +1,1279 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (1.950375ms)
+  ✔ should serve exactly the node ids the server derives from the model (0.820333ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (3.16075ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (1.245167ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.194083ms)
+  ✔ should refuse to open without a package slug (0.901708ms)
+✔ scribe-v2-api mode flag (3.81075ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.878209ms)
+  ✔ should keep a separate history per document (0.624708ms)
+  ✔ should preview the package's real rendered file for each document (0.88375ms)
+  ✔ should say which document failed when the preview file is missing (0.642792ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.782125ms)
+  ✔ should refuse an empty or over-long instruction (0.593833ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.686208ms)
+  ✔ should end a stopped stream as partial (0.555916ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (1.268959ms)
+✔ scribe-v2-api stub behaviour (8.186167ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.741208ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.6055ms)
+  ✔ should map a server refusal to one error shape (0.530208ms)
+  ✖ should tell the user how to start a server that is not answering (1.075875ms)
+  ✔ should retry a stale base once onto the current run (0.651125ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.994959ms)
+✖ scribe-v2-api live mode: the SPEC §3.2 routes (4.859542ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✖ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.876917ms)
+  ✖ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.55725ms)
+  ✖ SCRP-F3 resume manualEdit resolves only the committed 503 (0.336583ms)
+  ✖ SCRP-F3 resume restore resolves only the committed 503 (0.466792ms)
+  ✖ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.359917ms)
+  ✖ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.307625ms)
+  ✖ SCRP-F3 cover_letter restore resolves only the committed 503 (0.414542ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.461584ms)
+  ✖ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.438458ms)
+✖ SCRP-F2 R1 open route and R2 truthful transport (4.385875ms)
+▶ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
+  ✖ SCRP-F12 resume committed 503 clears review and emits one saved event (15.904542ms)
+  ✖ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (1.89225ms)
+  ✖ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (3.254ms)
+  ✖ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (2.134792ms)
+  ✖ SCRP-F13 resume error http_429 uses safe per-code copy and action (1.74ms)
+  ✖ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (1.522459ms)
+  ✖ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (1.793125ms)
+  ✖ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (2.549834ms)
+  ✖ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (1.829375ms)
+  ✖ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (1.413375ms)
+  ✖ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (1.579708ms)
+  ✖ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (2.146458ms)
+  ✖ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (3.879667ms)
+  ✖ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.383708ms)
+  ✖ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (1.307333ms)
+  ✖ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (1.370959ms)
+✖ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics (46.282541ms)
+✖ SCRP-F30 resume a late committed save emits once for its original document (2.318666ms)
+✖ SCRP-F30 cover_letter a late committed save emits once for its original document (1.946083ms)
+✖ SCRP-F33 resume HTTP no-model has Settings and a kept request (2.634084ms)
+✖ SCRP-F34 resume HTTP save rate-limit keeps the specific safe explanation (2.277541ms)
+✖ SCRP-F33 cover_letter HTTP no-model has Settings and a kept request (2.050208ms)
+✖ SCRP-F34 cover_letter HTTP save rate-limit keeps the specific safe explanation (2.679ms)
+▶ keyword coverage is free, whole-word and case-folded (C14)
+  ✔ should count which of the posting's terms the text covers (2.509791ms)
+  ✔ should not match a term inside a longer word (0.541ms)
+✔ keyword coverage is free, whole-word and case-folded (C14) (3.596125ms)
+▶ the score adapter never shows a number it does not have (SCRIBE-02)
+  ✔ should call an empty document empty, not scored (0.480834ms)
+  ✔ should call a document with text but no score 'not scored', which is not a zero (0.427709ms)
+  ✔ should keep loading and error apart, and never give an error a result (0.449625ms)
+  ✔ should drop a finished score as soon as a newer run starts loading (0.33225ms)
+  ✔ should hydrate from the state the bus already holds at mount (0.367417ms)
+✔ the score adapter never shows a number it does not have (SCRIBE-02) (2.19325ms)
+▶ the score adapter only spends on an explicit Rescore (SCRIBE-02)
+  ✔ should ask the bus to re-broadcast and start no analysis (0.583958ms)
+  ✔ should start exactly one analysis with the payload the real pipeline builds (0.503334ms)
+  ✔ should not fire a second paid call while the first is loading (0.518083ms)
+  ✔ should refuse an empty document with a reason (0.465ms)
+  ✔ should refuse without a bound role, since a score needs a job (0.473584ms)
+✔ the score adapter only spends on an explicit Rescore (SCRIBE-02) (2.712584ms)
+▶ the score adapter refuses another role's score (SCRIBE-02b)
+  ✔ should not show a score measured against a different role (0.649916ms)
+  ✔ should show the score again once the same role is scored (0.431833ms)
+  ✔ should ignore the text hash, so an edit does not make its own score foreign (0.383625ms)
+  ✔ should never refuse when no role is bound to contradict the score (0.30975ms)
+✔ the score adapter refuses another role's score (SCRIBE-02b) (1.839083ms)
+▶ jb:draft:saved means the save landed
+  ✔ should be dispatched on the initial draft and both refine paths (0.0335ms)
+  ✔ should fire only after saveGeneratedDraft resolved, inside the same try (0.146375ms)
+  ✔ should carry the role, the document and the saved draft id (0.070167ms)
+✔ jb:draft:saved means the save landed (0.283792ms)
+▶ the v2 rail tells the truth about what is saved (from scribe-state)
+  ✔ should say it is loading rather than claim the role has no versions (2.8215ms)
+  ✔ should say so plainly when the document has no saved versions (6.344417ms)
+✔ the v2 rail tells the truth about what is saved (from scribe-state) (9.235083ms)
+✖ SCRP-F14 ASTRA-04 resume installs the exact rebase before streaming and marking (4.28025ms)
+✖ SCRP-F14 ASTRA-04 cover_letter installs the exact rebase before streaming and marking (3.042208ms)
+▶ A proposal lands as marks on the render
+  ✔ should mark each op in its block and list it in the rail in reading order (10.692833ms)
+  ✖ should say the summary line and name each control for a screen reader (3.567041ms)
+  ✔ should keep the loss banner away while 20% or less is removed (4.274417ms)
+  ✔ should list a change the template doesn't render, first, without crashing (3.350042ms)
+  ✖ should word the blocked-op chat line by its reason (3.1285ms)
+✖ A proposal lands as marks on the render (25.8215ms)
+▶ Review keys (SPEC §4)
+  ✔ should walk the changes with j and k and focus each one's note (3.530583ms)
+  ✔ should accept with a and reject with r, on the focused change only (3.657167ms)
+  ✔ should not decide anything on a or r before a change is picked (2.297ms)
+  ✔ should accept every verified change on Shift+A and leave the unverified one (3.100833ms)
+  ✔ should hide the marks on D and bring them back (3.02825ms)
+  ✔ should ignore every review key while typing in the composer (2.0285ms)
+✔ Review keys (SPEC §4) (18.066583ms)
+▶ The same controls by mouse
+  ✔ should decide from the rail's ✓ and ✗, and undo (2.899916ms)
+  ✔ should accept all but the unverified, then count it in Save as v5 (1.916292ms)
+  ✔ should toggle Show changes from the header button (4.376958ms)
+  ✖ should reject all, then offer to close without saving (2.82375ms)
+  ✔ should not save with nothing accepted (2.5835ms)
+✖ The same controls by mouse (14.863458ms)
+▶ Saving
+  ✔ should save the accepted ops, confirming the unverified one, from the Save button (2.862917ms)
+  ✖ should save by itself once every change is decided and the desk sits idle (2.277042ms)
+✖ Saving (5.309208ms)
+▶ Stop
+  ✔ should keep the validated ops and mark the proposal partial (3.600666ms)
+  ✔ should keep the ops the server validated when Stop lands before any op arrived (Grok F2-STOP) (3.269542ms)
+  ✖ should still say so when Stop comes back with nothing (1.417166ms)
+✖ Stop (8.523ms)
+▶ Review keys from inside the preview (Grok F2-KEYS)
+  ✔ should take j, a, r, Shift+A and D pressed inside the page (3.024959ms)
+  ✔ should leave Cmd/Ctrl combinations and other keys in the page alone (2.122792ms)
+✔ Review keys from inside the preview (Grok F2-KEYS) (5.274334ms)
+▶ Targets (SPEC §4, Grok F2-HIT)
+  ✔ should give every rail and card control at least 32px on desktop (0.446875ms)
+✔ Targets (SPEC §4, Grok F2-HIT) (0.481458ms)
+▶ Scribe v2 is absent until a package binds it (R1)
+  ✔ should put no Scribe node in the page on boot (2.078709ms)
+  ✔ should mount nothing without a package slug (0.805ms)
+✔ Scribe v2 is absent until a package binds it (R1) (3.263333ms)
+▶ Scribe v2 open
+  ✔ should mount one modal dialog bound to the role's package (5.320333ms)
+  ✔ should render the real document in a script-less sandboxed srcdoc iframe (1.80425ms)
+  ✔ should list every version newest first, marking the current one (1.116959ms)
+  ✔ should fill the composer from a chip without sending (2.125416ms)
+  ✔ should switch documents through a real tablist (2.34025ms)
+✔ Scribe v2 open (12.991208ms)
+▶ Scribe v2 close
+  ✔ should remove the node and return focus to the Edit button (1.605375ms)
+  ✔ should close on Esc (0.862041ms)
+  ✔ should stop a request in flight on the first Esc, not close (2.00275ms)
+  ✔ should close when the role closes, and ignore it afterwards (0.783834ms)
+  ✔ should find the live Edit button when the rows were repainted (0.719459ms)
+  ✔ should keep exactly one desk when a second Edit opens (0.719333ms)
+  ✔ should close when the boot contract unmounts the v2 surfaces (1.522875ms)
+✔ Scribe v2 close (8.433042ms)
+▶ Scribe v2 keeps the keyboard while it is open (F1-trap)
+  ✔ should close on Esc even when focus has fallen to the page body (1.1195ms)
+  ✔ should pull Tab from the page body back into the dialog (1.1775ms)
+  ✔ should stop listening on the document once closed (0.925708ms)
+  ✔ should keep focus on Stop when a stage tick re-renders it (3.408292ms)
+  ✔ B1M-STAGE shows checking facts as the current step (1.3925ms)
+  ✔ should hand focus to the composer when the run ends under a focused Stop (1.626917ms)
+  ✔ should take Esc and Tab from inside the preview iframe (1.715291ms)
+✔ Scribe v2 keeps the keyboard while it is open (F1-trap) (11.597083ms)
+▶ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)
+  ✔ should shrink the sheet above the keyboard and follow it (1.099625ms)
+  ✔ should drop its visualViewport listeners on close (0.77825ms)
+  ✔ should leave the CSS sizing alone on a wide screen (1.526209ms)
+✔ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard) (3.476083ms)
+▶ Scribe v2 speaks each result once (F1-announce)
+  ✔ should keep the transcript a log but not a second live region (0.89025ms)
+✔ Scribe v2 speaks each result once (F1-announce) (0.926458ms)
+✖ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (1.103875ms)
+▶ SCRP-F6 ASTRA-01 persisted recovery for both documents
+  ✖ SCRP-F6 resume close preserves one open request and its exact base (7.977375ms)
+  ✖ SCRP-F6 resume switch preserves one open request and its exact base (2.685833ms)
+  ✖ SCRP-F6 resume resubmit preserves one open request and its exact base (2.7075ms)
+  ✖ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (1.795333ms)
+  ✖ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (2.334667ms)
+  ✖ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (3.506042ms)
+  ✖ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (3.161625ms)
+  ✖ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (2.064875ms)
+  ✖ SCRP-F6 cover_letter close preserves one open request and its exact base (2.577042ms)
+  ✖ SCRP-F6 cover_letter switch preserves one open request and its exact base (3.24025ms)
+  ✖ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.204458ms)
+  ✖ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (1.689041ms)
+  ✖ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (2.726375ms)
+  ✖ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (3.261542ms)
+  ✖ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (2.391875ms)
+  ✖ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (2.421709ms)
+  ✔ SCRP-F9 missing GET open, 404 and network failure leave the desk usable (2.827375ms)
+  ✖ SCRP-F10 materials_pending performs one open read: null (1.79625ms)
+  ✖ SCRP-F10 materials_pending performs one open read: 409 (1.950417ms)
+  ✖ SCRP-F10 materials_pending performs one open read: proposal (1.846459ms)
+  ✖ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (1.496417ms)
+✖ SCRP-F6 ASTRA-01 persisted recovery for both documents (57.322ms)
+✖ SCRP-F15 resume base-load failure keeps the created ID recoverable (2.11625ms)
+✖ SCRP-F16 resume stale recovery keeps Save CAS and reviews current without discarding (3.332709ms)
+✖ SCRP-F15 cover_letter base-load failure keeps the created ID recoverable (1.988292ms)
+✖ SCRP-F16 cover_letter stale recovery keeps Save CAS and reviews current without discarding (1.496833ms)
+✔ SCRP-F17 resume detached SSE callbacks cannot mutate the sibling (2.253083ms)
+✖ SCRP-F18 resume Continue retries an exact-base load and resets replayed ops (1.429375ms)
+✖ SCRP-F19 resume failed Stop never reports Stopped and stays recoverable (1.580167ms)
+✔ SCRP-F17 cover_letter detached SSE callbacks cannot mutate the sibling (2.016875ms)
+✖ SCRP-F18 cover_letter Continue retries an exact-base load and resets replayed ops (1.58575ms)
+✖ SCRP-F19 cover_letter failed Stop never reports Stopped and stays recoverable (2.186292ms)
+▶ diffWords: word-level A → B
+  ✔ should return one unchanged run for identical text (0.740291ms)
+  ✔ should mark only the words that changed (0.12175ms)
+  ✔ should fold an unchanged gap of two words or fewer into one change (0.276875ms)
+  ✔ should keep a gap of three words as unchanged text (0.107292ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.082083ms)
+  ✔ should show an added or emptied block as one insertion or deletion (0.050542ms)
+✔ diffWords: word-level A → B (1.795041ms)
+▶ diffNodes: which blocks differ
+  ✔ should list changed, added and removed blocks in reading order and skip the same ones (0.350291ms)
+  ✔ should report nothing when the wording is the same (0.093083ms)
+  ✔ should keep the letter's blocks apart from the resume's (0.151875ms)
+✔ diffNodes: which blocks differ (0.717542ms)
+▶ sourceLabel
+  ✖ should name every run source the server writes (0.717167ms)
+✖ sourceLabel (0.76875ms)
+▶ Versions rail rows
+  ✖ should show each version's source, and View, Compare and Bring back on older ones (10.389541ms)
+✖ Versions rail rows (10.622208ms)
+▶ View
+  ✔ should show an older version read-only and go back to the live preview (3.474666ms)
+✔ View (3.557334ms)
+▶ Compare
+  ✔ should mark the A → B wording and offer no accept controls (3.689625ms)
+  ✔ should toggle with the c key, but not while typing (2.749875ms)
+  ✔ should re-pick A from the select and say when nothing differs (2.6245ms)
+  ✔ should leave compare when the document tab changes (2.19175ms)
+✔ Compare (11.456ms)
+▶ Bring back as new
+  ✖ should ask first, then append a version and delete none (2.341833ms)
+  ✖ should keep every version and say so when the server refuses (2.116375ms)
+✖ Bring back as new (4.585875ms)
+▶ Keys from inside a View or Compare page (F3-trap)
+  ✔ should take Tab, c and Esc from a compare page back to the desk (4.713459ms)
+  ✔ should unhook a page's forwarder when its frame is replaced (2.024917ms)
+✔ Keys from inside a View or Compare page (F3-trap) (6.82675ms)
+▶ Bring back and an open proposal (F3-discard)
+  ✖ should keep the proposal and say so when bring back fails (1.701583ms)
+  ✔ should discard the proposal only after the new run exists (2.443958ms)
+✖ Bring back and an open proposal (F3-discard) (4.250417ms)
+▶ A page given the same document again (F3-rebind)
+  ✔ should keep forwarding keys when View becomes Compare on the same render (3.283625ms)
+  ✔ should keep the page still shown listening when a preview fails (2.898917ms)
+✔ A page given the same document again (F3-rebind) (6.294917ms)
+▶ A kept page with the last comparison's marks (F3-rebind)
+  ✔ should reload the page rather than keep stale marks (3.772833ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (3.847ms)
+✖ SCRP-F20 resume committed bring-back 503 reports one saved version (2.955708ms)
+✖ SCRP-F20 cover_letter committed bring-back 503 reports one saved version (1.839459ms)
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.711ms)
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.391083ms)
+✖ SCRP-F32 resume saved bring-back with failed discard keeps recovery controls (2.400666ms)
+✖ SCRP-F32 cover_letter saved bring-back with failed discard keeps recovery controls (2.39375ms)
+✖ SCRP-F35 resume HTTP bring-back rate-limit keeps its explanation and retry action (2.378666ms)
+✖ SCRP-F35 cover_letter HTTP bring-back rate-limit keeps its explanation and retry action (2.297083ms)
+ℹ tests 188
+ℹ suites 37
+ℹ pass 108
+ℹ fail 80
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 170.968125
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:288:3
+✖ should tell the user how to start a server that is not answering (1.075875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'The materials server is not answering. Start it with npm start, then try again.'
+  - 'Scribe can’t reach your JobBored server. Start it, then Retry.'
+  
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:293:14)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:291:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The materials server is not answering. Start it with npm start, then try again.',
+    expected: 'Scribe can’t reach your JobBored server. Start it, then Retry.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:339:3
+✖ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.876917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:343:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.55725ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume manualEdit resolves only the committed 503 (0.336583ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume restore resolves only the committed 503 (0.466792ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.359917ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.307625ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter restore resolves only the committed 503 (0.414542ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:374:3
+✖ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.438458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'The materials server answered 409.'
+  - 'Safe explanation'
+  
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:387:16)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:386:7)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The materials server answered 409.',
+    expected: 'Safe explanation',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:430:5
+✖ SCRP-F12 resume committed 503 clears review and emits one saved event (15.904542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:436:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (1.89225ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (3.254ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (2.134792ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume error http_429 uses safe per-code copy and action (1.74ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (1.522459ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (1.793125ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (2.549834ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:430:5
+✖ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (1.829375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:436:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (1.413375ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (1.579708ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (2.146458ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (3.879667ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.383708ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (1.307333ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:454:7
+✖ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (1.370959ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:457:44)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:468:3
+✖ SCRP-F30 resume a late committed save emits once for its original document (2.318666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   {
+  -     doc: 'resume',
+  -     runId: 'saved-late',
+  -     slug: 'acme-example'
+  -   }
+  - ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:476:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { slug: 'acme-example', doc: 'resume', runId: 'saved-late' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:468:3
+✖ SCRP-F30 cover_letter a late committed save emits once for its original document (1.946083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   {
+  -     doc: 'cover_letter',
+  -     runId: 'saved-late',
+  -     slug: 'acme-example'
+  -   }
+  - ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:476:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { slug: 'acme-example', doc: 'cover_letter', runId: 'saved-late' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:482:3
+✖ SCRP-F33 resume HTTP no-model has Settings and a kept request (2.634084ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:487:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:490:3
+✖ SCRP-F34 resume HTTP save rate-limit keeps the specific safe explanation (2.277541ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:496:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:482:3
+✖ SCRP-F33 cover_letter HTTP no-model has Settings and a kept request (2.050208ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:487:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-api.test.mjs:490:3
+✖ SCRP-F34 cover_letter HTTP save rate-limit keeps the specific safe explanation (2.679ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-api.test.mjs:496:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-carryover.test.mjs:306:3
+✖ SCRP-F14 ASTRA-04 resume installs the exact rebase before streaming and marking (4.28025ms)
+  AssertionError [ERR_ASSERTION]: the exact iframe load gates SSE
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-carryover.test.mjs:326:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-carryover.test.mjs:306:3
+✖ SCRP-F14 ASTRA-04 cover_letter installs the exact rebase before streaming and marking (3.042208ms)
+  AssertionError [ERR_ASSERTION]: the exact iframe load gates SSE
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-carryover.test.mjs:326:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:160:3
+✖ should say the summary line and name each control for a screen reader (3.567041ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Not in your saved facts — confirm before accepting\. “4 coordinators” isn’t in your profile\./. Input:
+  
+  '+new lineConfirm✗Unverified: please confirm. “4 coordinators” isn’t in your profile.'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-keyboard.test.mjs:170:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '+new lineConfirm✗Unverified: please confirm. “4 coordinators” isn’t in your profile.',
+    expected: /Not in your saved facts — confirm before accepting\. “4 coordinators” isn’t in your profile\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:189:3
+✖ should word the blocked-op chat line by its reason (3.1285ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'Blocked: would change “2019–2023”.',
+  -   'Blocked: “2019–2023” is a locked fact.',
+      'Blocked: that change was outside what you asked Scribe to edit.'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-keyboard.test.mjs:195:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Blocked: would change “2019–2023”.', 'Blocked: that change was outside what you asked Scribe to edit.' ],
+    expected: [ 'Blocked: “2019–2023” is a locked fact.', 'Blocked: that change was outside what you asked Scribe to edit.' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:296:3
+✖ should reject all, then offer to close without saving (2.82375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'Close without saving'
+  - 'Discard'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-keyboard.test.mjs:301:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Close without saving',
+    expected: 'Discard',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:332:3
+✖ should save by itself once every change is decided and the desk sits idle (2.277042ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Saving as v5…/. Input:
+  
+  'Every change is decided. Saving as v5 in a moment.'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-keyboard.test.mjs:339:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Every change is decided. Saving as v5 in a moment.',
+    expected: /Saving as v5…/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:380:3
+✖ should still say so when Stop comes back with nothing (1.417166ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopped\. No changes suggested\./. Input:
+  
+  'Ask for a change to this resume. Nothing is saved until you accept it.Make it punchierStopped. No changes were proposed.'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-keyboard.test.mjs:385:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Ask for a change to this resume. Nothing is saved until you accept it.Make it punchierStopped. No changes were proposed.',
+    expected: /Stopped\. No changes suggested\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:433:1
+✖ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (1.103875ms)
+  AssertionError [ERR_ASSERTION]: recovery mount exists
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:438:10)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Suite.postRun (node:internal/test_runner/test:1235:19)
+      at Suite.run (node:internal/test_runner/test:1533:10)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume close preserves one open request and its exact base (7.977375ms)
+  TypeError: Cannot read properties of null (reading 'id')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:514:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume switch preserves one open request and its exact base (2.685833ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:510:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume resubmit preserves one open request and its exact base (2.7075ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + ''
+  - 'A second typed request'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:513:92)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'A second typed request',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (1.795333ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopping…/. Input:
+  
+  'Reading resumeReading resumeDrafting editsChecking factsMeasuring lengthReadyStop'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:526:100)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Reading resumeReading resumeDrafting editsChecking factsMeasuring lengthReadyStop',
+    expected: /Stopping…/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (2.334667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (3.506042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (3.161625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:538:5
+✖ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (2.064875ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:542:28)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter close preserves one open request and its exact base (2.577042ms)
+  TypeError: Cannot read properties of null (reading 'id')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:514:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter switch preserves one open request and its exact base (3.24025ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:510:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.204458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + ''
+  - 'A second typed request'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:513:92)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'A second typed request',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (1.689041ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopping…/. Input:
+  
+  'Reading cover letterReading cover letterDrafting editsChecking factsMeasuring lengthReadyStop'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:526:100)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Reading cover letterReading cover letterDrafting editsChecking factsMeasuring lengthReadyStop',
+    expected: /Stopping…/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (2.726375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (3.261542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (2.391875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:538:5
+✖ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (2.421709ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:542:28)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: null (1.79625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: 409 (1.950417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: proposal (1.846459ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:574:3
+✖ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (1.496417ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:576:71)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:585:3
+✖ SCRP-F15 resume base-load failure keeps the created ID recoverable (2.11625ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:592:32)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:596:3
+✖ SCRP-F16 resume stale recovery keeps Save CAS and reviews current without discarding (3.332709ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'r2' !== 'r1'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:601:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'r2',
+    expected: 'r1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:585:3
+✖ SCRP-F15 cover_letter base-load failure keeps the created ID recoverable (1.988292ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:592:32)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:596:3
+✖ SCRP-F16 cover_letter stale recovery keeps Save CAS and reviews current without discarding (1.496833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'r2' !== 'r1'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:601:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'r2',
+    expected: 'r1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:625:3
+✖ SCRP-F18 resume Continue retries an exact-base load and resets replayed ops (1.429375ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:630:26)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:635:3
+✖ SCRP-F19 resume failed Stop never reports Stopped and stays recoverable (1.580167ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:641:32)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:625:3
+✖ SCRP-F18 cover_letter Continue retries an exact-base load and resets replayed ops (1.58575ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:630:26)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:635:3
+✖ SCRP-F19 cover_letter failed Stop never reports Stopped and stays recoverable (2.186292ms)
+  TypeError: Cannot read properties of undefined (reading 'querySelector')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-lifecycle.test.mjs:641:32)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:108:3
+✖ should name every run source the server writes (0.717167ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      'Draft',
+  +   'Scribe edit',
+  -   'Scribe',
+      'Manual',
+      'Regenerated',
+      'Brought back'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:109:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Draft', 'Scribe edit', 'Manual', 'Regenerated', 'Brought back' ],
+    expected: [ 'Draft', 'Scribe', 'Manual', 'Regenerated', 'Brought back' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:193:3
+✖ should show each version's source, and View, Compare and Bring back on older ones (10.389541ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'Scribe edit',
+  -   'Scribe',
+      'Manual',
+      'Draft'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:195:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Scribe edit', 'Manual', 'Draft' ],
+    expected: [ 'Scribe', 'Manual', 'Draft' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:301:3
+✖ should ask first, then append a version and delete none (2.341833ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Bring back v0 as v3\? All versions are kept\./. Input:
+  
+  'Bring back v0 as v3? v2 and every other version stay in the list.Bring back as v3Cancel'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:307:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Bring back v0 as v3? v2 and every other version stay in the list.Bring back as v3Cancel',
+    expected: /Bring back v0 as v3\? All versions are kept\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:327:3
+✖ should keep every version and say so when the server refuses (2.116375ms)
+  AssertionError [ERR_ASSERTION]: [["Bring back didn’t save: The materials server is not answering. Your versions are unchanged.","assertive"]]
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:333:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:405:3
+✖ should keep the proposal and say so when bring back fails (1.701583ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Your open suggested changes will be discarded\./. Input:
+  
+  'Bring back v1 as v3? v2 and every other version stay in the list. The open proposal will be discarded.Bring back as v3Cancel'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:409:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Bring back v1 as v3? v2 and every other version stay in the list. The open proposal will be discarded.Bring back as v3Cancel',
+    expected: /Your open suggested changes will be discarded\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:520:3
+✖ SCRP-F20 resume committed bring-back 503 reports one saved version (2.955708ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:527:36)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:520:3
+✖ SCRP-F20 cover_letter committed bring-back 503 reports one saved version (1.839459ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:527:36)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:537:3
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.711ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      {
+  +     doc: 'cover_letter',
+  +     runId: 'l0',
+  -     doc: 'resume',
+  -     runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:545:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'l0' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:537:3
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.391083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      {
+  +     doc: 'resume',
+  +     runId: 'r2',
+  -     doc: 'cover_letter',
+  -     runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:545:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r2' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:552:3
+✖ SCRP-F32 resume saved bring-back with failed discard keeps recovery controls (2.400666ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:557:36)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:552:3
+✖ SCRP-F32 cover_letter saved bring-back with failed discard keeps recovery controls (2.39375ms)
+  TypeError: Cannot read properties of undefined (reading 'getAttribute')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:557:36)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:566:3
+✖ SCRP-F35 resume HTTP bring-back rate-limit keeps its explanation and retry action (2.378666ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:571:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-versions.test.mjs:566:3
+✖ SCRP-F35 cover_letter HTTP bring-back rate-limit keeps its explanation and retry action (2.297083ms)
+  TypeError: Cannot read properties of undefined (reading 'textContent')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/scribe-v2-versions.test.mjs:571:40)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)

@@ -1,0 +1,258 @@
+✔ B2-1 claims start before yielding to a concurrent call (25.771375ms)
+✔ B2-1 marks accept as accepting before publish and rejects a duplicate (192.032583ms)
+✔ B2-2 shares the publish claim with regenerate during accept (58.490792ms)
+✔ B2-2 rechecks the expected base inside the claimed publish section (4.488417ms)
+✔ B2-3 reconnects to an in-flight stream through done and cleans up on response close (16.864ms)
+✔ B2-4 requires confirmation for manual facts absent from the ledger (31.758375ms)
+✔ B2-4 rechecks selected proposal ops even if their flags are absent (36.1905ms)
+✔ B2-5 applies proposal accept manualOps in the same saved run (31.614542ms)
+✔ B2-7 keeps v0 pinned without calling it starred (3.272584ms)
+✔ B2-8 lets only one of a racing reject and accept finish (40.668625ms)
+✔ B2-9 validates the proposal and manual edit as one shape-valid batch (32.353125ms)
+✔ B2-10 rejects a moved base after the publish claim is first read (26.865458ms)
+✔ B2-12 preserves a stranded accepting status until rejection removes it (3.990916ms)
+✔ service path validates proposal, stream, commit, restore and stale PDF without loopback (86.434ms)
+✔ service SSE emits blocked shape and Stop retains validated partial ops (19.236708ms)
+✖ SCRP-B1 held-measuring Stop persists only partial and unique opIds (15001.128375ms)
+✖ SCRP-B2 processing exception after Stop preserves partial; repeated Stop and reconnect agree (15001.166042ms)
+✖ SCRP-B17 reconnect cannot replay a queued done before its snapshot persists (15000.417416ms)
+✖ SCRP-B3 reject drains queued writes without resurrecting a proposal (15001.446291ms)
+✖ SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text (13.889291ms)
+✖ SCRP-B19 recovery and replay project safe legacy blocked/error rows without writing them (5.83425ms)
+✖ SCRP-B4 GET open projects safe fields across restart and sibling documents (11.086458ms)
+✖ SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes (4.76075ms)
+✖ SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards (5.497833ms)
+✖ SCRP-B7 restarted pending stream resets ops and journal before reprocessing (5.706667ms)
+✔ GET versions and model expose immutable runs, nodes and 404 errors (12.164875ms)
+✔ legacy duplicate node ids do not block version history or read-only preview (36.810708ms)
+✔ POST preview renders base plus validated ops without a browser (18.093709ms)
+✔ POST preview renders valid draft models that fall outside edit shape limits (177.734917ms)
+✔ POST edits enforces stale base and one open proposal; SSE event order and shape (65.077208ms)
+✔ POST stop retains partial ops and rejects an unknown proposal (32.502041ms)
+✔ POST accept writes selected ops as a new run and rejects unconfirmed or stale edits (105.945958ms)
+✖ SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary (103.582584ms)
+✖ SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs (91.199083ms)
+✔ POST accept returns 503 browser_unavailable after saving HTML and a stale-PDF run (96.677667ms)
+✔ DELETE proposal rejects all and leaves the run untouched (11.473791ms)
+✖ SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals (78.788792ms)
+✔ POST manual saves a manual version and rejects cross-document ops (159.749583ms)
+✖ SCRP-B10 restore adds n and versions for ready and stale PDFs (502.659375ms)
+✔ POST restore appends a new run without deleting its source and errors on an unknown source (113.235458ms)
+✔ PUT star stores only stars in versions.json and keeps v0 pinned (61.845584ms)
+✖ all Scribe routes honor pending.json before edits (3.900375ms)
+✔ edits historical single-document runs without validating an unrequested shell (146.414167ms)
+✔ all-scope proposals stay within the selected document (19.0845ms)
+✔ manual edits and restores retain the historical source document feature (100.760875ms)
+✔ keeps malformed requested documents and ambiguous both-document runs blocked (20.825208ms)
+✔ edits the latest version of either document after a sibling-only run (263.596834ms)
+✔ rejected repair versions cannot become the current editable document (14.56425ms)
+✔ allows retry after every proposed edit was blocked (19.463458ms)
+✔ editing an older combined run preserves the newer sibling document (125.996583ms)
+✔ edits a legacy two-paragraph letter using its existing sentences (73.519083ms)
+✔ keeps unsplittable legacy letters and other invalid models blocked (6.681084ms)
+✔ legacy paragraph splitting preserves link labels and refuses ambiguous shapes (42.026292ms)
+file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/materials-edit.test.mjs:5
+import { editDiagnostic, proposeEdits } from "../server/materials-edit.mjs";
+         ^^^^^^^^^^^^^^
+SyntaxError: The requested module '../server/materials-edit.mjs' does not provide an export named 'editDiagnostic'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:302:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:405:5)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.13.0
+✖ tests/materials-edit.test.mjs (44.7235ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 38
+ℹ fail 12
+ℹ cancelled 4
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 63457.026083
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:478:1
+✖ SCRP-B1 held-measuring Stop persists only partial and unique opIds (15001.128375ms)
+  'test timed out after 15000ms'
+
+test at tests/integration/materials-edit-api.test.mjs:488:1
+✖ SCRP-B2 processing exception after Stop preserves partial; repeated Stop and reconnect agree (15001.166042ms)
+  'test timed out after 15000ms'
+
+test at tests/integration/materials-edit-api.test.mjs:499:1
+✖ SCRP-B17 reconnect cannot replay a queued done before its snapshot persists (15000.417416ms)
+  'test timed out after 15000ms'
+
+test at tests/integration/materials-edit-api.test.mjs:503:1
+✖ SCRP-B3 reject drains queued writes without resurrecting a proposal (15001.446291ms)
+  'test timed out after 15000ms'
+
+test at tests/integration/materials-edit-api.test.mjs:537:1
+✖ SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text (13.889291ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+  +   code: 'network',
+  +   message: 'private payload /secret/path stack token=example'
+  -   code: 'provider_failed',
+  -   message: 'The AI provider did not complete the request. Try again.'
+    }
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:550:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { code: 'network', message: 'private payload /secret/path stack token=example' },
+    expected: { code: 'provider_failed', message: 'The AI provider did not complete the request. Try again.' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:556:1
+✖ SCRP-B19 recovery and replay project safe legacy blocked/error rows without writing them (5.83425ms)
+  TypeError: service.open is not a function
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:565:30)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:572:1
+✖ SCRP-B4 GET open projects safe fields across restart and sibling documents (11.086458ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:578:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:588:1
+✖ SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes (4.76075ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:591:21)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:607:1
+✖ SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards (5.497833ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:611:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:627:1
+✖ SCRP-B7 restarted pending stream resets ops and journal before reprocessing (5.706667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'Old text.'
+  -   'Tracked shipments.'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:637:10)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Old text.' ],
+    expected: [ 'Tracked shipments.' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:786:1
+✖ SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary (103.582584ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - false
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:799:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:814:1
+✖ SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs (91.199083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n'
+  - 'sibling PDF bytes'
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:827:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n',
+    expected: 'sibling PDF bytes',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:860:1
+✖ SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals (78.788792ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 409
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:869:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:892:1
+✖ SCRP-B10 restore adds n and versions for ready and stale PDFs (502.659375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  undefined !== 1
+  
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:897:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:929:1
+✖ all Scribe routes honor pending.json before edits (3.900375ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:940:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/materials-edit.test.mjs:1:1
+✖ tests/materials-edit.test.mjs (44.7235ms)
+  'test failed'

@@ -1,0 +1,16 @@
+P1 locked row transcript: ["Blocked: “This edit would change a protected fact.” is a locked fact."]
+P2 after a normal run: {"busy":false,"loading":false,"request":null,"proposal":{"id":"p1","status":"ready","ops":1},"status":null,"recover":"You have 1 suggested change from an earlier request.ReviewDiscard","sendDisabled":"false"}
+P3 stop after the server finished: {"busy":false,"loading":false,"request":"set","proposal":{"id":"p1","status":"pending","ops":1},"status":"[error] That didn’t work. Try again. <Try again>","recover":"An earlier request didn’t finish.ContinueStopDiscard","sendDisabled":"false"}
+P3 after Try again: {"busy":false,"loading":false,"request":"set","proposal":{"id":"p1","status":"pending","ops":1},"status":"[error] That didn’t work. Try again. <Try again>","recover":"An earlier request didn’t finish.ContinueStopDiscard","sendDisabled":"false"}
+P4 while continuing: {"busy":true,"loading":false,"request":"set","proposal":{"id":"p9","status":"pending","ops":0},"status":"[recovered] Your earlier accept/reject choices weren’t kept. Review again.","recover":"An earlier request didn’t finish.ContinueStopDiscard","sendDisabled":"true"}
+P4 after Discard + stream end: {"busy":true,"loading":false,"request":null,"proposal":null,"status":"[idle] Discarded.","recover":null,"sendDisabled":"true"}
+P4 new request posted: {"posts":0,"prompt":"A new request after discarding","stageText":"Reading resumeReading resumeDrafting editsChecking factsMeas"}
+P5 one valid op + one shape block: {"busy":false,"loading":false,"request":null,"proposal":{"id":"p1","status":"ready","ops":1},"status":"[error] Blocked: that change doesn’t fit this template’s layout. <Try again>","recover":"You have 1 suggested change from an earlier request.ReviewDiscard","sendDisabled":"false"}
+P5 after its Try again: {"status":"[recovered] Review or discard the open changes first. Your new request is kept below.","prompt":""}
+P6 pending recovery offers Accept: {"acceptButton":true,"recover":"An earlier request didn’t finish.ContinueStopDiscard"}
+P6 after Save: {"accepts":1,"status":"[error] Not saved. Your accepted changes are still here. <Try again>"}
+P7 after the save finished: {"busy":false,"loading":false,"request":null,"proposal":null,"status":null,"recover":"A save didn’t finish.Discard","sendDisabled":"false"}
+P7 Send: {"posts":1,"status":"[recovered] Review or discard the open changes first. Your new request is kept below."}
+P8 Continue with no hydrated proposal: {"busy":false,"loading":false,"request":"set","proposal":null,"status":"[error] Cannot set properties of null (setting 'ops') <Try again>","recover":"An earlier request didn’t finish.ContinueStopDiscard","sendDisabled":"false"}
+P9 429 rate_limited: {"message":"Too many AI and rendering requests this minute.","fix":"Try again in 12 s.","briefCopy":"Too many requests right now. Try again in a minute. Your request is kept."}
+P9 409 materials_pending on accept: {"message":"An edit is already in progress","briefCopy":"JobBored is still working on this role. Try again in a moment."}
