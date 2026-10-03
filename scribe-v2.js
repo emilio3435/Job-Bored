@@ -738,7 +738,7 @@
         if (id) { if (map[id]) ids.push(id); break; }
       }
       /* Clicking non-document chrome does not broaden a retained scope. */
-      if (!ids.length && !target) return;
+      if (!ids.length) return;
     } else return; /* moving to the parent composer retains a valid scope */
     ctl.scope = { ids: ids, stamp: scopeStamp(ctl), stale: !ids.length, anchor: ids.length ? frameNodes(inner)[ids[0]] : null };
     Array.prototype.forEach.call(inner.querySelectorAll("[data-node]"), function (el) {

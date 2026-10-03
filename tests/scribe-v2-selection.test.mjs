@@ -94,3 +94,15 @@ test('SCRP-F710 R2-#11 multi-block Edit text is disabled with a single-block exp
   assert.equal(edit.getAttribute('aria-disabled'), 'false'); assert.equal(edit.getAttribute('title'), null);
   edit.dispatchEvent({ type: 'click', target: edit }); assert.ok(ctl.manual.active); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F82 R3-#3 ${which} margin and noneditable clicks preserve the scope`, async () => {
+  const { ctl, inner } = await desk(which);
+  for (const target of [inner.body, inner.createElement('h2')]) {
+    if (!target.parentNode) inner.body.appendChild(target);
+    inner.dispatchEvent({ type: 'pointerup', target }); assert.equal(ctl.scope, null);
+  }
+  const el = inner.querySelector(`[data-node="${which === 'resume' ? 'line:beta' : 'p:p3'}"]`);
+  inner.dispatchEvent({ type: 'pointerup', target: el }); const scope = ctl.scope;
+  inner.dispatchEvent({ type: 'pointerup', target: inner.body });
+  assert.equal(ctl.scope, scope); assert.equal(ctl.scope.stale, false); ctl.close();
+});
