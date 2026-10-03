@@ -567,7 +567,15 @@ export function createMaterialsVersionService(deps = {}) {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
         if (event === "done") { res.end(); close(); }
       };
-      for (const row of proposal.events) send(row.event, row.data);
+      // Reconnect delivery belongs to the same queue as new events: a terminal
+      // journal in memory may still be waiting behind an earlier snapshot.
+      const replayRows = structuredClone(proposal.events);
+      const replay = (writes.get(id) || Promise.resolve()).then(() => {
+        if (proposal.status === "rejected") return;
+        for (const row of replayRows) send(row.event, row.data);
+      });
+      writes.set(id, replay);
+      await replay;
       if (res.writableEnded) return;
       let audience = listeners.get(id);
       if (!audience) { audience = new Set(); listeners.set(id, audience); }

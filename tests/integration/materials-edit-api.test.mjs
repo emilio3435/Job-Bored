@@ -430,7 +430,7 @@ function streamEvents(res) {
   });
 }
 
-async function heldMeasuring({ fail = false } = {}) {
+async function heldMeasuring({ fail = false, reconnectWhileHeld = false } = {}) {
   const pkg = await seed();
   const entered = deferred(), release = deferred(), claimed = deferred(), finished = deferred();
   let held = false;
@@ -459,6 +459,15 @@ async function heldMeasuring({ fail = false } = {}) {
   await entered.promise;
   const stopping = svc.stop(pkg.slug, started.proposalId);
   await claimed.promise;
+  if (reconnectWhileHeld) {
+    const connected = deferred();
+    const reconnect = fakeStream();
+    reconnect.flushHeaders = connected.resolve;
+    const joining = svc.stream(pkg.slug, started.proposalId, new EventEmitter(), reconnect);
+    await connected.promise;
+    try { assert.deepEqual(streamEvents(reconnect).filter((row) => row.event === "done"), []); }
+    finally { release.resolve(); await joining; await stopping; }
+  }
   release.resolve(); // Release the serialized writer before awaiting Stop.
   const stopped = await stopping;
   await finished.promise;
@@ -485,6 +494,10 @@ it("SCRP-B2 processing exception after Stop preserves partial; repeated Stop and
   await svc.stream(pkg.slug, id, new EventEmitter(), reconnected);
   assert.deepEqual(streamEvents(reconnected).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
   assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+});
+
+it("SCRP-B17 reconnect cannot replay a queued done before its snapshot persists", async () => {
+  await heldMeasuring({ reconnectWhileHeld: true });
 });
 
 it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async () => {
