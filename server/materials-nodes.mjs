@@ -265,7 +265,8 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
     } else if (op.op === "replace") {
       if (typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "replace needs text");
       const text = plain(op.text);
-      assertUnlocked(node, text);
+      // Normalize each raw side once inside the lock check, just as the client does.
+      assertUnlocked(node, op.text);
       if (["statement", "intro", "bullet", "credential"].includes(ref.kind)) ref.target.runs = toRuns(text, tokens);
       else if (ref.kind === "paragraph") { ref.target.text = text; if ("words" in ref.target) ref.target.words = wordCount(text); }
       else if (ref.kind === "line") ref.entry.line = text;

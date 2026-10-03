@@ -575,3 +575,13 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} a
   assert.equal(t.calls.length, 4); assert.equal(Object.keys(t.ctl.manual.drafts).length, 0);
   assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F107 R5-#7 ${which} ${channel} normalizes markup beside a locked run on both sides`, async () => {
+    for (const [base, after] of [
+      ['Cut defects 38%* across teams.', 'Cut defects 38%* across all teams.'],
+      ['Hit `38%` across teams.', 'Hit `38%` across all teams.'],
+      ['Cut defects 38%*5 across teams.', 'Cut defects 38%*50 across teams.'],
+    ]) await checkNumericRun(which, base, after, after.includes('*50'), ['38%'], channel);
+  });
+}

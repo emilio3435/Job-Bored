@@ -201,3 +201,14 @@ for (const doc of ['resume', 'coverLetter']) {
     assert.equal(deriveNodes(after).find(n => n.id === id).text, 'Through weekly measurement, cut delays 38%.');
   });
 }
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B67 R5-#7 ${doc} markup normalization preserves unchanged runs and refuses joined digits`, () => {
+    for (const base of ['Cut defects 38%* across teams.', 'Hit `38%` across teams.', 'Hit [38%](https://example.com) across teams.']) {
+      const { before, id } = numericModel(doc, base, ['38%']);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: base.replace('across teams', 'across all teams') }]));
+    }
+    const { before, id } = numericModel(doc, 'Cut defects 38%*5 across teams.', ['38%']);
+    assert.throws(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: 'Cut defects 38%*50 across teams.' }]), { reason: 'locked' });
+  });
+}

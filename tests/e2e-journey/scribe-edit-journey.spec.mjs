@@ -894,3 +894,29 @@ for (const which of ['resume', 'cover_letter']) {
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) for (const [style, base] of [['asterisk', 'Cut defects 38%* across teams.'], ['backtick', 'Hit `38%` across teams.']]) {
+  test(`SCRP-F107 R5-#7 ${which} ${style} markup neighbours normalize before a real manual save`, async ({ page }) => {
+      const model = structuredClone(MODEL);
+      const id = which === 'resume' ? 'b:acme:c14' : 'p:p2';
+      if (which === 'resume') {
+        const at = base.indexOf('38%');
+        model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: base.slice(0, at) }, { n: '38%' }, { t: base.slice(at + 3) }];
+      } else model.documents.coverLetter.paragraphs[1].text = base;
+      const h = await realDesk(page, which, { model });
+      try {
+        const block = page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${id}"]`);
+        await block.dblclick(); await expect(block).toHaveAttribute('contenteditable', 'plaintext-only');
+        await block.fill(base.replace('38%', '38%*5')); await expect(block).toHaveText(base);
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
+        await block.fill(base.replace('across teams', 'across all teams'));
+        await leaveBlock(page);
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
+        const saved = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions` + '?doc=' + which)).json();
+        expect(saved.versions).toHaveLength(2);
+        const state = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/${saved.currentRunId}/model`)).json();
+        expect(state.nodes.find(n => n.id === id).text).toBe(base.replace(/[*`]/g, '').replace('across teams', 'across all teams'));
+        expect(h.fence.unexpectedExternal).toEqual([]);
+      } finally { await h.service.close(); }
+  });
+}
