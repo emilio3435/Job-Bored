@@ -1,0 +1,19 @@
+▶ Scribe v2 shows the grade
+  ✔ should put the open document's grade button in the header, named with grade and score (8.60375ms)
+  ✔ should follow the document tab and the manifest (3.504916ms)
+  ✔ should open the score modal from the button, and its Repair fills the composer (3.888125ms)
+✔ Scribe v2 shows the grade (16.455541ms)
+▶ Esc in the score modal over Scribe
+  ✔ should close only the modal: the desk hears the key first and leaves it alone (3.833709ms)
+✔ Esc in the score modal over Scribe (4.039167ms)
+▶ U12 · a Scribe save tells the rows
+  ✔ should emit jb:scribe:saved with the slug, the document and the new run (3.995042ms)
+✔ U12 · a Scribe save tells the rows (4.128959ms)
+ℹ tests 5
+ℹ suites 3
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 63.45575

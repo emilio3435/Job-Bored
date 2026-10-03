@@ -1,0 +1,79 @@
+▶ keyword coverage is free, whole-word and case-folded (C14)
+  ✔ should count which of the posting's terms the text covers (2.191ms)
+  ✔ should not match a term inside a longer word (0.593917ms)
+✔ keyword coverage is free, whole-word and case-folded (C14) (3.291917ms)
+▶ the score adapter never shows a number it does not have (SCRIBE-02)
+  ✔ should call an empty document empty, not scored (0.755459ms)
+  ✔ should call a document with text but no score 'not scored', which is not a zero (0.643792ms)
+  ✔ should keep loading and error apart, and never give an error a result (0.855625ms)
+  ✔ should drop a finished score as soon as a newer run starts loading (0.642916ms)
+  ✔ should hydrate from the state the bus already holds at mount (0.668917ms)
+✔ the score adapter never shows a number it does not have (SCRIBE-02) (3.876916ms)
+▶ the score adapter only spends on an explicit Rescore (SCRIBE-02)
+  ✔ should ask the bus to re-broadcast and start no analysis (0.695959ms)
+  ✔ should start exactly one analysis with the payload the real pipeline builds (0.724ms)
+  ✔ should not fire a second paid call while the first is loading (0.729083ms)
+  ✔ should refuse an empty document with a reason (0.75525ms)
+  ✔ should refuse without a bound role, since a score needs a job (0.440334ms)
+✔ the score adapter only spends on an explicit Rescore (SCRIBE-02) (3.547166ms)
+▶ the score adapter refuses another role's score (SCRIBE-02b)
+  ✔ should not show a score measured against a different role (0.456708ms)
+  ✔ should show the score again once the same role is scored (0.335125ms)
+  ✔ should ignore the text hash, so an edit does not make its own score foreign (0.301792ms)
+  ✔ should never refuse when no role is bound to contradict the score (0.299083ms)
+✔ the score adapter refuses another role's score (SCRIBE-02b) (1.448209ms)
+▶ jb:draft:saved means the save landed
+  ✔ should be dispatched on the initial draft and both refine paths (0.034625ms)
+  ✔ should fire only after saveGeneratedDraft resolved, inside the same try (0.218042ms)
+  ✔ should carry the role, the document and the saved draft id (0.088958ms)
+✔ jb:draft:saved means the save landed (0.388708ms)
+▶ the v2 rail tells the truth about what is saved (from scribe-state)
+  ✔ should say it is loading rather than claim the role has no versions (2.937375ms)
+  ✔ should say so plainly when the document has no saved versions (6.890333ms)
+✔ the v2 rail tells the truth about what is saved (from scribe-state) (9.925792ms)
+✖ SCRP-F14 ASTRA-04 resume installs the exact rebase before streaming and marking (4.808875ms)
+✖ SCRP-F14 ASTRA-04 cover_letter installs the exact rebase before streaming and marking (3.023875ms)
+ℹ tests 23
+ℹ suites 6
+ℹ pass 21
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 80.825875
+
+✖ failing tests:
+
+test at tests/scribe-v2-carryover.test.mjs:306:3
+✖ SCRP-F14 ASTRA-04 resume installs the exact rebase before streaming and marking (4.808875ms)
+  AssertionError [ERR_ASSERTION]: the exact iframe load gates SSE
+
+  true !== false
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-carryover.test.mjs:326:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-carryover.test.mjs:306:3
+✖ SCRP-F14 ASTRA-04 cover_letter installs the exact rebase before streaming and marking (3.023875ms)
+  AssertionError [ERR_ASSERTION]: the exact iframe load gates SSE
+
+  true !== false
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-carryover.test.mjs:326:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

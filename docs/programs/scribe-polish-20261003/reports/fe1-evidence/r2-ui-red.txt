@@ -1,0 +1,413 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (2.888291ms)
+  ✔ should serve exactly the node ids the server derives from the model (1.290542ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (4.626958ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (1.481959ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.9975ms)
+  ✔ should refuse to open without a package slug (0.868709ms)
+✔ scribe-v2-api mode flag (4.480875ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.734292ms)
+  ✔ should keep a separate history per document (0.87625ms)
+  ✔ should preview the package's real rendered file for each document (0.991208ms)
+  ✔ should say which document failed when the preview file is missing (0.986917ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.913417ms)
+  ✔ should refuse an empty or over-long instruction (0.455417ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.541625ms)
+  ✔ should end a stopped stream as partial (0.8605ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (1.748708ms)
+✔ scribe-v2-api stub behaviour (9.582042ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.679542ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.555084ms)
+  ✖ should map a server refusal to one error shape (0.965292ms)
+  ✖ should tell the user how to start a server that is not answering (0.589917ms)
+  ✔ should retry a stale base once onto the current run (0.434625ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.559958ms)
+✖ scribe-v2-api live mode: the SPEC §3.2 routes (3.89925ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✔ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.548667ms)
+  ✔ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.797292ms)
+  ✔ SCRP-F3 resume manualEdit resolves only the committed 503 (0.461833ms)
+  ✔ SCRP-F3 resume restore resolves only the committed 503 (0.515375ms)
+  ✔ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.4735ms)
+  ✔ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.4485ms)
+  ✔ SCRP-F3 cover_letter restore resolves only the committed 503 (0.37825ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.539125ms)
+  ✔ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.515417ms)
+✔ SCRP-F2 R1 open route and R2 truthful transport (4.871125ms)
+▶ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
+  ✖ SCRP-F12 resume committed 503 clears review and emits one saved event (18.333792ms)
+  ✖ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (3.662083ms)
+  ✖ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (3.638459ms)
+  ✖ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (3.76325ms)
+  ✖ SCRP-F13 resume error http_429 uses safe per-code copy and action (3.06725ms)
+  ✖ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (2.405417ms)
+  ✖ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (2.569666ms)
+  ✖ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (4.450833ms)
+  ✖ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (6.12225ms)
+  ✖ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (2.007625ms)
+  ✖ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (2.39975ms)
+  ✖ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (3.053958ms)
+  ✖ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (2.728958ms)
+  ✖ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.795916ms)
+  ✖ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (2.455334ms)
+  ✖ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (2.543792ms)
+✖ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics (65.989292ms)
+ℹ tests 45
+ℹ suites 6
+ℹ pass 27
+ℹ fail 18
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 185.258791
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:274:3
+✖ should map a server refusal to one error shape (0.965292ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'http_409'
+  - 'materials_pending'
+
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:282:14)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:280:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'http_409',
+    expected: 'materials_pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:288:3
+✖ should tell the user how to start a server that is not answering (0.589917ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /npm start/. Input:
+
+  'Scribe can’t reach your JobBored server. Start it, then Retry.'
+
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:293:14)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:291:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Scribe can’t reach your JobBored server. Start it, then Retry.',
+    expected: /npm start/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:428:5
+✖ SCRP-F12 resume committed 503 clears review and emits one saved event (18.333792ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:436:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (3.662083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'The AI provider didn’t respond. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'The AI provider didn’t respond. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (3.638459ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Scribe’s reply couldn’t be read. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Scribe’s reply couldn’t be read. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (3.76325ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Blocked: that change doesn’t fit this template’s layout.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Blocked: that change doesn’t fit this template’s layout.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume error http_429 uses safe per-code copy and action (3.06725ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Too many requests right now. Try again in a minute. Your request is kept.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Too many requests right now. Try again in a minute. Your request is kept.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (2.405417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Scribe’s reply was cut off. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Scribe’s reply was cut off. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (2.569666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'The AI provider declined this request. Your document is unchanged. Try rewording it.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'The AI provider declined this request. Your document is unchanged. Try rewording it.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (4.450833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'No AI model is set up. Choose one in Settings, then try again.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'No AI model is set up. Choose one in Settings, then try again.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:428:5
+✖ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (6.12225ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:436:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (2.007625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'The AI provider didn’t respond. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'The AI provider didn’t respond. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (2.39975ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Scribe’s reply couldn’t be read. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Scribe’s reply couldn’t be read. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (3.053958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Blocked: that change doesn’t fit this template’s layout.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Blocked: that change doesn’t fit this template’s layout.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (2.728958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Too many requests right now. Try again in a minute. Your request is kept.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Too many requests right now. Try again in a minute. Your request is kept.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.795916ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Scribe’s reply was cut off. Your document is unchanged.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Scribe’s reply was cut off. Your document is unchanged.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (2.455334ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'The AI provider declined this request. Your document is unchanged. Try rewording it.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'The AI provider declined this request. Your document is unchanged. Try rewording it.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:452:7
+✖ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (2.543792ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'No AI model is set up. Choose one in Settings, then try again.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:455:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'No AI model is set up. Choose one in Settings, then try again.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

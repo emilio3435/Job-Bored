@@ -1,0 +1,115 @@
+▶ Scribe v2 is absent until a package binds it (R1)
+  ✔ should put no Scribe node in the page on boot (3.303666ms)
+  ✔ should mount nothing without a package slug (0.758917ms)
+✔ Scribe v2 is absent until a package binds it (R1) (4.433958ms)
+▶ Scribe v2 open
+  ✔ should mount one modal dialog bound to the role's package (4.944792ms)
+  ✔ should render the real document in a script-less sandboxed srcdoc iframe (2.417542ms)
+  ✔ should list every version newest first, marking the current one (1.419625ms)
+  ✔ should fill the composer from a chip without sending (1.457417ms)
+  ✔ should switch documents through a real tablist (1.829417ms)
+✔ Scribe v2 open (12.456542ms)
+▶ Scribe v2 close
+  ✔ should remove the node and return focus to the Edit button (1.399458ms)
+  ✔ should close on Esc (0.841208ms)
+  ✔ should stop a request in flight on the first Esc, not close (1.864125ms)
+  ✔ should close when the role closes, and ignore it afterwards (0.820875ms)
+  ✔ should find the live Edit button when the rows were repainted (0.577416ms)
+  ✔ should keep exactly one desk when a second Edit opens (1.009583ms)
+  ✔ should close when the boot contract unmounts the v2 surfaces (1.475542ms)
+✔ Scribe v2 close (8.178042ms)
+▶ Scribe v2 keeps the keyboard while it is open (F1-trap)
+  ✔ should close on Esc even when focus has fallen to the page body (0.802542ms)
+  ✔ should pull Tab from the page body back into the dialog (0.927375ms)
+  ✔ should stop listening on the document once closed (0.871375ms)
+  ✔ should keep focus on Stop when a stage tick re-renders it (2.845583ms)
+  ✔ B1M-STAGE shows checking facts as the current step (1.173ms)
+  ✔ should hand focus to the composer when the run ends under a focused Stop (1.088083ms)
+  ✔ should take Esc and Tab from inside the preview iframe (1.344958ms)
+✔ Scribe v2 keeps the keyboard while it is open (F1-trap) (9.2195ms)
+▶ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)
+  ✔ should shrink the sheet above the keyboard and follow it (0.977792ms)
+  ✔ should drop its visualViewport listeners on close (0.7545ms)
+  ✔ should leave the CSS sizing alone on a wide screen (0.697125ms)
+✔ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard) (2.497584ms)
+▶ Scribe v2 speaks each result once (F1-announce)
+  ✔ should keep the transcript a log but not a second live region (0.854542ms)
+✔ Scribe v2 speaks each result once (F1-announce) (0.890542ms)
+✔ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (0.902333ms)
+▶ SCRP-F6 ASTRA-01 persisted recovery for both documents
+  ✔ SCRP-F6 resume close preserves one open request and its exact base (7.231959ms)
+  ✔ SCRP-F6 resume switch preserves one open request and its exact base (2.365458ms)
+  ✔ SCRP-F6 resume resubmit preserves one open request and its exact base (2.827334ms)
+  ✔ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (4.150084ms)
+  ✔ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (2.238958ms)
+  ✔ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (2.152041ms)
+  ✔ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (1.929041ms)
+  ✔ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (3.488458ms)
+  ✔ SCRP-F6 cover_letter close preserves one open request and its exact base (3.837666ms)
+  ✔ SCRP-F6 cover_letter switch preserves one open request and its exact base (3.31225ms)
+  ✔ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.382791ms)
+  ✔ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (3.2245ms)
+  ✔ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (2.958083ms)
+  ✔ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (2.895042ms)
+  ✔ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (4.804792ms)
+  ✔ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (3.324334ms)
+  ✔ SCRP-F9 missing GET open, 404 and network failure leave the desk usable (4.86525ms)
+  ✔ SCRP-F10 materials_pending performs one open read: null (2.174375ms)
+  ✔ SCRP-F10 materials_pending performs one open read: 409 (1.726916ms)
+  ✔ SCRP-F10 materials_pending performs one open read: proposal (2.026125ms)
+  ✔ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (3.131208ms)
+✔ SCRP-F6 ASTRA-01 persisted recovery for both documents (67.903125ms)
+✔ SCRP-F15 resume base-load failure keeps the created ID recoverable (3.828083ms)
+✔ SCRP-F16 resume stale recovery keeps Save CAS and reviews current without discarding (4.7525ms)
+✔ SCRP-F15 cover_letter base-load failure keeps the created ID recoverable (2.635208ms)
+✔ SCRP-F16 cover_letter stale recovery keeps Save CAS and reviews current without discarding (3.619709ms)
+✔ SCRP-F17 resume detached SSE callbacks cannot mutate the sibling (1.951583ms)
+✖ SCRP-F18 resume Continue retries an exact-base load and resets replayed ops (2.72875ms)
+✔ SCRP-F19 resume failed Stop never reports Stopped and stays recoverable (2.10225ms)
+✔ SCRP-F17 cover_letter detached SSE callbacks cannot mutate the sibling (1.897584ms)
+✖ SCRP-F18 cover_letter Continue retries an exact-base load and resets replayed ops (2.370125ms)
+✔ SCRP-F19 cover_letter failed Stop never reports Stopped and stays recoverable (2.086625ms)
+ℹ tests 57
+ℹ suites 7
+ℹ pass 55
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 177.924125
+
+✖ failing tests:
+
+test at tests/scribe-v2-lifecycle.test.mjs:625:3
+✖ SCRP-F18 resume Continue retries an exact-base load and resets replayed ops (2.72875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  'r2' !== 'r1'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:631:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'r2',
+    expected: 'r1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:625:3
+✖ SCRP-F18 cover_letter Continue retries an exact-base load and resets replayed ops (2.370125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  'r2' !== 'r1'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:631:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'r2',
+    expected: 'r1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
