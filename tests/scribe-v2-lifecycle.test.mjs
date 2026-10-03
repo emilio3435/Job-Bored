@@ -694,3 +694,10 @@ it('SCRP-R1-13 known server errors use copy plus nextStep', async () => {
   await t.submit(ctl);
   assert.equal(ctl.refs.statusText.textContent, 'Too many requests right now. Try again in a minute. Your request is kept. Try again in 30 s.'); ctl.close();
 });
+
+for (const state of ['pending', 'ready', 'partial']) it(`SCRP-R1-14 recovered ${state} controls respect terminal readiness`, async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: state, ops: [ROP] };
+  const ctl = t.mount(); await flush();
+  assert.equal(!!ctl.refs.rail.querySelector('[data-review="accept"]'), state !== 'pending');
+  assert.equal(!!ctl.refs.reviewbar.querySelector('[data-review="save"]'), state !== 'pending'); ctl.close();
+});

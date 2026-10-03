@@ -392,8 +392,8 @@
     /* region:F2-review — once the run ends, an open proposal's review
        (summary, loss meter, Accept all, Reject all, Save) owns the bar. */
     renderRail(ctl);
-    if (p && p.changes && p.changes.length && !ctl.state.busy) { renderReview(ctl); return; }
-    if (!p || !p.summary) {
+    if (reviewReady(p) && p.changes && p.changes.length && !ctl.state.busy) { renderReview(ctl); return; }
+    if (!p || !p.summary || !reviewReady(p)) {
       var v = currentVersion(ctl);
       el.appendChild(h("p", { class: "scribe__reviewbar-sum", text: v
         ? "Showing v" + v.n + ", the current version."
@@ -1665,7 +1665,7 @@
         h("span", { class: "scribe__mm-glyph", "data-g": c.glyph, "aria-hidden": "true", text: c.glyph }),
         h("span", { class: "scribe__mm-note", text: c.op.rationale || DEFAULT_NOTE[c.kind] }),
       ]);
-      if (!ctl.state.busy) item.appendChild(decisionControls(p, c, name, "scribe__mm"));
+      if (!ctl.state.busy && reviewReady(p)) item.appendChild(decisionControls(p, c, name, "scribe__mm"));
       if (st === "pending" && c.unverified) item.appendChild(h("p", { class: "scribe__mm-flag", text: flagText(c) }));
       if (!c.anchor) item.appendChild(h("p", { class: "scribe__mm-missing", text: capital(c.label) + " isn’t shown in this template." }));
       r.rail.appendChild(item);
@@ -1674,6 +1674,8 @@
   }
 
   /* ✓ / ✗ in the rail; the phone's card has room to spell them out. */
+  function reviewReady(p) { return !!p && (p.status === "ready" || p.status === "partial"); }
+
   function decisionControls(p, c, name, cls) {
     var words = cls === "scribe__card";
     var st = p.decisions[c.opId] || "pending";
