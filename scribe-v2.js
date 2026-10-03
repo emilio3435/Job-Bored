@@ -795,12 +795,15 @@
       btn.addEventListener("click", a[2]); el.appendChild(btn);
     });
     if (el.parentNode !== ctl.refs.stage) ctl.refs.stage.appendChild(el);
+    // Keep actionable manual status reachable on phone Chat/Versions.
+    ctl.refs.stage.style.display = (actions || []).some(function (a) { return a[0] === "save" || a[0] === "retry"; }) ? "flex" : "";
   }
 
   function clearManualMessage(ctl) {
     clear(ctl.refs.manualState);
     ctl.refs.manualState.setAttribute("hidden", "");
     ctl.refs.manualState.removeAttribute("data-state");
+    ctl.refs.stage.style.display = "";
   }
 
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
