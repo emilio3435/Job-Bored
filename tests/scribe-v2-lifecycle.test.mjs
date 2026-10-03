@@ -713,3 +713,11 @@ it('SCRP-R1-15 late save clears the matching unfinished-save gate', async () => 
   assert.equal(ctl.openProposal, null); await t.submit(ctl, 'Next request');
   assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
 });
+
+it('SCRP-R1-16 per-op validation blocks stay in the log', async () => {
+  const t = reliabilityApi();
+  t.api.stream = async (_id, h) => { h.onEvent({ event: 'blocked', data: { op: { opId: 'bad-layout' }, reason: 'invalid_model' } }); h.onEvent({ event: 'op', data: { op: ROP } }); h.onEvent({ event: 'done', data: { status: 'ready' } }); };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.notEqual(ctl.refs.status.getAttribute('data-state'), 'error'); assert.equal(ctl.state.proposal.failure, undefined);
+  assert.match(ctl.refs.log.textContent, /Blocked: that change doesn’t fit/); ctl.close();
+});

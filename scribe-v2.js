@@ -1219,7 +1219,7 @@
       p.blocked.push(data);
       var line = blockedLine(data);
       logMessage(ctl, "blocked", [line]);
-      if (data.reason !== "locked" && data.reason !== "out_of_scope") {
+      if (!data.op) {
         p.failure = true;
         errorStatus(ctl, data.reason);
       } else announce(line, true);
