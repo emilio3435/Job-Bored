@@ -1103,7 +1103,7 @@
           manualGateMessage(owner);
           var recovery = readOpen(owner, true), recoverySequence = owner.recoverySeq;
           return recovery.then(function () {
-            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving) manualGateMessage(owner);
+            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving && !m.timer) manualGateMessage(owner);
             return false;
           });
         }

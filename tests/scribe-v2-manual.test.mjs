@@ -671,3 +671,21 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} b
   assert.equal(t.calls.length, 9, 'explicit Save has an initial POST and three retries');
   t.ctl.close('role-closed');
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F113 R6-#4 ${which} recovery keeps Save while a timer is armed and Try again only when it stops`, async () => {
+  const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.'); await t.flush(); await settle();
+  assert.equal(t.calls.length, 1); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+  assert.equal(t.ctl.refs.manualState.textContent, 'Your text is kept. Saves in 2 seconds.Save');
+  assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="save"]'));
+  assert.equal(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'), null);
+  await t.flush(); assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+  const hung = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  hung.api.getOpenEdit = async () => ({ proposal: null }); hung.edit(hung.els[0], 'Tracked operations.');
+  for (let i = 0; i < 4; i++) {
+    await hung.flush();
+    assert.equal(hung.ctl.refs.manualState.textContent, i < 3 ? 'Your text is kept. Saves in 2 seconds.Save' : 'Not saved. Your text is kept.Try again');
+  }
+  assert.equal([...hung.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  hung.ctl.close('role-closed');
+});
