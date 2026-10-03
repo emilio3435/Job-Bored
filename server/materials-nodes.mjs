@@ -33,10 +33,11 @@ export class MaterialsEditError extends Error {
 
 /** @param {string} text */
 const wordCount = (text) => String(text).trim().split(/\s+/).filter(Boolean).length;
-/** @param {string} text @param {boolean} [literalAngles] */
-const plain = (text, literalAngles = false) => {
+/** @param {string} text @param {boolean} [literal] */
+const plain = (text, literal = false) => {
+  if (literal) return String(text);
   const normalized = String(text).normalize("NFC");
-  return (literalAngles ? normalized : normalized.replace(/<\/?[A-Za-z][^<>]*>/g, ""))
+  return normalized.replace(/<\/?[A-Za-z][^<>]*>/g, "")
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
   .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
   .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
@@ -264,10 +265,10 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], befor
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
     beforeOp?.(out, op);
     const { ref } = node;
-    const literalAngles = plainTextOpIds.includes(op.opId);
+    const literal = plainTextOpIds.includes(op.opId) || plain(node.text) !== node.text;
     if (op.op === "insert") {
-      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
-      const text = plain(op.text, literalAngles);
+      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literal).trim()) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
+      const text = plain(op.text, literal);
       if (ref.kind === "bullet") {
         if (ref.owner.some((/** @type {{claimId:string}} */ b) => b.claimId === op.claimId)) throw new MaterialsEditError("invalid_model", `duplicate claimId: ${op.claimId}`);
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { claimId: op.claimId, runs: toRuns(text, tokens) });
@@ -278,8 +279,8 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], befor
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { id: paragraphId, beat, claimId: op.claimId, text, words: wordCount(text) });
       } else throw new MaterialsEditError("invalid_model", `cannot insert after ${id}`);
     } else if (op.op === "replace") {
-      if (typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "replace needs text");
-      const text = plain(op.text, literalAngles);
+      if (typeof op.text !== "string" || !plain(op.text, literal).trim()) throw new MaterialsEditError("invalid_model", "replace needs text");
+      const text = plain(op.text, literal);
       // Normalize each raw side once inside the lock check, just as the client does.
       assertUnlocked(node, op.text);
       // Cleanup must not strip an enumerator/sign or join HTML-separated digits.

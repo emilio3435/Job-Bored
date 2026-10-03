@@ -1524,3 +1524,37 @@ for (const doc of ['resume', 'coverLetter']) for (const first of ['manual', 'AI'
     assert.deepEqual(await readdir(join(pkg.dir, 'runs')), ['r0']);
   });
 }
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B91 R8-#3 ${doc} manual literal text round-trips through save reopen and escaped preview`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const text of ['Use snake_case.', 'Use file_name.', 'Use A* search.', 'Keep <team_name> visible.', '> expected', '[portfolio](https://example.com)', '  Keep Cafe\u0301 *literal* text.\nNext line.  ']) {
+    const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+    const saved = await request(`${pkg.path}/edits/manual`, 'POST', {
+      doc, baseRunId: 'r0', manualOps: [{ opId: 'literal', op: 'replace', node, text }], confirmUnverified: ['literal'],
+    });
+    assert.equal(saved.status, 200, text);
+    const reopened = createMaterialsVersionService({ applicationsRoot: root });
+    assert.equal((await reopened.model(pkg.slug, saved.data.run.runId)).nodes.find(n => n.id === node).text, text);
+    const preview = await request(`${pkg.path}/preview`, 'POST', { doc, baseRunId: saved.data.run.runId, ops: [] });
+    assert.equal(preview.status, 200);
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    assert.ok(preview.data.html.includes(escaped), text);
+    const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+    assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B92 R8-#3 ${doc} unrelated AI rewrite preserves literal text already in its base`, async () => {
+  const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+  const text = 'Please keep <plan> and <b>literal</b> visible across teams.';
+  const saved = await service.accept(pkg.slug, '', { doc, baseRunId: 'r0', manualOps: [{ opId: 'literal-base', op: 'replace', node, text }], confirmUnverified: ['literal-base'] }, true);
+  const next = text.replace('teams.', 'all teams.');
+  const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
+    propose: async () => ({ ops: [{ opId: 'clarify', op: 'replace', node, text: next }], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+  });
+  const started = await svc.start(pkg.slug, { doc, baseRunId: saved.body.run.runId, instruction: 'Clarify teams.', scope: [node], lockFacts: true });
+  const stream = fakeStream(), ended = once(stream, 'end');
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+  const edited = await svc.accept(pkg.slug, started.proposalId, { accept: ['clarify'], confirmUnverified: ['clarify'] });
+  assert.equal((await svc.model(pkg.slug, edited.body.run.runId)).nodes.find(n => n.id === node).text, next);
+});
