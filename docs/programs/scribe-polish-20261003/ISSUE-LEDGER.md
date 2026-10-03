@@ -15,7 +15,7 @@ All browser evidence uses fictional data, installed Chrome or Chromium, and isol
 
 | ID | Before (base 3641d33f) | Fix: main commits | Red-first tests | Candidate evidence | Status |
 |---|---|---|---|---|---|
-| **RISK-01**: Stop vs measuring race | A winning Stop was overwritten to `ready`, and `done` reported `[partial, ready]` | `ea6eca25` terminal claim and ordered queue. `00388821` replay order. `7a8406af`, `a8d704f9` failed write still ends every stream. `13ccf37f` queue release | SCRP-B1/B2/B3, B17, B23, B30 | Host gate E: strict Stop test 20/20 in each of 11 host rounds (220 runs). QA: Stop during checking PASS | ✅ Fixed. Exhaustive race freedom is not claimed |
+| **RISK-01**: Stop vs measuring race | A winning Stop was overwritten to `ready`, and `done` reported `[partial, ready]` | `ea6eca25` terminal claim and ordered queue. `00388821` replay order. `7a8406af`, `a8d704f9` failed write still ends every stream. `13ccf37f` queue release | SCRP-B1/B2/B3, B17, B23, B30 | Host gate E: strict Stop test 20/20 in each of 12 host rounds (240 runs). QA: Stop during checking PASS | ✅ Fixed. Exhaustive race freedom is not claimed |
 | **ASTRA-01**: orphaned ready proposal | 6/6 FAIL (generic 409, no controls) | `53a92eba` GET /edits/open. `6daca654` shared eligibility. `cdca3c8c`, `ad5b9752` recovery client. Hardened in R1 #9/#14/#15/#18, R2 #5–#7, R3 #8/#9 | SCRP-B4–B7, F6–F11, F21, F23, F74–F76, F87/F88 | QA-P2/P3: PASS 3/3 per document at 1440 and 375 | ✅ Fixed |
 | **ASTRA-02**: Stop before the ID arrives | 2/2 FAIL | `ad5b9752` request identity and late-ID stop. `978ed403`, `61a985c2` settle from server state | SCRP-F22, F77 | QA: PASS. Phone Stop on Chat/Versions fixed (`5f466097`, pre-existing defect) | ✅ Fixed |
 | **ASTRA-03**: saved text reported as "Not saved" when the PDF failed | 2/2 FAIL | `d70dd9ac` server metadata, `retryable:false`, sibling PDF kept. `cdca3c8c`, `fc0fe18e` client. D9 copy | SCRP-B8–B10, B15/B16, B28, F3, F12, F24/F25 | Real-PDF gate 4/4. QA: real download and reopen on both documents | ✅ Fixed |
@@ -27,7 +27,7 @@ All browser evidence uses fictional data, installed Chrome or Chromium, and isol
 | ID | Fix | Red-first tests | Evidence | Status |
 |---|---|---|---|---|
 | **GAP-02 / F1**: selection scope | `d30db904`, `d643fcbd`, plus R2 #11, R3 #3/#11. Keyboard access `765062a5`/`90abfc35` (D25) | Selection and manual units: 0/20 pass on base. F43, F46, F47, F813, F814 | QA-P3: strict keyboard-only journey PASS 4/4 cells; selection payloads PASS | ✅ |
-| **GAP-01 / F2**: direct manual edit | `d30db904`, `d643fcbd`, plus D21 batch confirm, D22 spans, D23 role-close drafts, R3/R4/R5/R6 fixes. **D29 (Emilio): blocks holding a locked figure are not directly editable** (`41d90548`/`d012076f`…). Lossless saves `f6537f48`, `e5dbcb36`, plus FIX8 ⏳ | F44, F45, F71–F73, F79–F89, F9x–F13x, B14, B40–B9x | QA-P2/P3: one version, sibling unchanged, plain paste, new-fact confirm, stale draft kept, keyboard edit | ✅ (FIX8 ⏳) |
+| **GAP-01 / F2**: direct manual edit | `d30db904`, `d643fcbd`, plus D21 batch confirm, D22 spans, D23 role-close drafts, R3/R4/R5/R6 fixes. **D29 (Emilio): blocks holding a locked figure are not directly editable** (`41d90548`/`d012076f`…). Lossless saves `f6537f48`, `e5dbcb36`, FIX8 `e35d25bd`/`80b87695`/`4dc5d845` | F44, F45, F71–F73, F79–F89, F9x–F13x, B14, B40–B9x | QA-P2/P3: one version, sibling unchanged, plain paste, new-fact confirm, stale draft kept, keyboard edit | ✅ |
 
 ## UX and copy
 `UX-DELTA.md` has 10 before/after rows (all 10 image pairs verified distinct by md5). `COPY-BRIEF.md` holds every string decision.
@@ -41,8 +41,8 @@ All browser evidence uses fictional data, installed Chrome or Chromium, and isol
 |---|---|
 | Live provider (host-run) | Gemini `gemini-flash-latest`, 4/4 fictional requests: ready, accept 200, `edit` provenance, saved model and server preview contain the edit, reopen persists, sibling byte-equal. Checked through the service and the server-rendered preview, not a browser screenshot |
 | Real installed-browser PDF | Gate F 4/4, plus QA UI download and reopen check: 1 page, fonts embedded, sibling bytes equal |
-| Full `npm test` | Latest 906f2def: 7961/7972 pass, 4 fail, 0 skipped, 7 todo. The failing set is identical to base 3641d33f (logo resolver under RESOLVER=off, submission-record ownership gate, E5 Docker boot) |
-| gitleaks | `3641d33f..HEAD`: no leaks |
+| Full `npm test` | Final candidate ffa89fa1: 8007/8018 pass, 4 fail, 0 skipped, 7 todo. The failing set is identical to base 3641d33f (logo resolver under RESOLVER=off, submission-record ownership gate, E5 Docker boot) |
+| gitleaks | `3641d33f..ffa89fa1`: no leaks |
 
 ## Deferred follow-ups (with reason)
 
@@ -51,6 +51,7 @@ All browser evidence uses fictional data, installed Chrome or Chromium, and isol
 | AI-path exotic value changes: `38 squared`, `38 trillion`, `38﹒5`, `38 minus 2` (R8 #1) | Present on base, where the AI path only checked that the token was present. SCRP already blocks far more, including all R7 rows and U+2011. Fully closing it needs a semantic numeric comparison rather than more character rules. |
 | AI markup cleanup can drop literal `_`, `*` or `<…>` text that was already in the base model (R8 #3, AI side) | Present on base. The manual path is fixed in FIX8. |
 | R7 #7–#14 (P3): retry budget for non-pending failures; two phone-hidden manual states; client/server cleanup parity; `numericRun` text parity; duplicated unlocked copy of a locked figure; failure message during recovery reads; missing `Intl.Segmenter` fallback; minor false blocks | Program stop rule after round 7 |
+| `/preview` strips markup from a manual-style op that `/edits/manual` stores verbatim (R9 #4, P3) | Preview-only mismatch, no stored data affected; follow-up |
 | Safari/WebKit | **Unavailable.** The WebKit 2359 download timed out twice |
 | Physical touch, iOS keyboard, screen-reader speech | Unverified. Phone coverage is desktop Chrome emulation at 375px |
 | `~/.jobbored/logos`: 7 fictional monogram SVGs plus 2 manifests touched by early test runs | Emilio's call. Isolation fixed at 07:59Z |

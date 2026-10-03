@@ -57,7 +57,7 @@ ul.gaps { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76c
   <div class="kicker">JobBored · Scribe editor · program SCRP · 2026-10-03</div>
   <h1>Scribe editor repairs</h1>
   <p class="lede">Both editors, résumé and cover letter, now keep unfinished suggestions recoverable. They report saves truthfully and stop cleanly, and they explain failures in plain words. You can also scope a request to selected blocks and edit a block's text directly, by mouse or keyboard.</p>
-  <div class="meta"><span>branch <b>feat/scribe-polish-20261003</b></span><span>candidate <b>3fea8656</b></span><span>base <b>3641d33f</b></span><span>local only · not pushed</span></div>
+  <div class="meta"><span>branch <b>feat/scribe-polish-20261003</b></span><span>candidate <b>ffa89fa1</b></span><span>base <b>3641d33f</b></span><span>local only · not pushed</span></div>
 </header>
 
 <section id="issues">
@@ -65,7 +65,7 @@ ul.gaps { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76c
   <div class="tablebox"><table>
     <thead><tr><th>ID</th><th>What went wrong</th><th>What happens now</th><th>Proof on the candidate</th><th>Status</th></tr></thead>
     <tbody>
-      <tr><td class="id">RISK-01</td><td>A Stop that won the race could still be overwritten as "ready", and two finish events were sent.</td><td>A proposal finishes exactly once. Stop keeps the partial changes, a failed disk write still ends every open stream, and Discard can't bring a file back.</td><td class="nums">The strict Stop test passed 20/20 in each of 11 host rounds (220 runs). The ordering tests SCRP-B1–B3, B17, B23 and B30 failed before the fix.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">RISK-01</td><td>A Stop that won the race could still be overwritten as "ready", and two finish events were sent.</td><td>A proposal finishes exactly once. Stop keeps the partial changes, a failed disk write still ends every open stream, and Discard can't bring a file back.</td><td class="nums">The strict Stop test passed 20/20 in each of 12 host rounds (240 runs). The ordering tests SCRP-B1–B3, B17, B23 and B30 failed before the fix.</td><td><span class="pill ok">fixed</span></td></tr>
       <tr><td class="id">ASTRA-01</td><td>Closing, switching documents or sending a second request stranded a ready proposal and blocked both documents with "answered 409".</td><td>An unfinished request comes back with Review and Discard. Your typed text is kept. Discard waits for the server and says so if it fails.</td><td>QA: 3/3 PASS for each document in a real browser against the real service. SCRP-F21, F23, F74–F76.</td><td><span class="pill ok">fixed</span></td></tr>
       <tr><td class="id">ASTRA-02</td><td>Pressing Stop before the request had an ID left a hidden pending request, and retrying got a 409.</td><td>Stop is remembered. When the late ID arrives the request is stopped. Old callbacks can't change the next document.</td><td>QA: PASS for both documents (null ID, then late stop 200, then retry 202). SCRP-F22, F77.</td><td><span class="pill ok">fixed</span></td></tr>
       <tr><td class="id">ASTRA-03</td><td>The text was saved, but the PDF failed and the editor said "Not saved". Pressing Save again failed.</td><td>The editor says "Text saved as v1. PDF unavailable — it’s rebuilt on your next save." Save is gone, and the history and preview move forward. The other document's PDF is kept.</td><td>QA: PASS for both documents. The real-PDF gate passed 4/4. SCRP-B8–B10, B15/B16, B28.</td><td><span class="pill ok">fixed</span></td></tr>
@@ -95,18 +95,18 @@ ul.gaps { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76c
   <div class="tablebox"><table class="nums">
     <thead><tr><th>Gate</th><th>Command scope</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td>A · service</td><td>nodes, edit, fact-check, commit, pipeline, integration API, regenerate</td><td>142 / 142, 0 skipped</td></tr>
-      <tr><td>B · editor units</td><td>api, lifecycle, carryover, keyboard, diff, versions, selection, manual, score, node IDs</td><td>320 / 320, 0 skipped</td></tr>
-      <tr><td>C · browser</td><td>edit journey, desk, real-PDF save (both documents, real service)</td><td>70 / 70</td></tr>
-      <tr><td>CSP · visual</td><td>scriptless frame smoke · Scribe visual spec</td><td>6 / 6 · 21 / 21</td></tr>
+      <tr><td>A · service</td><td>nodes, edit, fact-check, commit, pipeline, integration API, regenerate</td><td>187 / 187, 0 skipped</td></tr>
+      <tr><td>B · editor units</td><td>api, lifecycle, carryover, keyboard, diff, versions, selection, manual, score, node IDs</td><td>404 / 404, 0 skipped</td></tr>
+      <tr><td>C · browser</td><td>edit journey, desk, real-PDF save (both documents, real service)</td><td>92 / 92</td></tr>
+      <tr><td>CSP · visual</td><td>scriptless frame smoke · Scribe visual spec</td><td>6 / 6 · 29 / 29</td></tr>
       <tr><td>D · contracts</td><td>materials contract, lint, typecheck, all contracts</td><td>all exit 0</td></tr>
       <tr><td>E · Stop stress</td><td>strict Stop test, 20 separate runs</td><td>20 / 20</td></tr>
-      <tr><td>Full suite</td><td><code>npm test</code></td><td>7878 / 7889 pass, 0 skipped, 7 todo. The 4 failures also fail on base (logo resolver, submission ownership gate, Docker boot).</td></tr>
+      <tr><td>Full suite</td><td><code>npm test</code></td><td>8007 / 8018 pass, 0 skipped, 7 todo. The 4 failures also fail on base (logo resolver, submission ownership gate, Docker boot).</td></tr>
       <tr><td>Live provider</td><td>Gemini, 2 fictional requests per document</td><td>4 / 4 saved, persisted, sibling unchanged</td></tr>
-      <tr><td>Secrets</td><td><code>gitleaks detect 3641d33f..3fea8656</code></td><td>no leaks</td></tr>
+      <tr><td>Secrets</td><td><code>gitleaks detect 3641d33f..ffa89fa1</code></td><td>no leaks</td></tr>
     </tbody>
   </table></div>
-  <p class="note">Independent review: a Fable plan check before any code, then eight diff rounds alternating Fable and Astra. P1 and P2 findings in the new work were fixed with a test that failed first. After four rounds kept finding new ways to change a locked figure by typing, you chose to make lines with locked figures non-editable (D29).</p>
+  <p class="note">Independent review: a Fable plan check before any code, then nine diff rounds alternating Fable and Astra. P1 and P2 findings in the new work were fixed with a test that failed first. After four rounds kept finding new ways to change a locked figure by typing, you chose to make lines with locked figures non-editable (D29).</p>
 </section>
 
 <section id="gaps">
