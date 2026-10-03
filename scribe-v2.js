@@ -1009,6 +1009,14 @@
     clearManualMessage(ctl);
   }
 
+  function resumeManualSave(ctl) {
+    var m = ctl.manual;
+    if (!dirtyManual(ctl) || m.saving) return;
+    if (m.timer) root.clearTimeout(m.timer);
+    m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
+    manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.");
+  }
+
   function guardManualNavigation(ctl, action, restored) {
     if (ctl.manual.active) { captureManual(ctl); finishManual(ctl); }
     if (!dirtyManual(ctl) && !ctl.manual.saving) return action();
@@ -1020,7 +1028,7 @@
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
         if (entry[0] === "save") saveManual(ctl).then(function (saved) { if (saved) { el.setAttribute("hidden", ""); action(); } });
-        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else ctl.refs.prompt.focus(); }
+        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl); ctl.refs.prompt.focus(); } }
       }); el.appendChild(btn);
     });
     el.querySelector("button").focus(); return false;
@@ -2139,7 +2147,7 @@
       var buttons = Array.prototype.slice.call(r.selectionActions.querySelectorAll("button"));
       var at = buttons.indexOf(e.target); e.preventDefault(); buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus(); return;
     }
-    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); r.prompt.focus(); return; }
+    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl); r.prompt.focus(); return; }
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */

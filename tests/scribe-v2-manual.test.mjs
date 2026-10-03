@@ -295,3 +295,19 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F85 R3-#6 ${which} Sa
   ctl.state.proposal = null; confirm.dispatchEvent({ type: 'click' }); await settle(); assert.equal(calls.length, 1);
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F86 R3-#7 ${which} Stay and Escape rearm one manual save with visible status`, async () => {
+  for (const choice of ['stay', 'escape', 'restored-escape']) {
+    const t = await desk(which); t.edit(t.els[0], 'Tracked operations.'); let ctl = t.ctl;
+    if (choice === 'restored-escape') {
+      ctl.close('role-closed'); ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await settle();
+      ctl.refs.frame.contentDocument = t.inner; ctl.refs.frame.onload(); await settle();
+    } else ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+    if (choice === 'stay') ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+    else t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.win.document.activeElement });
+    assert.equal(ctl.refs.unsaved.hasAttribute('hidden'), true); assert.equal(ctl.closed, false);
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false); assert.match(ctl.refs.manualState.textContent, /[Ss]aves/);
+    await t.flush(); assert.equal(t.calls.length, 1); ctl.close();
+  }
+});
