@@ -969,7 +969,7 @@
         ]);
       } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
       else {
-        manualMessage(ctl, "error", "Not saved. Your text is kept.", [["retry", "Try again", function () { saveManual(ctl); }]]);
+        manualMessage(ctl, "error", "Not saved. Your text is kept. " + errorText(err), [["retry", "Try again", function () { saveManual(ctl); }]]);
         if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
       }
       return false;
@@ -2233,7 +2233,7 @@
     ctl.api.star(runId, next).catch(function (err) {
       v.starred = !next;
       renderVersions(ctl);
-      announce((err && err.message) || "Star didn’t save.", true);
+      announce(errorText(err, "Star didn’t save."), true);
     });
     var btn = ctl.refs.versions.querySelector('[data-star="' + runId + '"]');
     if (btn) btn.focus();

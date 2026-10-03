@@ -587,3 +587,25 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-R1-D19 ${which} Bring b
   click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0')); await settle();
   assert.deepEqual(body, { doc: which }); t.ctl.close();
 });
+
+it('SCRP-F78 R2-#9 compare errors use mapped copy plus nextStep and can retry', async () => {
+  const t = await openDesk(); const original = t.api.getModel; let fails = true;
+  t.api.getModel = async id => { if (fails) throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'RAW server response HTTP 429', 'Try again in 30 s.'); return original(id); };
+  click(act(t.host, 'compare', 'r0')); await settle();
+  assert.match(pane(t.host).textContent, /Too many requests right now.*Try again in 30 s\./);
+  assert.doesNotMatch(pane(t.host).textContent, /RAW server/);
+  const retry = pane(t.host).querySelector('[data-cmp-act="retry"]'); assert.ok(retry);
+  fails = false; click(retry); await settle(); assert.ok(pane(t.host).querySelector('.scribe__compare-item')); t.ctl.close();
+});
+
+it('SCRP-F78 R2-#9 Star errors use mapped copy plus nextStep and keep Star retry', async () => {
+  const t = await openDesk(); let fails = true;
+  t.api.star = async () => { if (fails) throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'RAW server response HTTP 429', 'Try again in 30 s.'); };
+  const before = t.ctl.state.versions.find(v => v.runId === 'r1').starred;
+  click(t.host.querySelector('[data-star="r1"]')); await settle();
+  assert.match(t.spoken.at(-1)[0], /Too many requests right now.*Try again in 30 s\./);
+  assert.doesNotMatch(t.spoken.at(-1)[0], /RAW server/);
+  assert.equal(t.ctl.state.versions.find(v => v.runId === 'r1').starred, before);
+  fails = false; click(t.host.querySelector('[data-star="r1"]')); await settle();
+  assert.equal(t.ctl.state.versions.find(v => v.runId === 'r1').starred, !before); t.ctl.close();
+});

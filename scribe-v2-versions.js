@@ -586,6 +586,7 @@
       changes.appendChild(h("h3", { class: "scribe__compare-head", text: head }));
       if (ui.diffError) {
         changes.appendChild(h("p", { class: "scribe__compare-note", "data-tone": "error", text: ui.diffError }));
+        changes.appendChild(h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-cmp-act": "retry", text: "Try again" }));
         return;
       }
       if (!ui.diff) {
@@ -699,7 +700,7 @@
           announce("Comparing v" + byId(a).n + " with v" + byId(b).n + ". " + summaryText());
         }, function (err) {
           if (token !== ui.token) return;
-          ui.diffError = (err && err.message) || "The versions could not be read, so nothing is marked.";
+          ui.diffError = root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err, "The versions could not be read, so nothing is marked.") : "The versions could not be read, so nothing is marked.";
           renderChanges();
         });
       }
@@ -895,6 +896,7 @@
         if (act === "cancel") { cancelBringBack(); return; }
         var cmp = t.getAttribute("data-cmp-act");
         if (cmp === "exit") { exit(); return; }
+        if (cmp === "retry") { enter("compare", ui.a, ui.b, ui.opener); return; }
         if (cmp === "compare") { compareWith(ui.a, ui.opener); return; }
         if (cmp === "bring") { askBringBack(ui.a); return; }
         var ab = t.getAttribute("data-ab");

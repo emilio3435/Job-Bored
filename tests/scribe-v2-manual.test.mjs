@@ -185,3 +185,14 @@ for (const which of ['resume', 'cover_letter']) {
     const fresh = await desk(which); assert.equal(Object.keys(fresh.ctl.manual.drafts).length, 0); fresh.ctl.close();
   });
 }
+
+test('SCRP-F78 R2-#9 manual errors use mapped copy plus nextStep and keep Try again', async () => {
+  let win; let fails = true;
+  const t = await desk('resume', () => { if (fails) throw new win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'RAW server response HTTP 429', 'Try again in 30 s.'); return { run: { runId: 'r1', n: 1 } }; });
+  win = t.win; vm.runInNewContext(readFileSync(new URL('../scribe-v2-api.js', import.meta.url), 'utf8'), win);
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.match(t.ctl.refs.manualState.textContent, /Not saved\. Your text is kept\..*Too many requests right now.*Try again in 30 s\./);
+  assert.doesNotMatch(t.ctl.refs.manualState.textContent, /RAW server/);
+  fails = false; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+});
