@@ -334,3 +334,60 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     assert.equal(rec.calls[0].headers.Accept, "text/event-stream");
   });
 });
+
+describe('SCRP-F2 R1 open route and R2 truthful transport', () => {
+  it('SCRP-F2 GET open is slug-bound and maps the server coverLetter name', async () => {
+    const { JBScribeApi } = loadApi();
+    const rec = recordingFetch(() => response(200, { proposal: { proposalId: 'p1', doc: 'coverLetter', status: 'ready' } }));
+    const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: rec.fetchImpl });
+    assert.equal(typeof api.getOpenEdit, 'function');
+    assert.equal((await api.getOpenEdit()).proposal.doc, 'cover_letter');
+    assert.equal(rec.calls[0].url, `${BASE}/api/applications/${SLUG}/edits/open`);
+    assert.equal(rec.calls[0].method, 'GET');
+  });
+  for (const doc of ['resume', 'cover_letter']) {
+    for (const method of ['acceptEdit', 'manualEdit', 'restore']) {
+      it(`SCRP-F3 ${doc} ${method} resolves only the committed 503`, async () => {
+        const { JBScribeApi } = loadApi();
+        const body = { code: 'browser_unavailable', error: 'PDF unavailable.', run: { runId: 'saved-1', n: 1, pdf: 'stale' }, versions: [], retryable: false };
+        const rec = recordingFetch(() => response(503, body));
+        const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: rec.fetchImpl });
+        const res = await api[method](method === 'manualEdit' ? { doc, baseRunId: 'r0', manualOps: [] } : 'p1', { accept: ['o1'] });
+        assert.equal(res.textSaved, true);
+        assert.equal(res.httpStatus, 503);
+        assert.equal(res.run.n, 1);
+        assert.equal(rec.calls.length, 1, 'saved text is never retried');
+      });
+    }
+  }
+  it('SCRP-F4 ordinary 503 and incomplete committed bodies still fail', async () => {
+    const { JBScribeApi } = loadApi();
+    for (const body of [
+      { code: 'provider_failed' },
+      { code: 'browser_unavailable', run: { runId: '', pdf: 'stale' } },
+      { code: 'browser_unavailable', run: { runId: 'r1', pdf: 'ready' } },
+    ]) {
+      const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: async () => response(503, body) });
+      await assert.rejects(api.acceptEdit('p1', {}), (e) => e.status === 503 && !e.textSaved);
+    }
+  });
+  it('SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable', async () => {
+    const { JBScribeApi } = loadApi();
+    for (const [body, expected] of [
+      [{ error: 'Safe explanation', code: 'stale_base', detail: 'New version', nextStep: 'Review current', retryable: false }, 'Safe explanation'],
+      [{ message: 'Preferred message', error: 'Other', code: 'provider_failed', fix: 'Try again' }, 'Preferred message'],
+      [{ code: 'unreadable_reply' }, 'Scribe’s reply couldn’t be read. Your document is unchanged.'],
+      [{ code: 'unknown' }, 'That didn’t work. Try again.'],
+      [{ message: 'x'.repeat(500) }, 'x'.repeat(300)],
+    ]) {
+      const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: async () => response(409, body) });
+      await assert.rejects(api.acceptEdit('p1', {}), (e) => {
+        assert.equal(e.message, expected);
+        assert.equal(e.fix, body.fix || body.nextStep || null);
+        assert.equal(e.detail, body.detail || null);
+        assert.equal(e.retryable, body.retryable);
+        return true;
+      });
+    }
+  });
+});
