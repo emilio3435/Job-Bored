@@ -441,7 +441,7 @@ export function createMaterialsVersionService(deps = {}) {
         { event: "done", data: { status: "failed" } },
       ]);
     } finally {
-      await terminals.get(proposal.id);
+      await terminals.get(proposal.id)?.catch(() => {});
       proposal.running = false;
       validated.delete(proposal.id);
       if (proposal.status !== "rejected") await save(proposal);
@@ -591,7 +591,7 @@ export function createMaterialsVersionService(deps = {}) {
         }
         return row;
       });
-      const replay = (writes.get(id) || Promise.resolve()).then(() => {
+      const replay = (writes.get(id) || Promise.resolve()).catch(() => {}).then(() => {
         if (proposal.status === "rejected") return;
         for (const row of replayRows) send(row.event, row.data);
       });
@@ -608,6 +608,9 @@ export function createMaterialsVersionService(deps = {}) {
       if (!proposal.running && proposal.status === "pending") {
         void processProposal(proposal).then(() => {
           if (!res.writableEnded) send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+        }).catch(() => {
+          const data = { status: proposal.status, message: editDiagnostic("editor_failed").detail };
+          for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
         });
       } else if (!proposal.running) {
         send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });

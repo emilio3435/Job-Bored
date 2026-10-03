@@ -1262,3 +1262,44 @@ it("SCRP-B22 R1-#2+#3 D19 letter restore has its own numbering and leaves the re
     assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "cover_letter");
   }
 });
+
+
+it("SCRP-B23 R1-#4 a failed terminal write delivers done and reconnect replays without rejection", async () => {
+  const pkg = await seed();
+  let failed = false;
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl,
+    persistProposal: async (path, snapshot) => {
+      if (!failed && snapshot.events.at(-1)?.event === "done") {
+        failed = true;
+        throw Object.assign(new Error("Fictional terminal persistence failure"), { code: "ENOSPC" });
+      }
+      const temporary = `${path}.tmp`;
+      await writeFile(temporary, JSON.stringify(snapshot));
+      await rename(temporary, path);
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const first = fakeStream();
+  const ended = once(first, "end");
+  let timer;
+  try {
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), first);
+    const delivered = await Promise.race([ended.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(delivered, true, "failed terminal persistence must not hang the stream");
+    assert.equal(failed, true);
+    assert.equal(first.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(first.chunks.join(""), /"status":"ready"/);
+    assert.doesNotMatch(first.chunks.join(""), /Fictional terminal persistence failure|ENOSPC/);
+    // Let final housekeeping finish, then reconnect through the same real queue.
+    await new Promise((resolve) => setImmediate(resolve));
+    const replay = fakeStream();
+    const replayed = once(replay, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), replay);
+    await replayed;
+    assert.equal(replay.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(replay.chunks.join(""), /"status":"ready"/);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+    assert.equal(stored.status, "ready");
+    assert.equal(stored.events.filter((row) => row.event === "done").length, 1);
+  } finally { clearTimeout(timer); first.end(); first.emit("close"); }
+});
