@@ -1091,7 +1091,7 @@
     if (ctl.manual.active) {
       if (key !== "Tab") return false;
       finishManual(ctl);
-    } else if (!ctl.state.proposal && (key === "ArrowDown" || key === "ArrowUp" || key === "j" || key === "k")) {
+    } else if (key === "ArrowDown" || key === "ArrowUp" || !ctl.state.proposal && (key === "j" || key === "k")) {
       e.preventDefault(); hideSelectionActions(ctl);
       focusBlock(ctl, blocks[(at + (key === "ArrowDown" || key === "j" ? 1 : -1) + blocks.length) % blocks.length]);
       return true;
