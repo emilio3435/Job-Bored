@@ -152,14 +152,16 @@ for (const which of ['resume', 'cover_letter']) {
 }
 
 for (const which of ['resume', 'cover_letter']) {
-  test(`SCRP-F72 R2-#2 ${which} repeated tokens never relocate transformed UTF-16 locks`, async () => {
+  test(`SCRP-F72 R2-#2 ${which} repeated tokens preserve the locked numeric-run multiset`, async () => {
     const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
     nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
     edit(els[0], '38% 😀 delays 38%.');
     inner.dispatchEvent({ type: 'dblclick', target: els[0] });
     els[0].textContent = '38% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
-    // The new prefix is editable; only the original occurrence is locked.
+    assert.equal(els[0].textContent, '38% 😀 delays 40%.');
+    // D27 allows movement, but losing the last identical run is refused.
+    els[0].textContent = '40% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '38% 😀 delays 40%.');
     els[0].textContent = '40% 😀 delays 38%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
     assert.equal(els[0].textContent, '40% 😀 delays 38%.');
     inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
@@ -240,12 +242,14 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 R3-#2 F42/F72 ${w
     assert.equal(els[0].textContent, nodes[0].text, text); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
   }
   inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush(); assert.equal(calls.length, 0);
-  // A repeated editable prefix must not move the original lock or permit edge edits.
+  // D27 lets an identical prefix satisfy the base run; it cannot then be removed.
   edit(els[0], '38% 😀 delays 38% through review.');
   inner.dispatchEvent({ type: 'dblclick', target: els[0] });
   for (const text of ['38% 😀 delays 138% through review.', '38% 😀 delays 38%5 through review.']) {
     els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, '38% 😀 delays 38% through review.');
+    assert.equal(els[0].textContent, text);
+    els[0].textContent = text.replace('38% ', ''); inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, text, 'the last identical run remains protected');
   }
   inner.dispatchEvent({ type: 'focusout', target: els[0] });
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
@@ -339,7 +343,7 @@ function caret(inner, el, start, end = start) {
   inner.getSelection = () => ({ rangeCount: 1, isCollapsed: start === end, getRangeAt: () => range });
 }
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D26 validates full blocks for input, beforeinput and paste`, async () => {
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D27 validates full blocks for input, beforeinput and paste`, async () => {
   const cases = [
     ['Processed 38 shipments.', 'Processed 38% shipments.', 12, 12, '%'],
     ['Processed 38 shipments.', 'Processed $38 shipments.', 10, 10, '$'],
@@ -347,7 +351,6 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D2
     ['Processed 38 shipments.', 'Processed 38$ shipments.', 12, 12, '$'],
     ['Processed 38 shipments.', 'Processed 38,000 shipments.', 12, 12, ',000'],
     ['Processed 38 shipments.', 'Processed ,00038 shipments.', 10, 10, ',000'],
-    [' 38 shipments.', '38 shipments.', 0, 1, ''],
     ['38 shipments.', '$38 shipments.', 0, 0, '$'],
     ['Processed 38', 'Processed 38%', 12, 12, '%'],
   ];
@@ -458,3 +461,50 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F93 R4-#4 ${which} ad
     } else { owner.close(); owner.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); }
   }
 });
+
+
+// D27: evaluate the entire replacement, with the server's plain-text normalization.
+async function checkNumericRun(which, base, after, blocked, tokens = ['38'], channel = 'input') {
+  const t = await desk(which); const { ctl, inner, els, nodes } = t;
+  nodes[0].text = base;
+  nodes[0].locked.spans = tokens.map((token, i) => {
+    const start = base.indexOf(token, i ? base.indexOf(tokens[i - 1]) + tokens[i - 1].length : 0);
+    return [start, start + token.length];
+  });
+  els[0].textContent = base; inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  if (channel === 'beforeinput') {
+    caret(inner, els[0], 0, base.length);
+    const e = { type: 'beforeinput', target: els[0], inputType: 'insertText', data: after };
+    inner.dispatchEvent(e); assert.equal(!!e.defaultPrevented, blocked, `${base} -> ${after}`);
+  } else if (channel === 'paste') {
+    const range = { startContainer: els[0], endContainer: els[0], startOffset: 0,
+      toString: () => base, cloneRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => '' }),
+      deleteContents() { els[0].textContent = ''; }, insertNode(n) { els[0].textContent = n.textContent; }, setStartAfter() {}, collapse() {} };
+    inner.getSelection = () => ({ rangeCount: 1, getRangeAt: () => range, removeAllRanges() {}, addRange() {} });
+    inner.dispatchEvent({ type: 'paste', target: els[0], clipboardData: { getData: () => after } });
+    assert.equal(els[0].textContent, blocked ? base : after, `${base} -> ${after}`);
+  } else {
+    els[0].textContent = after; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, blocked ? base : after, `${base} -> ${after}`);
+  }
+  if (blocked) assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+  ctl.close('role-closed');
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F101 R5-#1 ${which} ${channel} preserves atomic numeric runs and their multiplicity`, async () => {
+    for (const [base, after, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'], ['Processed 38 shipments.', 'Processed 𝟙38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) await checkNumericRun(which, base, after, true, tokens, channel);
+    for (const [base, after, tokens] of [
+      ['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', 'Processed (38) shipments.'], [' 38 shipments.', '38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 more, then 38.', ['38', '38']],
+    ]) await checkNumericRun(which, base, after, false, tokens, channel);
+  });
+
+
+}

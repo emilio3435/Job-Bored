@@ -805,26 +805,82 @@
 
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
-  function changedRange(before, after) {
-    var start = 0, end = before.length, tail = after.length;
-    while (start < end && start < tail && before.charAt(start) === after.charAt(start)) start++;
-    while (end > start && tail > start && before.charAt(end - 1) === after.charAt(tail - 1)) { end--; tail--; }
-    return { start: start, end: end, delta: after.length - before.length };
+
+  /** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+   * @param {string} value */
+  function normalizedNumericText(value) {
+    var text = String(value);
+    var offsets = Array.from({ length: text.length }, (_, i) => i);
+    /** @param {RegExp} pattern @param {boolean} [label] */
+    function strip(pattern, label = false) {
+      var from = 0;
+      /** @type {string[]} */
+      var parts = [];
+      /** @type {number[]} */
+      var next = [];
+      text.replace(pattern, (...args) => {
+        var match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
+        parts.push(text.slice(from, at), kept);
+        next = next.concat(offsets.slice(from, at));
+        if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
+        from = at + match.length;
+        return match;
+      });
+      parts.push(text.slice(from));
+      text = parts.join(""); offsets = next.concat(offsets.slice(from));
+    }
+    strip(/<[^>]*>/g);
+    strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
+    strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
+    strip(/(?:\*\*|__|~~|`|\*|_)/g);
+    strip(/^\s+|\s+$/g);
+    return { text, offsets };
+  }
+
+  /** @param {string} text @param {number} start @param {number} end */
+  function numericRun(text, start, end) {
+    while (start > 0) {
+      var prev = Array.from(text.slice(0, start)).pop() || "";
+      var before = Array.from(text.slice(0, start - prev.length)).pop() || "";
+      if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
+      start -= prev.length;
+    }
+    while (end < text.length) {
+      var next = String.fromCodePoint(text.codePointAt(end) || 0);
+      var after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
+      if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
+      end += next.length;
+    }
+    return [start, end];
+  }
+
+  /** Match the locked base runs as a multiset, in any order, returning raw offsets.
+   * @param {string} base @param {number[][]} spans @param {string} result */
+  function matchingNumericSpans(base, spans, result) {
+    var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+    /** @type {number[][]} */
+    var matched = [];
+    for (var [rawStart, rawEnd] of spans) {
+      var start = original.offsets.findIndex(i => i >= rawStart);
+      var end = original.offsets.findIndex(i => i >= rawEnd);
+      if (end < 0) end = original.text.length;
+      if (start < 0 || start >= end) return null;
+      var [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
+      var at = next.text.indexOf(run);
+      while (at >= 0) {
+        var [left, right] = numericRun(next.text, at, at + run.length);
+        if (left === at && right === at + run.length && !used.has(at)) break;
+        at = next.text.indexOf(run, at + 1);
+      }
+      if (at < 0) return null;
+      used.add(at);
+      matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+    }
+    return matched;
   }
 
   function manualSpans(a, text) {
-    var diff = changedRange(a.last, text), shifted = [];
-    for (var i = 0; i < a.spans.length; i++) {
-      var span = a.spans[i];
-      if (diff.start < span[1] && diff.end > span[0]) return null;
-      var move = span[0] >= diff.end ? diff.delta : 0;
-      var start = span[0] + move, end = span[1] + move;
-      if (text.slice(start, end) !== a.last.slice(span[0], span[1]) ||
-          (Array.from(text.slice(0, start)).pop() || "") !== (Array.from(a.last.slice(0, span[0])).pop() || "") ||
-          (Array.from(text.slice(end))[0] || "") !== (Array.from(a.last.slice(span[1]))[0] || "")) return null;
-      shifted.push([start, end]);
-    }
-    return shifted;
+    return matchingNumericSpans(a.node.text, a.node.locked && a.node.locked.spans || [], text);
   }
 
   function captureManual(ctl) {

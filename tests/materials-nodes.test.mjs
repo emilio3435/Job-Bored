@@ -89,7 +89,7 @@ it('SCRP-B40 R3-#2 locked figures reject embedded tokens at both edges on an ato
       assert.deepEqual(before, original);
     }
     const sentence = node.text.replace('38%', '38%.');
-    assert.throws(() => applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }]), { reason: 'locked' });
+    assert.equal(deriveNodes(applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }])).find(n => n.id === id).text, sentence);
   }
 });
 
@@ -115,7 +115,7 @@ it('SCRP-B41 R3-#2 confirmed manual figure-edge changes return 400 locked withou
   } finally { await fixture.close(); }
 });
 
-it('SCRP-B50 R4-#1 D26 preserves exact figure neighbours on both documents', () => {
+it('SCRP-B50 R4-#1 D27 preserves numeric runs on both documents', () => {
   for (const doc of ['resume', 'coverLetter']) for (const [prefix, suffix] of [['Processed ', ' shipments.'], [' ', ' shipments.'], ['', ' shipments.'], ['Processed ', '']]) {
     const before = model();
     const id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
@@ -131,6 +131,65 @@ it('SCRP-B50 R4-#1 D26 preserves exact figure neighbours on both documents', () 
       const changed = applyOps(before, [{ opId: 'stage', op: 'replace', node: id, text: staged }]);
       assert.throws(() => applyOps(changed, [{ opId: 'join', op: 'replace', node: id, text: staged.replace('38 ,000', '38,000') }]), { reason: 'locked' });
     }
-    if (prefix) assert.throws(() => applyOps(before, [{ opId: 'leading', op: 'replace', node: id, text: node.text.slice(prefix.length) }]), { reason: 'locked' });
+    if (prefix) assert.equal(deriveNodes(applyOps(before, [{ opId: 'leading', op: 'replace', node: id, text: node.text.slice(prefix.length) }])).find(n => n.id === id).text, node.text.slice(prefix.length).trim());
   }
+});
+
+
+function numericModel(doc, text, tokens = ['38']) {
+  const before = model(), id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+  if (doc === 'resume') {
+    const runs = []; let from = 0;
+    for (const token of tokens) { const at = text.indexOf(token, from); if (at > from) runs.push({ t: text.slice(from, at) }); runs.push({ n: token }); from = at + token.length; }
+    if (from < text.length) runs.push({ t: text.slice(from) });
+    before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = runs;
+  } else before.documents.coverLetter.paragraphs[1].text = text;
+  return { before, id };
+}
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B61 R5-#1 ${doc} numeric runs block joiners and count each locked occurrence`, () => {
+    for (const [base, next, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'], ['Processed 38 shipments.', 'Processed 𝟙38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) {
+      const { before, id } = numericModel(doc, base, tokens), original = structuredClone(before);
+      assert.throws(() => applyOps(before, [{ opId: 'numeric', op: 'replace', node: id, text: next, flags: ['unverified'] }]), { reason: 'locked' }, `${base} -> ${next}`);
+      assert.deepEqual(before, original);
+    }
+    for (const [base, next] of [['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', 'Processed (38) shipments.']]) {
+      const { before, id } = numericModel(doc, base);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'numeric', op: 'replace', node: id, text: next }]));
+    }
+  });
+
+
+}
+
+
+it('SCRP-B62 R5-#1 confirmed manual requests cannot override numeric-run locks on either document', async () => {
+  const { startScribeRealService } = await import('./e2e-fixtures/scribe-real-service.mjs');
+  const fixture = await startScribeRealService();
+  try {
+    for (const doc of ['resume', 'coverLetter']) for (const [base, next, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) {
+      const { before, id } = numericModel(doc, base, tokens);
+      const seed = await fixture.seed({ model: before });
+      const res = await fetch(fixture.baseUrl + seed.path + '/edits/manual', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'numeric', op: 'replace', node: id, text: next }], confirmUnverified: ['numeric'] }),
+      });
+      assert.equal(res.status, 400, `${doc}: ${base} -> ${next}`); assert.equal((await res.json()).code, 'locked');
+      const listing = await (await fetch(fixture.baseUrl + seed.path + '/versions?doc=' + doc)).json();
+      assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    }
+  } finally { await fixture.close(); }
 });
