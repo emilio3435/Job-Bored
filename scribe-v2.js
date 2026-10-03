@@ -808,8 +808,12 @@
     return { start: start, end: end, delta: after.length - before.length };
   }
 
-  function touches(spans, start, end) {
-    return spans.some(function (span) { return start === end ? start > span[0] && start < span[1] : start < span[1] && end > span[0]; });
+  function touches(spans, start, end, inserted) {
+    var chars = Array.from(inserted || ""), edge = /[\p{L}\p{N}.,%$]/u;
+    return spans.some(function (span) {
+      return (start === end ? start > span[0] && start < span[1] : start < span[1] && end > span[0]) ||
+        end === span[0] && edge.test(chars[chars.length - 1] || "") || start === span[1] && edge.test(chars[0] || "");
+    });
   }
 
   function captureManual(ctl) {
@@ -817,7 +821,7 @@
     if (!a) return;
     var text = String(a.el.textContent || "");
     var diff = changedRange(a.last, text);
-    if (touches(a.spans, diff.start, diff.end)) {
+    if (touches(a.spans, diff.start, diff.end, text.slice(diff.start, diff.end + diff.delta))) {
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
@@ -889,7 +893,7 @@
     var start = offsets.start, end = offsets.end;
     if (start === end && e.inputType === "deleteContentBackward") start--;
     if (start === end && e.inputType === "deleteContentForward") end++;
-    if (touches(a.spans, start, end)) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
+    if (touches(a.spans, start, end, e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : ""))) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
   }
 
   function manualPaste(ctl, e) {
@@ -898,7 +902,7 @@
     e.preventDefault();
     var text = e.clipboardData && e.clipboardData.getData("text/plain") || "";
     var offsets = editOffsets(frameDoc(ctl), a.el);
-    if (offsets && touches(a.spans, offsets.start, offsets.end)) { manualMessage(ctl, "error", lockText(a.node)); return; }
+    if (offsets && touches(a.spans, offsets.start, offsets.end, text)) { manualMessage(ctl, "error", lockText(a.node)); return; }
     if (!offsets && a.spans.length) return;
     if (offsets) {
       var range = offsets.range, inner = frameDoc(ctl), selection = inner.getSelection();

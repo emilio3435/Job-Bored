@@ -79,3 +79,38 @@ it("edits a published five-bullet employer without dropping its proof", () => {
   assert.equal(runsToText(edited.bullets[2].runs), "Built clear daily reports for operations teams.");
   assert.equal(runsToText(entry.bullets[2].runs), "Built a clear daily report for operations teams.");
 });
+
+it('SCRP-B40 R3-#2 locked figures reject embedded tokens at both edges on an atomic clone', () => {
+  for (const id of ['stmt', 'p:p2']) {
+    const before = model(); const original = structuredClone(before);
+    const node = deriveNodes(before).find(n => n.id === id);
+    for (const figure of ['138%', '38%5', '2.38%', '38%.5', 'A38%', '38%é']) {
+      assert.throws(() => applyOps(before, [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38%', figure), flags: ['unverified'] }]), { reason: 'locked' }, figure);
+      assert.deepEqual(before, original);
+    }
+    const sentence = node.text.replace('38% through', '38%. Through');
+    assert.doesNotThrow(() => applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }]));
+  }
+});
+
+it('SCRP-B41 R3-#2 confirmed manual figure-edge changes return 400 locked without a version', async () => {
+  const { startScribeRealService } = await import('./e2e-fixtures/scribe-real-service.mjs');
+  const fixture = await startScribeRealService();
+  try {
+    const seed = await fixture.seed();
+    for (const [doc, id] of [['resume', 'stmt'], ['coverLetter', 'p:p2']]) {
+      const node = deriveNodes(seed.model).find(n => n.id === id);
+      for (const figure of ['138%', '38%5', '2.38%', '38%.5']) {
+        const res = await fetch(fixture.baseUrl + seed.path + '/edits/manual', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38%', figure) }], confirmUnverified: ['edge'] }),
+        });
+        assert.equal(res.status, 400); assert.equal((await res.json()).code, 'locked');
+      }
+    }
+    const listing = await (await fetch(fixture.baseUrl + seed.path + '/versions?doc=resume')).json();
+    assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    const saved = await (await fetch(fixture.baseUrl + seed.path + '/versions/r0/model')).json();
+    assert.deepEqual(saved.model, seed.model);
+  } finally { await fixture.close(); }
+});

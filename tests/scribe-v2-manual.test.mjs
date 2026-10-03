@@ -226,3 +226,23 @@ for (const which of ['resume', 'cover_letter']) {
     reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); reopened.close();
   });
 }
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 R3-#2 F42/F72 ${which} both locked figure edges are atomic`, async () => {
+  const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
+  nodes[0].text = '😀 delays 38% through review.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  for (const text of ['😀 delays 138% through review.', '😀 delays 38%5 through review.', '😀 delays 2.38% through review.', '😀 delays 38%.5 through review.', '😀 delays A38% through review.', '😀 delays 38%é through review.']) {
+    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, nodes[0].text, text); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+  }
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush(); assert.equal(calls.length, 0);
+  // A repeated editable prefix must not move the original lock or permit edge edits.
+  edit(els[0], '38% 😀 delays 38% through review.');
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  for (const text of ['38% 😀 delays 138% through review.', '38% 😀 delays 38%5 through review.']) {
+    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '38% 😀 delays 38% through review.');
+  }
+  inner.dispatchEvent({ type: 'focusout', target: els[0] });
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
