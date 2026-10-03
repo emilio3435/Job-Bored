@@ -86,7 +86,7 @@ test.afterAll(async () => {
   if (app) await app.close();
 });
 
-async function openDesk(page, viewport, motion) {
+async function openDesk(page, viewport, motion, doc = "resume") {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.setViewportSize(viewport);
@@ -116,7 +116,7 @@ async function openDesk(page, viewport, motion) {
   const expand = page.getByRole("region", { name: "Discovered column" }).getByRole("button", { name: "Expand Discovered" });
   if (await expand.count()) await expand.click();
   await page.locator(".pipe-sticker", { hasText: "Platform Engineer" }).click();
-  await page.locator('[data-region="role"] .brief-materials [data-doc="resume"]').getByRole("button", { name: "Edit" }).click();
+  await page.locator(`[data-region="role"] .brief-materials [data-doc="${doc}"]`).getByRole("button", { name: "Edit" }).click();
   const desk = page.getByRole("dialog", { name: "Scribe" });
   await expect(desk).toBeVisible();
   await page.waitForFunction(() => {
@@ -124,7 +124,7 @@ async function openDesk(page, viewport, motion) {
     return sheet && sheet.getAnimations().every((a) => a.playState !== "running") && getComputedStyle(sheet).opacity === "1";
   });
   await expect(page.frameLocator("jb-scribe .scribe__docscroll iframe").locator(`[data-family="${FAMILY}"]`)).toHaveCount(1);
-  await expect(desk.getByRole("region", { name: /^Resume, version 1/ })).toHaveAttribute("aria-busy", "false");
+  await expect(desk.getByRole("region", { name: doc === "resume" ? /^Resume, version 1/ : /^Cover letter, version 1/ })).toHaveAttribute("aria-busy", "false");
   return { desk, errors, fence };
 }
 
@@ -248,5 +248,188 @@ test("full screen at 390, one segment at a time", async ({ page }) => {
     await expectNoSidewaysScroll(page);
     await compareScreenshot(page, `scribe-v2-390-${segment.toLowerCase()}.png`);
   }
+  expectHermetic(booted);
+});
+
+
+/* SCRP: injected presentation states use the real FE mount points. These
+ * checks prove styling only; recovery/manual behavior belongs to FE's floor.
+ * No new pixel baselines are recorded until the host's FE-COPY signal. */
+async function injectPresentation(page, kind, state = "idle") {
+  await page.evaluate(({ kind, state }) => {
+    const host = document.querySelector("jb-scribe.scribe");
+    const button = (text, primary = false) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = `scribe__btn scribe__btn--small${primary ? " scribe__btn--primary" : ""}`;
+      el.textContent = text;
+      return el;
+    };
+    if (kind === "recover") {
+      const el = host.querySelector(".scribe__recover");
+      el.hidden = false;
+      el.dataset.recoverDoc = host.dataset.doc;
+      el.replaceChildren();
+      const text = document.createElement("p");
+      text.textContent = "You have 2 suggested changes from an earlier request.";
+      const review = button("Review", true); review.dataset.action = "review-request";
+      const discard = button("Discard"); discard.dataset.action = "discard-request";
+      el.append(text, review, discard);
+    } else if (kind === "status") {
+      const messages = {
+        idle: "Ask for a change.", sending: "Sending…", stopping: "Stopping…", ready: "2 suggested changes",
+        saving: "Saving…", saved: "Saved as v2", recovered: "Review the earlier suggested changes.",
+        "saved-pdf-unavailable": "Text saved as v2. PDF unavailable — it’s rebuilt on your next save.",
+        stale: "Not saved — a newer version exists.", error: "Not saved. Your accepted changes are still here.",
+      };
+      const el = host.querySelector(".scribe__status");
+      el.hidden = false; el.dataset.state = state;
+      const text = document.createElement("span"); text.textContent = messages[state];
+      el.replaceChildren(text);
+      if (["stale", "error"].includes(state)) {
+        const action = button(state === "stale" ? "Review current" : "Try again");
+        action.classList.add("scribe__status-action"); el.append(action);
+      }
+    } else if (kind === "selection") {
+      const scope = host.querySelector(".scribe__scope");
+      scope.querySelector(".scribe__pill").textContent = "Selected: Introduction and supporting operations experience";
+      const clear = scope.querySelector('[data-action="clear-scope"]'); clear.hidden = false;
+      // FE-2 owns these two anchors; the injected shape matches SPEC §4.
+      let toolbar = host.querySelector(".scribe__selection-actions");
+      if (!toolbar) {
+        toolbar = document.createElement("div"); toolbar.className = "scribe__selection-actions";
+        toolbar.role = "toolbar"; toolbar.setAttribute("aria-label", "Selected text actions");
+        host.querySelector(".scribe__docscroll").append(toolbar);
+      }
+      toolbar.hidden = false; toolbar.style.left = "8px"; toolbar.style.top = "8px";
+      toolbar.replaceChildren(...["Rewrite", "Shorten", "Emphasize", "Ask…", "Edit text"].map(text => button(text)));
+    } else if (kind === "manual") {
+      let el = host.querySelector(".scribe__manual-state");
+      if (!el) {
+        el = document.createElement("span"); el.className = "scribe__manual-state";
+        host.querySelector(".scribe__stage").append(el);
+      }
+      el.hidden = false; el.dataset.state = state;
+      const messages = {
+        editing: "Editing Introduction. Saves when you leave the block.", saving: "Saving…", saved: "Saved as v2",
+        error: "Not saved. Your text is kept.", conflict: "A newer version exists. Your text is kept.",
+        confirm: "“Northwind” isn’t in your saved facts.",
+      };
+      const text = document.createElement("span"); text.textContent = messages[state]; el.replaceChildren(text);
+      if (state === "error") el.append(button("Try again"));
+      if (state === "conflict") el.append(button("Review current"), button("Reapply"));
+      if (state === "confirm") el.append(button("Save anyway"), button("Edit"));
+    } else if (kind === "unsaved") {
+      const el = host.querySelector(".scribe__unsaved"); el.hidden = false;
+      const text = document.createElement("p"); text.textContent = "You have unsaved text.";
+      el.replaceChildren(text, button("Save", true), button("Discard"), button("Stay"));
+    }
+  }, { kind, state });
+}
+
+async function expectPresentation(page, locator, mobile) {
+  await expect(locator).toBeVisible();
+  await expectNoSidewaysScroll(page);
+  const box = await locator.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual((await page.viewportSize()).width);
+  const overflow = await locator.evaluate(el => el.scrollWidth - el.clientWidth);
+  expect(overflow, "the anchor contains its long text and actions").toBeLessThanOrEqual(1);
+  if (mobile) {
+    for (const button of await locator.locator("button").all()) {
+      if (!await button.isVisible()) continue;
+      const box = await button.boundingBox();
+      expect(box.height, "44px mobile action height").toBeGreaterThanOrEqual(44);
+      expect(box.width, "44px mobile action width").toBeGreaterThanOrEqual(44);
+    }
+  }
+  const contrastFailures = await locator.evaluate(root => {
+    const rgba = value => (value.match(/[\d.]+/g) || []).map(Number);
+    const composite = (front, back) => {
+      const alpha = front.length < 4 ? 1 : front[3];
+      return front.slice(0, 3).map((v, i) => v * alpha + back[i] * (1 - alpha));
+    };
+    const background = el => {
+      const chain = []; for (let node = el; node; node = node.parentElement) chain.unshift(node);
+      return chain.reduce((bg, node) => composite(rgba(getComputedStyle(node).backgroundColor), bg), [255, 255, 255]);
+    };
+    const luminance = rgb => rgb.map(v => v / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+      .reduce((n, v, i) => n + v * [0.2126, 0.7152, 0.0722][i], 0);
+    return [root, ...root.querySelectorAll("p, span, button")].filter(el => el.getClientRects().length && el.textContent.trim() && !el.matches('[aria-disabled="true"], :disabled')).flatMap(el => {
+      const bg = background(el); const foreground = composite(rgba(getComputedStyle(el).color), bg);
+      const a = luminance(bg), b = luminance(foreground); const ratio = (Math.max(a,b) + 0.05) / (Math.min(a,b) + 0.05);
+      return ratio < 4.5 ? [{ text: el.textContent, ratio }] : [];
+    });
+  });
+  expect(contrastFailures, "anchor text meets WCAG AA contrast").toEqual([]);
+  const focusable = locator.locator("button").first();
+  if (await focusable.count()) {
+    await page.keyboard.press("Tab");
+    await focusable.focus();
+    const ring = await focusable.evaluate(el => {
+      const cs = getComputedStyle(el);
+      return el.matches(":focus-visible") && (cs.boxShadow !== "none" || (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2));
+    });
+    expect(ring, "keyboard focus has a visible ring").toBe(true);
+  }
+}
+
+for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
+  const mobile = width === 375;
+  const viewport = { width, height: mobile ? 667 : 1000 };
+  test(`SCRP-U1 ${doc} ${width}: recovery and every status outcome`, async ({ page }) => {
+    const booted = await openDesk(page, viewport, "reduce", doc);
+    if (mobile) await booted.desk.getByRole("tab", { name: "Chat", exact: true }).click();
+    await injectPresentation(page, "recover");
+    const recover = booted.desk.locator(".scribe__recover");
+    await expectPresentation(page, recover, mobile);
+    await expect(recover).toHaveCSS("border-left-width", "3px");
+    await recover.evaluate(el => { el.hidden = true; });
+    const heights = [];
+    for (const state of ["idle", "sending", "stopping", "ready", "saving", "saved", "saved-pdf-unavailable", "stale", "error", "recovered"]) {
+      await injectPresentation(page, "status", state);
+      const status = booted.desk.locator(".scribe__status");
+      await expectPresentation(page, status, mobile);
+      expect((await status.boundingBox()).height, "status space is reserved").toBeGreaterThanOrEqual(64);
+      if (["idle", "sending", "stopping", "ready", "saving", "saved"].includes(state)) heights.push((await status.boundingBox()).height);
+      if (state === "saved-pdf-unavailable") await expect(status.locator("button")).toHaveCount(0);
+    }
+    expect(Math.max(...heights) - Math.min(...heights), "short status outcomes keep the composer stable").toBeLessThanOrEqual(1);
+    expectHermetic(booted);
+  });
+
+  test(`SCRP-U2 ${doc} ${width}: selection, manual outcomes and unsaved prompt`, async ({ page }) => {
+    const booted = await openDesk(page, viewport, "reduce", doc);
+    await injectPresentation(page, "selection");
+    if (mobile) await booted.desk.getByRole("tab", { name: "Chat", exact: true }).click();
+    await expectPresentation(page, booted.desk.locator(".scribe__scope"), mobile);
+    if (mobile) await booted.desk.getByRole("tab", { name: "Doc", exact: true }).click();
+    const toolbar = booted.desk.locator(".scribe__selection-actions");
+    await expectPresentation(page, toolbar, mobile);
+    await expect(toolbar).toHaveCSS("position", "absolute");
+    for (const state of ["editing", "saving", "saved", "error", "conflict", "confirm"]) {
+      await injectPresentation(page, "manual", state);
+      await expectPresentation(page, booted.desk.locator(".scribe__manual-state"), mobile);
+    }
+    await injectPresentation(page, "unsaved");
+    const prompt = booted.desk.getByRole("alertdialog", { name: "Unsaved text" });
+    await expectPresentation(page, prompt, mobile);
+    await expect(prompt).toHaveCSS("position", "absolute");
+    expectHermetic(booted);
+  });
+}
+
+test("SCRP-U3 composer: 44px phone field and keyboard focus ring", async ({ page }) => {
+  const booted = await openDesk(page, { width: 375, height: 667 }, "reduce");
+  await booted.desk.getByRole("tab", { name: "Chat", exact: true }).click();
+  const field = booted.desk.getByRole("textbox", { name: "Ask Scribe for a change" });
+  expect((await field.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await page.keyboard.press("Tab"); await field.focus();
+  const ring = await field.evaluate(el => {
+    const cs = getComputedStyle(el);
+    return el.matches(":focus-visible") && (cs.boxShadow !== "none" || (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2));
+  });
+  expect(ring, "the composer field has its own keyboard focus ring").toBe(true);
+  await expectNoSidewaysScroll(page);
   expectHermetic(booted);
 });

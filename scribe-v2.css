@@ -11,7 +11,7 @@
    - No sentence under --jb-type-small (13px), and no text at all
      under 12px: key caps use --jb-text-xs, not the 11px label.
    - Mint fills carry --jb-on-accent text, never --jb-ink-inverse.
-   - Targets: 32px on desktop, 44px under 600px.
+   - Action targets: 36px on desktop, 44px under 600px.
    - Lane F3 owns the `.scribe__compare` block only.
    ============================================================ */
 
@@ -72,7 +72,7 @@ jb-scribe.scribe .scribe__btn--primary { background: var(--jb-action); border-co
 jb-scribe.scribe .scribe__btn--primary:hover { background: var(--jb-navy-soft); border-color: var(--jb-navy-soft); }
 jb-scribe.scribe .scribe__btn--ghost { border-color: transparent; background: transparent; color: var(--jb-ink-2); }
 jb-scribe.scribe .scribe__btn--ghost:hover { background: var(--jb-paper-2); border-color: transparent; }
-jb-scribe.scribe .scribe__btn--small { min-height: 32px; padding: 0 10px; }
+jb-scribe.scribe .scribe__btn--small { min-height: 36px; padding: 0 var(--jb-space-3); }
 jb-scribe.scribe [aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 
 jb-scribe.scribe .scribe__pill {
@@ -207,7 +207,7 @@ jb-scribe.scribe .scribe__ver-pin { font-size: var(--jb-type-small); color: var(
 jb-scribe.scribe .scribe__ver-empty { padding: var(--jb-space-3) var(--jb-space-2); font-size: var(--jb-type-small); color: var(--jb-ink-3); }
 jb-scribe.scribe .scribe__star {
   border: 0; background: none; color: var(--jb-ink-3); font-size: var(--jb-type-body);
-  min-width: 32px; min-height: 32px; border-radius: var(--jb-radius-sm);
+  min-width: 36px; min-height: 36px; border-radius: var(--jb-radius-sm);
 }
 jb-scribe.scribe .scribe__star[aria-pressed="true"] { color: var(--jb-warn); }
 
@@ -236,7 +236,10 @@ jb-scribe.scribe .scribe__compose-box textarea {
   border: 0; background: transparent; resize: none; outline: none;
   font-size: var(--jb-type-body); line-height: 1.5;
 }
-jb-scribe.scribe .scribe__compose-box textarea:focus-visible { box-shadow: none; }
+jb-scribe.scribe .scribe__compose-box textarea:focus-visible {
+  outline: 2px solid var(--jb-focus-color); outline-offset: var(--jb-space-1);
+  border-radius: var(--jb-radius-xs); box-shadow: none;
+}
 jb-scribe.scribe .scribe__compose-box textarea::placeholder { color: var(--jb-ink-3); }
 jb-scribe.scribe .scribe__hint { margin: 0; font-size: var(--jb-type-small); line-height: 1.5; color: var(--jb-ink-3); }
 jb-scribe.scribe .scribe__hint kbd {
@@ -372,7 +375,7 @@ jb-scribe.scribe .scribe__compare-kbd {
   font-family: var(--jb-font-mono); font-size: var(--jb-text-xs);
   border: 1px solid var(--jb-line); border-radius: var(--jb-radius-xs); padding: 0 4px; background: var(--jb-paper-2);
 }
-jb-scribe.scribe [data-ver-compare][aria-pressed="true"] { background: var(--jb-action); border-color: var(--jb-action); color: var(--jb-on-action); }
+jb-scribe.scribe [data-ver-compare][aria-pressed="true"] { background: var(--jb-info-tint); border-color: var(--jb-action); color: var(--jb-ink); }
 jb-scribe.scribe [data-ver-compare][aria-pressed="true"] .scribe__compare-kbd { background: transparent; border-color: currentColor; }
 jb-scribe.scribe .scribe__compare-src {
   display: inline-block; margin-right: 6px; padding: 0 6px; border: 1px solid var(--jb-line-soft); border-radius: var(--jb-radius-xs);
@@ -411,7 +414,8 @@ jb-scribe.scribe .scribe__compare-confirm p { margin: 0; font-size: var(--jb-typ
    margin rail beside the page, the review bar, the phone's change card
    and the Show changes toggle. Pending is navy, accepted mint, removals
    --jb-err, Unverified --jb-warn (SPEC §2, §4). */
-jb-scribe.scribe [data-scribe="show-changes"][aria-pressed="true"] { background: var(--jb-action); border-color: var(--jb-action); color: var(--jb-on-action); }
+/* View toggles stay quieter than the review bar’s primary action. */
+jb-scribe.scribe [data-scribe="show-changes"][aria-pressed="true"] { background: var(--jb-info-tint); border-color: var(--jb-action); color: var(--jb-ink); }
 jb-scribe.scribe [data-scribe="show-changes"][aria-pressed="true"] .scribe__compare-kbd { background: transparent; border-color: currentColor; }
 jb-scribe.scribe .scribe__paper { display: flex; justify-content: center; align-items: flex-start; }
 jb-scribe.scribe .scribe__paper .scribe__page { margin: 0; }
@@ -439,7 +443,7 @@ jb-scribe.scribe .scribe__mm-acts,
 jb-scribe.scribe .scribe__mm-done { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 jb-scribe.scribe .scribe__mm-done { color: var(--jb-ink-2); }
 jb-scribe.scribe .scribe__mm[data-state="accepted"] .scribe__mm-done { color: var(--jb-accent-ink); font-weight: 600; }
-jb-scribe.scribe .scribe__mm-done .scribe__btn { min-height: 32px; padding: 0 6px; font-weight: 500; color: var(--jb-ink); }
+jb-scribe.scribe .scribe__mm-done .scribe__btn { min-height: 36px; padding: 0 var(--jb-space-2); font-weight: 500; color: var(--jb-ink); }
 jb-scribe.scribe .scribe__ok,
 jb-scribe.scribe .scribe__no { min-width: 32px; padding: 0 var(--jb-space-2); font-weight: 600; }
 jb-scribe.scribe .scribe__ok:hover { background: var(--jb-mint); border-color: var(--jb-mint); color: var(--jb-on-accent); }
@@ -482,4 +486,99 @@ jb-scribe.scribe .scribe__card { display: none; }
   jb-scribe.scribe .scribe__card-acts .scribe__btn { flex: 1; }
   jb-scribe.scribe .scribe__card-done { justify-content: space-between; padding-left: var(--jb-space-2); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
   jb-scribe.scribe .scribe__card[data-state="accepted"] .scribe__card-done { color: var(--jb-accent-ink); font-weight: 600; }
+}
+
+/* ---------- SCRP: recovery, scoped requests and local save states ----------
+   Recoveries used to be unstructured composer text; reserve outcome space,
+   wrap long labels, and keep each state's one primary action distinct. */
+jb-scribe.scribe .scribe__recover,
+jb-scribe.scribe .scribe__status,
+jb-scribe.scribe .scribe__manual-state,
+jb-scribe.scribe .scribe__unsaved {
+  min-width: 0; font-size: var(--jb-type-small); line-height: 1.5;
+  color: var(--jb-ink-2); overflow-wrap: anywhere;
+}
+jb-scribe.scribe .scribe__recover {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2);
+  padding: var(--jb-space-3); border: 1px solid var(--jb-line-soft);
+  border-left: 3px solid var(--jb-action); border-radius: var(--jb-radius-sm);
+  background: var(--jb-info-tint);
+}
+jb-scribe.scribe .scribe__recover p,
+jb-scribe.scribe .scribe__unsaved p {
+  flex-basis: 100%; margin: 0; font-size: var(--jb-type-small);
+  line-height: 1.5; color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__status {
+  display: flex; align-items: center; gap: var(--jb-space-2);
+  min-height: var(--jb-space-16); padding: var(--jb-space-2);
+  border-left: 3px solid transparent; border-radius: var(--jb-radius-sm);
+}
+jb-scribe.scribe .scribe__status > span { flex: 1; min-width: 0; }
+jb-scribe.scribe .scribe__status-action { flex: none; }
+jb-scribe.scribe .scribe__status[data-state="saved"],
+jb-scribe.scribe .scribe__manual-state[data-state="saved"] {
+  border-left-color: var(--jb-accent-ink); background: var(--jb-mint-tint); color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__status[data-state="saved-pdf-unavailable"],
+jb-scribe.scribe .scribe__status[data-state="stale"],
+jb-scribe.scribe .scribe__manual-state[data-state="conflict"],
+jb-scribe.scribe .scribe__manual-state[data-state="confirm"] {
+  border-left-color: var(--jb-warn); background: var(--jb-warn-tint); color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__status[data-state="error"],
+jb-scribe.scribe .scribe__manual-state[data-state="error"] {
+  border-left-color: var(--jb-err); background: var(--jb-err-tint); color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__status[data-state="recovered"] {
+  border-left-color: var(--jb-action); background: var(--jb-info-tint);
+}
+jb-scribe.scribe .scribe__scope { gap: var(--jb-space-2); min-width: 0; }
+jb-scribe.scribe .scribe__scope .scribe__pill {
+  min-width: 0; max-width: 100%; min-height: var(--jb-space-8);
+  white-space: normal; overflow-wrap: anywhere;
+}
+jb-scribe.scribe [data-action="clear-scope"] {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 36px; min-height: 36px; padding: 0 var(--jb-space-2);
+  border: 1px solid var(--jb-line); border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper); color: var(--jb-ink); font-size: var(--jb-type-body);
+}
+jb-scribe.scribe .scribe__docscroll { position: relative; }
+jb-scribe.scribe .scribe__selection-actions {
+  position: absolute; z-index: var(--jb-z-sticky);
+  display: flex; flex-wrap: wrap; gap: var(--jb-space-2);
+  width: max-content; max-width: calc(100% - var(--jb-space-4));
+  padding: var(--jb-space-2); background: var(--jb-paper);
+  border: 1px solid var(--jb-line); border-radius: var(--jb-radius-md);
+  box-shadow: var(--jb-shadow-md);
+}
+jb-scribe.scribe .scribe__manual-state {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2);
+  flex-basis: 100%; min-height: var(--jb-space-10); padding: var(--jb-space-2);
+  border-left: 3px solid var(--jb-line); border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper);
+}
+jb-scribe.scribe .scribe__manual-state > span { flex: 1 1 16ch; min-width: 0; }
+jb-scribe.scribe .scribe__unsaved {
+  position: absolute; left: 50%; bottom: var(--jb-space-6); transform: translateX(-50%);
+  z-index: var(--jb-z-modal); display: flex; flex-wrap: wrap; gap: var(--jb-space-2);
+  width: min(28rem, calc(100% - var(--jb-space-6))); padding: var(--jb-space-4);
+  border: 1px solid var(--jb-line); border-radius: var(--jb-radius-md);
+  background: var(--jb-paper); box-shadow: var(--jb-shadow-strong);
+}
+
+/* Wrap long summaries and keep actions on the theme’s 8px spacing step. */
+jb-scribe.scribe .scribe__reviewbar-sum { min-width: 0; overflow-wrap: anywhere; }
+jb-scribe.scribe .scribe__reviewbar-acts,
+jb-scribe.scribe .scribe__compare-acts { gap: var(--jb-space-2); }
+/* The field fell to 35px on a phone; decision Undo could fall to 32px. */
+@media (max-width: 599px) {
+  jb-scribe.scribe .scribe__btn--small,
+  jb-scribe.scribe .scribe__mm-done .scribe__btn,
+  jb-scribe.scribe [data-action="clear-scope"],
+  jb-scribe.scribe .scribe__compose-box textarea { min-height: 44px; min-width: 44px; }
+  jb-scribe.scribe .scribe__scope .scribe__pill { flex: 1 1 0; }
+  jb-scribe.scribe .scribe__selection-actions .scribe__btn { flex: 1 1 auto; }
+  jb-scribe.scribe .scribe__unsaved .scribe__btn { flex: 1; }
 }
