@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:
 import { join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
+import { editDiagnostic, flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
@@ -421,8 +421,9 @@ export function createMaterialsVersionService(deps = {}) {
       ]);
     } catch (error) {
       if (!claimTerminal(proposal, "failed")) return;
+      const diagnostic = editDiagnostic(String(/** @type {any} */ (error).code || "editor_failed"));
       await finishTerminal(proposal, [
-        { event: "error", data: { code: /** @type {any} */ (error).code || "editor_failed", message: /** @type {Error} */ (error).message } },
+        { event: "error", data: { code: diagnostic.reason, message: diagnostic.detail } },
         { event: "done", data: { status: "failed" } },
       ]);
     } finally {
@@ -432,10 +433,10 @@ export function createMaterialsVersionService(deps = {}) {
       if (proposal.status !== "rejected") await save(proposal);
     }
   };
-  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] @param {string} [editBaseRunId] */
-  const commit = async (dir, model, current, source, edit, restoredFrom, editBaseRunId) => {
+  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] @param {string} [editBaseRunId] @param {string} [selectedDoc] */
+  const commit = async (dir, model, current, source, edit, restoredFrom, editBaseRunId, selectedDoc) => {
     return withPackagePublishClaim(dir, current.runId, async (assertBase) => {
-      const input = { dir, model, feature: model.documents.resume ? (model.documents.coverLetter ? "both" : "resume") : "cover_letter", source, parentRunId: restoredFrom || editBaseRunId || current.runId, ...(edit ? { edit } : {}) };
+      const input = { dir, model, feature: selectedDoc ? (selectedDoc === "resume" ? "resume" : "cover_letter") : model.documents.resume ? (model.documents.coverLetter ? "both" : "resume") : "cover_letter", source, parentRunId: restoredFrom || editBaseRunId || current.runId, ...(edit ? { edit } : {}) };
       try {
         const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession, assertBase });
         return { runId: result.runId, pdf: "ready", stale: false };
@@ -446,8 +447,8 @@ export function createMaterialsVersionService(deps = {}) {
         await assertBase();
         if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
         if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
-        await rm(join(dir, "resume.pdf"), { force: true });
-        await rm(join(dir, "cover-letter.pdf"), { force: true });
+        if (rendered.resumeHtml) await rm(join(dir, "resume.pdf"), { force: true });
+        if (rendered.letterHtml) await rm(join(dir, "cover-letter.pdf"), { force: true });
         const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
         await writeVersionQa({ dir, rendered, runId, issues: rendered.issues || [], notes: ["PDF stale: browser unavailable."], pdfReady: false });
         const provenance = input.parentRunId === current.runId ? current : (await runFiles(dir, input.parentRunId)).run;
@@ -617,6 +618,7 @@ export function createMaterialsVersionService(deps = {}) {
       let priorStatus = "";
       let markedAccepting = false;
       try {
+        if (manual && await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
         let current = await currentRun(dir);
         if (!manual) {
           proposal = await loadProposal(dir, id);
@@ -664,11 +666,11 @@ export function createMaterialsVersionService(deps = {}) {
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
         if (proposal && (proposal.status !== "accepting" || (await json(proposalPath(proposal)))?.status !== "accepting")) throw failure("Proposal is no longer accepting", 409, "proposal_not_ready");
-        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit, undefined, baseRunId);
+        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit, undefined, baseRunId, doc);
         if (proposal) { proposal.status = "accepted"; await save(proposal); }
         const listed = await versions(dir, doc);
         const row = listed.versions.find((v) => v.runId === committed.runId);
-        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
+        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
       } catch (error) {
         if (markedAccepting && proposal?.status === "accepting") {
           proposal.status = priorStatus;
@@ -697,7 +699,10 @@ export function createMaterialsVersionService(deps = {}) {
         const current = await currentRun(dir);
         const { model } = await runFiles(dir, id);
         const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id);
-        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, restoredFrom: id, pdf: committed.pdf }, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
+        const doc = model.documents?.resume ? "resume" : "coverLetter";
+        const listed = await versions(dir, doc);
+        const row = listed.versions.find((version) => version.runId === committed.runId);
+        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, restoredFrom: id, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
       } finally { reserved.delete(dir); }
     },
     /** @param {string} slug @param {string} id @param {unknown} starred */
