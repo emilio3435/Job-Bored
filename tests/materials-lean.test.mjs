@@ -13,7 +13,10 @@ import { normalizeRequestBody } from '../server/materials-request.mjs';
 import { deriveNodes, applyOps } from '../server/materials-nodes.mjs';
 import { renderDocument, runsToText } from '../server/materials-render.mjs';
 import { resolveFamily } from '../server/materials-templates.mjs';
-import { regeneratePackage } from '../server/materials-regenerate.mjs';
+import { regeneratePackage, commitModelAsRun, rescoreRun } from '../server/materials-regenerate.mjs';
+import { proposeEdits } from '../server/materials-edit.mjs';
+import { extractMetrics } from '../server/materials-ledger-build.mjs';
+import { JUDGE_DIMENSIONS } from '../server/materials-judge.mjs';
 const sandbox = await mkdtemp(join(tmpdir(), 'jb-lean-tests-'));
 process.env.JOBBORED_PROFILE_PATH = join(sandbox, 'profile.json');
 after(async () => rm(sandbox, { recursive: true, force: true }));
@@ -319,4 +322,75 @@ test('F1-11 pre-fix lean cache cannot bypass the repaired truth checks', async (
   await writeFile(join(dir, 'run.json'), JSON.stringify({ ...run, leanPromptVersion: 'materials.lean.v1', cacheKey: staleKey }));
   const next = await pipeline('both', [response()], { dir, runId: 'truth-fix' });
   assert.equal(next.stub.requests.length, 1); assert.notEqual(next.result.outcome, 'cached');
+});
+
+// Stub only the provider boundary: real packet validation, gates, QA and writes run.
+function judgmentProvider() {
+  const packets = [];
+  return { packets, fetchImpl: async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const wire = body.messages[1].content;
+    const packet = JSON.parse(wire.slice(wire.indexOf('>') + 1, wire.lastIndexOf('</untrusted-data>')));
+    packets.push(packet);
+    const value = { contract: 'materials.judge.v1', documents: packet.documents.map(doc => ({
+      document: doc.document, textHash: doc.textHash,
+      ratings: JUDGE_DIMENSIONS.map(dimension => ({ dimension, score: 4, reason: 'Fixture review', sentenceIds: [] })),
+      sentences: doc.sentences.map(sentence => ({ id: sentence.id, status: 'nonfactual', reason: 'Transport fixture', citations: [] })),
+      issues: [], qualificationGaps: [],
+      ...(packet.sources.requirements ? { coverage: { requirements: packet.sources.requirements.map(req => ({ ...req, status: 'missing', sentenceIds: [] })) } } : {}),
+    })) };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(value) } }] }) };
+  } };
+}
+const judgmentPin = { provider: 'openai', model: 'stub', resolvedModel: 'stub', apiKey: 'fixture-key' };
+test('F2-6 Edit persists and judges a changed lean run', async () => {
+  const root = await mkdtemp(join(sandbox, 'edit-root-'));
+  const dir = join(root, 'lean-edit'); await mkdir(dir);
+  const v = response(); delete v.letter;
+  await pipeline('resume', [v], { dir, ledger: { ...structuredClone(ledger), claims: ledger.claims.map(c => ({ ...c, metrics: extractMetrics(c.text) })) } });
+  const original = await json(dir, 'render-model.json');
+  const nodes = deriveNodes(original);
+  const node = nodes.find(n => n.id.endsWith(':claim-1'));
+  assert.ok(node);
+  const ops = [{ opId: 'e1', op: 'replace', node: node.id, text: 'Assisted planning for 21+ accounts using Postgres.' }];
+  const proposal = await proposeEdits({ model: original, nodes, instruction: 'Use Assisted instead of Supported', scope: [node.id], lockFacts: true, jdExtract: {}, ledger, pin: judgmentPin,
+    fetchImpl: async (_url, init) => {
+      const wire = JSON.parse(init.body); assert.match(wire.messages[0].content, /materials\.edit\.v1/);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops }) } }] }) };
+    } });
+  assert.equal(proposal.ops.length, 1); assert.deepEqual(proposal.blocked, []);
+  const edited = applyOps(original, proposal.ops, { ledger });
+  const judge = judgmentProvider();
+  const saved = await commitModelAsRun({ dir, model: edited, feature: 'resume', source: 'edit', parentRunId: 'lean-1', edit: { prompt: 'Use Assisted', accepted: ['e1'], rejected: [], ops: proposal.ops } }, {
+    pdfSession: fakeSession, critic: async () => ({ issues: [] }), targetLogoLoader: async () => null, employerLogoLoader: async () => [], pin: judgmentPin, fetchImpl: judge.fetchImpl,
+  });
+  assert.equal(saved.ok, true); assert.notEqual(saved.runId, 'lean-1'); assert.equal(judge.packets.length, 1);
+  assert.match(judge.packets[0].documents[0].text, /Assisted planning/);
+  assert.ok(judge.packets[0].sources.claims.some(c => c.id === 'claim:claim-1'));
+  const persisted = await json(join(dir, 'runs', saved.runId), 'run.json');
+  assert.equal(persisted.engine, 'lean'); assert.equal(persisted.template.source, 'edit');
+  assert.equal(persisted.leanPromptVersion, lean.LEAN_PROMPT_VERSION);
+  const qa = await json(join(dir, 'runs', saved.runId), 'qa.resume.json');
+  assert.equal(qa.state, 'graded'); assert.ok(qa.reviews.some(r => r.status === 'ok'));
+  assert.ok(['READY', 'REVIEW', 'FAIL'].includes(qa.disposition));
+  assert.notEqual(qa.textHash, (await json(join(dir, 'runs', 'lean-1'), 'qa.resume.json')).textHash);
+  assert.deepEqual(await json(dir, 'qa.resume.json'), qa);
+  assert.match(await readFile(join(dir, 'resume.txt'), 'utf8'), /Assisted planning/);
+});
+test('F2-6 Rescore judges a lean run in place and persists real qa.v3', async () => {
+  const root = await mkdtemp(join(sandbox, 'rescore-root-'));
+  const dir = join(root, 'lean-rescore'); await mkdir(dir);
+  await pipeline('both', [response()], { dir, ledger: { ...structuredClone(ledger), claims: ledger.claims.map(c => ({ ...c, metrics: extractMetrics(c.text) })) } });
+  const pdf = await readFile(join(dir, 'resume.pdf'));
+  const before = await json(dir, 'qa.resume.json'); const judge = judgmentProvider();
+  const result = await rescoreRun({ slug: 'lean-rescore', runId: 'lean-1' }, { applicationsRoot: root, pin: judgmentPin, fetchImpl: judge.fetchImpl });
+  assert.equal(result.ok, true); assert.equal(result.runId, 'lean-1'); assert.equal(judge.packets.length, 2);
+  assert.deepEqual(judge.packets.map(p => p.documents[0].document), ['resume', 'letter']);
+  const qa = await json(join(dir, 'runs', 'lean-1'), 'qa.resume.json');
+  assert.equal(qa.contract, 'materials.qa.v3'); assert.equal(qa.textHash, before.textHash);
+  assert.ok(qa.reviews.some(r => r.status === 'ok')); assert.ok(qa.gates.length > 0);
+  assert.ok(['READY', 'REVIEW', 'FAIL'].includes(qa.disposition));
+  assert.deepEqual(await json(dir, 'qa.resume.json'), qa);
+  assert.equal((await json(dir, 'run.json')).engine, 'lean');
+  assert.deepEqual(await readFile(join(dir, 'resume.pdf')), pdf, 'Rescore retains the rendered artifact');
 });

@@ -110,3 +110,70 @@ test('F1-2 rounded numbers retain provenance to their same-unit source', () => {
   const c = check(v); const fact = c.provenance.find(p => p.claimId === 'claim-1').facts.find(f => f.token === '20+');
   assert.equal(fact.sourceId, 'claim-1'); assert.match(fact.source, /21\+ accounts/);
 });
+
+const roundTwoFakes = [
+  ['F2-3 counted noun', 'bullet:claim-3', 1, 0, 'Ran weekly readouts for 14 dispatch executives and 40 stores.'],
+  ['F2-3 billion', 'bullet:claim-1', 0, 0, 'Supported planning for a billion accounts using Postgres.'],
+  ['F2-3 rate', 'bullet:claim-2', 0, 1, 'Reduced missed windows from 9.1% to 4.3% for 620 vans per client.'],
+  ['F2-4 supervising', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres, supervising the entire department.'],
+  ['F2-4 president', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres as president of operations.'],
+  ['F2-4 doctorate', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres after earning a doctorate in economics.'],
+  ['F2-4 commanding', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres, commanding the operations team.'],
+  ['F2-4 board', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres with board responsibility.'],
+  ['F2-5 employer savings', 'statement', null, null, 'At RouteLab I built a route forecast that saved $2.4M in costs.'],
+  ['F2-5 ran companies', 'statement', null, null, 'I ran Northwind and RouteLab.'],
+  ['F2-5 founded company', 'statement', null, null, 'I founded Northwind.'],
+  ['F2-2 lowercase company', 'bullet:claim-1', 0, 0, 'Supported planning for 21+ accounts using Postgres at acme.'],
+];
+for (const [name, field, role, bullet, text] of roundTwoFakes) test(name, () => {
+  const v = response();
+  if (role === null) v.statement = text; else v.roles[role].bullets[bullet].text = text;
+  const c = check(v);
+  const final = field === 'statement' ? c.draft.statement : c.draft.bullets.find(b => b.claimId === field.slice(7))?.text;
+  assert.notEqual(final, text, 'invented fact must not survive unchanged');
+  assert.ok(c.notes.some(n => n.field === field), 'rejection must be recorded');
+});
+for (const [role, bullet, verb] of [[0, 0, 'Assisted'], [0, 1, 'Decreased'], [1, 0, 'Presented'], [3, 0, 'Released'], [1, 0, 'Created']]) test(`F2-1 honest ${verb}`, () => {
+  const v = response();
+  // Created rewrites Built, which is the second source bullet in north-r2.
+  if (verb === 'Created') v.roles[role].bullets[bullet] = { basedOn: 'B2', text: ledger.claims[3].text.replace(/^Built/, verb) };
+  else v.roles[role].bullets[bullet].text = v.roles[role].bullets[bullet].text.replace(/^\w+/, verb);
+  const text = v.roles[role].bullets[bullet].text;
+  const c = check(v);
+  assert.ok(c.draft.bullets.some(b => b.text === text), 'honest rewrite survives unchanged');
+});
+test('F2-2 unknown dbt and known employers are case independent', () => {
+  const v = response(); v.statement = 'At northwind I supported planning using Postgres.';
+  assert.equal(check(v).draft.statement, v.statement);
+  v.statement = 'I supported planning using dbt.';
+  assert.equal(check(v).draft.statement, '');
+});
+test('F2-5 letter binds employer numbers and tools, with founder positive control', () => {
+  const v = response(); const sentence = 'At Northwind I shipped a scheduling tool for 80 drivers using Kafka.';
+  v.letter.proof2 += ` ${sentence}`;
+  assert.ok(!check(v).draft.letter.proof2.includes(sentence));
+  v.statement = 'I founded RouteLab.';
+  assert.equal(check(v).draft.statement, v.statement);
+});
+test('F2-3 denominator forms and two-word nouns retain source binding', () => {
+  for (const rate of ['per client', 'a client', 'each client']) {
+    const v = response(); v.roles[0].bullets[1].text = v.roles[0].bullets[1].text.replace(/\.$/, ` ${rate}.`);
+    assert.notEqual(check(v).draft.bullets[1].text, v.roles[0].bullets[1].text, rate);
+    const l = structuredClone(ledger); l.claims[1].text = v.roles[0].bullets[1].text;
+    assert.equal(check(v, { ledger: l, resumeText: resumeText.replace(ledger.claims[1].text, l.claims[1].text) }).draft.bullets[1].text, l.claims[1].text);
+  }
+});
+test('F2-4 titles are grounded without rejecting executive as an audience', () => {
+  for (const word of ['doctoral', 'chairman', 'executive', 'head of']) {
+    const v = response(); v.roles[0].bullets[0].text += ` as ${word} of operations.`;
+    assert.notEqual(check(v).draft.bullets[0].text, v.roles[0].bullets[0].text, word);
+  }
+  const v = response(); v.roles[1].bullets[0].text = 'Presented weekly readouts for 14 dispatch leads and 40 stores to an executive audience.';
+  assert.equal(check(v).draft.bullets.find(b => b.claimId === 'claim-3').text, v.roles[1].bullets[0].text);
+});
+test('F2-5 founder title permits running its own company only', () => {
+  const v = response(); v.statement = 'I ran RouteLab.';
+  assert.equal(check(v).draft.statement, v.statement);
+  v.statement = 'I ran Northwind.';
+  assert.equal(check(v).draft.statement, '');
+});
