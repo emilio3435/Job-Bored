@@ -721,14 +721,19 @@ export function createMaterialsVersionService(deps = {}) {
         live.delete(id);
       } finally { reserved.delete(dir); }
     },
-    /** @param {string} slug @param {string} id */
-    async restore(slug, id) {
+    /** @param {string} slug @param {string} id @param {Record<string, any>} [body] */
+    async restore(slug, id, body = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const current = await currentRun(dir);
         const { model } = await runFiles(dir, id);
-        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id);
-        const doc = model.documents?.resume ? "resume" : "coverLetter";
+        const selectedDoc = body.doc === undefined ? undefined : documentName(body.doc);
+        if (selectedDoc) {
+          if (!model.documents?.[selectedDoc]) throw failure("Document not in version", 404, "document_not_found");
+          delete model.documents[selectedDoc === "resume" ? "coverLetter" : "resume"];
+        }
+        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id, undefined, selectedDoc);
+        const doc = selectedDoc || (model.documents?.resume ? "resume" : "coverLetter");
         const listed = await versions(dir, doc);
         const row = listed.versions.find((version) => version.runId === committed.runId);
         return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, restoredFrom: id, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
@@ -775,7 +780,7 @@ export function registerMaterialsEditRoutes(app, options = {}) {
   app.post(`${base}/edits/:id/accept`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, req.params.id, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.delete(`${base}/edits/:id`, wrap(async (req, res) => { await service.reject(req.params.slug, req.params.id); res.sendStatus(204); }));
   app.post(`${base}/edits/manual`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, "", object(req.body), true); res.status(result.statusCode).json(result.body); }));
-  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId); res.status(result.statusCode).json(result.body); }));
+  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.put(`${base}/versions/:runId/star`, wrap(async (req, res) => { res.json(await service.star(req.params.slug, req.params.runId, object(req.body).starred)); }));
   return service;
 }

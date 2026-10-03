@@ -1236,3 +1236,29 @@ it("SCRP-B21 R1-#1 regenerate merges each document's current run after single-do
     for (const stem of ["resume", "cover-letter"]) assert.match(await readFile(join(pkg.dir, `${stem}.html`), "utf8"), /data-family="dossier"/);
   }
 });
+
+
+it("SCRP-B22 R1-#2+#3 D19 letter restore has its own numbering and leaves the resume byte-equal", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const available of [true, false]) {
+    const pkg = await seed();
+    const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+    const before = {};
+    for (const name of ["resume.html", "resume.pdf", "resume.txt", "qa.resume.json"]) before[name] = await readFile(join(pkg.dir, name));
+    const original = await readFile(join(pkg.dir, "runs", "r0", "render-model.json"));
+    const resumeList = await service.versions(pkg.dir, "resume");
+    browserAvailable = available;
+    let restored;
+    try { restored = await request(`${pkg.path}/versions/r0/restore`, "POST", { doc: "cover_letter" }); }
+    finally { browserAvailable = true; }
+    assert.equal(restored.status, available ? 200 : 503);
+    assert.equal(restored.data.run.n, 1);
+    assert.deepEqual(restored.data.versions.map((row) => row.source), ["restore", "draft"]);
+    assert.equal(restored.data.versions[0].runId, restored.data.run.runId);
+    assert.deepEqual(await service.versions(pkg.dir, "resume"), resumeList);
+    assert.equal((await service.versions(pkg.dir, "resume")).currentRunId, saved.body.run.runId);
+    for (const [name, bytes] of Object.entries(before)) assert.deepEqual(await readFile(join(pkg.dir, name)), bytes, name);
+    assert.deepEqual(await readFile(join(pkg.dir, "runs", "r0", "render-model.json")), original);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "cover_letter");
+  }
+});
