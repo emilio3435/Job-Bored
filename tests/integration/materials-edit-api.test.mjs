@@ -10,6 +10,7 @@ import { after, before, it } from "node:test";
 import express from "../../server/node_modules/express/index.js";
 import { commitModelAsRun, regeneratePackage } from "../../server/materials-regenerate.mjs";
 import { createMaterialsVersionService, registerMaterialsEditRoutes } from "../../server/materials-versions.mjs";
+import { deriveNodes } from "../../server/materials-nodes.mjs";
 
 const model = JSON.parse(readFileSync(new URL("../../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
 const op = { opId: "o1", op: "replace", node: "line:beta", text: "Tracked shipments." };
@@ -1429,5 +1430,29 @@ it('SCRP-B51 R4-#1 confirmed manual adjacency violations stay 400 locked and per
     const listing = await (await fetch(base + pkg.path + '/versions?doc=' + doc)).json();
     assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
     assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B80 D29 ${doc} manual locked blocks reject unchanged figures even when confirmed`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const confirmed of [false, true]) {
+    const pkg = await seed();
+    const id = doc === 'resume' ? 'stmt' : 'p:p2';
+    const node = deriveNodes(model).find(n => n.id === id);
+    const res = await request(`${pkg.path}/edits/manual`, 'POST', {
+      doc, baseRunId: 'r0', manualOps: [{ opId: 'd29', op: 'replace', node: id, text: node.text + ' Today.' }],
+      confirmUnverified: confirmed ? ['d29'] : [],
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.data.code, 'locked');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), model);
+    assert.deepEqual((await readdir(join(pkg.dir, 'runs'))), ['r0']);
+    if (doc === 'resume') {
+      const whole = await request(`${pkg.path}/edits/manual`, 'POST', {
+        doc, baseRunId: 'r0', manualOps: [{ opId: 'whole', op: 'replace', node: 'seat:acme', text: 'Director' }],
+        confirmUnverified: confirmed ? ['whole'] : [],
+      });
+      assert.equal(whole.status, 400); assert.equal(whole.data.code, 'locked');
+    }
   }
 });

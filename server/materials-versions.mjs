@@ -696,6 +696,9 @@ export function createMaterialsVersionService(deps = {}) {
         const selected = [...selectedProposal, ...manualOps];
         const docIds = new Set(deriveNodes(base).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
         if (selected.some((op) => !docIds.has(op.op === "insert" ? op.after : op.node))) throw failure("Edit targets another document", 400, "out_of_scope");
+        // D29 applies to direct edits, including manual ops alongside an AI accept.
+        const lockedIds = new Set(deriveNodes(base).filter((node) => node.locked.whole || node.locked.spans.length).map((node) => node.id));
+        if (manualOps.some((op) => lockedIds.has(op.op === "insert" ? op.after : op.node))) throw failure("This line has locked figures. Ask Scribe to change it.", 400, "locked");
         const ledgerResult = await readLedger();
         const checked = proposal?.factCheck === "model"
           ? [...selectedProposal, ...flagUnverifiedOps(base, manualOps, ledgerResult.ok ? ledgerResult.ledger : {})]
