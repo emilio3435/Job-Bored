@@ -91,4 +91,3 @@ OK v2 rejects: free-text lastContact
 > node scripts/lint-integration-skills.mjs
 
 OK integrations/openclaw-command-center/SKILL.md
-

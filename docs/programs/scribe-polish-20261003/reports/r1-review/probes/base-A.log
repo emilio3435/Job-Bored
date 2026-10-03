@@ -93,14 +93,14 @@ test at tests/integration/materials-edit-api.test.mjs:537:1
 ✖ SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text (13.889291ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     {
   +   code: 'network',
   +   message: 'private payload /secret/path stack token=example'
   -   code: 'provider_failed',
   -   message: 'The AI provider did not complete the request. Try again.'
     }
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:550:12)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
@@ -153,12 +153,12 @@ test at tests/integration/materials-edit-api.test.mjs:627:1
 ✖ SCRP-B7 restarted pending stream resets ops and journal before reprocessing (5.706667ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
-  
+
     [
   +   'Old text.'
   -   'Tracked shipments.'
     ]
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:637:10)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
@@ -174,10 +174,10 @@ test at tests/integration/materials-edit-api.test.mjs:786:1
 ✖ SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary (103.582584ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   + actual - expected
-  
+
   + undefined
   - false
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:799:14)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
@@ -193,10 +193,10 @@ test at tests/integration/materials-edit-api.test.mjs:814:1
 ✖ SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs (91.199083ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   + actual - expected
-  
+
   + '%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n'
   - 'sibling PDF bytes'
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:827:16)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
@@ -211,9 +211,9 @@ test at tests/integration/materials-edit-api.test.mjs:814:1
 test at tests/integration/materials-edit-api.test.mjs:860:1
 ✖ SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals (78.788792ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
+
   200 !== 409
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:869:14)
       at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
       at async Test.run (node:internal/test_runner/test:1113:7)
@@ -229,9 +229,9 @@ test at tests/integration/materials-edit-api.test.mjs:860:1
 test at tests/integration/materials-edit-api.test.mjs:892:1
 ✖ SCRP-B10 restore adds n and versions for ready and stale PDFs (502.659375ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
+
   undefined !== 1
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-review-r1-base/tests/integration/materials-edit-api.test.mjs:897:14)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
