@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { deriveNodes, lockedSpans, applyOps } from "../server/materials-nodes.mjs";
+import { proposeEdits } from "../server/materials-edit.mjs";
 import { retargetModel, runsToText, validateRenderModel } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 
@@ -128,8 +129,9 @@ it('SCRP-B50 R4-#1 D27 preserves numeric runs on both documents', () => {
     }
     if (prefix.trim() && suffix) {
       const staged = node.text.replace('38', '38 ,000');
-      const changed = applyOps(before, [{ opId: 'stage', op: 'replace', node: id, text: staged }]);
-      assert.throws(() => applyOps(changed, [{ opId: 'join', op: 'replace', node: id, text: staged.replace('38 ,000', '38,000') }]), { reason: 'locked' });
+      // D29 bridges the whitespace before separators, blocking the first value change.
+      assert.throws(() => applyOps(before, [{ opId: 'stage', op: 'replace', node: id, text: staged }]), { reason: 'locked' });
+      assert.throws(() => applyOps(before, [{ opId: 'join', op: 'replace', node: id, text: staged.replace('38 ,000', '38,000') }]), { reason: 'locked' });
     }
     if (prefix) assert.equal(deriveNodes(applyOps(before, [{ opId: 'leading', op: 'replace', node: id, text: node.text.slice(prefix.length) }])).find(n => n.id === id).text, node.text.slice(prefix.length).trim());
   }
@@ -270,4 +272,55 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B75 R6-#6 ${doc} D28 prese
   }
   const { before, id } = numericModel(doc, 'Processed 38 shipments.');
   assert.throws(() => applyOps(before, [{ opId: 'html', op: 'replace', node: id, text: 'Processed 38<b>0</b> shipments.' }]), { reason: 'locked' }, 'storage cleanup cannot join an extra digit to a locked figure');
+});
+
+const r7Figures = {
+  A: ['38\u2009000', '38\u2007000', '38\u2008000', '38\u200a000', '38\u2002000', '38\u2003000', '38\u205f000', '38\u3000000', '38  000', '38\n000', '38\t000', '38 \u00a0000', '38\u2009%', '38  %', '38\n%', '-  38', '-\n38', '38\u2800000', '38\u2028000', '38\u2029000'],
+  B: ['‐38', '‑38', '‒38', '－38', '﹣38', '⁻38', '38‒40', '38‐40', '38‑40', '38―40', '38〜40', '38～40'],
+  C: ['38’000', '38‘000', '38´000', '38٬000', '38，000', '38·5', '38٫5', '38．5', '38⁄5', '38∕5', '38÷2'],
+  D: ['38％', '38٪', '38﹪', '38‱', '₹38', '₩38', '₽38', '38¢', '₿38', '＄38'],
+  E: ['38 M', '38 k', '38 K', '38 dozen', '38 times', '38 percent', 'minus 38', 'negative 38', '38 million', '38 thousand', '38 bn', '38 pct', '38 - 40', '38 – 40', '38 to 40', '38 x 40', '38 / 40', '38 b', '38 mm', '38 billion', '38 hundred', '38 per cent', '38\nper\tcent', '38  MILLION', 'negative\n\t38'],
+};
+for (const doc of ['resume', 'coverLetter']) for (const [group, figures] of Object.entries(r7Figures)) {
+  it(`SCRP-B81 AI-hardening ${doc} blocks every R7 group ${group} value change`, async () => {
+    const allowed = [];
+    for (const figure of figures) {
+      const { before, id } = numericModel(doc, 'Processed 38 shipments.');
+      const original = structuredClone(before);
+      try { applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.`, flags: ['unverified'] }]); allowed.push(figure); }
+      catch (error) { assert.equal(error.reason, 'locked', figure); }
+      assert.deepEqual(before, original);
+      const proposal = await proposeEdits({ model: before, nodes: deriveNodes(before), instruction: 'Shorten this line.', scope: [id], lockFacts: true,
+        pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' }, ledger: {}, jdExtract: {},
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.` }] }) } }] }) }),
+      });
+      assert.deepEqual(proposal.ops, [], figure); assert.equal(proposal.blocked[0].reason, 'locked', figure);
+    }
+    assert.deepEqual(allowed, []);
+  });
+}
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B82 AI-hardening ${doc} blocks native Unicode separators and preserves figure movement`, () => {
+  const allowed = [];
+  for (const [base, figures] of [['٣٨', ['٣٨٫٥', '٣٨٬٠٠٠']], ['３８', ['３８．５', '３８，０００', '３８％', '－３８', '３８／４０']]]) {
+    for (const figure of figures) {
+      const { before, id } = numericModel(doc, `Processed ${base} shipments.`, [base]);
+      try { applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.` }]); allowed.push(figure); }
+      catch (error) { assert.equal(error.reason, 'locked'); }
+    }
+  }
+  assert.deepEqual(allowed, []);
+  for (const [base, next] of [['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', '38 shipments were processed.']]) {
+    const { before, id } = numericModel(doc, base);
+    assert.equal(deriveNodes(applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: next }])).find(n => n.id === id).text, next);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} approximation survives unrelated AI edits and cannot be created or lost`, () => {
+  const base = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const { before, id } = numericModel(doc, base, ['40%']);
+  const after = applyOps(before, [{ opId: 'approx', op: 'replace', node: id, text: next }]);
+  assert.equal(deriveNodes(after).find(n => n.id === id).text, next);
+  assert.throws(() => applyOps(before, [{ opId: 'exact', op: 'replace', node: id, text: base.replace('~', '') }]), { reason: 'locked' });
+  const exact = numericModel(doc, base.replace('~', ''), ['40%']);
+  assert.throws(() => applyOps(exact.before, [{ opId: 'approx', op: 'replace', node: exact.id, text: base }]), { reason: 'locked' });
 });

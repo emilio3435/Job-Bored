@@ -4,13 +4,14 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 import { FakeDocument, makeEnv } from './fixtures/jb-dom.mjs';
 const settle = () => new Promise(resolve => setImmediate(resolve));
-async function desk(which = 'resume', result) {
+async function desk(which = 'resume', result, locked = false) {
   const win = makeEnv(); const calls = []; const timers = new Map(); let seq = 0;
   win.setTimeout = (fn, ms) => { timers.set(++seq, { fn, ms }); return seq; }; win.clearTimeout = id => timers.delete(id);
   win.JBScribeApi = { MAX_INSTRUCTION: 2000 };
   for (const file of ['scribe-v2-diff.js', 'scribe-v2.js']) vm.runInNewContext(readFileSync(new URL('../' + file, import.meta.url), 'utf8'), win);
   const ids = which === 'resume' ? ['line:beta', 'b:acme:c14'] : ['p:p3', 'p:p2'];
   const nodes = ids.map(id => ({ id, kind: which === 'resume' ? 'line' : 'paragraph', text: 'Tracked daily operations.', locked: { whole: false, spans: [] } }));
+  if (locked) { nodes[0].text = 'Processed 38 shipments.'; nodes[0].locked = { whole: locked === 'whole', spans: locked === 'whole' ? [] : [[10, 12]] }; }
   const api = {
     listVersions: async () => ({ currentRunId: 'r0', versions: [{ runId: 'r0', n: 0 }] }),
     getModel: async () => ({ model: {}, nodes }), preview: async () => ({ html: 'preview' }),
@@ -54,18 +55,15 @@ for (const which of ['resume', 'cover_letter']) {
     ctl.close(); assert.equal(ctl.closed, false); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
   });
 }
-test('SCRP-F42 GAP-01 paste uses text only and metric edits roll back locally', async () => {
-  const { ctl, inner, els, nodes, calls, flush } = await desk();
-  nodes[0].text = '😀 Reduced delays 38%.'; nodes[0].locked.spans = [[18, 21]]; els[0].textContent = nodes[0].text;
-  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-  els[0].textContent = '😀 Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-  assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
-  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
-  assert.equal(calls.length, 0); assert.equal(els[0].textContent, nodes[0].text);
-  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true);
-  inner.dispatchEvent({ type: 'dblclick', target: els[1] });
-  const ev = { type: 'paste', target: els[1], clipboardData: { getData: type => type === 'text/plain' ? 'Plain text' : '<b>Markup</b>' } };
-  inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true); assert.equal(ctl.manual.drafts[nodes[1].id].text, "Tracked daily operations.Plain text"); ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: "click" });
+test('SCRP-F42 D29 locked blocks deny entry while unlocked paste stays text only', async () => {
+  const t = await desk();
+  t.nodes[0].text = '😀 Reduced delays 38%.'; t.nodes[0].locked.spans = [[18, 21]]; t.els[0].textContent = t.nodes[0].text;
+  assertManualLocked(t);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[1] });
+  const ev = { type: 'paste', target: t.els[1], clipboardData: { getData: type => type === 'text/plain' ? 'Plain text' : '<b>Markup</b>' } };
+  t.inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true);
+  assert.equal(t.ctl.manual.drafts[t.nodes[1].id].text, 'Tracked daily operations.Plain text');
+  t.ctl.close(); t.ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
 });
 
 test('SCRP-F50 GAP-01 navigation Save, Discard and Stay require an explicit choice', async () => {
@@ -78,13 +76,12 @@ test('SCRP-F50 GAP-01 navigation Save, Discard and Stay require an explicit choi
     if (choice === 'stay') { ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); } else ctl.close();
   }
 });
-test('SCRP-F51 GAP-01 open suggestions pause edits; metric offsets shift in UTF-16', async () => {
-  const { ctl, inner, els, nodes, edit, calls, flush } = await desk();
-  ctl.state.proposal = { ops: [] }; inner.dispatchEvent({ type: 'dblclick', target: els[0] }); assert.equal(els[0].getAttribute('contenteditable'), null); ctl.state.proposal = null;
-  nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
-  edit(els[0], '😀 daily delays 38%.');
-  inner.dispatchEvent({ type: 'dblclick', target: els[0] }); els[0].textContent = '😀 daily delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-  assert.equal(els[0].textContent, '😀 daily delays 38%.'); inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush(); assert.equal(calls[0].manualOps[0].text, '😀 daily delays 38%.'); ctl.close();
+test('SCRP-F51 D29 open suggestions pause edits and metric blocks never acquire drafts', async () => {
+  const t = await desk();
+  t.ctl.state.proposal = { ops: [] }; t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  assert.equal(t.els[0].getAttribute('contenteditable'), null); t.ctl.state.proposal = null;
+  t.nodes[0].text = '😀 delays 38%.'; t.nodes[0].locked.spans = [[10, 13]]; t.els[0].textContent = t.nodes[0].text;
+  assertManualLocked(t); await t.flush(); assert.equal(t.calls.length, 0); t.ctl.close();
 });
 
 test('SCRP-F52 GAP-01 confirmed locked facts remain blocked and pending recovery reads once', async () => {
@@ -151,34 +148,18 @@ for (const which of ['resume', 'cover_letter']) {
   });
 }
 
-for (const which of ['resume', 'cover_letter']) {
-  test(`SCRP-F72 R2-#2 ${which} repeated tokens preserve the locked numeric-run multiset`, async () => {
-    const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
-    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
-    edit(els[0], '38% 😀 delays 38%.');
-    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-    els[0].textContent = '38% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, '38% 😀 delays 40%.');
-    // D27 allows movement, but losing the last identical run is refused.
-    els[0].textContent = '40% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, '38% 😀 delays 40%.');
-    els[0].textContent = '40% 😀 delays 38%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, '40% 😀 delays 38%.');
-    inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
-    assert.equal(calls[0].manualOps[0].text, '40% 😀 delays 38%.');
-    assert.deepEqual(Object.keys(calls[0].manualOps[0]).sort(), ['node', 'op', 'opId', 'text']); ctl.close();
-  });
-}
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F72 D29 ${which} repeated locked runs cannot enter manual editing`, async () => {
+  await checkNumericRun(which, 'Processed 38 then 38 shipments.', 'Processed 38 then 99 shipments.', true, ['38', '38']);
+});
 
 for (const which of ['resume', 'cover_letter']) {
   test(`SCRP-F73 R2-#3 ${which} role-close drafts restore from session memory only`, async () => {
     const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
-    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
-    edit(els[0], '38% 😀 delays 38%.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    edit(els[0], 'Tracked operations.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
     ctl.close('role-closed'); assert.equal(ctl.closed, true); assert.equal(calls.length, 0);
     const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
     reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
-    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
+    assert.equal(els[0].textContent, 'Tracked operations.');
     assert.equal(reopened.manual.base, 'r0'); assert.equal(reopened.manual.drafts[nodes[0].id].opId, opId);
     assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
     assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/);
@@ -233,26 +214,8 @@ for (const which of ['resume', 'cover_letter']) {
   });
 }
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 R3-#2 F42/F72 ${which} both locked figure edges are atomic`, async () => {
-  const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
-  nodes[0].text = '😀 delays 38% through review.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
-  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-  for (const text of ['😀 delays 138% through review.', '😀 delays 38%5 through review.', '😀 delays 2.38% through review.', '😀 delays 38%.5 through review.', '😀 delays A38% through review.', '😀 delays 38%é through review.']) {
-    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, nodes[0].text, text); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
-  }
-  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush(); assert.equal(calls.length, 0);
-  // D27 lets an identical prefix satisfy the base run; it cannot then be removed.
-  edit(els[0], '38% 😀 delays 38% through review.');
-  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-  for (const text of ['38% 😀 delays 138% through review.', '38% 😀 delays 38%5 through review.']) {
-    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, text);
-    els[0].textContent = text.replace('38% ', ''); inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, text, 'the last identical run remains protected');
-  }
-  inner.dispatchEvent({ type: 'focusout', target: els[0] });
-  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 D29 ${which} figure edges cannot acquire manual drafts`, async () => {
+  await checkNumericRun(which, '😀 delays 38% through review.', '😀 delays 138% through review.', true, ['38%']);
 });
 
 for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} adopted in-flight save refreshes the reopened desk`, async () => {
@@ -271,14 +234,10 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} ad
   assert.match(reopened.refs.manualState.textContent, /Saved as v1/); assert.equal(calls.length, 1); reopened.close();
 });
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 R3-#5 ${which} unchanged blur clears lock refusal and preserves pending decisions`, async () => {
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 D29 ${which} locked entry preserves pending decisions on other blocks`, async () => {
   const { ctl, inner, els, nodes, calls, flush } = await desk(which);
   nodes[0].text = 'Reduced delays 38%.'; nodes[0].locked.spans = [[15, 18]]; els[0].textContent = nodes[0].text;
-  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-  els[0].textContent = 'Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
-  assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'error');
-  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
-  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true); assert.equal(calls.length, 0);
+  assertManualLocked({ ctl, inner, els, nodes, calls }); await flush(); assert.equal(calls.length, 0);
   for (const state of ['saving', 'confirm', 'conflict']) {
     inner.dispatchEvent({ type: 'dblclick', target: els[1] });
     ctl.refs.manualState.setAttribute('data-state', state);
@@ -335,82 +294,21 @@ for (const which of ['resume', 'cover_letter']) {
   });
 }
 
-// Selection offsets are UTF-16, matching the browser Range contract.
-function caret(inner, el, start, end = start) {
-  const range = { startContainer: el, endContainer: el, startOffset: start,
-    toString: () => el.textContent.slice(start, end),
-    cloneRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => el.textContent.slice(0, start) }) };
-  inner.getSelection = () => ({ rangeCount: 1, isCollapsed: start === end, getRangeAt: () => range });
+// D29 replaces partial-span typing: even unchanged figures deny manual entry.
+function assertManualLocked({ ctl, inner, els, nodes, calls }) {
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  assert.equal(els[0].getAttribute('contenteditable'), null);
+  assert.equal(ctl.manual.active, null);
+  assert.equal(els[0].textContent, nodes[0].text);
+  assert.deepEqual(Object.keys(ctl.manual.drafts), []);
+  assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
+  assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]); assert.equal(calls.length, 0);
 }
-
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D27 validates full blocks for input, beforeinput and paste`, async () => {
-  const cases = [
-    ['Processed 38 shipments.', 'Processed 38% shipments.', 12, 12, '%'],
-    ['Processed 38 shipments.', 'Processed $38 shipments.', 10, 10, '$'],
-    ['Processed 38 shipments.', 'Processed %38 shipments.', 10, 10, '%'],
-    ['Processed 38 shipments.', 'Processed 38$ shipments.', 12, 12, '$'],
-    ['Processed 38 shipments.', 'Processed 38,000 shipments.', 12, 12, ',000'],
-    ['Processed 38 shipments.', 'Processed ,00038 shipments.', 10, 10, ',000'],
-    ['38 shipments.', '$38 shipments.', 0, 0, '$'],
-    ['Processed 38', 'Processed 38%', 12, 12, '%'],
-  ];
-  for (const [base, after, start, end, data] of cases) {
-    const t = await desk(which); const { ctl, inner, els, nodes } = t;
-    nodes[0].text = base; const at = base.indexOf('38'); nodes[0].locked.spans = [[at, at + 2]]; els[0].textContent = base;
-    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-    caret(inner, els[0], start, end);
-    const event = { type: 'beforeinput', target: els[0], inputType: data ? 'insertText' : 'deleteByCut', data };
-    inner.dispatchEvent(event); assert.equal(event.defaultPrevented, true, after);
-    if (data) {
-      const paste = { type: 'paste', target: els[0], clipboardData: { getData: () => data } };
-      inner.dispatchEvent(paste); assert.equal(els[0].textContent, base, after);
-    }
-    els[0].textContent = after; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, base, after); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
-    assert.equal(Object.keys(ctl.manual.drafts).length, 0); ctl.close();
-  }
-  for (const edge of ['before', 'after']) {
-    const { ctl, inner, els, nodes } = await desk(which);
-    const base = 'Processed 38 shipments.'; const at = base.indexOf('38');
-    nodes[0].text = base; nodes[0].locked.spans = [[at, at + 2]]; els[0].textContent = base;
-    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-    const staged = edge === 'after' ? base.replace('38', '38 ,000') : base.replace('38', ',000 38');
-    els[0].textContent = staged; inner.dispatchEvent({ type: 'input', target: els[0] });
-    // D28 now treats a single space between numeric components as part of the run.
-    if (edge === 'before') {
-      assert.equal(els[0].textContent, base, 'grouped numeric prefix is blocked before it can be joined');
-      assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
-      ctl.close('role-closed'); continue;
-    }
-    assert.equal(els[0].textContent, staged, 'a space before punctuation still separates the runs');
-    const separator = edge === 'after' ? at + 2 : at + 4;
-    caret(inner, els[0], separator + 1);
-    const deletion = { type: 'beforeinput', target: els[0], inputType: 'deleteContentBackward', data: null };
-    inner.dispatchEvent(deletion); assert.equal(deletion.defaultPrevented, true, edge);
-    els[0].textContent = staged.slice(0, separator) + staged.slice(separator + 1);
-    inner.dispatchEvent({ type: 'input', target: els[0] }); assert.equal(els[0].textContent, staged, edge);
-    ctl.close('role-closed');
-  }
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 D29 ${which} numeric edge blocks deny entry`, async () => {
+  for (const base of ['Processed 38 shipments.', '38 shipments.', 'Processed 38']) await checkNumericRun(which, base, base, false);
 });
-
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F94 R4-#5 ${which} shared-high-surrogate mutations compare whole locked neighbours`, async () => {
-  for (const edge of ['before', 'after']) {
-    const { ctl, inner, els, nodes } = await desk(which);
-    const base = edge === 'before' ? 'Processed 🎉38% shipments.' : 'Processed 38%🎉 shipments.';
-    const at = base.indexOf('38%'); nodes[0].text = base; nodes[0].locked.spans = [[at, at + 3]]; els[0].textContent = base;
-    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-    // IME/non-cancellable input uses the same full-block backstop.
-    els[0].textContent = base.replace('🎉', '🄁'); inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, base, edge); assert.equal(Object.keys(ctl.manual.drafts).length, 0);
-    const low = base.indexOf('🎉') + 1;
-    assert.equal('🎉'[0], '🄁'[0], 'regression isolates a shared high surrogate');
-    caret(inner, els[0], low, low + 1);
-    const ev = { type: 'beforeinput', target: els[0], inputType: 'insertText', data: '🄁'[1] };
-    inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true, edge);
-    const paste = { type: 'paste', target: els[0], clipboardData: { getData: () => '🄁'[1] } };
-    inner.dispatchEvent(paste); assert.equal(els[0].textContent, base, edge);
-    assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/); ctl.close();
-  }
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F94 D29 ${which} surrogate neighbours cannot bypass locked entry`, async () => {
+  for (const base of ['Processed 🎉38% shipments.', 'Processed 38%🎉 shipments.']) await checkNumericRun(which, base, base.replace('🎉', '🄁'), true, ['38%']);
 });
 
 for (const which of ['resume', 'cover_letter']) test(`SCRP-F92 R4-#3 ${which} gated Stay retains retry and recovery rearms the unchanged CAS save`, async () => {
@@ -478,28 +376,24 @@ async function checkNumericRun(which, base, after, blocked, tokens = ['38'], cha
     const start = base.indexOf(token, from); from = start + token.length;
     return [start, from];
   });
-  els[0].textContent = base; inner.dispatchEvent({ type: 'dblclick', target: els[0] });
-  if (channel === 'beforeinput') {
-    caret(inner, els[0], 0, base.length);
-    const e = { type: 'beforeinput', target: els[0], inputType: 'insertText', data: after };
-    inner.dispatchEvent(e); assert.equal(!!e.defaultPrevented, blocked, `${base} -> ${after}`);
-  } else if (channel === 'paste') {
-    const range = { startContainer: els[0], endContainer: els[0], startOffset: 0,
-      toString: () => base, cloneRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => '' }),
-      deleteContents() { els[0].textContent = ''; }, insertNode(n) { els[0].textContent = n.textContent; }, setStartAfter() {}, collapse() {} };
-    inner.getSelection = () => ({ rangeCount: 1, getRangeAt: () => range, removeAllRanges() {}, addRange() {} });
-    inner.dispatchEvent({ type: 'paste', target: els[0], clipboardData: { getData: () => after } });
-    assert.equal(els[0].textContent, blocked ? base : after, `${base} -> ${after}`);
-  } else {
-    els[0].textContent = after; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, blocked ? base : after, `${base} -> ${after}`);
+  els[0].textContent = base;
+  if (channel === 'input') assertManualLocked(t);
+  else {
+    inner.dispatchEvent({ type: channel === 'beforeinput' ? 'keydown' : 'pointerup', target: els[0], key: 'F2' });
+    if (channel === 'paste') {
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      assert.equal(edit.getAttribute('aria-disabled'), 'true'); edit.dispatchEvent({ type: 'click', target: edit });
+    }
+    assert.equal(ctl.manual.active, null, `${base} -> ${after} (former blocked=${blocked})`);
+    assert.equal(els[0].getAttribute('contenteditable'), null);
+    assert.equal(els[0].textContent, base); assert.equal(t.calls.length, 0);
+    assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
   }
-  if (blocked) assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
   ctl.close('role-closed');
 }
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F101 R5-#1 ${which} ${channel} preserves atomic numeric runs and their multiplicity`, async () => {
+  test(`SCRP-F101 D29 ${which} ${channel} denies manual entry for numeric runs and their multiplicity`, async () => {
     for (const [base, after, tokens] of [
       ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
       ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
@@ -517,7 +411,7 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
 }
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F103 R5-#3 ${which} ${channel} allows moving an identical locked numeric run`, async () => {
+  test(`SCRP-F103 D29 ${which} ${channel} denies manual movement of a locked numeric run`, async () => {
     await checkNumericRun(which, 'Cut delays 38% through weekly measurement.', 'Through weekly measurement, cut delays 38%.', false, ['38%'], channel);
   });
 }
@@ -584,7 +478,7 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} a
 });
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F107 R5-#7 ${which} ${channel} normalizes markup beside a locked run on both sides`, async () => {
+  test(`SCRP-F107 D29 ${which} ${channel} denies manual entry beside locked markup`, async () => {
     for (const [base, after] of [
       ['Cut defects 38%* across teams.', 'Cut defects 38%* across all teams.'],
       ['Hit `38%` across teams.', 'Hit `38%` across all teams.'],
@@ -594,7 +488,7 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
 }
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F110 R6-#1 ${which} ${channel} D28 blocks value-changing figure attachments`, async () => {
+  test(`SCRP-F110 D29 ${which} ${channel} denies manual entry for figure attachment cases`, async () => {
     for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
       await checkNumericRun(which, 'Processed 38 shipments.', `Processed ${figure} shipments.`, true, ['38'], channel);
     }
@@ -607,7 +501,7 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
 }
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F111 R6-#2 ${which} ${channel} groups locks sharing a run and retains distinct multiplicity`, async () => {
+  test(`SCRP-F111 D29 ${which} ${channel} denies manual entry for shared and repeated locks`, async () => {
     for (const joiner of ['x', 'e']) {
       await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}40 sheets.`, false, ['38', '40'], channel);
       await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}50 sheets.`, true, ['38', '40'], channel);
@@ -616,15 +510,8 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
   });
 }
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 R6-#2 ${which} grouped locks map each UTF-16 span into the moved run`, async () => {
-  const t = await desk(which), base = 'Processed 38x40 sheets.', after = '😀 We processed 38x40 sheets.';
-  t.nodes[0].text = base; t.nodes[0].locked.spans = [[10, 12], [13, 15]]; t.els[0].textContent = base;
-  t.edit(t.els[0], after);
-  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[16, 18], [19, 21]]);
-  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
-  t.els[0].textContent = after.replace('40', '50'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
-  assert.equal(t.els[0].textContent, after);
-  t.ctl.close('role-closed');
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 D29 ${which} grouped UTF-16 locks deny manual entry`, async () => {
+  await checkNumericRun(which, 'Processed 38x40 sheets.', '😀 We processed 38x40 sheets.', false, ['38', '40']);
 });
 
 for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} unchanged focus and blur cannot bypass the automatic save budget`, async () => {
@@ -690,22 +577,22 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F113 R6-#4 ${which} r
   hung.ctl.close('role-closed');
 });
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 R6-#5 ${which} server-discovered Unicode locks block client edits`, async () => {
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 D29 ${which} server-discovered Unicode locks block client edits`, async () => {
   const { deriveNodes } = await import('../server/materials-nodes.mjs');
-  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+  for (const figure of ['３８', '٣٨', '𝟛𝟠']) {
     const model = JSON.parse(readFileSync(new URL('../docs/programs/editor-20260927/fixtures/model.json', import.meta.url), 'utf8'));
     model.documents.coverLetter.paragraphs[1].text = `😀 Processed ${figure} shipments.`;
     model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: '😀 Processed ' }, { n: figure }, { t: ' shipments.' }];
     const node = deriveNodes(model).find(n => n.id === (which === 'resume' ? 'b:acme:c14' : 'p:p2'));
     const t = await desk(which); t.nodes[0].text = node.text; t.nodes[0].locked = node.locked; t.els[0].textContent = node.text;
-    t.edit(t.els[0], node.text.replace(figure, changed)); await t.flush();
+    assertManualLocked(t); await t.flush();
     assert.equal(t.els[0].textContent, node.text, 'discovered locks reach client input validation'); assert.equal(t.calls.length, 0);
     t.ctl.close('role-closed');
   }
 });
 
 for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
-  test(`SCRP-F115 R6-#6 ${which} ${channel} D28 preserves numbered text and NFC figure runs`, async () => {
+  test(`SCRP-F115 D29 ${which} ${channel} denies manual entry for locked numbered text and NFC runs`, async () => {
     await checkNumericRun(which, '38. Shipments processed.', '38. All shipments processed.', false, ['38'], channel);
     await checkNumericRun(which, '38. Shipments processed.', '39. All shipments processed.', true, ['38'], channel);
     await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false, ['38'], channel);
@@ -715,12 +602,28 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
   });
 }
 
-for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 R6-#6 ${which} NFC offset mapping keeps subsequent locked edits blocked`, async () => {
-  const t = await desk(which), base = '😀 Cafe\u030138 shipments.', after = '😀 Café38 shipments processed.';
-  const at = base.indexOf('38'); t.nodes[0].text = base; t.nodes[0].locked.spans = [[at, at + 2]]; t.els[0].textContent = base;
-  t.edit(t.els[0], after);
-  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[7, 9]]);
-  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
-  t.els[0].textContent = after.replace('38', '39'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
-  assert.equal(t.els[0].textContent, after); t.ctl.close('role-closed');
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 D29 ${which} NFC figure blocks cannot enter manual editing`, async () => {
+  await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false);
 });
+
+for (const which of ['resume', 'cover_letter']) for (const lock of ['spans', 'whole']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
+  test(`SCRP-F120 D29 ${which} ${lock} locks deny ${entry} and retain composer scope`, async () => {
+    const t = await desk(which, undefined, lock), { ctl, inner, els, nodes } = t;
+    assert.match(els[0].getAttribute('aria-label'), /locked/);
+    if (entry === 'double-click') inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    else if (entry === 'Edit text') {
+      inner.dispatchEvent({ type: 'pointerup', target: els[0] });
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      assert.equal(edit.getAttribute('aria-disabled'), 'true');
+      edit.dispatchEvent({ type: 'click', target: edit });
+    } else inner.dispatchEvent({ type: 'keydown', target: els[0], key: 'F2' });
+    assert.equal(els[0].getAttribute('contenteditable'), null);
+    assert.equal(ctl.manual.active, null);
+    assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
+    assert.equal(t.win.document.activeElement, ctl.refs.prompt);
+    assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]);
+    assert.equal(ctl.scope.stale, false);
+    assert.deepEqual(Object.keys(ctl.manual.drafts), []);
+    await t.flush(); assert.equal(t.calls.length, 0); ctl.close();
+  });
+}

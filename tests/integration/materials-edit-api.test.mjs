@@ -10,6 +10,7 @@ import { after, before, it } from "node:test";
 import express from "../../server/node_modules/express/index.js";
 import { commitModelAsRun, regeneratePackage } from "../../server/materials-regenerate.mjs";
 import { createMaterialsVersionService, registerMaterialsEditRoutes } from "../../server/materials-versions.mjs";
+import { deriveNodes } from "../../server/materials-nodes.mjs";
 
 const model = JSON.parse(readFileSync(new URL("../../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
 const op = { opId: "o1", op: "replace", node: "line:beta", text: "Tracked shipments." };
@@ -1430,4 +1431,68 @@ it('SCRP-B51 R4-#1 confirmed manual adjacency violations stay 400 locked and per
     assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
     assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
   }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B80 D29 ${doc} manual locked blocks reject unchanged figures even when confirmed`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const confirmed of [false, true]) {
+    const pkg = await seed();
+    const id = doc === 'resume' ? 'stmt' : 'p:p2';
+    const node = deriveNodes(model).find(n => n.id === id);
+    const res = await request(`${pkg.path}/edits/manual`, 'POST', {
+      doc, baseRunId: 'r0', manualOps: [{ opId: 'd29', op: 'replace', node: id, text: node.text + ' Today.' }],
+      confirmUnverified: confirmed ? ['d29'] : [],
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.data.code, 'locked');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), model);
+    assert.deepEqual((await readdir(join(pkg.dir, 'runs'))), ['r0']);
+    if (doc === 'resume') {
+      const whole = await request(`${pkg.path}/edits/manual`, 'POST', {
+        doc, baseRunId: 'r0', manualOps: [{ opId: 'whole', op: 'replace', node: 'seat:acme', text: 'Director' }],
+        confirmUnverified: confirmed ? ['whole'] : [],
+      });
+      assert.equal(whole.status, 400); assert.equal(whole.data.code, 'locked');
+    }
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} committed unrelated AI edit preserves the approximation`, async () => {
+  const before = structuredClone(model), text = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const node = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+  if (doc === 'resume') before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Cut costs ~' }, { n: '40%' }, { t: ' across teams.' }];
+  else before.documents.coverLetter.paragraphs[1].text = text;
+  const pkg = await seed(before), edit = { opId: 'approx', op: 'replace', node, text: next };
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' }, commit,
+    propose: async () => ({ ops: [edit], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+  });
+  const started = await svc.start(pkg.slug, { doc, baseRunId: 'r0', instruction: 'Clarify teams.', scope: [node], lockFacts: true });
+  const stream = fakeStream(), ended = once(stream, 'end');
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+  const saved = await svc.accept(pkg.slug, started.proposalId, { accept: ['approx'], confirmUnverified: ['approx'] });
+  const stored = (await svc.model(pkg.slug, saved.body.run.runId)).model;
+  assert.equal(deriveNodes(stored).find(n => n.id === node).text, next);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], before.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B85 R7-#6 ${doc} plaintext manual save preserves literal angle text and escapes rendering`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+  const text = 'Kept latency <50ms and uptime >99.9% all year. Keep <plan> and <b>literal</b> visible.';
+  const saved = await request(`${pkg.path}/edits/manual`, 'POST', {
+    doc, baseRunId: 'r0', manualOps: [{ opId: 'angles', op: 'replace', node, text }], confirmUnverified: ['angles'],
+  });
+  assert.equal(saved.status, 200);
+  const stored = await request(`${pkg.path}/versions/${saved.data.run.runId}/model`);
+  assert.equal(stored.data.nodes.find(n => n.id === node).text, text);
+  const preview = await request(`${pkg.path}/preview`, 'POST', { doc, baseRunId: saved.data.run.runId, ops: [] });
+  assert.equal(preview.status, 200);
+  assert.ok(preview.data.html.includes('&lt;50ms'));
+  assert.ok(preview.data.html.includes('&gt;99.9%'));
+  assert.ok(preview.data.html.includes('&lt;plan&gt;'));
+  assert.ok(preview.data.html.includes('&lt;b&gt;literal&lt;/b&gt;'));
+  assert.equal(preview.data.html.includes('<b>literal</b>'), false);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
 });

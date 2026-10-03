@@ -710,19 +710,21 @@
     renderScope(ctl);
   }
 
-  function scopePayload(ctl) {
+  function scopePayload(ctl, manual) {
     if (!ctl.scope) return "all";
     var s = ctl.scope, map = nodeMap(ctl), rendered = frameNodes(frameDoc(ctl));
     if (s.stale || s.stamp !== scopeStamp(ctl) || !s.ids.length || s.ids.some(function (id) { return !map[id] || !rendered[id]; })) {
       invalidateScope(ctl); return null;
     }
     var locked = s.ids.filter(function (id) { return map[id].locked && map[id].locked.whole; });
-    if (locked.length) { status(ctl, "selection", lockText(map[locked[0]])); return null; }
+    if (locked.length && !manual) { status(ctl, "selection", lockText(map[locked[0]])); return null; }
     return s.ids.slice();
   }
 
   function pickSelection(ctl, event) {
     if (ctl.selectionFocusReturn) return;
+    if (event && event.type === "selectionchange" && ctl.manual.lockedFocus && doc().activeElement === ctl.refs.prompt) return;
+    if (event && event.type !== "selectionchange") ctl.manual.lockedFocus = false;
     if (capabilityPaused(ctl) || ctl.manual.active) { hideSelectionActions(ctl); return; }
     var inner = frameDoc(ctl), map = nodeMap(ctl), ids = [], range = null;
     var selection = inner && typeof inner.getSelection === "function" && inner.getSelection();
@@ -747,14 +749,16 @@
     });
     renderScope(ctl);
     if (!ids.length) { invalidateScope(ctl); return; }
+    var toolbar = ctl.refs.selectionActions;
+    var edit = toolbar.querySelector('[data-selection="edit"]');
+    var manualLocked = ids.some(function (id) { return !editableBlock(map[id]); });
+    edit.setAttribute("aria-disabled", ids.length === 1 && !manualLocked ? "false" : "true");
+    if (manualLocked) edit.setAttribute("title", "This line has locked figures. Ask Scribe to change it.");
+    else if (ids.length === 1) edit.removeAttribute("title");
+    else edit.setAttribute("title", "Select one block to edit its text.");
     var locked = ids.filter(function (id) { return map[id].locked && map[id].locked.whole; });
     if (locked.length) { hideSelectionActions(ctl); status(ctl, "selection", lockText(map[locked[0]])); return; }
     if (ids.some(function (id) { return map[id].locked && map[id].locked.spans.length; })) status(ctl, "selection", "Figures in this line are locked.");
-    var toolbar = ctl.refs.selectionActions;
-    var edit = toolbar.querySelector('[data-selection="edit"]');
-    edit.setAttribute("aria-disabled", ids.length === 1 ? "false" : "true");
-    if (ids.length === 1) edit.removeAttribute("title");
-    else edit.setAttribute("title", "Select one block to edit its text.");
     var rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() :
       ctl.scope.anchor && ctl.scope.anchor.getBoundingClientRect && ctl.scope.anchor.getBoundingClientRect();
     toolbar.removeAttribute("hidden");
@@ -772,7 +776,7 @@
   }
 
   function selectionAction(ctl, action) {
-    var ids = scopePayload(ctl);
+    var ids = scopePayload(ctl, action === "edit");
     if (!ids || ids === "all" || capabilityPaused(ctl)) return;
     if (action === "edit") {
       if (ids.length === 1) beginManual(ctl, ctl.scope.anchor);
@@ -820,7 +824,7 @@
     for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
       var normalized = part.segment.normalize("NFC");
       for (var i = 0; i < normalized.length; i++) {
-        if (/[*_`~]/.test(normalized[i])) continue;
+        if (/[*_`]/.test(normalized[i])) continue;
         text += normalized[i];
         offsets.push(part.index + (normalized === part.segment ? i : 0));
         ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
@@ -835,7 +839,7 @@
     for (var point of points) offsets.push(offsets[offsets.length - 1] + point.length);
     var left = offsets.indexOf(start), right = offsets.indexOf(end);
     if (left < 0 || right < 0) return [start, end];
-    var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
+    var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^'~]$/u;
     /** Spaces bridge figure components, not a preceding prose word (D28 movement).
      * @param {number} i */
     var joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
@@ -925,6 +929,16 @@
   function beginManual(ctl, el) {
     if (!el || capabilityPaused(ctl)) return;
     var map = nodeMap(ctl), id = el.getAttribute && el.getAttribute("data-node"), node = map[id];
+    if (node && node.locked && (node.locked.whole || node.locked.spans.length)) {
+      var inner = frameDoc(ctl), selection = inner && inner.getSelection && inner.getSelection();
+      if (selection && selection.removeAllRanges) selection.removeAllRanges();
+      pickSelection(ctl, { type: "pointerup", target: el });
+      hideSelectionActions(ctl);
+      status(ctl, "selection", "This line has locked figures. Ask Scribe to change it.");
+      if (ctl.isNarrow()) ctl.setSeg("chat");
+      ctl.manual.lockedFocus = true;
+      ctl.refs.prompt.focus(); return;
+    }
     if (!node || el.hasAttribute("hidden") || typeof el.getClientRects === "function" && !el.getClientRects().length ||
         ["statement", "intro", "bullet", "line", "toolkit", "salutation", "paragraph"].indexOf(node.kind) < 0 || node.locked && node.locked.whole) {
       if (node) manualMessage(ctl, "error", lockText(node)); return;
@@ -1146,7 +1160,7 @@
   }
 
   function editableBlock(node) {
-    return node && ["statement", "intro", "bullet", "line", "toolkit", "salutation", "paragraph"].indexOf(node.kind) >= 0 && !(node.locked && node.locked.whole);
+    return node && ["statement", "intro", "bullet", "line", "toolkit", "salutation", "paragraph"].indexOf(node.kind) >= 0 && !(node.locked && (node.locked.whole || node.locked.spans.length));
   }
 
   function documentBlocks(ctl) {
@@ -1197,7 +1211,8 @@
       if (selection && selection.removeAllRanges) selection.removeAllRanges();
       pickSelection(ctl, { type: "pointerup", target: e.target });
       var node = nodeMap(ctl)[e.target.getAttribute("data-node")];
-      if (!editableBlock(node)) { hideSelectionActions(ctl); status(ctl, "selection", lockText(node)); }
+      if (node.locked && (node.locked.whole || node.locked.spans.length)) beginManual(ctl, e.target);
+      else if (!editableBlock(node)) { hideSelectionActions(ctl); status(ctl, "selection", lockText(node)); }
       else if (!ctl.refs.selectionActions.hasAttribute("hidden")) ctl.refs.selectionActions.querySelector("button").focus();
       return true;
     }

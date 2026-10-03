@@ -33,13 +33,15 @@ export class MaterialsEditError extends Error {
 
 /** @param {string} text */
 const wordCount = (text) => String(text).trim().split(/\s+/).filter(Boolean).length;
-/** @param {string} text */
-const plain = (text) => String(text).normalize("NFC")
-  .replace(/<[^>]*>/g, "")
+/** @param {string} text @param {boolean} [literalAngles] */
+const plain = (text, literalAngles = false) => {
+  const normalized = String(text).normalize("NFC");
+  return (literalAngles ? normalized : normalized.replace(/<\/?[A-Za-z][^<>]*>/g, ""))
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
   .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
-  .replace(/[*_`~]/g, "")
+  .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
   .trim();
+};
 
 /** @param {Array<{t?:string,n?:string,hl?:string}>} runs */
 function metricSpans(runs) {
@@ -119,7 +121,7 @@ function normalizedNumericText(value) {
   for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
     var normalized = part.segment.normalize("NFC");
     for (var i = 0; i < normalized.length; i++) {
-      if (/[*_`~]/.test(normalized[i])) continue;
+      if (/[*_`]/.test(normalized[i])) continue;
       text += normalized[i];
       offsets.push(part.index + (normalized === part.segment ? i : 0));
       ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
@@ -134,15 +136,27 @@ function numericRun(text, start, end) {
   for (const point of points) offsets.push(offsets[offsets.length - 1] + point.length);
   let left = offsets.indexOf(start), right = offsets.indexOf(end);
   if (left < 0 || right < 0) return [start, end];
-  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
-  /** Spaces bridge figure components, not a preceding prose word (D28 movement).
+  const symbols = /^[\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  // Braille blank is also a visible grouping gap in the R7 reproduction.
+  const whitespace = /^[\s\p{Zs}\u2028\u2029\u2800]$/u;
+  const scale = /^(?:k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|per[\s\p{Zs}\u2800]+cent|pct|times)(?![\p{L}\p{N}_])/iu;
+  /** Bridge complete gaps only between numeric components, leaving prose movable.
    * @param {number} i */
-  const joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
-    (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
-     /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
+  const joins = (i) => {
+    if (!whitespace.test(points[i] || "")) return false;
+    let a = i, b = i;
+    while (a > 0 && whitespace.test(points[a - 1])) a--;
+    while (b < points.length && whitespace.test(points[b])) b++;
+    const before = points.slice(0, a).join(""), after = points.slice(b).join("");
+    const previousWord = /(?:^|[^\p{L}\p{N}_])(?:minus|negative|k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|cent|pct|times|x|to)$/iu.test(before);
+    const nextOperator = /^(?:x|to)[\s\p{Zs}\u2800]+(?=\p{N})/iu.test(after);
+    return (/^\p{N}$/u.test(points[a - 1] || "") || symbols.test(points[a - 1] || "") || previousWord) &&
+      (/^\p{N}$/u.test(points[b] || "") || symbols.test(points[b] || "") || scale.test(after) || nextOperator);
+  };
   while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
   while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
-  while (right > left && /^[.,:;–—\-/]$/.test(points[right - 1])) right--;
+  while (right > left && /^[.,:;\p{Pd}/]$/u.test(points[right - 1])) right--;
   return [offsets[left], offsets[right]];
 }
 
@@ -231,9 +245,9 @@ function checkShape(model) {
  * locked | out_of_scope | shape | invalid_model. The input is never changed.
  * @param {RenderModel} model
  * @param {Array<any>} ops
- * @param {{scope?:'all'|string[]}} [options]
+ * @param {{scope?:'all'|string[],plainTextOpIds?:string[]}} [options]
  */
-export function applyOps(model, ops, { scope = "all" } = {}) {
+export function applyOps(model, ops, { scope = "all", plainTextOpIds = [] } = {}) {
   if (!Array.isArray(ops) || !Array.isArray(scope) && scope !== "all") throw new MaterialsEditError("invalid_model", "invalid edit batch or scope");
   const base = validateRenderModel(model);
   if (!base.ok) throw new MaterialsEditError("invalid_model", base.errors.join("; "));
@@ -249,9 +263,10 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
     const node = addressBook(out).find((item) => item.id === id);
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
     const { ref } = node;
+    const literalAngles = plainTextOpIds.includes(op.opId);
     if (op.op === "insert") {
-      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
-      const text = plain(op.text);
+      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
+      const text = plain(op.text, literalAngles);
       if (ref.kind === "bullet") {
         if (ref.owner.some((/** @type {{claimId:string}} */ b) => b.claimId === op.claimId)) throw new MaterialsEditError("invalid_model", `duplicate claimId: ${op.claimId}`);
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { claimId: op.claimId, runs: toRuns(text, tokens) });
@@ -262,8 +277,8 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { id: paragraphId, beat, claimId: op.claimId, text, words: wordCount(text) });
       } else throw new MaterialsEditError("invalid_model", `cannot insert after ${id}`);
     } else if (op.op === "replace") {
-      if (typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "replace needs text");
-      const text = plain(op.text);
+      if (typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "replace needs text");
+      const text = plain(op.text, literalAngles);
       // Normalize each raw side once inside the lock check, just as the client does.
       assertUnlocked(node, op.text);
       // Cleanup must not strip an enumerator/sign or join HTML-separated digits.
