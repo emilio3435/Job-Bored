@@ -546,10 +546,25 @@ for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
   });
 }
 
-for (const doc of ["resume", "cover_letter"]) for (const segment of ["Chat", "Versions"]) {
-  test(`SCRP-F95 R4-#6 ${doc} 375 ${segment}: Stop stays reachable before and after the proposal ID`, async ({ page }) => {
+for (const doc of ["resume", "cover_letter"]) for (const segment of ["Chat", "Versions"]) for (const mode of ["view", "compare"]) {
+  test(`SCRP-F95 SCRP-F102 R5-#2 ${doc} 375 ${segment} ${mode}: compare is hidden and Stop stays reachable before and after the proposal ID`, async ({ page }) => {
     const booted = await openDesk(page, { width: 375, height: 667 }, "reduce", doc);
     const { desk } = booted;
+    await page.evaluate(mode => {
+      const ctl = globalThis.JB_SCRIBE_V2.current();
+      if (mode === "view") ctl.versionsUi.view("run-00"); else ctl.versionsUi.toggleCompare();
+    }, mode);
+    const compare = desk.locator(".scribe__compare");
+    await expect(compare).toBeVisible();
+    await desk.getByRole("tablist", { name: "View" }).getByRole("tab", { name: segment, exact: true }).click();
+    await expect(compare).toBeHidden();
+    expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().versionsUi.mode)).toBe(mode);
+    // Traverse a whole modal focus cycle: no hidden compare control is reachable.
+    for (let i = 0; i < 35; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement.closest(".scribe__compare"))).toBe(false);
+    }
+    await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().versionsUi.exit({ silent: true }));
     let releaseStart, releaseStop, startSeen = false, stopSeen = false;
     const startGate = new Promise(resolve => { releaseStart = resolve; });
     const stopGate = new Promise(resolve => { releaseStop = resolve; });
@@ -575,6 +590,7 @@ for (const doc of ["resume", "cover_letter"]) for (const segment of ["Chat", "Ve
       expect(stage.y + stage.height, 'busy stage precedes the active side panel').toBeLessThanOrEqual(side.y + 1);
       await expect(desk.locator('.scribe__docscroll')).toBeHidden();
       await expect(desk.locator('.scribe__reviewbar')).toBeHidden();
+      await expect(compare).toBeHidden();
       await expectNoSidewaysScroll(page);
     };
     try {

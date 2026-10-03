@@ -825,3 +825,98 @@ for (const which of ['resume', 'cover_letter']) for (const width of [1440, 375])
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F104 R5-#4 ${which} real recovery does not save under an unanswered navigation prompt`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      await typeBlock(page, id, which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.');
+      const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+      const response = await fetch(`${h.service.baseUrl}${h.pkg.path}/edits`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc: sibling, baseRunId: 'r0', instruction: 'Shorten existing wording.', scope: 'all', lockFacts: true }) });
+      expect(response.status).toBe(202);
+      await expect(h.desk.locator('[data-action="continue-request"]')).toBeVisible({ timeout: 15000 });
+      await h.desk.getByRole('tab', { name: sibling === 'resume' ? 'Resume' : 'Cover letter', exact: true }).click();
+      await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
+      await h.desk.locator('[data-action="discard-request"]').click();
+      await expect.poll(() => page.evaluate(() => !globalThis.JB_SCRIBE_V2.current().openProposal)).toBe(true);
+      await page.waitForTimeout(2300);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(1);
+      await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Your text is kept.');
+      await h.desk.locator('[data-unsaved="discard"]').click();
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F105 R5-#5 ${which} a running materials request has truthful manual retry copy`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      const pending = route => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ code: 'materials_pending', error: 'Role is busy.' }) });
+      await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/manual`, pending);
+      await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/open`, pending);
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      const text = which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.';
+      await typeBlock(page, id, text);
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Not saved. Your text is kept.Try again', { timeout: 15000 });
+      await expect(h.desk.locator('.scribe__recover')).toBeHidden();
+      await h.desk.locator('[data-manual="retry"]').click();
+      await expect.poll(() => h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual')).length).toBe(2);
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Not saved. Your text is kept.Try again');
+      expect(await page.evaluate(id => globalThis.JB_SCRIBE_V2.current().manual.drafts[id].text, id)).toBe(text);
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F106 R5-#6 ${which} a hung pending claim stops automatically and exposes Try again`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/manual`, route => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ code: 'materials_pending', error: 'Role is busy.' }) }));
+      const openReadsBefore = h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open')).length;
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      await typeBlock(page, id, which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.');
+      await page.waitForTimeout(11500);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(4);
+      expect(h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open'))).toHaveLength(openReadsBefore + 4);
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Not saved. Your text is kept.Try again');
+      await expect(h.desk.locator('.scribe__recover')).toBeHidden();
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().manual.timer)).toBeNull();
+      await h.desk.locator('[data-manual="retry"]').click();
+      await expect.poll(() => h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual')).length).toBe(5);
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const [style, base] of [['asterisk', 'Cut defects 38%* across teams.'], ['backtick', 'Hit `38%` across teams.']]) {
+  test(`SCRP-F107 R5-#7 ${which} ${style} markup neighbours normalize before a real manual save`, async ({ page }) => {
+      const model = structuredClone(MODEL);
+      const id = which === 'resume' ? 'b:acme:c14' : 'p:p2';
+      if (which === 'resume') {
+        const at = base.indexOf('38%');
+        model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: base.slice(0, at) }, { n: '38%' }, { t: base.slice(at + 3) }];
+      } else model.documents.coverLetter.paragraphs[1].text = base;
+      const h = await realDesk(page, which, { model });
+      try {
+        const block = page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${id}"]`);
+        await block.dblclick(); await expect(block).toHaveAttribute('contenteditable', 'plaintext-only');
+        await block.fill(base.replace('38%', '38%*5')); await expect(block).toHaveText(base);
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
+        await block.fill(base.replace('across teams', 'across all teams'));
+        await leaveBlock(page);
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
+        const saved = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions` + '?doc=' + which)).json();
+        expect(saved.versions).toHaveLength(2);
+        const state = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/${saved.currentRunId}/model`)).json();
+        expect(state.nodes.find(n => n.id === id).text).toBe(base.replace(/[*`]/g, '').replace('across teams', 'across all teams'));
+        expect(h.fence.unexpectedExternal).toEqual([]);
+      } finally { await h.service.close(); }
+  });
+}

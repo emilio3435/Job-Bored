@@ -805,26 +805,82 @@
 
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
-  function changedRange(before, after) {
-    var start = 0, end = before.length, tail = after.length;
-    while (start < end && start < tail && before.charAt(start) === after.charAt(start)) start++;
-    while (end > start && tail > start && before.charAt(end - 1) === after.charAt(tail - 1)) { end--; tail--; }
-    return { start: start, end: end, delta: after.length - before.length };
+
+  /** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+   * @param {string} value */
+  function normalizedNumericText(value) {
+    var text = String(value);
+    var offsets = Array.from({ length: text.length }, (_, i) => i);
+    /** @param {RegExp} pattern @param {boolean} [label] */
+    function strip(pattern, label = false) {
+      var from = 0;
+      /** @type {string[]} */
+      var parts = [];
+      /** @type {number[]} */
+      var next = [];
+      text.replace(pattern, (...args) => {
+        var match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
+        parts.push(text.slice(from, at), kept);
+        next = next.concat(offsets.slice(from, at));
+        if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
+        from = at + match.length;
+        return match;
+      });
+      parts.push(text.slice(from));
+      text = parts.join(""); offsets = next.concat(offsets.slice(from));
+    }
+    strip(/<[^>]*>/g);
+    strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
+    strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
+    strip(/(?:\*\*|__|~~|`|\*|_)/g);
+    strip(/^\s+|\s+$/g);
+    return { text, offsets };
+  }
+
+  /** @param {string} text @param {number} start @param {number} end */
+  function numericRun(text, start, end) {
+    while (start > 0) {
+      var prev = Array.from(text.slice(0, start)).pop() || "";
+      var before = Array.from(text.slice(0, start - prev.length)).pop() || "";
+      if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
+      start -= prev.length;
+    }
+    while (end < text.length) {
+      var next = String.fromCodePoint(text.codePointAt(end) || 0);
+      var after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
+      if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
+      end += next.length;
+    }
+    return [start, end];
+  }
+
+  /** Match the locked base runs as a multiset, in any order, returning raw offsets.
+   * @param {string} base @param {number[][]} spans @param {string} result */
+  function matchingNumericSpans(base, spans, result) {
+    var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+    /** @type {number[][]} */
+    var matched = [];
+    for (var [rawStart, rawEnd] of spans) {
+      var start = original.offsets.findIndex(i => i >= rawStart);
+      var end = original.offsets.findIndex(i => i >= rawEnd);
+      if (end < 0) end = original.text.length;
+      if (start < 0 || start >= end) return null;
+      var [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
+      var at = next.text.indexOf(run);
+      while (at >= 0) {
+        var [left, right] = numericRun(next.text, at, at + run.length);
+        if (left === at && right === at + run.length && !used.has(at)) break;
+        at = next.text.indexOf(run, at + 1);
+      }
+      if (at < 0) return null;
+      used.add(at);
+      matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+    }
+    return matched;
   }
 
   function manualSpans(a, text) {
-    var diff = changedRange(a.last, text), shifted = [];
-    for (var i = 0; i < a.spans.length; i++) {
-      var span = a.spans[i];
-      if (diff.start < span[1] && diff.end > span[0]) return null;
-      var move = span[0] >= diff.end ? diff.delta : 0;
-      var start = span[0] + move, end = span[1] + move;
-      if (text.slice(start, end) !== a.last.slice(span[0], span[1]) ||
-          (Array.from(text.slice(0, start)).pop() || "") !== (Array.from(a.last.slice(0, span[0])).pop() || "") ||
-          (Array.from(text.slice(end))[0] || "") !== (Array.from(a.last.slice(span[1]))[0] || "")) return null;
-      shifted.push([start, end]);
-    }
-    return shifted;
+    return matchingNumericSpans(a.node.text, a.node.locked && a.node.locked.spans || [], text);
   }
 
   function captureManual(ctl) {
@@ -836,6 +892,7 @@
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
+    if (a.last !== text) m.gateRetries = 0;
     a.spans = spans;
     a.last = text;
     if (text === a.node.text) delete m.drafts[a.node.id];
@@ -853,7 +910,7 @@
     m.active = null;
     if (m.timer) root.clearTimeout(m.timer);
     m.timer = null;
-    if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
+    if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
     else {
       m.base = null; m.doc = null;
       if (["saving", "confirm", "conflict"].indexOf(ctl.refs.manualState.getAttribute("data-state")) < 0) clearManualMessage(ctl);
@@ -965,14 +1022,15 @@
 
   function manualGateMessage(ctl) {
     ctl.manual.gated = true;
-    manualMessage(ctl, "error", "Review or discard the open changes first.", [["retry", "Try again", function () {
+    manualMessage(ctl, "error", manualBlocked(ctl) ? "Review or discard the open changes first." : "Not saved. Your text is kept.", [["retry", "Try again", function () {
       readOpen(ctl).then(function () { saveManual(ctl); });
     }]]);
   }
 
-  function saveManual(ctl, confirmed) {
+  function saveManual(ctl, confirmed, automatic) {
     var m = ctl.manual;
     if (confirmed && m.confirmation !== confirmed) return Promise.resolve(false);
+    if (!automatic) m.gateRetries = 0;
     if (m.active) finishManual(ctl);
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (!dirtyManual(ctl)) return Promise.resolve(true);
@@ -990,7 +1048,7 @@
     manualMessage(ctl, "saving", "Saving…");
     return ctl.api.manualEdit({ doc: which, baseRunId: base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
       ctl.recoverySeq++;
-      m.saving = false; m.drafts = Object.create(null); m.base = null;
+      m.saving = false; m.drafts = Object.create(null); m.base = null; m.gateRetries = 0;
       emitSaved(ctl, res && res.run && res.run.runId, which);
       var owner = ctl;
       if (ctl.closed || generation !== ctl.generation) {
@@ -1027,7 +1085,11 @@
         manualMessage(owner, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(owner); }]]);
         if (err && err.code === "materials_pending") {
           manualGateMessage(owner);
-          return readOpen(owner, true).then(function () { return false; });
+          var recovery = readOpen(owner, true), recoverySequence = owner.recoverySeq;
+          return recovery.then(function () {
+            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving) manualGateMessage(owner);
+            return false;
+          });
         }
       }
       return false;
@@ -1040,17 +1102,23 @@
     if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
-    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null; m.gated = false;
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null; m.gated = false; m.gateRetries = 0;
     clearManualMessage(ctl);
   }
 
-  function resumeManualSave(ctl) {
+  function resumeManualSave(ctl, explicit) {
     var m = ctl.manual;
+    if (explicit) m.gateRetries = 0;
     if (!dirtyManual(ctl) || m.saving) return;
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
     m.gated = false;
-    m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
+    if (!ctl.refs.unsaved.hasAttribute("hidden")) {
+      manualMessage(ctl, "editing", "Your text is kept."); return;
+    }
+    if ((m.gateRetries || 0) >= 3) { manualGateMessage(ctl); return; }
+    m.gateRetries = (m.gateRetries || 0) + 1;
+    m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
     manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }
 
@@ -1065,7 +1133,7 @@
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
         if (entry[0] === "save") saveManual(ctl).then(function (saved) { if (saved) { el.setAttribute("hidden", ""); action(); } });
-        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl); ctl.refs.prompt.focus(); } }
+        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl, true); ctl.refs.prompt.focus(); } }
       }); el.appendChild(btn);
     });
     el.querySelector("button").focus(); return false;
@@ -2270,7 +2338,7 @@
       var buttons = Array.prototype.slice.call(r.selectionActions.querySelectorAll("button"));
       var at = buttons.indexOf(e.target); e.preventDefault(); buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus(); return;
     }
-    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl); r.prompt.focus(); return; }
+    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl, true); r.prompt.focus(); return; }
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */

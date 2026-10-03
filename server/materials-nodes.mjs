@@ -107,26 +107,86 @@ export function lockedSpans(model) {
   return Object.fromEntries(deriveNodes(model).map(({ id, locked }) => [id, locked]));
 }
 
+
+/** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+ * @param {string} value */
+function normalizedNumericText(value) {
+  let text = String(value);
+  let offsets = Array.from({ length: text.length }, (_, i) => i);
+  /** @param {RegExp} pattern @param {boolean} [label] */
+  function strip(pattern, label = false) {
+    let from = 0;
+    /** @type {string[]} */
+    const parts = [];
+    /** @type {number[]} */
+    let next = [];
+    text.replace(pattern, (...args) => {
+      const match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
+      parts.push(text.slice(from, at), kept);
+      next = next.concat(offsets.slice(from, at));
+      if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
+      from = at + match.length;
+      return match;
+    });
+    parts.push(text.slice(from));
+    text = parts.join(""); offsets = next.concat(offsets.slice(from));
+  }
+  strip(/<[^>]*>/g);
+  strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
+  strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
+  strip(/(?:\*\*|__|~~|`|\*|_)/g);
+  strip(/^\s+|\s+$/g);
+  return { text, offsets };
+}
+
+/** @param {string} text @param {number} start @param {number} end */
+function numericRun(text, start, end) {
+  while (start > 0) {
+    const prev = Array.from(text.slice(0, start)).at(-1) || "";
+    const before = Array.from(text.slice(0, start - prev.length)).at(-1) || "";
+    if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
+    start -= prev.length;
+  }
+  while (end < text.length) {
+    const next = String.fromCodePoint(text.codePointAt(end) || 0);
+    const after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
+    if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
+    end += next.length;
+  }
+  return [start, end];
+}
+
+/** Match the locked base runs as a multiset, in any order, returning raw offsets.
+ * @param {string} base @param {number[][]} spans @param {string} result */
+function matchingNumericSpans(base, spans, result) {
+  const original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  /** @type {number[][]} */
+  const matched = [];
+  for (const [rawStart, rawEnd] of spans) {
+    const start = original.offsets.findIndex(i => i >= rawStart);
+    let end = original.offsets.findIndex(i => i >= rawEnd);
+    if (end < 0) end = original.text.length;
+    if (start < 0 || start >= end) return null;
+    const [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
+    let at = next.text.indexOf(run);
+    while (at >= 0) {
+      const [left, right] = numericRun(next.text, at, at + run.length);
+      if (left === at && right === at + run.length && !used.has(at)) break;
+      at = next.text.indexOf(run, at + 1);
+    }
+    if (at < 0) return null;
+    used.add(at);
+    matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+  }
+  return matched;
+}
+
 /** @param {Address} node @param {string|null} nextText */
 function assertUnlocked(node, nextText) {
   if (node.locked.whole) throw new MaterialsEditError("locked", node.text);
   if (!node.locked.spans.length) return;
-  if (nextText === null) throw new MaterialsEditError("locked", node.text.slice(...node.locked.spans[0]));
-  let from = 0;
-  for (const [start, end] of node.locked.spans) {
-    const token = node.text.slice(start, end);
-    let at = nextText.indexOf(token, from);
-    while (at >= 0) {
-      const before = Array.from(nextText.slice(0, at)).at(-1) || "";
-      const rest = nextText.slice(at + token.length);
-      const after = Array.from(rest)[0] || "";
-      const baseBefore = Array.from(node.text.slice(0, start)).at(-1) || "";
-      const baseAfter = Array.from(node.text.slice(end))[0] || "";
-      if (before === baseBefore && after === baseAfter) break;
-      at = nextText.indexOf(token, at + 1);
-    }
-    if (at < 0) throw new MaterialsEditError("locked", token);
-    from = at + token.length;
+  if (nextText === null || !matchingNumericSpans(node.text, node.locked.spans, nextText)) {
+    throw new MaterialsEditError("locked", node.text.slice(...node.locked.spans[0]));
   }
 }
 
@@ -205,7 +265,8 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
     } else if (op.op === "replace") {
       if (typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "replace needs text");
       const text = plain(op.text);
-      assertUnlocked(node, text);
+      // Normalize each raw side once inside the lock check, just as the client does.
+      assertUnlocked(node, op.text);
       if (["statement", "intro", "bullet", "credential"].includes(ref.kind)) ref.target.runs = toRuns(text, tokens);
       else if (ref.kind === "paragraph") { ref.target.text = text; if ("words" in ref.target) ref.target.words = wordCount(text); }
       else if (ref.kind === "line") ref.entry.line = text;
