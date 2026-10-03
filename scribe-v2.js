@@ -824,7 +824,7 @@
     for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
       var normalized = part.segment.normalize("NFC");
       for (var i = 0; i < normalized.length; i++) {
-        if (/[*_`~]/.test(normalized[i])) continue;
+        if (/[*_`]/.test(normalized[i])) continue;
         text += normalized[i];
         offsets.push(part.index + (normalized === part.segment ? i : 0));
         ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
@@ -839,7 +839,7 @@
     for (var point of points) offsets.push(offsets[offsets.length - 1] + point.length);
     var left = offsets.indexOf(start), right = offsets.indexOf(end);
     if (left < 0 || right < 0) return [start, end];
-    var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
+    var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^'~]$/u;
     /** Spaces bridge figure components, not a preceding prose word (D28 movement).
      * @param {number} i */
     var joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&

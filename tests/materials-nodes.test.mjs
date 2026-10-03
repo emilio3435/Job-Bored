@@ -314,3 +314,13 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B82 AI-hardening ${doc} bl
     assert.equal(deriveNodes(applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: next }])).find(n => n.id === id).text, next);
   }
 });
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} approximation survives unrelated AI edits and cannot be created or lost`, () => {
+  const base = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const { before, id } = numericModel(doc, base, ['40%']);
+  const after = applyOps(before, [{ opId: 'approx', op: 'replace', node: id, text: next }]);
+  assert.equal(deriveNodes(after).find(n => n.id === id).text, next);
+  assert.throws(() => applyOps(before, [{ opId: 'exact', op: 'replace', node: id, text: base.replace('~', '') }]), { reason: 'locked' });
+  const exact = numericModel(doc, base.replace('~', ''), ['40%']);
+  assert.throws(() => applyOps(exact.before, [{ opId: 'approx', op: 'replace', node: exact.id, text: base }]), { reason: 'locked' });
+});

@@ -38,7 +38,7 @@ const plain = (text) => String(text).normalize("NFC")
   .replace(/<[^>]*>/g, "")
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
   .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
-  .replace(/[*_`~]/g, "")
+  .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
   .trim();
 
 /** @param {Array<{t?:string,n?:string,hl?:string}>} runs */
@@ -119,7 +119,7 @@ function normalizedNumericText(value) {
   for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
     var normalized = part.segment.normalize("NFC");
     for (var i = 0; i < normalized.length; i++) {
-      if (/[*_`~]/.test(normalized[i])) continue;
+      if (/[*_`]/.test(normalized[i])) continue;
       text += normalized[i];
       offsets.push(part.index + (normalized === part.segment ? i : 0));
       ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));

@@ -1456,3 +1456,22 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B80 D29 ${doc} manual lock
     }
   }
 });
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} committed unrelated AI edit preserves the approximation`, async () => {
+  const before = structuredClone(model), text = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const node = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+  if (doc === 'resume') before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Cut costs ~' }, { n: '40%' }, { t: ' across teams.' }];
+  else before.documents.coverLetter.paragraphs[1].text = text;
+  const pkg = await seed(before), edit = { opId: 'approx', op: 'replace', node, text: next };
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' }, commit,
+    propose: async () => ({ ops: [edit], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+  });
+  const started = await svc.start(pkg.slug, { doc, baseRunId: 'r0', instruction: 'Clarify teams.', scope: [node], lockFacts: true });
+  const stream = fakeStream(), ended = once(stream, 'end');
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+  const saved = await svc.accept(pkg.slug, started.proposalId, { accept: ['approx'], confirmUnverified: ['approx'] });
+  const stored = (await svc.model(pkg.slug, saved.body.run.runId)).model;
+  assert.equal(deriveNodes(stored).find(n => n.id === node).text, next);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], before.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+});
