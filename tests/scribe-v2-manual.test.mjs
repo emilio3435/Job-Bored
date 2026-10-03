@@ -626,3 +626,48 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 R6-#2 ${which} g
   assert.equal(t.els[0].textContent, after);
   t.ctl.close('role-closed');
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} unchanged focus and blur cannot bypass the automatic save budget`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 4); assert.equal(t.ctl.manual.gateRetries, 3);
+  for (const el of [t.els[1], t.els[0], t.els[1]]) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: el });
+    t.inner.dispatchEvent({ type: 'focusout', target: el }); await t.flush();
+    assert.equal(t.calls.length, 4, 'unchanged focus/blur never posts beyond three retries');
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  }
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Stay does not reset an exhausted budget');
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.ctl.refs.unsaved });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Escape does not reset an exhausted budget');
+  t.edit(t.els[0], 'Tracked daily work.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 8, 'changed text starts a fresh initial attempt and three retries');
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 12, 'explicit Try again starts a fresh budget');
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} blur and recovery share one budget while explicit Save resets it`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => { throw new Error('offline'); };
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  for (let i = 0; i < 6; i++) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: t.els[1] });
+    t.inner.dispatchEvent({ type: 'focusout', target: t.els[1] }); await t.flush();
+  }
+  assert.equal(t.calls.length, 4, 'blur cannot create an independent retry allowance');
+  t.api.getOpenEdit = async () => ({ proposal: null });
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  t.ctl.refs.manualState.querySelector('[data-manual="save"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 9, 'explicit Save has an initial POST and three retries');
+  t.ctl.close('role-closed');
+});

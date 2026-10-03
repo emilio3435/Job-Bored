@@ -901,7 +901,7 @@
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
-    if (a.last !== text) m.gateRetries = 0;
+    if (a.last !== text) { m.gateRetries = 0; m.gated = false; }
     a.spans = spans;
     a.last = text;
     if (text === a.node.text) delete m.drafts[a.node.id];
@@ -919,7 +919,10 @@
     m.active = null;
     if (m.timer) root.clearTimeout(m.timer);
     m.timer = null;
-    if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
+    if (dirtyManual(ctl)) {
+      if ((m.gateRetries || 0) >= 3) manualGateMessage(ctl);
+      else m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
+    }
     else {
       m.base = null; m.doc = null;
       if (["saving", "confirm", "conflict"].indexOf(ctl.refs.manualState.getAttribute("data-state")) < 0) clearManualMessage(ctl);
@@ -1048,6 +1051,10 @@
       m.confirmation = null;
       manualGateMessage(ctl); return Promise.resolve(false);
     }
+    if (automatic) {
+      if ((m.gateRetries || 0) >= 3) { manualGateMessage(ctl); return Promise.resolve(false); }
+      if (m.gated || m.gateRetries) m.gateRetries = (m.gateRetries || 0) + 1;
+    }
     m.gated = false;
     var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
@@ -1115,18 +1122,15 @@
     clearManualMessage(ctl);
   }
 
-  function resumeManualSave(ctl, explicit) {
+  function resumeManualSave(ctl) {
     var m = ctl.manual;
-    if (explicit) m.gateRetries = 0;
     if (!dirtyManual(ctl) || m.saving) return;
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
-    m.gated = false;
     if (!ctl.refs.unsaved.hasAttribute("hidden")) {
       manualMessage(ctl, "editing", "Your text is kept."); return;
     }
     if ((m.gateRetries || 0) >= 3) { manualGateMessage(ctl); return; }
-    m.gateRetries = (m.gateRetries || 0) + 1;
     m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
     manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }
@@ -1142,7 +1146,7 @@
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
         if (entry[0] === "save") saveManual(ctl).then(function (saved) { if (saved) { el.setAttribute("hidden", ""); action(); } });
-        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl, true); ctl.refs.prompt.focus(); } }
+        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl); ctl.refs.prompt.focus(); } }
       }); el.appendChild(btn);
     });
     el.querySelector("button").focus(); return false;
@@ -2347,7 +2351,7 @@
       var buttons = Array.prototype.slice.call(r.selectionActions.querySelectorAll("button"));
       var at = buttons.indexOf(e.target); e.preventDefault(); buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus(); return;
     }
-    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl, true); r.prompt.focus(); return; }
+    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl); r.prompt.focus(); return; }
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */
