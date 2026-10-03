@@ -934,6 +934,10 @@
       if (selection && selection.removeAllRanges) selection.removeAllRanges();
       pickSelection(ctl, { type: "pointerup", target: el });
       hideSelectionActions(ctl);
+      if (node.locked.whole) {
+        status(ctl, "selection", lockText(node));
+        focusBlock(ctl, el); return;
+      }
       status(ctl, "selection", "This line has locked figures. Ask Scribe to change it.");
       if (ctl.isNarrow()) ctl.setSeg("chat");
       ctl.manual.lockedFocus = true;

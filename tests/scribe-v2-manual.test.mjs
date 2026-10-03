@@ -609,6 +609,7 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 D29 ${which} NFC
 for (const which of ['resume', 'cover_letter']) for (const lock of ['spans', 'whole']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
   test(`SCRP-F120 D29 ${which} ${lock} locks deny ${entry} and retain composer scope`, async () => {
     const t = await desk(which, undefined, lock), { ctl, inner, els, nodes } = t;
+    const promptFocuses = ctl.refs.prompt.focusCount;
     assert.match(els[0].getAttribute('aria-label'), /locked/);
     if (entry === 'double-click') inner.dispatchEvent({ type: 'dblclick', target: els[0] });
     else if (entry === 'Edit text') {
@@ -619,11 +620,34 @@ for (const which of ['resume', 'cover_letter']) for (const lock of ['spans', 'wh
     } else inner.dispatchEvent({ type: 'keydown', target: els[0], key: 'F2' });
     assert.equal(els[0].getAttribute('contenteditable'), null);
     assert.equal(ctl.manual.active, null);
-    assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
-    assert.equal(t.win.document.activeElement, ctl.refs.prompt);
+    assert.equal(ctl.refs.statusText.textContent, lock === 'whole' ? 'Employer, title and dates are locked.' : 'This line has locked figures. Ask Scribe to change it.');
+    if (lock === 'whole') {
+      assert.equal(ctl.refs.prompt.focusCount, promptFocuses);
+      assert.equal(inner.activeElement, els[0]);
+    } else assert.equal(t.win.document.activeElement, ctl.refs.prompt);
     assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]);
     assert.equal(ctl.scope.stale, false);
     assert.deepEqual(Object.keys(ctl.manual.drafts), []);
+    await t.flush(); assert.equal(t.calls.length, 0); ctl.close();
+  });
+}
+
+for (const kind of ['seat', 'credential']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
+  test(`SCRP-F130 R8-#4 ${kind} whole lock gives fixed copy and keeps document focus on ${entry}`, async () => {
+    const t = await desk('resume', undefined, 'whole'), { ctl, inner, els, nodes } = t;
+    nodes[0].kind = kind;
+    const promptFocuses = ctl.refs.prompt.focusCount;
+    if (entry === 'double-click') inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    else if (entry === 'Edit text') {
+      inner.dispatchEvent({ type: 'pointerup', target: els[0] });
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      edit.dispatchEvent({ type: 'click', target: edit });
+    } else inner.dispatchEvent({ type: 'keydown', target: els[0], key: 'F2' });
+    assert.equal(ctl.refs.statusText.textContent, kind === 'credential' ? 'Degree and school are locked.' : 'Employer, title and dates are locked.');
+    assert.equal(ctl.refs.prompt.focusCount, promptFocuses);
+    assert.equal(inner.activeElement, els[0]);
+    assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]);
+    assert.equal(els[0].getAttribute('contenteditable'), null);
     await t.flush(); assert.equal(t.calls.length, 0); ctl.close();
   });
 }

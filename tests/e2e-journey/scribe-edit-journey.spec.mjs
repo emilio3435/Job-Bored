@@ -597,8 +597,10 @@ for (const which of ['resume', 'cover_letter']) {
           const block = frame.locator(`[data-node="${locked}"]`), original = await block.textContent();
           await block.dblclick();
           await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
-          await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
-          await expect(h.composer).toBeFocused(); await expect(block).toHaveText(original);
+          await expect(h.desk.locator('.scribe__status')).toHaveText(locked === 'seat:acme' ? 'Employer, title and dates are locked.' : locked === 'cred:education' ? 'Degree and school are locked.' : 'This line has locked figures. Ask Scribe to change it.');
+          if (locked === metric) await expect(h.composer).toBeFocused();
+          else { await expect(block).toBeFocused(); await expect(h.composer).not.toBeFocused(); }
+          await expect(block).toHaveText(original);
           expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
         }
         if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
@@ -775,9 +777,9 @@ for (const which of ['resume', 'cover_letter']) for (const width of [1440, 375])
       if (which === 'resume') {
         await arrowToBlock(page, 'seat:acme', blocks.length);
         await expect(frame.locator('[data-node="seat:acme"]')).toHaveAttribute('aria-label', /, locked$/);
-        await page.keyboard.press('Enter'); await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
-        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
-        await tabToBlock(page);
+        await page.keyboard.press('Enter'); await expect(h.desk.locator('.scribe__status')).toHaveText('Employer, title and dates are locked.');
+        await expect(frame.locator('[data-node="seat:acme"]')).toBeFocused();
+        await expect(h.composer).not.toBeFocused();
         await expect(frame.locator('[data-node="seat:acme"]')).not.toHaveAttribute('contenteditable', 'plaintext-only');
       }
       // D29 announces metric blocks as locked and directs keyboard editing to Scribe.
@@ -973,6 +975,24 @@ for (const which of ['resume', 'cover_letter']) for (const entry of ['double-cli
       await expect(block).toHaveText(original);
       expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
       expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
+
+for (const width of [1440, 375]) for (const id of ['seat:acme', 'cred:education']) {
+  test(`SCRP-F130 R8-#4 ${width} ${id} whole lock keeps fixed copy and document focus`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const h = await realDesk(page, 'resume');
+    try {
+      if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
+      const block = page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${id}"]`);
+      await block.dblclick();
+      await expect(h.desk.locator('.scribe__status')).toHaveText(id === 'cred:education' ? 'Degree and school are locked.' : 'Employer, title and dates are locked.');
+      await expect(block).toBeFocused(); await expect(h.composer).not.toBeFocused();
+      await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().scope.ids)).toEqual([id]);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.includes('/edits'))).toHaveLength(0);
       expect(h.fence.unexpectedExternal).toEqual([]);
     } finally { await h.service.close(); }
   });
