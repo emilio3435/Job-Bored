@@ -17,7 +17,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
-import { makeEnv } from "./fixtures/jb-dom.mjs";
+import { FakeDocument, makeEnv } from "./fixtures/jb-dom.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(repoRoot, rel), "utf8");
@@ -449,3 +449,196 @@ it('SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts', () => 
   assert.ok(host.querySelector('.scribe__unsaved').hasAttribute('hidden'));
   assert.ok(ctl.refs.scope.querySelector('[data-action="clear-scope"]'));
 });
+
+
+const flush = async () => { for (let i = 0; i < 8; i++) await settle(); };
+const tap = (el) => { assert.ok(el, 'control exists'); el.dispatchEvent({ type: 'click', target: el, bubbles: true }); };
+const defer = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+const ROP = { opId: 'o1', op: 'replace', node: 'b:acme:c14', text: 'Measured delays through a weekly dashboard.', flags: [], facts: [] };
+function reliabilityApi(docName = 'resume') {
+  let open = null;
+  let seq = 0;
+  const calls = [];
+  const api = {
+    calls,
+    get open() { return open; }, set open(p) { open = p; },
+    listVersions: async () => ({ currentRunId: 'r2', versions: [{ runId: 'r2', n: 2, words: 20, pages: 1 }, { runId: 'r1', n: 1, words: 15, pages: 1 }] }),
+    getModel: async (id) => { calls.push(['model', id]); return { model: {}, nodes: [{ id: 'b:acme:c14', kind: 'bullet', text: id + ' original block' }] }; },
+    preview: async (body) => { calls.push(['preview', body.doc, body.baseRunId]); return { html: '<p data-node="b:acme:c14">' + body.baseRunId + ' original block</p>', words: 20 }; },
+    getOpenEdit: async () => { calls.push(['open']); return { proposal: open }; },
+    propose: async (body) => { calls.push(['post', body]); open = { proposalId: 'p' + (++seq), doc: body.doc, baseRunId: body.baseRunId, instruction: body.instruction, status: 'pending', ops: [], blocked: [] }; return { proposalId: open.proposalId }; },
+    stream: async (id, handlers) => { calls.push(['stream', id]); if (open) { open.ops = [ROP]; open.status = 'ready'; } handlers.onEvent({ event: 'op', data: { op: ROP } }); handlers.onEvent({ event: 'done', data: { status: 'ready' } }); return 'ready'; },
+    stopEdit: async (id) => { calls.push(['stop', id]); if (open) open.status = 'partial'; return { status: 'partial', ops: open?.ops || [] }; },
+    rejectEdit: async (id) => { calls.push(['delete', id]); open = null; },
+    star: async () => ({}),
+  };
+  const env = boot();
+  vm.runInNewContext(read('scribe-v2-api.js'), env.win);
+  vm.runInNewContext(read('scribe-v2-diff.js'), env.win);
+  function mount(which = docName) {
+    const ctl = env.win.JB_SCRIBE_V2.open({ slug: 'acme-platform-engineer', doc: which, api, opener: env.edit });
+    const frame = ctl.refs.frame;
+    let html = '';
+    Object.defineProperty(frame, 'srcdoc', { configurable: true, get: () => html, set(value) {
+      html = value;
+      setImmediate(() => {
+        const inner = new FakeDocument();
+        const p = inner.createElement('p'); p.setAttribute('data-node', 'b:acme:c14');
+        p.textContent = value.replace(/<[^>]+>/g, ''); inner.body.appendChild(p);
+        frame.contentDocument = inner; frame.onload?.();
+      });
+    } });
+    return ctl;
+  }
+  async function submit(ctl, text = 'Make it punchier') {
+    ctl.refs.prompt.value = text;
+    ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer });
+    await flush();
+  }
+  return { api, calls, env, mount, submit };
+}
+
+describe('SCRP-F6 ASTRA-01 persisted recovery for both documents', () => {
+  for (const which of ['resume', 'cover_letter']) {
+    for (const action of ['close', 'switch', 'resubmit']) {
+      it(`SCRP-F6 ${which} ${action} preserves one open request and its exact base`, async () => {
+        const t = reliabilityApi(which); let ctl = t.mount(); await flush(); await t.submit(ctl);
+        const id = ctl.state.proposal.id;
+        if (action === 'close') { ctl.close(); ctl = t.mount(); await flush(); }
+        if (action === 'switch') {
+          ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume'); await flush();
+          assert.equal(ctl.refs.recover.getAttribute('data-recover-doc'), which);
+          tap(ctl.refs.recover.querySelector('[data-action="review-request"]')); await flush();
+        }
+        if (action === 'resubmit') { await t.submit(ctl, 'A second typed request'); assert.equal(ctl.refs.prompt.value, 'A second typed request'); }
+        assert.equal(ctl.state.proposal.id, id);
+        assert.equal(ctl.state.proposal.changes.length, 1);
+        assert.equal(ctl.state.proposal.changes[0].before, 'r2 original block');
+        assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
+        assert.equal(t.calls.filter(c => c[0] === 'delete').length, 0);
+        ctl.close();
+      });
+    }
+    for (const action of ['stop', 'close', 'switch', 'new editor']) {
+      it(`SCRP-F7 ${which} deferred start then ${action} stops the late ID without mutating another editor`, async () => {
+        const t = reliabilityApi(which); const pending = defer(); t.api.propose = () => pending.promise;
+        const ctl = t.mount(); await flush(); await t.submit(ctl);
+        if (action === 'stop') { tap(ctl.refs.stage.querySelector('[data-scribe="stop"]')); assert.match(ctl.refs.stage.textContent, /Stopping…/); assert.equal(ctl.state.busy, true); }
+        if (action === 'close') ctl.close();
+        if (action === 'switch') ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+        let next = null; if (action === 'new editor') { next = t.mount(which === 'resume' ? 'cover_letter' : 'resume'); }
+        await flush(); pending.resolve({ proposalId: 'late-p' }); await flush();
+        assert.equal(t.calls.filter(c => c[0] === 'stop' && c[1] === 'late-p').length, 1);
+        assert.equal(t.calls.filter(c => c[0] === 'stream').length, 0);
+        if (next) { assert.equal(next.state.proposal, null); next.close(); }
+        if (action === 'switch') assert.equal(ctl.state.proposal, null);
+        ctl.close();
+      });
+    }
+    it(`SCRP-F8 ${which} failed DELETE keeps changes and a 404 rechecks open once`, async () => {
+      const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+      const p = ctl.state.proposal;
+      t.api.rejectEdit = async () => { throw Object.assign(new Error('failed'), { status: 503 }); };
+      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      assert.equal(ctl.state.proposal, p); assert.match(ctl.refs.status.textContent, /still open/);
+      assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+      const before = t.calls.filter(c => c[0] === 'open').length;
+      t.api.rejectEdit = async () => { t.api.open = null; throw Object.assign(new Error('gone'), { status: 404 }); };
+      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      assert.equal(t.calls.filter(c => c[0] === 'open').length, before + 1);
+      assert.equal(ctl.state.proposal, null); ctl.close();
+    });
+  }
+  it('SCRP-F9 missing GET open, 404 and network failure leave the desk usable', async () => {
+    for (const failure of ['missing', 404, 0]) {
+      const t = reliabilityApi(); if (failure === 'missing') delete t.api.getOpenEdit;
+      else t.api.getOpenEdit = async () => { throw Object.assign(new Error('unavailable'), { status: failure }); };
+      const ctl = t.mount(); await flush(); assert.equal(ctl.state.currentRunId, 'r2');
+      assert.equal(ctl.state.loading, false); assert.equal(ctl.state.proposal, null); ctl.close();
+    }
+  });
+  for (const result of ['null', '409', 'proposal']) {
+    it(`SCRP-F10 materials_pending performs one open read: ${result}`, async () => {
+      const t = reliabilityApi(); const ctl = t.mount(); await flush();
+      const old = t.calls.filter(c => c[0] === 'open').length;
+      t.api.propose = async () => { throw Object.assign(new Error('pending'), { status: 409, code: 'materials_pending' }); };
+      if (result === 'proposal') t.api.open = { proposalId: 'other', doc: 'resume', baseRunId: 'r2', status: 'ready', ops: [ROP], blocked: [] };
+      if (result === '409') t.api.getOpenEdit = async () => { t.calls.push(['open']); throw { status: 409, code: 'materials_pending' }; };
+      await t.submit(ctl);
+      assert.equal(t.calls.filter(c => c[0] === 'open').length, old + 1);
+      if (result === 'proposal') assert.equal(ctl.state.proposal.id, 'other');
+      else assert.match(ctl.refs.status.textContent, /still working on this role/);
+      assert.equal(ctl.refs.prompt.value, 'Make it punchier'); ctl.close();
+    });
+  }
+  it('SCRP-F11 accepting and multiple-open proposals have explicit discard controls', async () => {
+    const t = reliabilityApi(); t.api.open = { proposalId: 'accepting', doc: 'resume', baseRunId: 'r2', status: 'accepting', ops: [] };
+    let ctl = t.mount(); await flush(); assert.match(ctl.refs.recover.textContent, /A save didn’t finish/);
+    assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]')); ctl.close();
+    t.api.getOpenEdit = async () => { throw { code: 'multiple_open_proposals', proposals: [{ proposalId: 'a', doc: 'resume', status: 'ready' }, { proposalId: 'b', doc: 'cover_letter', status: 'ready' }] }; };
+    ctl = t.mount(); await flush(); assert.equal(ctl.refs.recover.querySelectorAll('[data-action="discard-request"]').length, 2);
+    await t.submit(ctl); assert.equal(t.calls.filter(c => c[0] === 'post').length, 0); ctl.close();
+  });
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F15 ${which} base-load failure keeps the created ID recoverable`, async () => {
+    const t = reliabilityApi(which); const ctl = t.mount(); await flush();
+    t.api.propose = async () => ({ proposalId: 'created-p', rebasedTo: 'r1' });
+    t.api.getModel = async () => { throw new Error('unavailable'); };
+    await t.submit(ctl);
+    assert.equal(ctl.state.proposal.id, 'created-p');
+    assert.equal(ctl.state.busy, false);
+    assert.ok(ctl.refs.recover.querySelector('[data-action="continue-request"]'));
+    assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+    assert.equal(t.calls.filter(c => c[0] === 'stream').length, 0); ctl.close();
+  });
+  it(`SCRP-F16 ${which} stale recovery keeps Save CAS and reviews current without discarding`, async () => {
+    const t = reliabilityApi(which);
+    t.api.open = { proposalId: 'stale-p', doc: which, baseRunId: 'r1', status: 'ready', ops: [ROP] };
+    vm.runInNewContext(read('scribe-v2-versions.js'), t.env.win);
+    const ctl = t.mount(); await flush();
+    assert.equal(ctl.state.currentRunId, 'r1');
+    assert.match(ctl.refs.recover.textContent, /v1; v2 is now current/);
+    tap(ctl.refs.recover.querySelector('[data-action="review-current"]')); await flush();
+    assert.equal(ctl.versionsUi.state().mode, 'view');
+    assert.equal(ctl.versionsUi.state().a, 'r2');
+    assert.equal(ctl.state.proposal.id, 'stale-p');
+    await t.submit(ctl, 'Retained request');
+    assert.equal(t.calls.filter(c => c[0] === 'post').length, 0);
+    assert.equal(t.calls.filter(c => c[0] === 'delete').length, 0); ctl.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F17 ${which} detached SSE callbacks cannot mutate the sibling`, async () => {
+    const t = reliabilityApi(which); let emit;
+    const streamed = defer();
+    t.api.stream = (_id, h) => { emit = h.onEvent; return streamed.promise; };
+    const ctl = t.mount(); await flush(); await t.submit(ctl);
+    ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume'); await flush();
+    const before = ctl.refs.log.textContent;
+    emit({ event: 'op', data: { op: ROP } }); emit({ event: 'error', data: { code: 'provider_failed' } }); streamed.resolve('ready'); await flush();
+    assert.equal(ctl.state.proposal, null); assert.equal(ctl.state.busy, false);
+    assert.equal(ctl.refs.log.textContent, before); ctl.close();
+  });
+  it(`SCRP-F18 ${which} Continue retries an exact-base load and resets replayed ops`, async () => {
+    const t = reliabilityApi(which); const ctl = t.mount(); await flush();
+    t.api.propose = async () => ({ proposalId: 'created-p', rebasedTo: 'r1' });
+    const get = t.api.getModel; t.api.getModel = async () => { throw new Error('unavailable'); };
+    await t.submit(ctl); t.api.getModel = get;
+    tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+    assert.equal(ctl.state.currentRunId, 'r1');
+    assert.equal(ctl.state.proposal.changes[0].before, 'r1 original block');
+    assert.equal(ctl.state.proposal.ops.length, 1); ctl.close();
+  });
+  it(`SCRP-F19 ${which} failed Stop never reports Stopped and stays recoverable`, async () => {
+    const t = reliabilityApi(which); t.api.stream = () => new Promise(() => {});
+    t.api.stopEdit = async () => { throw new Error('offline'); };
+    const ctl = t.mount(); await flush(); await t.submit(ctl);
+    tap(ctl.refs.stage.querySelector('[data-scribe="stop"]')); await flush();
+    assert.doesNotMatch(ctl.refs.log.textContent, /Stopped/);
+    assert.ok(ctl.refs.recover.querySelector('[data-action="stop-request"]'));
+    assert.equal(ctl.state.proposal.id, 'p1'); ctl.close();
+  });
+}

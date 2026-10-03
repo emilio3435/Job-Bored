@@ -37,11 +37,46 @@
     this.name = "ScribeApiError";
     this.status = status || 0;
     this.code = code || "request_failed";
-    this.message = message || "The materials server did not answer.";
+    this.message = safeText(message) || "Scribe can’t reach your JobBored server.";
     this.fix = fix || null;
   }
   ScribeApiError.prototype = Object.create(Error.prototype);
   ScribeApiError.prototype.constructor = ScribeApiError;
+
+  function safeText(value) {
+    return typeof value === "string" ? value.trim().slice(0, 300) : "";
+  }
+
+  function errorCopy(code) {
+    if (code === "http_429") code = "rate_limited";
+    if (code === "invalid_json" || code === "schema_invalid") code = "unreadable_reply";
+    if (code === "writer_truncated") code = "reply_cut_off";
+    if (code === "writer_blocked") code = "provider_refused";
+    if (code === "no_pin") code = "llm_unconfigured";
+    if (code === "network" || code === "timeout" || /^http_(?!429)/.test(code || "")) code = "provider_failed";
+    var copy = {
+      provider_failed: "The AI provider didn’t respond. Your document is unchanged.",
+      unreadable_reply: "Scribe’s reply couldn’t be read. Your document is unchanged.",
+      invalid_model: "Blocked: that change doesn’t fit this template’s layout.",
+      shape: "Blocked: that change doesn’t fit this template’s layout.",
+      rate_limited: "Too many requests right now. Try again in a minute. Your request is kept.",
+      too_many_in_flight: "Too many requests right now. Try again in a minute. Your request is kept.",
+      reply_cut_off: "Scribe’s reply was cut off. Your document is unchanged.",
+      provider_refused: "The AI provider declined this request. Your document is unchanged. Try rewording it.",
+      llm_unconfigured: "No AI model is set up. Choose one in Settings, then try again.",
+      materials_pending: "JobBored is still working on this role. Try again in a moment.",
+      stale_base: "Not saved — a newer version exists.",
+      server_unreachable: "Scribe can’t reach your JobBored server. Start it, then Retry.",
+    };
+    return copy[code] || "That didn’t work. Try again.";
+  }
+
+  function clientDoc(value) { return value === "coverLetter" ? "cover_letter" : value; }
+
+  function openReply(body) {
+    if (body && body.proposal) body.proposal.doc = clientDoc(body.proposal.doc);
+    return body;
+  }
 
   function resolveMode(win) {
     win = win || root;
@@ -294,6 +329,12 @@
 
     return {
       mode: "stub",
+      getOpenEdit: function () {
+        var ids = Object.keys(state.proposals);
+        var p = ids.length ? state.proposals[ids[0]] : null;
+        return Promise.resolve({ proposal: p ? { proposalId: ids[0], doc: p.doc, baseRunId: p.baseRunId,
+          instruction: p.instruction, status: p.status || "pending", ops: clone(p.ops), blocked: [], summary: p.summary } : null });
+      },
       listVersions: function (doc) {
         return Promise.resolve(listing(doc || "resume"));
       },
@@ -310,7 +351,7 @@
         return fetchImpl(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
           if (!res.ok) {
             throw new ScribeApiError(res.status, "preview_unavailable",
-              "The " + (doc === "resume" ? "resume" : "cover letter") + " preview did not load (" + res.status + ").");
+              "The " + (doc === "resume" ? "resume" : "cover letter") + " didn’t load.");
           }
           return res.text();
         }).then(function (html) {
@@ -330,7 +371,7 @@
         }
         state.seq += 1;
         var id = "stub-p" + state.seq;
-        state.proposals[id] = { doc: doc, instruction: instruction, ops: [], stopped: false };
+        state.proposals[id] = { doc: doc, baseRunId: body.baseRunId || current, instruction: instruction, ops: [], stopped: false, status: "pending" };
         return Promise.resolve({ proposalId: id, streamUrl: fileBase + "/edits/" + id + "/stream" });
       },
       stream: function (proposalId, handlers) {
@@ -349,6 +390,8 @@
             var frame = STUB_TRANSCRIPT[i++];
             if (!frame) { resolve("ready"); return; }
             if (frame.event === "op") proposal.ops.push(frame.data.op);
+            if (frame.event === "proposal") proposal.summary = frame.data.summary;
+            if (frame.event === "done") proposal.status = frame.data.status;
             onEvent(clone(frame));
             if (frame.event === "done") { resolve(frame.data.status); return; }
             schedule(step, stepMs);
@@ -360,6 +403,7 @@
         var proposal = state.proposals[proposalId];
         if (!proposal) return Promise.reject(new ScribeApiError(404, "proposal_not_found", "That request is no longer open."));
         proposal.stopped = true;
+        proposal.status = "partial";
         return Promise.resolve({ status: "partial", ops: clone(proposal.ops) });
       },
       acceptEdit: function (proposalId, body) {
@@ -401,37 +445,53 @@
     var fetchImpl = opts.fetchImpl;
     var prefix = opts.base + "/api/applications/" + encodeURIComponent(opts.slug);
 
-    function errorFrom(res) {
+    function errorFrom(res, body) {
+      var code = safeText(body && body.code) || "http_" + res.status;
+      var message = safeText(body && body.message) || safeText(body && body.error) || errorCopy(code);
+      var err = new ScribeApiError(res.status, code, message, safeText(body && (body.fix || body.nextStep)) || null);
+      err.detail = safeText(body && body.detail) || null;
+      err.retryable = body && body.retryable;
+      if (body && Array.isArray(body.proposals)) {
+        err.proposals = body.proposals.map(function (p) {
+          return { proposalId: p.proposalId, doc: clientDoc(p.doc), status: p.status };
+        });
+      }
+      return err;
+    }
+
+    function failedResponse(res, allowSaved) {
       return res.text().then(function (text) {
         var body = null;
         try { body = JSON.parse(text); } catch (e) { /* not JSON */ }
-        var code = body && (body.code || body.error) ? String(body.code || body.error) : "http_" + res.status;
-        var message = body && body.message ? String(body.message) : "The materials server answered " + res.status + ".";
-        return new ScribeApiError(res.status, code, message, body && body.fix);
-      }, function () {
-        return new ScribeApiError(res.status, "http_" + res.status, "The materials server answered " + res.status + ".");
-      });
+        var run = body && body.run;
+        if (allowSaved && res.status === 503 && body && body.code === "browser_unavailable" &&
+            run && typeof run.runId === "string" && run.runId && run.pdf === "stale") {
+          body.textSaved = true;
+          body.httpStatus = 503;
+          return body;
+        }
+        throw errorFrom(res, body);
+      }, function () { throw errorFrom(res, null); });
     }
 
-    function call(method, path, body) {
+    function call(method, path, body, allowSaved) {
       var init = { method: method, credentials: "omit", cache: "no-store", headers: {} };
       if (body !== undefined) {
         init.headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
       }
       return fetchImpl(prefix + path, init).then(function (res) {
-        if (!res.ok) return errorFrom(res).then(function (err) { throw err; });
+        if (!res.ok) return failedResponse(res, allowSaved);
         if (res.status === 204) return null;
         return res.json();
-      }, function (err) {
-        throw new ScribeApiError(0, "server_unreachable",
-          "The materials server is not answering. Start it with npm start, then try again.",
-          (err && err.message) || null);
+      }, function () {
+        throw new ScribeApiError(0, "server_unreachable", errorCopy("server_unreachable"), "Retry");
       });
     }
 
     return {
       mode: "live",
+      getOpenEdit: function () { return call("GET", "/edits/open").then(openReply); },
       listVersions: function (doc) { return call("GET", "/versions?doc=" + encodeURIComponent(doc || "resume")); },
       getModel: function (runId) { return call("GET", "/versions/" + encodeURIComponent(runId) + "/model"); },
       preview: function (body) { return call("POST", "/preview", body); },
@@ -446,7 +506,7 @@
           onEvent(frame);
         });
         return fetchImpl(prefix + "/edits/" + encodeURIComponent(proposalId) + "/stream", init).then(function (res) {
-          if (!res.ok) return errorFrom(res).then(function (err) { throw err; });
+          if (!res.ok) return failedResponse(res, false);
           if (!res.body || typeof res.body.getReader !== "function") {
             return res.text().then(function (text) { parser.push(text); parser.end(); return last; });
           }
@@ -466,10 +526,10 @@
         });
       },
       stopEdit: function (id) { return call("POST", "/edits/" + encodeURIComponent(id) + "/stop", {}); },
-      acceptEdit: function (id, body) { return call("POST", "/edits/" + encodeURIComponent(id) + "/accept", body); },
+      acceptEdit: function (id, body) { return call("POST", "/edits/" + encodeURIComponent(id) + "/accept", body, true); },
       rejectEdit: function (id) { return call("DELETE", "/edits/" + encodeURIComponent(id)); },
-      manualEdit: function (body) { return call("POST", "/edits/manual", body); },
-      restore: function (runId) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", {}); },
+      manualEdit: function (body) { return call("POST", "/edits/manual", body, true); },
+      restore: function (runId) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", {}, true); },
       star: function (runId, starred) { return call("PUT", "/versions/" + encodeURIComponent(runId) + "/star", { starred: !!starred }); },
     };
   }
@@ -520,6 +580,7 @@
     createSseParser: createSseParser,
     resolveMode: resolveMode,
     ScribeApiError: ScribeApiError,
+    errorCopy: errorCopy,
     STUB_FIXTURES: { model: STUB_MODEL, nodes: STUB_NODES, transcript: STUB_TRANSCRIPT },
   };
 })(typeof window !== "undefined" ? window : globalThis);

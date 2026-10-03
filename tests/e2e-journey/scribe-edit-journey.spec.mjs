@@ -35,6 +35,7 @@ import {
 } from "../e2e-fixtures/hermetic-harness.mjs";
 import { renderDocument, retargetModel } from "../../server/materials-render.mjs";
 import { resolveFamily } from "../../server/materials-templates.mjs";
+import { startScribeRealService } from "../e2e-fixtures/scribe-real-service.mjs";
 import { applyOps, deriveNodes } from "../../server/materials-nodes.mjs";
 
 const FAMILY = "dossier";
@@ -200,14 +201,14 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   /* A locked fact comes back blocked, in words. */
   api.emit(id, "blocked", { op: { opId: "o5", op: "replace", node: "stmt", text: "Cut fulfillment delays by half." }, reason: "locked", detail: "38%" });
   const log = desk.getByRole("log", { name: "Conversation with Scribe" });
-  await expect(log).toContainText("Blocked: would change “38%”.");
+  await expect(log).toContainText("Blocked: “38%” is a locked fact.");
 
   api.emit(id, "stage", { stage: "measuring" });
   await expect(stage).toHaveText("Measuring length");
   api.emit(id, "proposal", { summary: { changes: 4, removals: 1, wordsDelta: 2, lossPct: 9, pages: 1, unverified: 1 } });
   api.emit(id, "done", { status: "ready" });
   api.end(id);
-  await expect(log).toContainText("4 changes are ready");
+  await expect(log).toContainText("4 suggested changes");
   await expect(desk.getByRole("region", { name: /^Resume/ })).toHaveAttribute("aria-busy", "false");
 
   /* j/k move, a/r decide the focused change. Reading order: o1 o2 o3 o4. */
@@ -230,7 +231,7 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   await expect(note("o3")).toHaveAttribute("data-state", "rejected");
 
   /* Accept all takes the verified change and leaves the Unverified one. */
-  await expect(note("o2")).toContainText("Unverified: please confirm. Contoso");
+  await expect(note("o2")).toContainText("Not in your saved facts — confirm before accepting. Contoso");
   await desk.getByRole("button", { name: "Accept all verified" }).click();
   await expect(note("o4")).toHaveAttribute("data-state", "accepted");
   await expect(note("o2")).toHaveAttribute("data-state", "pending");
@@ -260,15 +261,15 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   api.emit(stopId, "op", { op: { opId: "s1", op: "replace", node: "b:acme:c19", text: "Documented the handoff and trained new coordinators.", flags: [], facts: [] } });
   api.holdForStop(stopId, [{ opId: "s2", op: "replace", node: "tool:Analytics", text: "SQL, Spreadsheets, Dashboards", flags: [], facts: [] }]);
   await expect(frame.locator('[data-scribe-id="s1"]')).toHaveCount(1);
-  await desk.getByRole("button", { name: "Stop" }).click();
-  await expect(log).toContainText("Stopped early");
+  await desk.locator('[data-scribe="stop"]').click();
+  await expect(log).toContainText("Stopped.");
   expect(posted(`/edits/${stopId}/stop`)).toHaveLength(1);
   await expect(rail.locator(".scribe__mm")).toHaveCount(2);
   await expect(note("s2"), "the stop reply's late op joins the review").toHaveCount(1);
   await expect(rail.getByRole("button", { name: /^Accept / })).toHaveCount(2);
   await desk.getByRole("button", { name: "Reject all" }).click();
-  await desk.getByRole("button", { name: "Close without saving" }).click();
-  await expect(log).toContainText("Nothing was saved.");
+  await desk.locator('[data-review="discard"]').click();
+  await expect(log).toContainText("Discarded.");
   expect(api.calls.some((c) => c.method === "DELETE" && c.path === `/edits/${stopId}`)).toBe(true);
 
   /* `c` opens Compare: previous and current side by side, read-only. */
@@ -292,7 +293,7 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   await desk.getByRole("button", { name: "Bring back v0 as a new version" }).click();
   await desk.getByRole("group", { name: "Bring back v0" }).getByRole("button", { name: "Bring back as v3" }).click();
   await expect(versions.getByRole("listitem")).toHaveCount(4);
-  await expect(versions.getByRole("listitem").first()).toContainText("Restored from v0");
+  await expect(versions.getByRole("listitem").first()).toContainText("Brought back from v0");
   for (const n of ["v2", "v1", "v0"]) await expect(versions).toContainText(n);
   expect(posted("/versions/run-00/restore")).toHaveLength(1);
   expect(api.runs.map((r) => r.runId)).toEqual(["run-00", "run-01", "run-02", "run-03"]);
@@ -306,3 +307,124 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   expect(fence.unexpectedExternal).toEqual([]);
   expect(app.hostRequests).toEqual([]);
 });
+
+
+const SCRP_OP = {
+  resume: { opId: 'safe-edit', op: 'replace', node: 'b:acme:c14', text: 'Measured carrier delays through a weekly operations dashboard.', flags: [], facts: [] },
+  cover_letter: { opId: 'safe-edit', op: 'replace', node: 'p:p3', text: 'I welcome a conversation about improving daily operations.', flags: [], facts: [] },
+};
+async function realDesk(page, which, options = {}) {
+  const service = await startScribeRealService({ pdfSession: async () => null,
+    propose: async () => ({ ops: [SCRP_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' }), ...options });
+  const pkg = await service.seed({ slug: 'acme-example' });
+  const calls = [];
+  page.on('request', req => { if (req.url().startsWith(service.baseUrl)) calls.push({ method: req.method(), path: new URL(req.url()).pathname }); });
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await stageSignedInDisposableAuth(page, DISPOSABLE_AUTH);
+  await page.goto(`${app.baseUrl}/?jb-v2=1`, { waitUntil: 'load' });
+  await page.evaluate(async () => { await globalThis.CommandCenterUserContent.completeInfraSetup(); await globalThis.CommandCenterUserContent.completeOnboarding(); });
+  await page.reload({ waitUntil: "load" });
+  await service.pointPage(page);
+  const open = async (doc = which) => {
+    await page.evaluate(({ slug, doc, base }) => globalThis.JB_SCRIBE_V2.open({ slug, doc, base }), { slug: pkg.slug, doc, base: service.baseUrl });
+    await expect(page.locator('jb-scribe .scribe__docscroll')).toHaveAttribute('aria-busy', 'false');
+    await expect.poll(() => page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.loading)).toBe(false);
+  };
+  await open();
+  const desk = page.locator('jb-scribe'); const composer = desk.locator('textarea');
+  const send = async (text = 'Shorten the wording using only existing facts.') => { await composer.fill(text); await composer.press('Enter'); };
+  const ready = async () => { await expect(page.frameLocator('jb-scribe .scribe__frame').locator('[data-scribe-id]')).toHaveCount(1); await expect(desk.locator('[data-review="accept-all"]')).toBeVisible(); };
+  return { service, pkg, fence, desk, composer, calls, open, send, ready };
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  for (const action of ['close', 'switch', 'resubmit']) {
+    test(`SCRP-F21 ASTRA-01 ${which} ${action} recovers a real persisted proposal`, async ({ page }) => {
+      const t = await realDesk(page, which);
+      try {
+        await t.send(); await t.ready();
+        const id = await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.proposal.id);
+        if (action === 'close') { await t.desk.getByRole('button', { name: 'Close Scribe' }).click(); await t.open(); await t.ready(); }
+        if (action === 'switch') {
+          await t.desk.getByRole('tab', { name: which === 'resume' ? 'Cover letter' : 'Resume', exact: true }).click();
+          await expect(t.desk.locator('.scribe__recover')).toContainText('suggested changes waiting');
+          await t.send('A second request'); await expect(t.composer).toHaveValue('A second request');
+          await t.desk.locator('[data-action="review-request"]').click(); await t.ready();
+        }
+        if (action === 'resubmit') { await t.send('A second request'); await expect(t.composer).toHaveValue('A second request'); }
+        expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.proposal.id)).toBe(id);
+        expect(t.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'))).toHaveLength(1);
+        expect(t.calls.filter(c => c.method === 'DELETE')).toHaveLength(0);
+        const response = await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`);
+        const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+        expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+        expect(t.fence.unexpectedExternal).toEqual([]);
+      } finally { await t.service.close(); }
+    });
+  }
+  for (const action of ['Stop', 'close', 'switch', 'new editor']) {
+    test(`SCRP-F22 ASTRA-02 ${which} deferred POST then ${action} stops the late ID`, async ({ page }) => {
+      const t = await realDesk(page, which);
+      try {
+        const hold = t.service.deferStart(); await t.send(); await hold.entered;
+        expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.proposal.id)).toBe(null);
+        if (action === 'Stop') { await t.desk.locator('[data-scribe="stop"]').click(); await expect(t.desk.locator('[data-scribe="stop"]')).toHaveText('Stopping…'); }
+        if (action === 'close') await t.desk.getByRole('button', { name: 'Close Scribe' }).click();
+        const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+        if (action === 'switch') await t.desk.getByRole('tab', { name: sibling === 'resume' ? 'Resume' : 'Cover letter', exact: true }).click();
+        if (action === 'new editor') await t.open(sibling);
+        hold.release();
+        await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+        await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+        expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+        if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+        expect(t.fence.unexpectedExternal).toEqual([]);
+      } finally { await t.service.close(); }
+    });
+  }
+  test(`SCRP-F23 ASTRA-01 ${which} failed discard retains controls`, async ({ page }) => {
+    const t = await realDesk(page, which);
+    try {
+      await t.send(); await t.ready();
+      await page.route(`${t.service.baseUrl}/**/edits/*`, route => route.request().method() === 'DELETE' ? route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Try again.', code: 'unavailable' }) }) : route.fallback());
+      await t.desk.locator('[data-action="discard-request"]').click();
+      await expect(t.desk.locator('.scribe__status')).toContainText('The suggested changes are still open.');
+      await expect(t.desk.locator('[data-action="discard-request"]')).toBeVisible();
+      await expect(t.desk.locator('[data-review="accept-all"]')).toBeVisible();
+      expect((await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal.status).toBe('ready');
+    } finally { await t.service.close(); }
+  });
+  test(`SCRP-F24 ASTRA-03 ${which} real committed 503 saves text exactly once`, async ({ page }) => {
+    const t = await realDesk(page, which);
+    try {
+      await page.evaluate(() => { globalThis.__scrpSaved = []; globalThis.addEventListener('jb:scribe:saved', e => globalThis.__scrpSaved.push(e.detail)); });
+      await t.send(); await t.ready();
+      await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
+      await expect(t.desk.locator('.scribe__status')).toContainText('Text saved as v1. PDF unavailable — it’s rebuilt on your next save.');
+      await expect(t.desk.locator('[data-review="save"]')).toHaveCount(0);
+      await expect(t.desk.locator('.scribe__status-action')).toBeHidden();
+      await expect(page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${SCRP_OP[which].node}"]`)).toHaveText(SCRP_OP[which].text);
+      expect(await page.evaluate(() => globalThis.__scrpSaved.length)).toBe(1);
+      expect(t.calls.filter(c => c.path.endsWith('/accept'))).toHaveLength(1);
+      const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json();
+      expect(listing.versions).toHaveLength(2); expect(listing.versions[0].n).toBe(1);
+      const sibling = which === 'resume' ? 'coverLetter' : 'resume';
+      const siblingListing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${sibling}`)).json();
+      const model = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions/${siblingListing.currentRunId}/model`)).json();
+      expect(model.model.documents[sibling]).toEqual(t.pkg.model.documents[sibling]);
+      expect(siblingListing.versions).toHaveLength(1);
+    } finally { await t.service.close(); }
+  });
+  test(`SCRP-F25 ASTRA-03 ${which} ordinary 503 stays unsaved and retryable`, async ({ page }) => {
+    const t = await realDesk(page, which);
+    try {
+      await t.send(); await t.ready();
+      await page.route(`${t.service.baseUrl}/**/accept`, route => route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Unavailable.', code: 'provider_failed' }) }));
+      await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
+      await expect(t.desk.locator('.scribe__status')).toContainText('Unavailable.');
+      await expect(t.desk.locator('[data-review="save"]')).toBeVisible();
+      const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json(); expect(listing.versions).toHaveLength(1);
+    } finally { await t.service.close(); }
+  });
+}

@@ -144,7 +144,7 @@
   function versionWhat(v) {
     if (v.source === "draft") return { text: "Drafted" };
     if (v.source === "manual") return { text: "Manual edit" };
-    if (v.source === "restore") return { text: v.label || "Restored" };
+    if (v.source === "restore") return { text: v.label ? v.label.replace(/^Restored from /, "Brought back from ") : "Brought back" };
     if (v.source === "regenerate") return { text: v.label || "Template changed" };
     if (v.prompt) return { text: v.prompt, quoted: true };
     return { text: v.label || "Edit" };
@@ -359,7 +359,8 @@
       var now = STAGES[Math.max(0, idx)];
       el.appendChild(h("span", { class: "scribe__stage-short", text: now.label(st.doc, st.stageDetail) }));
       el.appendChild(list);
-      var stopBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-scribe": "stop", text: "Stop" });
+      var stopping = ctl.request && ctl.request.stopRequested;
+      var stopBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-scribe": "stop", "aria-label": "Stop and keep changes so far", disabled: stopping, "aria-busy": stopping ? "true" : null, text: stopping ? "Stopping…" : "Stop" });
       el.appendChild(stopBtn);
       if (hadStop) stopBtn.focus();
       return;
@@ -385,7 +386,7 @@
     if (!p || !p.summary) {
       var v = currentVersion(ctl);
       el.appendChild(h("p", { class: "scribe__reviewbar-sum", text: v
-        ? "Preview, PDF and download serve v" + v.n + "."
+        ? "Showing v" + v.n + ", the current version."
         : "Nothing saved yet." }));
       return;
     }
@@ -399,7 +400,7 @@
     var acts = h("div", { class: "scribe__reviewbar-acts" }, [
       /* region:F2-review — Accept all, per-change controls and
          "Save as vN (k accepted)" join these actions. */
-      h("button", { type: "button", class: "scribe__btn", "data-scribe": "discard", text: "Discard changes" }),
+      h("button", { type: "button", class: "scribe__btn", "data-scribe": "discard", text: "Discard" }),
     ]);
     el.appendChild(sum);
     el.appendChild(acts);
@@ -432,12 +433,9 @@
       announce: announce,
       logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
       renderVersions: function () { renderVersions(ctl); },
-      reload: function () {
-        return loadDoc(ctl).then(function (res) {
-          if (!ctl.closed) emitSaved(ctl, ctl.state.currentRunId);
-          return res;
-        });
-      },
+      setStatus: function (state, text, label, action) { status(ctl, state, text, label, action); },
+      notifySaved: function (res, which) { emitSaved(ctl, res && res.run && res.run.runId, which); },
+      reload: function (res, keep) { return reloadSaved(ctl, res, keep); },
     });
     return ctl.versionsUi;
   }
@@ -507,8 +505,15 @@
 
   /* U12: a save or a Bring back makes a new run; the rows mark this
      document's grade stale until the manifest catches up. */
-  function emitSaved(ctl, runId) {
-    emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: ctl.state.doc, runId: String(runId || "") });
+  function emitSaved(ctl, runId, which) {
+    emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: which || ctl.state.doc, runId: String(runId || "") });
+  }
+
+  function reloadSaved(ctl, res, keep) {
+    clearReview(ctl);
+    ctl.state.proposal = null; ctl.openProposal = keep || null; ctl.openProposals = null; ctl.request = null;
+    emitSaved(ctl, res && res.run && res.run.runId);
+    return loadDoc(ctl);
   }
 
   function renderAll(ctl) {
@@ -520,6 +525,7 @@
     renderReviewbar(ctl);
     renderScope(ctl);
     renderVersions(ctl);
+    renderRecovery(ctl);
     ctl.refs.send.setAttribute("aria-disabled", ctl.state.busy ? "true" : "false");
   }
 
@@ -589,14 +595,22 @@
 
   function showPreview(ctl, html) {
     var frame = ctl.refs.frame;
+    if (ctl.frameReadyResolve) ctl.frameReadyResolve(false);
+    unwatchFrameKeys(ctl);
     ctl.refs.docNote.setAttribute("hidden", "");
     ctl.refs.pageBox.removeAttribute("hidden");
-    frame.onload = function () {
-      watchFrameKeys(ctl);
-      fitFrame(ctl);
-      ctl.refs.docscroll.setAttribute("aria-busy", "false");
-    };
-    frame.srcdoc = html;
+    return new Promise(function (resolve) {
+      ctl.frameReadyResolve = resolve;
+      frame.onload = function () {
+        if (ctl.closed) { resolve(false); return; }
+        watchFrameKeys(ctl);
+        fitFrame(ctl);
+        ctl.refs.docscroll.setAttribute("aria-busy", "false");
+        ctl.frameReadyResolve = null;
+        resolve(true);
+      };
+      frame.srcdoc = html;
+    });
   }
 
   function showDocNote(ctl, text, tone) {
@@ -609,10 +623,144 @@
 
   /* ---------------- Loading a document ---------------- */
 
+  function status(ctl, state, text, label, action) {
+    if (ctl.closed) return;
+    var r = ctl.refs;
+    r.status.setAttribute("data-state", state);
+    r.statusText.textContent = text;
+    r.status.removeAttribute("hidden");
+    r.statusAction.textContent = label || "";
+    ctl.statusAction = action || null;
+    if (label) r.statusAction.removeAttribute("hidden");
+    else r.statusAction.setAttribute("hidden", "");
+  }
+
+  function copy(code) {
+    return root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(code) : "That didn’t work. Try again.";
+  }
+
+  function requestCurrent(ctl, request) {
+    return !ctl.closed && ctl.request === request && request.generation === ctl.generation && !request.detached;
+  }
+
+  function cancelAutoSave(ctl) {
+    if (ctl.autoSave) root.clearTimeout(ctl.autoSave);
+    ctl.autoSave = null;
+  }
+
+  function renderRecovery(ctl) {
+    var r = ctl.refs.recover;
+    clear(r);
+    var rows = ctl.openProposals || (ctl.openProposal ? [ctl.openProposal] : []);
+    if (!rows.length) { r.setAttribute("hidden", ""); r.removeAttribute("data-recover-doc"); return; }
+    r.removeAttribute("hidden");
+    rows.forEach(function (p) {
+      var same = p.doc === ctl.state.doc;
+      r.setAttribute("data-recover-doc", p.doc);
+      var text;
+      if (ctl.openProposals) text = DOC_LABEL[p.doc] + " has suggested changes waiting.";
+      else if (p.status === "accepting") text = "A save didn’t finish.";
+      else if (p.status === "pending") text = "An earlier request didn’t finish.";
+      else if (same && p.baseRunId && ctl.state.latestRunId && p.baseRunId !== ctl.state.latestRunId) {
+        var base, latest;
+        ctl.state.versions.forEach(function (v) { if (v.runId === p.baseRunId) base = v.n; if (v.runId === ctl.state.latestRunId) latest = v.n; });
+        text = "These changes were suggested for v" + base + "; v" + latest + " is now current.";
+      } else text = same ? "You have " + plural((p.ops || []).length, "suggested change") + " from an earlier request." : "The " + DOC_NOUN[p.doc] + " has suggested changes waiting.";
+      var row = h("div", { "data-recover-doc": p.doc }, [h("span", { text: text })]);
+      function button(label, action, fn) {
+        var el = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-action": action, "data-proposal-id": p.proposalId, text: label });
+        el.addEventListener("click", fn); row.appendChild(el);
+      }
+      if (!ctl.openProposals && p.status !== "accepting") {
+        if (p.status === "pending") {
+          button("Continue", "continue-request", function () { continueRequest(ctl, p); });
+          button("Stop", "stop-request", function () { stopRecovered(ctl, p); });
+        } else button("Review", "review-request", function () {
+          if (!same) ctl.setDoc(p.doc);
+          else { if (!ctl.state.proposal) recoverProposal(ctl, p); if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true }); ctl.refs.docscroll.focus(); }
+        });
+        if (same && p.baseRunId !== ctl.state.latestRunId) button("Review current", "review-current", function () { reviewCurrent(ctl); });
+      }
+      button("Discard", "discard-request", function () { discard(ctl, p.proposalId); });
+      r.appendChild(row);
+    });
+  }
+
+  function reviewCurrent(ctl) {
+    var ui = versionsUi(ctl);
+    if (ui) ui.view(ctl.state.latestRunId, ctl.refs.statusAction);
+  }
+
+  /* Runs are immutable. Install one exact render without dropping the
+     proposal, then wait for its iframe before replaying validated ops. */
+  function installExactBase(ctl, runId, which, generation) {
+    return Promise.all([ctl.api.listVersions(which), ctl.api.getModel(runId), ctl.api.preview({ doc: which, baseRunId: runId })]).then(function (parts) {
+      if (ctl.closed || generation !== ctl.generation || which !== ctl.state.doc) return false;
+      clearReview(ctl);
+      var st = ctl.state;
+      st.versions = parts[0].versions || [];
+      st.latestRunId = parts[0].currentRunId;
+      st.currentRunId = runId;
+      st.model = parts[1].model;
+      st.nodes = parts[1].nodes || [];
+      st.loading = false;
+      renderAll(ctl);
+      return showPreview(ctl, String(parts[2].html || ""));
+    });
+  }
+
+  function recoverProposal(ctl, stored) {
+    ctl.openProposal = stored;
+    ctl.openProposals = null;
+    renderRecovery(ctl);
+    if (stored.doc !== ctl.state.doc || stored.status === "accepting") return Promise.resolve();
+    if (ctl.state.proposal && ctl.state.proposal.id === stored.proposalId) return Promise.resolve();
+    var generation = ctl.generation;
+    var p = { id: stored.proposalId, doc: stored.doc, baseRunId: stored.baseRunId, instruction: stored.instruction,
+      ops: stored.ops || [], blocked: stored.blocked || [], summary: stored.summary, status: stored.status };
+    ctl.state.proposal = p;
+    ctl.state.loading = true;
+    return installExactBase(ctl, stored.baseRunId, stored.doc, generation).then(function (loaded) {
+      if (!loaded || generation !== ctl.generation || ctl.state.proposal !== p) return;
+      p.ops.forEach(function (op) { markOp(ctl, op); });
+      renderAll(ctl);
+      status(ctl, "recovered", "Your earlier accept/reject choices weren’t kept. Review again.");
+    }).catch(function () {
+      if (generation !== ctl.generation || ctl.closed) return;
+      ctl.state.loading = false;
+      status(ctl, "error", "The " + DOC_NOUN[stored.doc] + " didn’t load.", "Retry", function () { ctl.state.proposal = null; recoverProposal(ctl, stored); });
+      renderAll(ctl);
+    });
+  }
+
+  function readOpen(ctl, pending) {
+    var generation = ctl.generation;
+    if (typeof ctl.api.getOpenEdit !== "function") {
+      if (pending) status(ctl, "error", copy("materials_pending"));
+      return Promise.resolve(null);
+    }
+    return ctl.api.getOpenEdit().then(function (res) {
+      if (ctl.closed || generation !== ctl.generation) return null;
+      if (res && res.proposal) return recoverProposal(ctl, res.proposal);
+      ctl.openProposal = null; ctl.openProposals = null;
+      if (pending) status(ctl, "error", copy("materials_pending"));
+      renderRecovery(ctl);
+      return null;
+    }).catch(function (err) {
+      if (ctl.closed || generation !== ctl.generation) return null;
+      if (err && err.code === "multiple_open_proposals") {
+        ctl.openProposals = err.proposals || []; ctl.openProposal = null; renderRecovery(ctl);
+      } else if (pending || err && err.code === "materials_pending") status(ctl, "error", copy("materials_pending"));
+      return null; /* an older/offline server must still open the desk */
+    });
+  }
+
   function loadDoc(ctl) {
     var st = ctl.state;
     var which = st.doc;
     var token = ++ctl.loadToken;
+    cancelAutoSave(ctl);
+    clearReview(ctl);
     st.loading = true;
     st.versions = [];
     st.currentRunId = null;
@@ -623,20 +771,20 @@
     return ctl.api.listVersions(which).then(function (listing) {
       if (token !== ctl.loadToken || ctl.closed) return null;
       st.versions = (listing && listing.versions) || [];
-      st.currentRunId = listing && listing.currentRunId;
+      st.latestRunId = st.currentRunId = listing && listing.currentRunId;
       st.loading = false;
       renderAll(ctl);
       return ctl.api.preview({ doc: which, baseRunId: st.currentRunId }).then(function (res) {
         if (token !== ctl.loadToken || ctl.closed) return null;
         showPreview(ctl, String((res && res.html) || ""));
-        return res;
+        return readOpen(ctl).then(function () { return res; });
       });
     }).catch(function (err) {
       if (token !== ctl.loadToken || ctl.closed) return null;
       st.loading = false;
       renderAll(ctl);
-      showDocNote(ctl, (err && err.message) || "The document did not load.", "error");
-      return null;
+      showDocNote(ctl, (err && err.message) || "The " + DOC_NOUN[which] + " didn’t load.", "error");
+      return readOpen(ctl);
     });
   }
 
@@ -662,30 +810,47 @@
         if (STAGES[i].key === data.stage) announce(STAGES[i].label(st.doc, data));
       }
     } else if (frame.event === "op" && data.op) {
+      if (p.ops.some(function (op) { return op.opId === data.op.opId; })) return;
       p.ops.push(data.op);
       /* region:F2-ops — each validated op becomes a mark in the preview. */
       markOp(ctl, data.op);
     } else if (frame.event === "blocked") {
       p.blocked.push(data);
       var line = blockedLine(data);
-      logMessage(ctl, "blocked", [h("b", { text: "Blocked: " }), line]);
-      announce("Blocked: " + line, true);
+      logMessage(ctl, "blocked", [line]);
+      if (data.reason !== "locked" && data.reason !== "out_of_scope") {
+        p.failure = true;
+        errorStatus(ctl, data.reason);
+      } else announce(line, true);
     } else if (frame.event === "proposal") {
       p.summary = data.summary || null;
     } else if (frame.event === "error") {
-      logMessage(ctl, "blocked", [data.message || "Scribe could not finish this request."]);
-      announce(data.message || "Scribe could not finish this request.", true);
+      p.failure = true;
+      logMessage(ctl, "blocked", [copy(data.code)]);
+      errorStatus(ctl, data.code);
     } else if (frame.event === "done") {
       p.status = data.status || "ready";
     }
   }
 
+  function errorStatus(ctl, code) {
+    var settings = code === "llm_unconfigured" || code === "no_pin";
+    status(ctl, "error", copy(code), settings ? "Settings" : "Try again", function () {
+      if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+      else send(ctl);
+    });
+  }
+
   function finishRun(ctl) {
+    ctl.refs.docscroll.setAttribute("aria-busy", "false");
     var st = ctl.state;
     var p = st.proposal;
     st.busy = false;
     st.stage = null;
     ctl.abort = null;
+    if (ctl.request && !ctl.request.detached) ctl.request = null;
+    if (p && p.ops.length) ctl.openProposal = { proposalId: p.id, doc: p.doc || st.doc, baseRunId: p.baseRunId || st.currentRunId, ops: p.ops, status: p.status };
+    else ctl.openProposal = null;
     if (!p) { renderAll(ctl); return; }
     var s = p.summary;
     var n = p.ops.length;
@@ -694,108 +859,172 @@
       if (s && s.removals) bits.push(plural(s.removals, "removal"));
       if (s && typeof s.wordsDelta === "number" && s.wordsDelta) bits.push((s.wordsDelta > 0 ? "+" : "−") + Math.abs(s.wordsDelta) + " words");
       if (s && s.pages) bits.push("still " + plural(s.pages, "page"));
-      var head = p.status === "partial" ? "Stopped early" : (n === 1 ? "1 change is ready" : n + " changes are ready");
+      var head = p.status === "partial" ? "Stopped. " + plural(n, "change") + " ready to review." : plural(n, "suggested change");
       logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: head }), bits.join(" · ")]);
       announce(head + ". " + bits.join(", ") + ".");
       if (ctl.isNarrow()) ctl.setSeg("doc");
     } else {
       p.summary = null;
-      logMessage(ctl, "note", [p.status === "partial" ? "Stopped. No changes were proposed." : "No changes were proposed. Try a more specific request."]);
+      if (p.failure) { if (!ctl.refs.prompt.value) ctl.refs.prompt.value = p.instruction || ""; }
+      else logMessage(ctl, "note", [p.status === "partial" ? "Stopped. No changes suggested." : "No changes suggested. Try a more specific request."]);
       st.proposal = null;
     }
     renderAll(ctl);
+  }
+
+  function attachStream(ctl, request) {
+    var Abort = root.AbortController;
+    ctl.abort = typeof Abort === "function" ? new Abort() : null;
+    return ctl.api.stream(request.proposalId, {
+      signal: ctl.abort ? ctl.abort.signal : undefined,
+      onEvent: function (frame) { if (requestCurrent(ctl, request) && !request.stopRequested) onStreamEvent(ctl, frame); },
+    }).then(function () {
+      if (request.stopRequested) return request.stopReply;
+      if (requestCurrent(ctl, request)) finishRun(ctl);
+    });
+  }
+
+  function requestFailure(ctl, request, err) {
+    if (!requestCurrent(ctl, request)) return null;
+    ctl.state.busy = false; ctl.state.stage = null; ctl.abort = null;
+    ctl.refs.docscroll.setAttribute("aria-busy", "false");
+    if (!ctl.refs.prompt.value) ctl.refs.prompt.value = request.instruction || "";
+    if (!request.proposalId) { ctl.state.proposal = null; ctl.request = null; }
+    if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
+    var message = (err && err.message) || "That didn’t work. Try again.";
+    var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+    status(ctl, "error", message, settings ? "Settings" : "Try again", function () {
+      if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+      else if (request.proposalId) readOpen(ctl); else send(ctl);
+    });
+    logMessage(ctl, "blocked", [message]); renderAll(ctl);
+    return null;
   }
 
   function send(ctl) {
     var st = ctl.state;
+    if (st.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.request) {
+      status(ctl, "recovered", "Review or discard the open changes first. Your new request is kept below.");
+      renderRecovery(ctl); return;
+    }
     if (st.busy || st.loading) return;
     var text = String(ctl.refs.prompt.value || "").trim();
     if (!text) { ctl.refs.prompt.focus(); return; }
     var chips = st.chipsUsed.slice();
-    ctl.refs.prompt.value = "";
-    st.chipsUsed = [];
-    autogrow(ctl);
+    ctl.refs.prompt.value = ""; st.chipsUsed = []; autogrow(ctl);
     logMessage(ctl, "you", [text]);
-    st.busy = true;
-    st.stage = "reading";
-    st.stageDetail = null;
-    st.proposal = { id: null, ops: [], blocked: [], summary: null, status: "pending", instruction: text };
-    ctl.refs.docscroll.setAttribute("aria-busy", "true");
-    renderAll(ctl);
-    var Abort = root.AbortController;
-    var controller = typeof Abort === "function" ? new Abort() : null;
-    ctl.abort = controller;
-    ctl.api.propose({
-      doc: st.doc,
-      baseRunId: st.currentRunId,
-      instruction: text,
-      scope: "all",
-      lockFacts: true,
-      chips: chips,
-    }).then(function (res) {
-      if (ctl.closed) return null;
+    st.busy = true; st.stage = "reading"; st.stageDetail = null;
+    var request = ctl.request = { doc: st.doc, baseRunId: st.currentRunId, proposalId: null,
+      instruction: text, stopRequested: false, detached: false, generation: ctl.generation };
+    st.proposal = { id: null, doc: request.doc, baseRunId: request.baseRunId, ops: [], blocked: [], summary: null, status: "pending", instruction: text };
+    ctl.refs.docscroll.setAttribute("aria-busy", "true"); renderAll(ctl);
+    ctl.api.propose({ doc: request.doc, baseRunId: request.baseRunId, instruction: text, scope: "all", lockFacts: true, chips: chips }).then(function (res) {
+      request.proposalId = res.proposalId;
+      if (request.stopRequested || request.detached || ctl.closed) return stopRequest(ctl, request);
+      if (!requestCurrent(ctl, request)) return null;
       st.proposal.id = res.proposalId;
-      if (res.rebasedTo) st.currentRunId = res.rebasedTo;
-      return ctl.api.stream(res.proposalId, {
-        signal: controller ? controller.signal : undefined,
-        onEvent: function (frame) { onStreamEvent(ctl, frame); },
+      request.baseRunId = res.rebasedTo || request.baseRunId;
+      st.proposal.baseRunId = request.baseRunId;
+      ctl.openProposal = { proposalId: res.proposalId, doc: request.doc, baseRunId: request.baseRunId, ops: [], status: "pending" };
+      var base = res.rebasedTo ? installExactBase(ctl, res.rebasedTo, request.doc, request.generation) : Promise.resolve(true);
+      return base.then(function (loaded) {
+        if (!loaded || !requestCurrent(ctl, request)) return null;
+        if (request.stopRequested) return stopRequest(ctl, request);
+        return attachStream(ctl, request);
       });
-    }).then(function () {
-      /* After Stop, the server's reply may hold ops the stream never
-         delivered: merge them before the run is judged empty. */
-      return st.proposal && st.proposal.stopReply;
-    }).then(function () {
-      if (ctl.closed) return;
-      ctl.refs.docscroll.setAttribute("aria-busy", "false");
+    }).catch(function (err) { return requestFailure(ctl, request, err); });
+  }
+
+  function stopRequest(ctl, request) {
+    if (!request.proposalId) return Promise.resolve();
+    if (request.stopReply) return request.stopReply;
+    request.stopReply = ctl.api.stopEdit(request.proposalId).then(function (res) {
+      if (!requestCurrent(ctl, request)) return null;
+      var p = ctl.state.proposal;
+      if (!p) return null;
+      p.id = request.proposalId; p.status = (res && res.status) || "partial";
+      ((res && res.ops) || []).forEach(function (op) {
+        if (!p.ops.some(function (known) { return known.opId === op.opId; })) { p.ops.push(op); markOp(ctl, op); }
+      });
+      if (ctl.abort) ctl.abort.abort();
       finishRun(ctl);
-    }).catch(function (err) {
-      if (ctl.closed) return;
-      st.busy = false;
-      st.stage = null;
-      st.proposal = null;
-      ctl.abort = null;
-      ctl.refs.docscroll.setAttribute("aria-busy", "false");
-      var message = (err && err.message) || "Scribe could not start this request.";
-      logMessage(ctl, "blocked", [message]);
-      announce(message, true);
+      return res;
+    }).catch(function () {
+      if (!requestCurrent(ctl, request)) return;
+      ctl.state.busy = false; ctl.state.stage = null;
+      ctl.openProposal = { proposalId: request.proposalId, doc: request.doc, baseRunId: request.baseRunId, status: "pending", ops: [] };
+      status(ctl, "error", "That didn’t work. Try again.", "Try again", function () { request.stopReply = null; stopRequest(ctl, request); });
       renderAll(ctl);
     });
+    return request.stopReply;
   }
 
-  /* Stop keeps every op already validated and marks the proposal partial
-     (SPEC §2 Progress); the server's reply may carry ops the stream had
-     not delivered yet. */
   function stop(ctl) {
-    var p = ctl.state.proposal;
-    if (!ctl.state.busy) return;
-    if (p) {
-      p.status = "partial";
-      if (!p.summary && p.changes && p.changes.length) p.summary = reviewSummary(ctl);
-    }
-    if (p && p.id) {
-      p.stopReply = ctl.api.stopEdit(p.id).then(function (res) {
-        if (ctl.closed || ctl.state.proposal !== p) return;
-        var known = {};
-        p.ops.forEach(function (op) { known[op.opId] = true; });
-        var late = ((res && res.ops) || []).filter(function (op) { return op && !known[op.opId]; });
-        late.forEach(function (op) { p.ops.push(op); markOp(ctl, op); });
-        if (late.length && !p.summary) p.summary = reviewSummary(ctl);
-        if (late.length && !ctl.state.busy) renderAll(ctl);
-      }).catch(function () { /* the abort below still ends the run */ });
-    }
-    if (ctl.abort && typeof ctl.abort.abort === "function") ctl.abort.abort();
+    var request = ctl.request;
+    if (!ctl.state.busy || !request) return;
+    request.stopRequested = true;
+    renderStage(ctl);
+    if (request.proposalId) stopRequest(ctl, request);
   }
 
-  function discard(ctl) {
+  function continueRequest(ctl, stored) {
+    if (ctl.state.busy || ctl.state.loading) return;
+    if (stored.doc !== ctl.state.doc) return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
+    var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
+      stopRequested: false, detached: false, generation: ctl.generation };
+    ctl.state.loading = true;
+    return installExactBase(ctl, stored.baseRunId, stored.doc, request.generation).then(function (loaded) {
+      if (!loaded || !requestCurrent(ctl, request)) return;
+      ctl.state.proposal.ops = []; ctl.state.proposal.changes = null; ctl.state.proposal.decisions = null;
+      ctl.state.busy = true; ctl.state.stage = "reading"; renderAll(ctl);
+      return attachStream(ctl, request);
+    }).catch(function (err) { ctl.state.loading = false; requestFailure(ctl, request, err); });
+  }
+
+  function stopRecovered(ctl, stored) {
+    if (stored.doc !== ctl.state.doc) {
+      ctl.api.stopEdit(stored.proposalId).then(function () { readOpen(ctl); }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
+      return;
+    }
+    var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
+      stopRequested: true, detached: false, generation: ctl.generation };
+    ctl.state.busy = true; renderStage(ctl); stopRequest(ctl, request);
+  }
+
+  function detachRequest(ctl) {
+    cancelAutoSave(ctl);
+    if (ctl.request) {
+      var request = ctl.request;
+      request.detached = true; request.stopRequested = true;
+      if (request.proposalId) stopRequest(ctl, request);
+      ctl.request = null;
+    }
+    if (ctl.abort) ctl.abort.abort();
+    ctl.abort = null; ctl.state.busy = false; ctl.state.stage = null;
+    ctl.generation++;
+    if (ctl.frameReadyResolve) { ctl.frameReadyResolve(false); ctl.frameReadyResolve = null; }
+  }
+
+  function discard(ctl, id) {
     var p = ctl.state.proposal;
-    if (!p) return;
-    if (p.id) ctl.api.rejectEdit(p.id).catch(function () { /* nothing was saved either way */ });
-    clearReview(ctl);
-    ctl.state.proposal = null;
-    logMessage(ctl, "note", ["Changes discarded. Nothing was saved."]);
-    announce("Changes discarded.");
-    renderAll(ctl);
-    fitFrame(ctl);
+    id = id || p && p.id || ctl.openProposal && ctl.openProposal.proposalId;
+    if (!id || ctl.discarding || p && p.saving) return Promise.resolve(false);
+    ctl.discarding = true;
+    return ctl.api.rejectEdit(id).then(function () {
+      if (ctl.closed) return false;
+      clearReview(ctl);
+      ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
+      status(ctl, "idle", "Discarded.");
+      logMessage(ctl, "note", ["Discarded."]); renderAll(ctl);
+      return loadDoc(ctl);
+    }).catch(function (err) {
+      if (ctl.closed) return false;
+      if (err && err.status === 404) {
+        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) { clearReview(ctl); ctl.state.proposal = null; ctl.request = null; renderAll(ctl); } });
+      }
+      status(ctl, "error", "Couldn’t discard. The suggested changes are still open.", "Try again", function () { discard(ctl, id); });
+      renderRecovery(ctl); return false;
+    }).finally(function () { ctl.discarding = false; });
   }
 
   /* ---------------- Review (lane F2) ----------------
@@ -998,7 +1227,7 @@
 
   function flagText(c) {
     var facts = (c.op.facts || []).filter(function (f) { return !/^claimId:/.test(f); });
-    return "Unverified: please confirm." + (facts.length ? " " + facts[0] : "");
+    return "Not in your saved facts — confirm before accepting." + (facts.length ? " " + facts[0] : "");
   }
 
   /* The margin rail: one note per change, beside its block. */
@@ -1099,7 +1328,7 @@
     var n = nextVersionN(ctl);
     var saveBtn;
     if (!s.pending && !s.accepted) {
-      saveBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--primary", "data-review": "discard", text: "Close without saving" });
+      saveBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--primary", "data-review": "discard", text: "Discard" });
     } else {
       saveBtn = h("button", {
         type: "button", class: "scribe__btn" + (verified > 0 ? "" : " scribe__btn--primary"), "data-review": "save",
@@ -1117,7 +1346,7 @@
       saveBtn,
     ]));
     if (ctl.autoSave) {
-      el.appendChild(h("p", { class: "scribe__autosave", text: "Every change is decided. Saving as v" + n + " in a moment." }));
+      el.appendChild(h("p", { class: "scribe__autosave", text: "All changes decided. Saving as v" + n + "…" }));
     }
   }
 
@@ -1274,29 +1503,37 @@
     if (ctl.autoSave) { root.clearTimeout(ctl.autoSave); ctl.autoSave = null; }
     var accepted = p.changes.filter(function (c) { return p.decisions[c.opId] === "accepted"; });
     if (!accepted.length) { announce("Accept at least one change first."); return; }
-    if (!p.id) { announce("This proposal has no server copy to save.", true); return; }
+    if (!p.id) { announce("These changes can’t be saved. Discard them and send the request again.", true); return; }
+    var which = p.doc || ctl.state.doc;
     p.saving = true;
     refreshReview(ctl);
     ctl.api.acceptEdit(p.id, {
       accept: accepted.map(function (c) { return c.opId; }),
       confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
     }).then(function (res) {
-      if (ctl.closed || ctl.state.proposal !== p) return null;
+      if (ctl.closed || ctl.state.proposal !== p) { emitSaved(ctl, res && res.run && res.run.runId, which); return null; }
       var run = (res && res.run) || {};
       var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
-      var note = "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
-      if (run.pdf === "stale") note += " The PDF catches up when the materials browser is back.";
-      logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: "Saved as v" + n }), note.replace(/^Saved as v\d+ /, "")]);
-      announce("Saved as version " + n + ".");
-      ctl.state.proposal = null;
-      emitSaved(ctl, run.runId);
-      return loadDoc(ctl);
+      var unavailable = res && res.textSaved || run.pdf === "stale";
+      var note = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
+      logMessage(ctl, "scribe", [note]);
+      status(ctl, unavailable ? "saved-pdf-unavailable" : "saved", note);
+      return reloadSaved(ctl, res);
     }, function (err) {
       if (ctl.closed || ctl.state.proposal !== p) return;
       p.saving = false;
-      var message = (err && err.message) || "The changes did not save.";
-      logMessage(ctl, "blocked", [h("b", { text: "Not saved: " }), message]);
-      announce("Not saved: " + message, true);
+      var mapped = copy(err && err.code);
+      var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : mapped === "That didn’t work. Try again." ? "Not saved. Your accepted changes are still here." : (err && err.message) || mapped;
+      status(ctl, err && err.code === "stale_base" ? "stale" : "error", message,
+        err && err.code === "stale_base" ? "Review current" : settings ? "Settings" : "Try again", function () {
+          if (err && err.code === "stale_base") ctl.api.listVersions(ctl.state.doc).then(function (listing) {
+            ctl.state.versions = listing.versions; ctl.state.latestRunId = listing.currentRunId; renderAll(ctl); reviewCurrent(ctl);
+          }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
+          else if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+          else save(ctl);
+        });
+      logMessage(ctl, "blocked", [message]);
       refreshReview(ctl);
     });
   }
@@ -1343,7 +1580,7 @@
     if (k === "j" || k === "k") { move(ctl, k === "j" ? 1 : -1); }
     else if (k === "A" && e.shiftKey) { decideAll(ctl, "accepted"); }
     else if (k === "a" || k === "r") {
-      if (!focused) announce("Press J to pick a change first.");
+      if (!focused) announce("Pick a change first (J/K to move).");
       else decide(ctl, focused.opId, k === "a" ? "accepted" : "rejected");
     }
     else if (k === "d" || k === "D") { toggleShow(ctl); }
@@ -1354,12 +1591,11 @@
 
   /* The blocked-op chat line (SPEC §2 Guards), worded by reason. */
   function blockedLine(data) {
-    var detail = data && data.detail ? "“" + data.detail + "”" : "";
+    var detail = data && typeof data.detail === "string" ? data.detail.slice(0, 300) : "";
     var reason = data && data.reason;
-    if (reason === "out_of_scope") return "that change was outside what you asked Scribe to edit.";
-    if (reason === "shape") return "that change would break the template's shape" + (data.detail ? " (" + data.detail + ")" : "") + ".";
-    if (reason === "invalid_model") return "Scribe returned a change the template can't hold.";
-    return "would change " + (detail || "a locked fact") + ".";
+    if (reason === "out_of_scope") return "Blocked: that change was outside what you asked Scribe to edit.";
+    if (reason === "locked") return detail ? "Blocked: “" + detail + "” is a locked fact." : "Blocked: that would change a locked fact.";
+    return copy(reason);
   }
 
   /* ---------------- Events ---------------- */
@@ -1529,7 +1765,7 @@
     ctl.api.star(runId, next).catch(function (err) {
       v.starred = !next;
       renderVersions(ctl);
-      announce((err && err.message) || "The star did not save.", true);
+      announce((err && err.message) || "Star didn’t save.", true);
     });
     var btn = ctl.refs.versions.querySelector('[data-star="' + runId + '"]');
     if (btn) btn.focus();
@@ -1541,6 +1777,10 @@
     this.opts = opts;
     this.closed = false;
     this.loadToken = 0;
+    this.generation = 0;
+    this.request = null;
+    this.openProposal = null;
+    this.openProposals = null;
     this.abort = null;
     this.autoSave = null;
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
@@ -1577,11 +1817,11 @@
 
   Controller.prototype.setDoc = function (d) {
     if (!DOC_LABEL[d] || d === this.state.doc) return;
-    if (this.state.busy) stop(this);
+    detachRequest(this);
     this.state.doc = d;
     this.refs.host.setAttribute("data-doc", d);
     this.refs.log.appendChild(h("div", { class: "scribe__msg scribe__msg--note", text: "Now editing the " + DOC_NOUN[d] + "." }));
-    loadDoc(this);
+    return loadDoc(this);
   };
 
   Controller.prototype.setSide = function (s) {
@@ -1617,6 +1857,7 @@
     /* Keys are heard on the document, in the capture phase, for the whole
        life of the desk: focus that falls to <body> is still inside it. */
     doc().addEventListener("keydown", this.onKey, true);
+    r.statusAction.addEventListener("click", function () { if (self.statusAction) self.statusAction(); });
     r.host.addEventListener("click", this.onHostClick);
     r.composer.addEventListener("submit", this.onSubmit);
     r.prompt.addEventListener("input", this.onInput);
@@ -1630,7 +1871,7 @@
     doc().body.appendChild(r.host);
     fitViewport(this);
     if (doc().documentElement && doc().documentElement.classList) doc().documentElement.classList.add("jb-scribe-open");
-    logMessage(this, "note", ["Ask for a change to this " + DOC_NOUN[this.state.doc] + ". Nothing is saved until you accept it."]);
+    logMessage(this, "note", ["Ask for a change. You review every suggested change before it’s saved."]);
     renderAll(this);
     var raf = typeof root.requestAnimationFrame === "function" ? root.requestAnimationFrame : function (fn) { fn(); };
     raf(function () { if (!self.closed) r.host.classList.add("is-open"); });
@@ -1640,9 +1881,9 @@
 
   Controller.prototype.close = function (reason) {
     if (this.closed) return;
+    detachRequest(this);
     this.closed = true;
     var r = this.refs;
-    if (this.state.busy) stop(this);
     if (this.autoSave) { root.clearTimeout(this.autoSave); this.autoSave = null; }
     doc().removeEventListener("keydown", this.onKey, true);
     unwatchFrameKeys(this);

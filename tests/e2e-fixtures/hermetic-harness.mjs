@@ -817,6 +817,16 @@ export async function installScribeEditApi(page, options) {
     if (method === "GET" && (m = /^\/edits\/([^/]+)\/stream$/.exec(tail))) {
       return route.continue({ url: `${relayUrl}/${m[1]}` });
     }
+    if (method === "GET" && tail === "/edits/open") {
+      const open = proposals.filter((p) => p.status === "open" || p.status === "accepting" ||
+        (["ready", "partial"].includes(p.status) && p.ops.length));
+      if (open.length > 1) return reply(route, 409, { error: "Multiple open requests", code: "multiple_open_proposals",
+        proposals: open.map((p) => ({ proposalId: p.id, doc: p.body.doc === "cover_letter" ? "coverLetter" : p.body.doc, status: p.status })) });
+      const p = open[0];
+      return reply(route, 200, { proposal: p ? { proposalId: p.id, doc: p.body.doc === "cover_letter" ? "coverLetter" : p.body.doc,
+        baseRunId: p.baseRunId, instruction: p.body.instruction, status: p.status === "open" ? "pending" : p.status,
+        ops: p.ops, blocked: p.blocked || [], summary: p.summary } : null });
+    }
     const p = (m = /^\/edits\/([^/]+)(\/stop|\/accept)?$/.exec(tail)) ? proposals.find((x) => x.id === decodeURIComponent(m[1])) : null;
     if (m && !p) return reply(route, 404, { error: "Proposal not found", code: "proposal_not_found" });
     if (method === "POST" && m?.[2] === "/stop") {
@@ -872,6 +882,9 @@ export async function installScribeEditApi(page, options) {
     emit(id, event, data) {
       const p = proposals.find((x) => x.id === id);
       if (event === "op" && p) p.ops.push(data.op);
+      if (event === "done" && p) p.status = data.status;
+      if (event === "proposal" && p) p.summary = data.summary;
+      if (event === "blocked" && p) (p.blocked ||= []).push(data);
       write(id, event, data);
     },
     /** Ops the stop reply adds that the stream never delivered. */
