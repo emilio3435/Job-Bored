@@ -216,7 +216,7 @@ test("should open the desk from a role's Edit button and return focus on close",
   await composer.press("Enter");
   const log = desk.getByRole("log", { name: "Conversation with Scribe" });
   await expect(log).toContainText("Make the summary punchier");
-  await expect(log).toContainText("Blocked: “38%” is a locked fact.");
+  await expect(log).toContainText("Blocked: that would change a locked fact.");
   await expect(log).toContainText("1 suggested change");
   await expect(desk.locator(".scribe__reviewbar")).toContainText("1 change");
   await page.screenshot({ path: join(EVIDENCE_DIR, "F1-desk-1440-chat.png") });
@@ -592,7 +592,7 @@ for (const which of ['resume', 'cover_letter']) {
     ['http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
     ['writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
     ['writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
-    ['llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.', 'Settings'],
+    ['llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.', 'Settings'],
   ]) {
     test(`SCRP-F28 ASTRA-05 ${which} real SSE error ${code} is bounded and actionable`, async ({ page }) => {
       const t = await realReliabilityDesk(page, which, async () => { throw Object.assign(new Error('/private/raw-provider-body'), { code }); });

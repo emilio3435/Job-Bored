@@ -202,7 +202,7 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   /* A locked fact comes back blocked, in words. */
   api.emit(id, "blocked", { op: { opId: "o5", op: "replace", node: "stmt", text: "Cut fulfillment delays by half." }, reason: "locked", detail: "38%" });
   const log = desk.getByRole("log", { name: "Conversation with Scribe" });
-  await expect(log).toContainText("Blocked: “38%” is a locked fact.");
+  await expect(log).toContainText("Blocked: that would change a locked fact.");
 
   api.emit(id, "stage", { stage: "measuring" });
   await expect(stage).toHaveText("Measuring length");
@@ -423,7 +423,7 @@ for (const which of ['resume', 'cover_letter']) {
       await t.send(); await t.ready();
       await page.route(`${t.service.baseUrl}/**/accept`, route => route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Unavailable.', code: 'provider_failed' }) }));
       await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
-      await expect(t.desk.locator('.scribe__status')).toContainText('Unavailable.');
+      await expect(t.desk.locator('.scribe__status')).toContainText('The AI provider didn’t respond. Your document is unchanged.');
       await expect(t.desk.locator('[data-review="save"]')).toBeVisible();
       const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json(); expect(listing.versions).toHaveLength(1);
     } finally { await t.service.close(); }

@@ -423,3 +423,9 @@ describe("Targets (SPEC §4, Grok F2-HIT)", () => {
     assert.deepEqual(small, [], "no desktop control under 32px");
   });
 });
+
+it('SCRP-F57 review has exactly one Discard control after Reject all', async () => {
+  const env = await openWithProposal({ ops: OPS.slice(0, 2) });
+  click(bar(env).querySelector('[data-review="reject-all"]'));
+  assert.equal(bar(env).querySelectorAll('[data-review="discard"]').length, 1); env.ctl.close();
+});
