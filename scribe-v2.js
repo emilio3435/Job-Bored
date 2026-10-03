@@ -532,7 +532,7 @@
     clearReview(ctl);
     ctl.state.proposal = null; ctl.openProposal = keep || null; ctl.openProposals = null; ctl.request = null;
     emitSaved(ctl, res && res.run && res.run.runId);
-    return loadDoc(ctl);
+    return loadDoc(ctl, true);
   }
 
   function renderAll(ctl) {
@@ -945,7 +945,7 @@
       var text = res.textSaved ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n;
       manualMessage(ctl, "saved", text);
       if (res.textSaved) status(ctl, "saved-pdf-unavailable", text);
-      return loadDoc(ctl).then(function () { return true; });
+      return loadDoc(ctl, true).then(function () { return true; });
     }).catch(function (err) {
       m.saving = false;
       if (ctl.closed || generation !== ctl.generation) return false;
@@ -1019,7 +1019,7 @@
     var r = ctl.refs;
     r.status.setAttribute("data-state", state);
     r.statusText.textContent = text;
-    r.status.removeAttribute("hidden");
+    if (text) r.status.removeAttribute("hidden"); else r.status.setAttribute("hidden", "");
     r.statusAction.textContent = label || "";
     ctl.statusAction = action || null;
     if (label) r.statusAction.removeAttribute("hidden");
@@ -1154,7 +1154,8 @@
     });
   }
 
-  function loadDoc(ctl) {
+  function loadDoc(ctl, keepStatus) {
+    if (!keepStatus) status(ctl, "idle", "");
     var st = ctl.state;
     var which = st.doc;
     var token = ++ctl.loadToken;
@@ -1258,6 +1259,7 @@
     if (!p) { renderAll(ctl); return; }
     var s = p.summary;
     var n = p.ops.length;
+    if (!p.failure) status(ctl, "idle", "");
     if (n) {
       var bits = [plural(n, "change")];
       if (s && s.removals) bits.push(plural(s.removals, "removal"));
@@ -1321,6 +1323,7 @@
     if (!scope) return;
     var text = String(ctl.refs.prompt.value || "").trim();
     if (!text) { ctl.refs.prompt.focus(); return; }
+    status(ctl, "idle", "");
     var chips = st.chipsUsed.slice();
     ctl.refs.prompt.value = ""; st.chipsUsed = []; autogrow(ctl);
     logMessage(ctl, "you", [text]);

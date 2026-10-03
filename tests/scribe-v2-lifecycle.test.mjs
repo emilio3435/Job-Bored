@@ -743,3 +743,13 @@ it('SCRP-R1-18 only ready recovered proposals warn about lost choices', async ()
   const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [ROP] };
   const ctl = t.mount(); await flush(); assert.doesNotMatch(ctl.refs.statusText.textContent, /choices weren’t kept/); ctl.close();
 });
+
+it('SCRP-R1-19 starting and successfully finishing clears obsolete status', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  t.api.propose = async () => { throw { code: 'rate_limited' }; }; await t.submit(ctl);
+  assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  let statusAtPost; t.api.propose = async body => { statusAtPost = ctl.refs.status.hasAttribute('hidden'); return { proposalId: 'next' }; };
+  await t.submit(ctl); assert.equal(statusAtPost, true); assert.equal(ctl.refs.status.hasAttribute('hidden'), true);
+  await t.submit(ctl, 'Blocked second request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  ctl.setDoc('cover_letter'); await flush(); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();
+});
