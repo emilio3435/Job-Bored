@@ -33,7 +33,7 @@ export const letter = {
   companyInsight: 'Your posting asks for route forecasts and better delivery reliability.',
   proof1: 'At Northwind I supported planning for 21+ accounts using Postgres. I reduced missed windows from 9.1% to 4.3% for 620 vans and used those results to help the team review the next route plan.',
   proof2: 'At RouteLab I shipped a scheduling tool for 80 drivers using Kafka. I kept the work tied to the drivers and their daily schedule, so the reports could help with decisions they needed to make.',
-  ask: 'Could we review one route together? I would start with your dispatch team and compare the forecast with a field report before proposing the next step.',
+  ask: 'Could we review a route together? I would start with your dispatch team and compare the forecast with a field report before proposing the next step.',
 };
 export function response() {
   return { needs: ['Route forecasts', 'Delivery reliability', 'Dispatch reporting'], statement: 'Field analyst who supported route planning and built reports for dispatch teams, with practical experience reviewing forecasts and helping drivers use scheduling tools during their daily work.',
