@@ -880,3 +880,17 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F88 R3-#9 ${which} succ
   assert.equal(ctl.refs.reviewbar.querySelectorAll('[data-review]').length, 0);
   stream.resolve(); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F89 R3-#10 ${which} Discard cancels autosave and excludes Save until DELETE settles`, async () => {
+  const t = reliabilityApi(which); const deletion = defer(); const timers = new Map(); let seq = 0, accepts = 0;
+  t.env.win.setTimeout = (fn, ms) => { timers.set(++seq, { fn, ms }); return seq; }; t.env.win.clearTimeout = id => timers.delete(id);
+  t.api.rejectEdit = () => deletion.promise; t.api.acceptEdit = async () => { accepts++; return { run: { runId: 'r3', n: 3 } }; };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  const save = ctl.refs.reviewbar.querySelector('[data-review="save"]');
+  assert.ok(ctl.autoSave); const pending = timers.get(ctl.autoSave);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]'));
+  assert.equal(ctl.autoSave, null); assert.equal([...timers.values()].filter(timer => timer.ms === pending.ms).length, 0);
+  tap(save); pending.fn(); await flush(); assert.equal(accepts, 0); assert.equal(ctl.discarding, true);
+  t.api.open = null; deletion.resolve(); await flush(); assert.equal(ctl.state.proposal, null); assert.equal(accepts, 0); ctl.close();
+});

@@ -1486,6 +1486,7 @@
   }
 
   function discard(ctl, id) {
+    cancelAutoSave(ctl);
     var p = ctl.state.proposal;
     id = id || p && p.id || ctl.openProposal && ctl.openProposal.proposalId;
     if (!id || ctl.discarding || p && p.saving) return Promise.resolve(false);
@@ -1993,7 +1994,7 @@
 
   function save(ctl) {
     var p = ctl.state.proposal;
-    if (!p || !p.changes || p.saving || ctl.state.busy) return;
+    if (!p || !p.changes || p.saving || ctl.discarding || ctl.state.busy) return;
     if (ctl.autoSave) { root.clearTimeout(ctl.autoSave); ctl.autoSave = null; }
     var accepted = p.changes.filter(function (c) { return p.decisions[c.opId] === "accepted"; });
     if (!accepted.length) { announce("Accept at least one change first."); return; }
