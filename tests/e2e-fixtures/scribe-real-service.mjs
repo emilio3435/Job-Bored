@@ -105,6 +105,12 @@ export async function startScribeRealService(options = {}) {
     /** Call after the hermetic fence; only this service's origin is allowed through. */
     async pointPage(page) {
       await page.route(`${baseUrl}/**`, (route) => route.continue());
+      // A loaded role can retain its earlier materials origin. Rewrite only
+      // editor routes to the real service while retaining streaming responses.
+      await page.route(/^https?:\/\/[^/]+\/api\/applications\/[^/]+\/(?:edits(?:\/[^?#]*)?|versions(?:\/[^?#]*)?|preview)(?:\?[^#]*)?$/, (route) => {
+        const url = new URL(route.request().url());
+        return route.continue({ url: baseUrl + url.pathname + url.search });
+      });
       await page.evaluate((base) => {
         window.COMMAND_CENTER_CONFIG = { ...window.COMMAND_CENTER_CONFIG, jobPostingScrapeUrl: base, scribeV2Api: "live" };
       }, baseUrl);
