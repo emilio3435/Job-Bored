@@ -276,7 +276,7 @@ test('F1-11 basedOn cannot repeat within bullets or earlier lines', () => {
   const earlier = response(); earlier.earlier.push({ ...earlier.earlier[0] }); assert.equal(check(earlier).disposition, 'REVIEW'); assert.equal(check(earlier).draft.earlier.length, 1);
 });
 test('F1-11 employer shape requires 2–5 bullets and at most three employers', () => {
-  const short = response(); short.roles = [short.roles[3]]; short.roles[0].bullets.pop(); assert.equal(check(short).disposition, 'REVIEW');
+  const short = response(); short.roles = [short.roles[3]]; short.roles[0].bullets.pop(); assert.equal(check(short).disposition, 'FAIL'); // one lone bullet leaves no featured employer (F3-1)
   const long = response(); long.roles[1].bullets.push({ text: ledger.claims[3].text, basedOn: 'B2' }); long.roles[2].bullets.push({ text: ledger.claims[5].text, basedOn: 'C2' });
   assert.equal(check(long).disposition, 'REVIEW'); assert.equal(check(long).outline.featured.find(g => g.employerId === 'north').claimIds.length, 5); // Six source bullets are trimmed to five.
   const v = response(); const l = structuredClone(ledger); let text = resumeText;
@@ -439,4 +439,47 @@ test('F2-8 valid JSON with unusable shape keeps its value and names the shape er
   assert.equal(out.disposition,'FAIL'); assert.deepEqual(out.response,[]);
   assert.ok(out.shapeErrors.some(e=>e.includes('must be object')));
   assert.doesNotMatch(JSON.stringify(out.call), /not valid JSON/);
+});
+test('F3-1 a resume reply with no featured employer is FAIL and held, never READY', async () => {
+  const empty = response(); empty.roles = []; delete empty.letter;
+  const c = check(empty, { feature: 'resume' });
+  assert.equal(c.disposition, 'FAIL');
+  assert.ok(c.shapeErrors.some(e => e.includes('no featured employer')));
+  const { result } = await pipeline('resume', [empty]);
+  assert.equal(result.adopted, false); assert.equal(result.qa.disposition, 'FAIL');
+  const unusable = response(); delete unusable.letter;
+  for (const role of unusable.roles) for (const bullet of role.bullets) bullet.basedOn = 'absent';
+  unusable.earlier = [];
+  const dropped = check(unusable, { feature: 'resume' });
+  assert.equal(dropped.disposition, 'FAIL');
+  assert.equal((await pipeline('resume', [unusable])).result.adopted, false);
+});
+test('F3-2 an empty or absent statement for a resume is REVIEW with a named reason, never READY', () => {
+  for (const statement of ['', undefined]) {
+    const v = response(); delete v.letter; if (statement === undefined) delete v.statement; else v.statement = statement;
+    const c = check(v, { feature: 'resume' });
+    assert.equal(c.disposition, 'REVIEW');
+    assert.ok(c.shapeErrors.some(e => /statement/.test(e)), `named reason for ${statement}`);
+    assert.ok(c.notes.some(n => n.field === 'shape' && /statement/.test(n.detail)));
+  }
+});
+test('F3-3 a clean letter-only reply is READY and is not flagged for resume arrays', () => {
+  const v = { needs: response().needs, letter: response().letter };
+  const c = check(v, { feature: 'cover_letter' });
+  assert.deepEqual(c.shapeErrors, []);
+  assert.equal(c.disposition, 'READY');
+});
+test('F3-4 a 100k "<" reply is checked in under 500ms', () => {
+  const v = response(); v.statement = '<'.repeat(100000);
+  const start = performance.now(); const c = check(v, { feature: 'both' });
+  const ms = performance.now() - start;
+  assert.ok(ms < 500, `took ${ms}ms`); assert.ok(c.draft.statement.length > 0 || c.disposition !== 'FAIL');
+});
+test('F3-5 a bullet dropped after checking prevents READY and names the bullet', () => {
+  const l = structuredClone(ledger); l.claims[0].text = 'Supported **planning** for 21+ accounts using Postgres.';
+  const v = response(); v.roles[0].bullets[0].text = 'Supported 999 accounts.';
+  const c = check(v, { ledger: l, resumeText: resumeText + '\n' + l.claims[0].text });
+  assert.equal(c.disposition, 'REVIEW');
+  assert.ok(c.notes.some(n => n.action === 'drop' && n.field === 'bullet:claim-1' && /claim-1/.test(n.detail || '')));
+  assert.ok(c.shapeErrors.some(e => e.includes('claim-1')));
 });
