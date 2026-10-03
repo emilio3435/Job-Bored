@@ -990,13 +990,15 @@
       else if (err && err.code === "unverified_confirmation_required") {
         /* C4 has no per-op fact list: identify the entire batch being approved. */
         var batch = m.confirmation = { doc: which, base: base, ops: ops };
-        manualMessage(ctl, "confirm", ops.map(function (op) { return "“" + op.text + "”"; }).join(" · ") + " isn’t in your saved facts.", [
+        manualMessage(ctl, "confirm", "Some of this text isn’t in your saved facts: " + ops.map(function (op) { return "“" + op.text + "”"; }).join(" · "), [
           ["confirm", "Save anyway", function () { saveManual(ctl, batch); }],
           ["edit", "Edit", function () { beginManual(ctl, frameNodes(frameDoc(ctl))[ops[0].node]); }],
         ]);
       } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
       else {
-        manualMessage(ctl, "error", "Not saved. Your text is kept. " + errorText(err), [["retry", "Try again", function () { saveManual(ctl); }]]);
+        var detail = errorText(err);
+        if (detail === "That didn’t work. Try again.") detail = "";
+        manualMessage(ctl, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(ctl); }]]);
         if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
       }
       return false;

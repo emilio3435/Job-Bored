@@ -311,3 +311,21 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F86 R3-#7 ${which} St
     await t.flush(); assert.equal(t.calls.length, 1); ctl.close();
   }
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F811 R3-#12 ${which} generic manual failure has one Try again`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw new Error('fictional transport failure'); });
+    edit(els[0], 'Tracked operations.'); await flush();
+    assert.equal(ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+    assert.ok(ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+  test(`SCRP-F811 R3-#12 ${which} batch confirmation identifies possible novelty and quotes all replacements`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Example operations in 2025.'); await flush();
+    assert.ok(ctl.refs.manualState.textContent.startsWith('Some of this text isn’t in your saved facts:'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Tracked operations.”'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Led Example operations in 2025.”'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}
