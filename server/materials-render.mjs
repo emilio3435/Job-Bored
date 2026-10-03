@@ -26,7 +26,7 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { letterWordBand, readFamilyFile, resolveFamily, templateIdsFor } from "./materials-templates.mjs";
-import { targetCompanyOf } from "./materials-monogram.mjs";
+import { monogramLogo, targetCompanyOf } from "./materials-monogram.mjs";
 import { deriveNodes } from "./materials-nodes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1278,7 +1278,19 @@ export function renderDocument(model, doc, options = {}) {
   const view = buildView(model, family, doc, options);
   const template = readFamilyFile(family, doc === "resume" ? family.documents.resume : family.documents.coverLetter);
   const body = renderTemplate(template, view);
-  const annotatedBody = view.nodeIdsEnabled ? body : body.replace(/ data-node="[^"]*"/g, "");
+  let annotatedBody = view.nodeIdsEnabled ? body : body.replace(/ data-node="[^"]*"/g, "");
+  if (model.provenance?.engine === "lean" && family.logos.monogramFallback) {
+    const fallbacks = new Map();
+    for (const section of model.documents.resume?.sections || []) for (const entry of section.entries || []) {
+      if (entry.logo?.src && entry.logo.source !== "monogram") fallbacks.set(escapeHtml(entry.logo.src), monogramLogo(entry.org || entry.logo.alt).src);
+    }
+    if (options.target?.logo?.src && options.target.logo.source !== "monogram") fallbacks.set(escapeHtml(options.target.logo.src), monogramLogo(options.target.company || "Company").src);
+    annotatedBody = annotatedBody.replace(/<img\b[^>]*>/g, tag => {
+      const src = /\bsrc="([^"]+)"/.exec(tag)?.[1];
+      const fallback = src ? fallbacks.get(src) : null;
+      return fallback ? tag.replace(/\s*\/?\s*>$/, ` onerror="${escapeHtml(`this.onerror=null;this.src=${JSON.stringify(fallback)}`)}" />`) : tag;
+    });
+  }
   const css = [inlineFontCss(family.fonts), BASE_CSS, readFamilyFile(family, family.stylesheet)].join("\n");
   return [
     "<!doctype html>",

@@ -1,0 +1,9 @@
+Alex Morgan
+Field Analyst
+user@example.com
+EXPERIENCE
+Maple Transit — Field Analyst — 2021 – Present
+Supported planning for 21+ accounts using Postgres.
+Reduced missed windows from 9.1% to 4.3% for 620 vans.
+SKILLS
+Postgres

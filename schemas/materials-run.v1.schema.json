@@ -720,6 +720,15 @@
           "type": "string"
         }
       }
+    },
+    "engine": {
+      "enum": [
+        "legacy",
+        "lean"
+      ]
+    },
+    "leanPromptVersion": {
+      "type": "string"
     }
   }
 }

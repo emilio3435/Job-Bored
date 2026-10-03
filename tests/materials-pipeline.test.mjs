@@ -446,12 +446,12 @@ describe("MREV B1 pipeline", () => {
     assert.equal(await readFile(join(dir, "qa.letter.json"), "utf8"), letterQa);
   });
 
-  it("B8: removes stale PDFs that the adopted feature did not render", async () => {
+  it("B8: removes stale requested PDFs and preserves unrequested PDFs", async () => {
     await writeFile(join(dir, "resume.pdf"), "stale resume PDF");
     await writeFile(join(dir, "cover-letter.pdf"), "stale cover letter PDF");
     const letter = testServices();
     await runPipeline(base(dir, letter.services, "cover_letter", "run-mrev-pdf-letter"));
-    await assert.rejects(readFile(join(dir, "resume.pdf"), "utf8"));
+    assert.equal(await readFile(join(dir, "resume.pdf"), "utf8"), "stale resume PDF");
     await assert.rejects(readFile(join(dir, "cover-letter.pdf"), "utf8"));
 
     await writeFile(join(dir, "resume.pdf"), "stale resume PDF");
@@ -459,7 +459,7 @@ describe("MREV B1 pipeline", () => {
     const resume = testServices();
     await runPipeline(base(dir, resume.services, "resume", "run-mrev-pdf-resume"));
     await assert.rejects(readFile(join(dir, "resume.pdf"), "utf8"));
-    await assert.rejects(readFile(join(dir, "cover-letter.pdf"), "utf8"));
+    assert.equal(await readFile(join(dir, "cover-letter.pdf"), "utf8"), "stale cover letter PDF");
   });
 
   it("B10: records delint findings as advisory without another writer call", async () => {
