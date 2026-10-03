@@ -1,4 +1,4 @@
-/* global document, innerWidth, InputEvent, DataTransfer, ClipboardEvent */
+/* global document, innerWidth, DataTransfer, ClipboardEvent */
 /**
  * scribe-edit-journey.spec.mjs — EDITOR lane Q1: the Scribe v2 desk, end to
  * end, against the live B2 routes (no `?scribe-api=stub`).
@@ -159,7 +159,7 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   const fence = await bootSignedIn(page);
   await expect(page.locator("jb-scribe")).toHaveCount(0);
   const edit = await openResumeEdit(page);
-  await edit.click();
+  await edit.click({ force: true });
 
   /* The desk mounts on the real render of the current run. */
   const desk = page.getByRole("dialog", { name: "Scribe" });
@@ -543,7 +543,7 @@ for (const which of ['resume', 'cover_letter']) {
         if (width === 375) await h.desk.locator('[data-seg="chat"]').click();
         await h.send(); await expect(h.desk.locator('.scribe__status')).toContainText('Your selection changed. Select the text again.');
         expect(h.calls.filter(c => c.method === 'POST' && /\/edits$/.test(c.path))).toHaveLength(0);
-        if (width === 375) await h.desk.locator('[data-seg="doc"]').click();
+        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
         await selectBlocks(page, [id], true); await toolbar.locator('[data-selection="shorten"]').click();
         const request = page.waitForRequest(req => req.method() === 'POST' && /\/edits$/.test(new URL(req.url()).pathname));
         await h.composer.press('Enter'); expect((await request).postDataJSON().scope).toEqual([id]);
@@ -569,7 +569,7 @@ for (const which of ['resume', 'cover_letter']) {
         const before = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/r0/model`)).json();
         const requests = []; page.on('request', req => { if (req.method() === 'POST' && /\/edits\/manual$/.test(new URL(req.url()).pathname)) requests.push(req.postDataJSON()); });
         await typeBlock(page, id, text);
-        if (width === 375) await h.desk.locator('[data-seg="doc"]').click();
+        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
         expect(requests).toHaveLength(0);
         await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
         await expect(h.desk.locator('.scribe__status')).toContainText('Text saved as v1. PDF unavailable — it’s rebuilt on your next save.');
@@ -592,23 +592,16 @@ for (const which of ['resume', 'cover_letter']) {
       try {
         const frame = page.frameLocator('jb-scribe .scribe__frame');
         const metric = which === 'resume' ? 'stmt' : 'p:p2';
-        const locked = which === 'resume' ? 'seat:acme' : metric;
-        await frame.locator(`[data-node="${locked}"]`).dblclick();
-        if (which === 'resume') {
-          await expect(frame.locator(`[data-node="${locked}"]`)).not.toHaveAttribute('contenteditable', 'plaintext-only'); await expect(h.desk.locator('.scribe__manual-state')).toContainText('Employer, title and dates are locked.');
-          await frame.locator('[data-node="cred:education"]').dblclick();
-          await expect(frame.locator('[data-node="cred:education"]')).not.toHaveAttribute('contenteditable', 'plaintext-only'); await expect(h.desk.locator('.scribe__manual-state')).toContainText('Degree and school are locked.');
+        for (const locked of which === 'resume' ? ['seat:acme', 'cred:education', metric] : [metric]) {
+          if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
+          const block = frame.locator(`[data-node="${locked}"]`), original = await block.textContent();
+          await block.dblclick();
+          await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
+          await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
+          await expect(h.composer).toBeFocused(); await expect(block).toHaveText(original);
+          expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
         }
-        const el = frame.locator(`[data-node="${metric}"]`); const original = await el.textContent();
-        await el.dblclick();
-        expect(await el.evaluate(node => {
-          const inner = node.ownerDocument, range = inner.createRange(); range.selectNodeContents(node); inner.getSelection().removeAllRanges(); inner.getSelection().addRange(range);
-          const event = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteByCut' }); node.dispatchEvent(event); return event.defaultPrevented;
-        })).toBe(true);
-        await el.evaluate(node => { node.textContent = node.textContent.replace('38%', '40%'); node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })); });
-        await expect(el).toHaveText(original); await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
-        await leaveBlock(page);
-        if (width === 375) await h.desk.locator('[data-seg="doc"]').click();
+        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
         const id = which === 'resume' ? 'line:beta' : 'p:p3'; const target = frame.locator(`[data-node="${id}"]`);
         await target.dblclick();
         await target.evaluate(node => {
@@ -623,7 +616,7 @@ for (const which of ['resume', 'cover_letter']) {
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
         const newer = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/r0/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json(); expect(newer.run.runId).toBeTruthy();
-        if (width === 375) await h.desk.locator('[data-seg="doc"]').click();
+        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
         await h.desk.locator('[data-manual="confirm"]').click();
         await expect(h.desk.locator('.scribe__manual-state')).toContainText('A newer version exists. Your text is kept.'); await expect(target).toHaveText('Tracked Contoso operations.');
         await h.desk.locator('[data-manual="review"]').click(); await expect(h.desk.locator('.scribe__compare')).toBeVisible();
@@ -782,25 +775,21 @@ for (const which of ['resume', 'cover_letter']) for (const width of [1440, 375])
       if (which === 'resume') {
         await arrowToBlock(page, 'seat:acme', blocks.length);
         await expect(frame.locator('[data-node="seat:acme"]')).toHaveAttribute('aria-label', /, locked$/);
-        await page.keyboard.press('Enter'); await expect(h.desk.locator('.scribe__status')).toContainText('Employer, title and dates are locked.');
+        await page.keyboard.press('Enter'); await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
+        if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
+        await tabToBlock(page);
         await expect(frame.locator('[data-node="seat:acme"]')).not.toHaveAttribute('contenteditable', 'plaintext-only');
       }
-      // Typing immediately against either metric edge is refused before any request.
+      // D29 announces metric blocks as locked and directs keyboard editing to Scribe.
       const metric = which === 'resume' ? 'stmt' : 'p:p2';
       await arrowToBlock(page, metric, blocks.length);
-      await expect(frame.locator(`[data-node="${metric}"]`)).toHaveAttribute('aria-label', /, editable$/);
-      await keyboardEditBlock(page, h.desk);
-      const original = deriveNodes(h.pkg.model).find(n => n.id === metric);
-      const [a, b] = original.locked.spans[0];
-      for (const [offset, char] of [[a, '1'], [b, '5']]) {
-        await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('ArrowLeft');
-        for (let i = 0; i < offset; i++) await page.keyboard.press('ArrowRight');
-        await page.keyboard.type(char);
-        await expect(frame.locator(`[data-node="${metric}"]`)).toHaveText(original.text);
-        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
-      }
-      await page.keyboard.press('Escape'); await expect(frame.locator(`[data-node="${metric}"]`)).toBeFocused();
-      await page.keyboard.press('Escape'); await expect(h.desk.locator('.scribe__docscroll')).toBeFocused();
+      await expect(frame.locator(`[data-node="${metric}"]`)).toHaveAttribute('aria-label', /, locked$/);
+      await page.keyboard.press('F2');
+      await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
+      await expect(h.composer).toBeFocused();
+      await expect(frame.locator(`[data-node="${metric}"]`)).not.toHaveAttribute('contenteditable', 'plaintext-only');
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
+      if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
       await tabToBlock(page);
       const id = which === 'resume' ? 'line:beta' : 'p:p3';
       await arrowToBlock(page, id, blocks.length);
@@ -896,7 +885,7 @@ for (const which of ['resume', 'cover_letter']) {
 }
 
 for (const which of ['resume', 'cover_letter']) for (const [style, base] of [['asterisk', 'Cut defects 38%* across teams.'], ['backtick', 'Hit `38%` across teams.']]) {
-  test(`SCRP-F107 R5-#7 ${which} ${style} markup neighbours normalize before a real manual save`, async ({ page }) => {
+  test(`SCRP-F107 D29 ${which} ${style} metric markup cannot enter manual editing`, async ({ page }) => {
       const model = structuredClone(MODEL);
       const id = which === 'resume' ? 'b:acme:c14' : 'p:p2';
       if (which === 'resume') {
@@ -906,16 +895,13 @@ for (const which of ['resume', 'cover_letter']) for (const [style, base] of [['a
       const h = await realDesk(page, which, { model });
       try {
         const block = page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${id}"]`);
-        await block.dblclick(); await expect(block).toHaveAttribute('contenteditable', 'plaintext-only');
-        await block.fill(base.replace('38%', '38%*5')); await expect(block).toHaveText(base);
-        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
-        await block.fill(base.replace('across teams', 'across all teams'));
-        await leaveBlock(page);
-        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
-        const saved = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions` + '?doc=' + which)).json();
-        expect(saved.versions).toHaveLength(2);
-        const state = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/${saved.currentRunId}/model`)).json();
-        expect(state.nodes.find(n => n.id === id).text).toBe(base.replace(/[*`]/g, '').replace('across teams', 'across all teams'));
+        await block.dblclick();
+        await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
+        await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
+        await expect(h.composer).toBeFocused(); await expect(block).toHaveText(base);
+        const saved = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json();
+        expect(saved.versions).toHaveLength(1);
+        expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
         expect(h.fence.unexpectedExternal).toEqual([]);
       } finally { await h.service.close(); }
   });
@@ -957,6 +943,37 @@ for (const which of ['resume', 'cover_letter']) {
       expect(await page.evaluate(id => globalThis.JB_SCRIBE_V2.current().manual.drafts[id].text, id)).toBe(text);
       expect(h.fence.unexpectedExternal).toEqual([]);
       await expect(h.desk.locator('.scribe__frame')).toHaveAttribute('sandbox', 'allow-same-origin');
+    } finally { await h.service.close(); }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
+  test(`SCRP-F121 D29 ${which} real-service metric block denies ${entry}`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      const id = which === 'resume' ? 'stmt' : 'p:p2';
+      const frame = page.frameLocator('jb-scribe .scribe__frame'), block = frame.locator(`[data-node="${id}"]`);
+      const original = await block.textContent();
+      if (entry === 'double-click') await block.dblclick();
+      else if (entry === 'Edit text') {
+        await selectBlocks(page, [id]);
+        const edit = h.desk.locator('[data-selection="edit"]');
+        await expect(edit).toHaveAttribute('aria-disabled', 'true'); await edit.click({ force: true });
+      } else {
+        await tabToBlock(page); await arrowToBlock(page, id, await frame.locator('[data-node]').count());
+        await page.keyboard.press('F2');
+      }
+      await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
+      await expect(block).toHaveAttribute('aria-label', /, locked$/);
+      await expect(h.desk.locator('.scribe__status')).toHaveText('This line has locked figures. Ask Scribe to change it.');
+      await expect(h.composer).toBeFocused();
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().scope.ids)).toEqual([id]);
+      // Real typing now goes to the composer, never to the locked document.
+      await page.keyboard.type('Ask Scribe to shorten this.');
+      await expect(block).toHaveText(original);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(0);
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
     } finally { await h.service.close(); }
   });
 }
