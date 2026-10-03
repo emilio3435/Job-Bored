@@ -1413,3 +1413,21 @@ it('SCRP-B30 R2-#4 failed terminal persistence finishes both concurrent subscrib
     assert.equal(stored.events.filter(row => row.event === 'done').length, 1);
   } finally { clearTimeout(timer); release(); for (const stream of streams) { stream.end(); stream.emit('close'); } }
 });
+
+it('SCRP-B51 R4-#1 confirmed manual adjacency violations stay 400 locked and persist nothing', async (t) => {
+  if (!await needsSocket(t)) return;
+  for (const doc of ['resume', 'coverLetter']) {
+    const input = structuredClone(model); const id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+    if (doc === 'resume') input.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Processed ' }, { n: '38' }, { t: ' shipments.' }];
+    else input.documents.coverLetter.paragraphs[1].text = 'Processed 38 shipments.';
+    const pkg = await seed(input);
+    for (const figure of ['38%', '%38', '$38', '38$', '38,000', ',00038', '🄁38', '38🄁']) {
+      const res = await fetch(base + pkg.path + '/edits/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'edge', op: 'replace', node: id, text: 'Processed ' + figure + ' shipments.' }], confirmUnverified: ['edge'] }) });
+      assert.equal(res.status, 400, doc + figure); assert.equal((await res.json()).code, 'locked');
+    }
+    const listing = await (await fetch(base + pkg.path + '/versions?doc=' + doc)).json();
+    assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
+  }
+});

@@ -53,7 +53,7 @@ describe("materials node ids and edits", () => {
 
   it("enforces statement and letter paragraph limits by actual text and count", () => {
     assert.throws(() => applyOps(model(), [{ opId: "short", op: "replace", node: "stmt", text: "Only 38% here." }], { scope: "all" }), { reason: "shape" });
-    assert.throws(() => applyOps(model(), [{ opId: "long", op: "replace", node: "stmt", text: `${Array(55).fill("word").join(" ")} 38%` }]), { reason: "shape" });
+    assert.throws(() => applyOps(model(), [{ opId: "long", op: "replace", node: "stmt", text: `${Array(55).fill("word").join(" ")} 38% through review.` }]), { reason: "shape" });
     assert.throws(() => applyOps(model(), [{ opId: "less", op: "remove", node: "p:p1" }], { scope: "all" }), { reason: "shape" });
     const four = applyOps(model(), [{ opId: "p4", op: "insert", after: "p:p2", claimId: "c22", beat: "ai-ops-proof", text: "I also built a daily exception review for the team." }]);
     assert.equal(four.documents.coverLetter.paragraphs.length, 4);
@@ -88,8 +88,8 @@ it('SCRP-B40 R3-#2 locked figures reject embedded tokens at both edges on an ato
       assert.throws(() => applyOps(before, [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38%', figure), flags: ['unverified'] }]), { reason: 'locked' }, figure);
       assert.deepEqual(before, original);
     }
-    const sentence = node.text.replace('38% through', '38%. Through');
-    assert.doesNotThrow(() => applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }]));
+    const sentence = node.text.replace('38%', '38%.');
+    assert.throws(() => applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }]), { reason: 'locked' });
   }
 });
 
@@ -113,4 +113,24 @@ it('SCRP-B41 R3-#2 confirmed manual figure-edge changes return 400 locked withou
     const saved = await (await fetch(fixture.baseUrl + seed.path + '/versions/r0/model')).json();
     assert.deepEqual(saved.model, seed.model);
   } finally { await fixture.close(); }
+});
+
+it('SCRP-B50 R4-#1 D26 preserves exact figure neighbours on both documents', () => {
+  for (const doc of ['resume', 'coverLetter']) for (const [prefix, suffix] of [['Processed ', ' shipments.'], [' ', ' shipments.'], ['', ' shipments.'], ['Processed ', '']]) {
+    const before = model();
+    const id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+    if (doc === 'resume') before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: prefix }, { n: '38' }, { t: suffix }].filter(r => Object.values(r)[0]);
+    else before.documents.coverLetter.paragraphs[1].text = prefix + '38' + suffix;
+    const original = structuredClone(before); const node = deriveNodes(before).find(n => n.id === id);
+    for (const figure of ['38%', '%38', '$38', '38$', '38,000', ',00038', '🄁38', '38🄁']) {
+      assert.throws(() => applyOps(before, [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38', figure), flags: ['unverified'] }]), { reason: 'locked' }, doc + figure);
+      assert.deepEqual(before, original);
+    }
+    if (prefix.trim() && suffix) {
+      const staged = node.text.replace('38', '38 ,000');
+      const changed = applyOps(before, [{ opId: 'stage', op: 'replace', node: id, text: staged }]);
+      assert.throws(() => applyOps(changed, [{ opId: 'join', op: 'replace', node: id, text: staged.replace('38 ,000', '38,000') }]), { reason: 'locked' });
+    }
+    if (prefix) assert.throws(() => applyOps(before, [{ opId: 'leading', op: 'replace', node: id, text: node.text.slice(prefix.length) }]), { reason: 'locked' });
+  }
 });

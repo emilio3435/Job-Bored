@@ -663,7 +663,7 @@ for (const which of ['resume', 'cover_letter']) {
 }
 
 for (const which of ['resume', 'cover_letter']) {
-  test(`SCRP-F56 GAP-01 ${which} pending sibling recovery retains the manual draft and gates Continue`, async ({ page }) => {
+  test(`SCRP-F56 SCRP-F92 R4-#3 ${which} pending sibling recovery retains the manual draft and gates Continue`, async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 1000 });
     const h = await realDesk(page, which); const errors = []; page.on('pageerror', error => errors.push(error.message));
     try {
@@ -678,13 +678,17 @@ for (const which of ['resume', 'cover_letter']) {
       expect(h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open'))).toHaveLength(openBeforeFailure + 1);
       await h.desk.locator('[data-action="continue-request"]').click(); await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
       await h.desk.locator('[data-unsaved="stay"]').click(); expect(errors).toEqual([]);
-      await expect(h.desk.locator('.scribe__manual-state')).toContainText('Your text is kept. Saves in 2 seconds.');
+      await expect(h.desk.locator('.scribe__manual-state')).toContainText('Review or discard the open changes first.');
+      await page.waitForTimeout(2200);
+      await h.desk.locator('[data-seg="doc"]').click();
+      await expect(h.desk.locator('[data-manual="retry"]')).toBeVisible();
+      await h.desk.locator('[data-seg="chat"]').click();
       expect(await page.evaluate(id => globalThis.JB_SCRIBE_V2.current().manual.drafts[id].text, id)).toBe(text);
       expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.doc)).toBe(which);
       await h.desk.locator('[data-action="discard-request"]').click();
       await expect.poll(() => page.evaluate(() => { const ctl = globalThis.JB_SCRIBE_V2.current(); return !ctl.discarding && !ctl.openProposal; })).toBe(true);
       await h.desk.locator('[data-seg="doc"]').click();
-      // R3-#7 re-arms the save on Stay; clearing the sibling request lets that timer save once.
+      // R4-#3 clearing the gate re-arms the save even after Stay has waited longer than the debounce.
       await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
       expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(2);
       expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(2);

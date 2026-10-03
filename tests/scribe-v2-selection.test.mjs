@@ -142,3 +142,22 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F813 KBD-01 ${which} 
   inner.dispatchEvent({ type: 'keydown', key: 'Escape', target: next });
   assert.equal(win.document.activeElement, ctl.refs.docscroll); assert.equal(ctl.closed, false); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F91 R4-#2 ${which} arrows navigate blocks while a proposal owns J and K`, async () => {
+  const { ctl, inner } = await desk(which);
+  if (which === 'cover_letter') {
+    ctl.state.nodes.push({ id: 'p:p2', kind: 'paragraph', text: 'I led operations.', locked: { whole: false, spans: [] } });
+    const el = inner.createElement('p'); el.setAttribute('data-node', 'p:p2'); inner.body.appendChild(el);
+    ctl.refs.frame.onload(); await settle();
+  }
+  const blocks = [...inner.querySelectorAll('[data-node]')].filter(el => el.hasAttribute('tabindex'));
+  ctl.state.proposal = { id: 'open-request', status: 'ready', ops: [], changes: [], focus: -1 };
+  ctl.refs.docscroll.dispatchEvent({ type: 'focus', target: ctl.refs.docscroll });
+  const first = inner.activeElement;
+  const down = { type: 'keydown', key: 'ArrowDown', target: first }; inner.dispatchEvent(down);
+  assert.equal(down.defaultPrevented, true); assert.equal(inner.activeElement, blocks[1]);
+  assert.equal(blocks.filter(el => el.getAttribute('tabindex') === '0').length, 1);
+  for (const key of ['j', 'k']) { inner.dispatchEvent({ type: 'keydown', key, target: blocks[1] }); assert.equal(inner.activeElement, blocks[1]); }
+  const up = { type: 'keydown', key: 'ArrowUp', target: blocks[1] }; inner.dispatchEvent(up);
+  assert.equal(up.defaultPrevented, true); assert.equal(inner.activeElement, first); ctl.close();
+});

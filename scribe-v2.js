@@ -812,24 +812,31 @@
     return { start: start, end: end, delta: after.length - before.length };
   }
 
-  function touches(spans, start, end, inserted) {
-    var chars = Array.from(inserted || ""), edge = /[\p{L}\p{N}.,%$]/u;
-    return spans.some(function (span) {
-      return (start === end ? start > span[0] && start < span[1] : start < span[1] && end > span[0]) ||
-        end === span[0] && edge.test(chars[chars.length - 1] || "") || start === span[1] && edge.test(chars[0] || "");
-    });
+  function manualSpans(a, text) {
+    var diff = changedRange(a.last, text), shifted = [];
+    for (var i = 0; i < a.spans.length; i++) {
+      var span = a.spans[i];
+      if (diff.start < span[1] && diff.end > span[0]) return null;
+      var move = span[0] >= diff.end ? diff.delta : 0;
+      var start = span[0] + move, end = span[1] + move;
+      if (text.slice(start, end) !== a.last.slice(span[0], span[1]) ||
+          (Array.from(text.slice(0, start)).pop() || "") !== (Array.from(a.last.slice(0, span[0])).pop() || "") ||
+          (Array.from(text.slice(end))[0] || "") !== (Array.from(a.last.slice(span[1]))[0] || "")) return null;
+      shifted.push([start, end]);
+    }
+    return shifted;
   }
 
   function captureManual(ctl) {
     var m = ctl.manual, a = m.active;
     if (!a) return;
     var text = String(a.el.textContent || "");
-    var diff = changedRange(a.last, text);
-    if (touches(a.spans, diff.start, diff.end, text.slice(diff.start, diff.end + diff.delta))) {
+    var spans = manualSpans(a, text);
+    if (!spans) {
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
-    a.spans = a.spans.map(function (span) { return span[0] >= diff.end ? [span[0] + diff.delta, span[1] + diff.delta] : span; });
+    a.spans = spans;
     a.last = text;
     if (text === a.node.text) delete m.drafts[a.node.id];
     else {
@@ -895,9 +902,11 @@
     var offsets = editOffsets(frameDoc(ctl), a.el);
     if (!offsets) { if (a.spans.length) e.preventDefault(); return; }
     var start = offsets.start, end = offsets.end;
-    if (start === end && e.inputType === "deleteContentBackward") start--;
-    if (start === end && e.inputType === "deleteContentForward") end++;
-    if (touches(a.spans, start, end, e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : ""))) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
+    if (start === end && e.inputType === "deleteContentBackward") start -= (Array.from(a.last.slice(0, start)).pop() || "").length;
+    if (start === end && e.inputType === "deleteContentForward") end += (Array.from(a.last.slice(end))[0] || "").length;
+    var inserted = e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : "");
+    var text = a.last.slice(0, start) + inserted + a.last.slice(end);
+    if (!manualSpans(a, text)) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
   }
 
   function manualPaste(ctl, e) {
@@ -906,7 +915,7 @@
     e.preventDefault();
     var text = e.clipboardData && e.clipboardData.getData("text/plain") || "";
     var offsets = editOffsets(frameDoc(ctl), a.el);
-    if (offsets && touches(a.spans, offsets.start, offsets.end, text)) { manualMessage(ctl, "error", lockText(a.node)); return; }
+    if (offsets && !manualSpans(a, a.last.slice(0, offsets.start) + text + a.last.slice(offsets.end))) { manualMessage(ctl, "error", lockText(a.node)); return; }
     if (!offsets && a.spans.length) return;
     if (offsets) {
       var range = offsets.range, inner = frameDoc(ctl), selection = inner.getSelection();
@@ -950,6 +959,17 @@
     }).catch(function () { manualMessage(ctl, "error", "Not saved. Your text is kept."); });
   }
 
+  function manualBlocked(ctl) {
+    return ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy;
+  }
+
+  function manualGateMessage(ctl) {
+    ctl.manual.gated = true;
+    manualMessage(ctl, "error", "Review or discard the open changes first.", [["retry", "Try again", function () {
+      readOpen(ctl).then(function () { saveManual(ctl); });
+    }]]);
+  }
+
   function saveManual(ctl, confirmed) {
     var m = ctl.manual;
     if (confirmed && m.confirmation !== confirmed) return Promise.resolve(false);
@@ -957,10 +977,11 @@
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (!dirtyManual(ctl)) return Promise.resolve(true);
     if (m.saving || ctl.closed) return Promise.resolve(false);
-    if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
+    if (manualBlocked(ctl)) {
       m.confirmation = null;
-      manualMessage(ctl, "error", "Review or discard the open changes first."); return Promise.resolve(false);
+      manualGateMessage(ctl); return Promise.resolve(false);
     }
+    m.gated = false;
     var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
     var base = confirmed ? confirmed.base : m.base;
@@ -985,21 +1006,29 @@
       return loadDoc(owner, true).then(function () { return true; });
     }).catch(function (err) {
       m.saving = false;
-      if (ctl.closed || generation !== ctl.generation) return false;
-      if (err && err.code === "stale_base") manualConflict(ctl);
+      var owner = ctl;
+      if (ctl.closed || generation !== ctl.generation) {
+        if (!active || active.closed || active.manual !== m || active.state.doc !== which) return false;
+        owner = active;
+        owner.refs.unsaved.setAttribute("hidden", "");
+      }
+      if (err && err.code === "stale_base") manualConflict(owner);
       else if (err && err.code === "unverified_confirmation_required") {
         /* C4 has no per-op fact list: identify the entire batch being approved. */
         var batch = m.confirmation = { doc: which, base: base, ops: ops };
-        manualMessage(ctl, "confirm", "Some of this text isn’t in your saved facts: " + ops.map(function (op) { return "“" + op.text + "”"; }).join(" · "), [
-          ["confirm", "Save anyway", function () { saveManual(ctl, batch); }],
-          ["edit", "Edit", function () { beginManual(ctl, frameNodes(frameDoc(ctl))[ops[0].node]); }],
+        manualMessage(owner, "confirm", "Some of this text isn’t in your saved facts: " + ops.map(function (op) { return "“" + op.text + "”"; }).join(" · "), [
+          ["confirm", "Save anyway", function () { saveManual(owner, batch); }],
+          ["edit", "Edit", function () { beginManual(owner, frameNodes(frameDoc(owner))[ops[0].node]); }],
         ]);
-      } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
+      } else if (err && err.code === "locked") manualMessage(owner, "error", lockText(nodeMap(owner)[ops[0].node]));
       else {
         var detail = errorText(err);
         if (detail === "That didn’t work. Try again.") detail = "";
-        manualMessage(ctl, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(ctl); }]]);
-        if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
+        manualMessage(owner, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(owner); }]]);
+        if (err && err.code === "materials_pending") {
+          manualGateMessage(owner);
+          return readOpen(owner, true).then(function () { return false; });
+        }
       }
       return false;
     });
@@ -1011,16 +1040,18 @@
     if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
-    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null;
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null; m.gated = false;
     clearManualMessage(ctl);
   }
 
   function resumeManualSave(ctl) {
     var m = ctl.manual;
     if (!dirtyManual(ctl) || m.saving) return;
-    if (m.timer) root.clearTimeout(m.timer);
+    if (m.timer) root.clearTimeout(m.timer); m.timer = null;
+    if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
+    m.gated = false;
     m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
-    manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.");
+    manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }
 
   function guardManualNavigation(ctl, action, restored) {
@@ -1082,7 +1113,7 @@
     if (ctl.manual.active) {
       if (key !== "Tab") return false;
       finishManual(ctl);
-    } else if (!ctl.state.proposal && (key === "ArrowDown" || key === "ArrowUp" || key === "j" || key === "k")) {
+    } else if (key === "ArrowDown" || key === "ArrowUp" || !ctl.state.proposal && (key === "j" || key === "k")) {
       e.preventDefault(); hideSelectionActions(ctl);
       focusBlock(ctl, blocks[(at + (key === "ArrowDown" || key === "j" ? 1 : -1) + blocks.length) % blocks.length]);
       return true;
@@ -1273,6 +1304,7 @@
       if (pending) status(ctl, "error", copy("materials_pending"));
       renderRecovery(ctl);
       if (onEmpty) onEmpty();
+      if (ctl.manual.gated && !manualBlocked(ctl)) resumeManualSave(ctl);
       return null;
     }).catch(function (err) {
       if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
