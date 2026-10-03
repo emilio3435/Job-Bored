@@ -708,7 +708,7 @@ export function createMaterialsVersionService(deps = {}) {
         try {
           const proposalScope = proposal?.scope || "all";
           if (proposalScope !== "all" && selectedProposal.some((op) => !proposalScope.includes(op.op === "insert" ? op.after : op.node))) throw new MaterialsEditError("out_of_scope", "Proposal edit targets a node outside its scope");
-          candidate = applyOps(base, checked);
+          candidate = applyOps(base, checked, { plainTextOpIds: manualOps.map((op) => op.opId) });
         }
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };

@@ -33,13 +33,15 @@ export class MaterialsEditError extends Error {
 
 /** @param {string} text */
 const wordCount = (text) => String(text).trim().split(/\s+/).filter(Boolean).length;
-/** @param {string} text */
-const plain = (text) => String(text).normalize("NFC")
-  .replace(/<[^>]*>/g, "")
+/** @param {string} text @param {boolean} [literalAngles] */
+const plain = (text, literalAngles = false) => {
+  const normalized = String(text).normalize("NFC");
+  return (literalAngles ? normalized : normalized.replace(/<\/?[A-Za-z][^<>]*>/g, ""))
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
   .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
   .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
   .trim();
+};
 
 /** @param {Array<{t?:string,n?:string,hl?:string}>} runs */
 function metricSpans(runs) {
@@ -243,9 +245,9 @@ function checkShape(model) {
  * locked | out_of_scope | shape | invalid_model. The input is never changed.
  * @param {RenderModel} model
  * @param {Array<any>} ops
- * @param {{scope?:'all'|string[]}} [options]
+ * @param {{scope?:'all'|string[],plainTextOpIds?:string[]}} [options]
  */
-export function applyOps(model, ops, { scope = "all" } = {}) {
+export function applyOps(model, ops, { scope = "all", plainTextOpIds = [] } = {}) {
   if (!Array.isArray(ops) || !Array.isArray(scope) && scope !== "all") throw new MaterialsEditError("invalid_model", "invalid edit batch or scope");
   const base = validateRenderModel(model);
   if (!base.ok) throw new MaterialsEditError("invalid_model", base.errors.join("; "));
@@ -261,9 +263,10 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
     const node = addressBook(out).find((item) => item.id === id);
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
     const { ref } = node;
+    const literalAngles = plainTextOpIds.includes(op.opId);
     if (op.op === "insert") {
-      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
-      const text = plain(op.text);
+      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
+      const text = plain(op.text, literalAngles);
       if (ref.kind === "bullet") {
         if (ref.owner.some((/** @type {{claimId:string}} */ b) => b.claimId === op.claimId)) throw new MaterialsEditError("invalid_model", `duplicate claimId: ${op.claimId}`);
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { claimId: op.claimId, runs: toRuns(text, tokens) });
@@ -274,8 +277,8 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { id: paragraphId, beat, claimId: op.claimId, text, words: wordCount(text) });
       } else throw new MaterialsEditError("invalid_model", `cannot insert after ${id}`);
     } else if (op.op === "replace") {
-      if (typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "replace needs text");
-      const text = plain(op.text);
+      if (typeof op.text !== "string" || !plain(op.text, literalAngles)) throw new MaterialsEditError("invalid_model", "replace needs text");
+      const text = plain(op.text, literalAngles);
       // Normalize each raw side once inside the lock check, just as the client does.
       assertUnlocked(node, op.text);
       // Cleanup must not strip an enumerator/sign or join HTML-separated digits.

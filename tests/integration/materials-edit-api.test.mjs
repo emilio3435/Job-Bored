@@ -1475,3 +1475,24 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} committed
   const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
   assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], before.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
 });
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B85 R7-#6 ${doc} plaintext manual save preserves literal angle text and escapes rendering`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+  const text = 'Kept latency <50ms and uptime >99.9% all year. Keep <plan> and <b>literal</b> visible.';
+  const saved = await request(`${pkg.path}/edits/manual`, 'POST', {
+    doc, baseRunId: 'r0', manualOps: [{ opId: 'angles', op: 'replace', node, text }], confirmUnverified: ['angles'],
+  });
+  assert.equal(saved.status, 200);
+  const stored = await request(`${pkg.path}/versions/${saved.data.run.runId}/model`);
+  assert.equal(stored.data.nodes.find(n => n.id === node).text, text);
+  const preview = await request(`${pkg.path}/preview`, 'POST', { doc, baseRunId: saved.data.run.runId, ops: [] });
+  assert.equal(preview.status, 200);
+  assert.ok(preview.data.html.includes('&lt;50ms'));
+  assert.ok(preview.data.html.includes('&gt;99.9%'));
+  assert.ok(preview.data.html.includes('&lt;plan&gt;'));
+  assert.ok(preview.data.html.includes('&lt;b&gt;literal&lt;/b&gt;'));
+  assert.equal(preview.data.html.includes('<b>literal</b>'), false);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+});
