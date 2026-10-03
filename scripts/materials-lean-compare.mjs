@@ -53,12 +53,17 @@ async function runLive(job, engine, dest) {
   const current = await maybeJson(join(dir, "run.json"));
   if (current?.cacheKey) { delete current.cacheKey; await writeFile(join(dir, "run.json"), JSON.stringify(current, null, 2) + "\n"); }
   const started = Date.now();
-  const response = await fetch(`${baseUrl}/api/applications/${job.slug}/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: job.slug, company: job.company, title: job.title, feature: "both", engine, jobDescription: posting, resumeFrom: "snapshot" }) });
+  // A normal fresh draft carries the resume in the body, as the dashboard does;
+  // resumeFrom means "repair from a previous run" and fails with no draft.
+  const { usedAt: _usedAt, ...resume } = await json(join(dir, "resume-source.json"));
+  const response = await fetch(`${baseUrl}/api/applications/${job.slug}/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: job.slug, company: job.company, title: job.title, feature: "both", engine, jobDescription: posting, resume }) });
   if (!response.ok) throw new Error(`Compare request failed (${response.status}) for ${engine}`);
   await response.json();
   for (let n = 0; n < 2400; n += 1) {
     const pending = await maybeJson(join(dir, "pending.json"));
     if (!pending) break;
+    const phase = pending.progress?.phase;
+    if (phase === "failed" || phase === "error") return { failed: { message: pending.progress?.message || "Run failed", code: pending.progress?.code || phase }, elapsed: Date.now() - started };
     await pause(250);
     if (n === 2399) throw new Error("Compare run deadline exceeded");
   }
@@ -122,11 +127,17 @@ try {
     const results = {};
     for (const engine of ["legacy", "lean"]) {
       const dest = join(output, job.slug, engine);
-      results[engine] = await (live ? runLive : runStub)(job, engine, dest);
+      try {
+        results[engine] = await (live ? runLive : runStub)(job, engine, dest);
+      } catch (error) {
+        results[engine] = { failed: { message: error instanceof Error ? error.message : String(error), code: error?.code || "compare_error" }, elapsed: 0 };
+      }
+      if (results[engine].failed) console.error(`FAILED ${job.slug}/${engine} [${results[engine].failed.code}]: ${results[engine].failed.message}`);
     }
-    const prose = results.lean.provenance.flatMap(p => p.facts.map(f => `<tr><td>${esc(p.field)}</td><td>${f.kind === "number" ? esc(f.token) : ""}</td><td>${f.kind === "name" ? esc(f.token) : ""}</td><td>${esc(p.text)}</td><td>${esc(f.sourceId)}: ${esc(f.source)}</td></tr>`)).join("\n");
-    const stats = Object.entries(results).map(([engine, result]) => `<p>${engine}: ${result.qa.disposition}; ${result.elapsed}ms; ${result.calls} ${live ? "call attempts" : "stubbed stage calls"}${result.run.held ? "; Held" : ""}</p>`).join("\n");
-    const documents = ["resume", "cover-letter"].map(doc => `<div class="pair"><section><h3>Legacy ${doc}</h3><iframe title="Legacy ${doc}" src="${job.slug}/legacy/${doc}.pdf"></iframe><a href="${job.slug}/legacy/${doc}.html">HTML</a></section><section><h3>Lean ${doc}</h3><iframe title="Lean ${doc}" src="${job.slug}/lean/${doc}.pdf"></iframe><a href="${job.slug}/lean/${doc}.html">HTML</a></section></div>`).join("\n");
+    const prose = (results.lean.provenance || []).flatMap(p => p.facts.map(f => `<tr><td>${esc(p.field)}</td><td>${f.kind === "number" ? esc(f.token) : ""}</td><td>${f.kind === "name" ? esc(f.token) : ""}</td><td>${esc(p.text)}</td><td>${esc(f.sourceId)}: ${esc(f.source)}</td></tr>`)).join("\n");
+    const stats = Object.entries(results).map(([engine, result]) => result.failed ? `<p>${engine}: FAILED: ${esc(result.failed.message)} (${esc(result.failed.code)})</p>` : `<p>${engine}: ${result.qa.disposition}; ${result.elapsed}ms; ${result.calls} ${live ? "call attempts" : "stubbed stage calls"}${result.run.held ? "; Held" : ""}</p>`).join("\n");
+    const side = (engine, label, doc) => results[engine].failed ? `<section><h3>${label} ${doc}</h3><p>FAILED: ${esc(results[engine].failed.message)}</p></section>` : `<section><h3>${label} ${doc}</h3><iframe title="${label} ${doc}" src="${job.slug}/${engine}/${doc}.pdf"></iframe><a href="${job.slug}/${engine}/${doc}.html">HTML</a></section>`;
+    const documents = ["resume", "cover-letter"].map(doc => `<div class="pair">${side("legacy", "Legacy", doc)}${side("lean", "Lean", doc)}</div>`).join("\n");
     rows.push(`<article><h2>${esc(job.company)} · ${esc(job.title)}</h2>\n${stats}\n${documents}\n<details><summary>Lean checked number and name provenance</summary><table><thead><tr><th>Field</th><th>Numbers</th><th>Names</th><th>Draft prose</th><th>Resume source</th></tr></thead><tbody>${prose}</tbody></table></details></article>`);
   }
   const html = ['<!doctype html>', '<html lang="en">', '<head>', '<meta charset="utf-8">', '<meta name="viewport" content="width=device-width,initial-scale=1">', '<title>TAILOR engine comparison</title>', '<style>body{font:16px system-ui;background:#f3f1ed;color:#1b1930;margin:24px}h1{font-family:Georgia}article{background:white;padding:24px;margin:24px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:24px}iframe{width:100%;height:780px;border:1px solid #ccc}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ddd;text-align:left}details{margin:16px 0}@media(max-width:800px){.pair{grid-template-columns:1fr}}</style>', '</head>', '<body>', '<h1>TAILOR · Legacy and lean</h1>', `<p>${live ? "Isolated copies of saved applications; metered provider calls." : "OFFLINE DRY RUN · Fictional inputs, stubbed providers and PDF sessions. Browser layout and live quality remain unverified."}</p>`, `<p>${count} jobs; engines run back to back for each job. Checked bullet facts appear below each pair.</p>`, ...rows, '</body>', '</html>', ''].join("\n");
