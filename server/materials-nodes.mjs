@@ -115,7 +115,16 @@ function assertUnlocked(node, nextText) {
   let from = 0;
   for (const [start, end] of node.locked.spans) {
     const token = node.text.slice(start, end);
-    const at = nextText.indexOf(token, from);
+    let at = nextText.indexOf(token, from);
+    while (at >= 0) {
+      const before = Array.from(nextText.slice(0, at)).at(-1) || "";
+      const rest = nextText.slice(at + token.length);
+      const after = Array.from(rest)[0] || "";
+      // A sentence-ending period is punctuation; a period joined to a
+      // following digit extends the figure just as a decimal prefix does.
+      if (!/[\p{L}\p{N}]/u.test(before + after) && before !== "." && !/^\.\p{N}/u.test(rest)) break;
+      at = nextText.indexOf(token, at + 1);
+    }
     if (at < 0) throw new MaterialsEditError("locked", token);
     from = at + token.length;
   }

@@ -55,10 +55,14 @@ for (const which of ['resume', 'cover_letter']) {
   });
 }
 test('SCRP-F42 GAP-01 paste uses text only and metric edits roll back locally', async () => {
-  const { ctl, inner, els, nodes, edit, calls, flush } = await desk();
+  const { ctl, inner, els, nodes, calls, flush } = await desk();
   nodes[0].text = '😀 Reduced delays 38%.'; nodes[0].locked.spans = [[18, 21]]; els[0].textContent = nodes[0].text;
-  edit(els[0], '😀 Reduced delays 40%.'); await flush(); assert.equal(calls.length, 0); assert.equal(els[0].textContent, nodes[0].text);
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  els[0].textContent = '😀 Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
   assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+  assert.equal(calls.length, 0); assert.equal(els[0].textContent, nodes[0].text);
+  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true);
   inner.dispatchEvent({ type: 'dblclick', target: els[1] });
   const ev = { type: 'paste', target: els[1], clipboardData: { getData: type => type === 'text/plain' ? 'Plain text' : '<b>Markup</b>' } };
   inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true); assert.equal(ctl.manual.drafts[nodes[1].id].text, "Tracked daily operations.Plain text"); ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: "click" });
@@ -208,3 +212,120 @@ test('SCRP-F79 R2-#10 zero-change blur and document navigation clear manual stat
   assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
   assert.equal(t.ctl.refs.manualState.textContent, ''); t.ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F80 R3-#1 F73 ${which} draft is adopted after reopening through the sibling row`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    edit(els[0], 'Tracked operations.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed');
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: sibling, api }); await settle();
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+    await reopened.setDoc(which); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(reopened.manual.drafts[nodes[0].id]?.opId, opId);
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(els[0].textContent, 'Tracked operations.');
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/); assert.equal(calls.length, 0);
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); reopened.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 R3-#2 F42/F72 ${which} both locked figure edges are atomic`, async () => {
+  const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
+  nodes[0].text = '😀 delays 38% through review.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  for (const text of ['😀 delays 138% through review.', '😀 delays 38%5 through review.', '😀 delays 2.38% through review.', '😀 delays 38%.5 through review.', '😀 delays A38% through review.', '😀 delays 38%é through review.']) {
+    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, nodes[0].text, text); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+  }
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush(); assert.equal(calls.length, 0);
+  // A repeated editable prefix must not move the original lock or permit edge edits.
+  edit(els[0], '38% 😀 delays 38% through review.');
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  for (const text of ['38% 😀 delays 138% through review.', '38% 😀 delays 38%5 through review.']) {
+    els[0].textContent = text; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '38% 😀 delays 38% through review.');
+  }
+  inner.dispatchEvent({ type: 'focusout', target: els[0] });
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} adopted in-flight save refreshes the reopened desk`, async () => {
+  let finish; const pending = new Promise(resolve => { finish = resolve; });
+  const { win, api, ctl, inner, els, edit, flush, calls } = await desk(which, () => pending);
+  edit(els[0], 'Tracked operations.'); await flush(); assert.equal(ctl.manual.saving, true);
+  ctl.close('role-closed');
+  const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+  reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+  assert.equal(reopened.manual, ctl.manual); assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+  api.listVersions = async () => ({ currentRunId: 'r1', versions: [{ runId: 'r1', n: 1 }, { runId: 'r0', n: 0 }] });
+  finish({ run: { runId: 'r1', n: 1 } }); await settle(); await settle();
+  assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+  assert.equal(reopened.state.currentRunId, 'r1'); assert.equal(reopened.state.latestRunId, 'r1');
+  assert.equal(reopened.manual.saving, false); assert.equal(Object.keys(reopened.manual.drafts).length, 0);
+  assert.match(reopened.refs.manualState.textContent, /Saved as v1/); assert.equal(calls.length, 1); reopened.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 R3-#5 ${which} unchanged blur clears lock refusal and preserves pending decisions`, async () => {
+  const { ctl, inner, els, nodes, calls, flush } = await desk(which);
+  nodes[0].text = 'Reduced delays 38%.'; nodes[0].locked.spans = [[15, 18]]; els[0].textContent = nodes[0].text;
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  els[0].textContent = 'Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+  assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'error');
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true); assert.equal(calls.length, 0);
+  for (const state of ['saving', 'confirm', 'conflict']) {
+    inner.dispatchEvent({ type: 'dblclick', target: els[1] });
+    ctl.refs.manualState.setAttribute('data-state', state);
+    inner.dispatchEvent({ type: 'focusout', target: els[1] });
+    assert.equal(ctl.refs.manualState.getAttribute('data-state'), state);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false);
+  }
+  ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F85 R3-#6 ${which} Save anyway explains the open-change gate and revokes consent`, async () => {
+  const { ctl, els, edit, flush, calls } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+  edit(els[0], 'Led Example operations in 2025.'); await flush();
+  const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+  ctl.state.proposal = { ops: [] }; confirm.dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(ctl.refs.manualState.textContent, 'Review or discard the open changes first.');
+  assert.equal(ctl.manual.confirmation, null); assert.equal(calls.length, 1);
+  ctl.state.proposal = null; confirm.dispatchEvent({ type: 'click' }); await settle(); assert.equal(calls.length, 1);
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F86 R3-#7 ${which} Stay and Escape rearm one manual save with visible status`, async () => {
+  for (const choice of ['stay', 'escape', 'restored-escape']) {
+    const t = await desk(which); t.edit(t.els[0], 'Tracked operations.'); let ctl = t.ctl;
+    if (choice === 'restored-escape') {
+      ctl.close('role-closed'); ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await settle();
+      ctl.refs.frame.contentDocument = t.inner; ctl.refs.frame.onload(); await settle();
+    } else ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+    if (choice === 'stay') ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+    else t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.win.document.activeElement });
+    assert.equal(ctl.refs.unsaved.hasAttribute('hidden'), true); assert.equal(ctl.closed, false);
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false); assert.match(ctl.refs.manualState.textContent, /[Ss]aves/);
+    await t.flush(); assert.equal(t.calls.length, 1); ctl.close();
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F811 R3-#12 ${which} generic manual failure has one Try again`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw new Error('fictional transport failure'); });
+    edit(els[0], 'Tracked operations.'); await flush();
+    assert.equal(ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+    assert.ok(ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+  test(`SCRP-F811 R3-#12 ${which} batch confirmation identifies possible novelty and quotes all replacements`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Example operations in 2025.'); await flush();
+    assert.ok(ctl.refs.manualState.textContent.startsWith('Some of this text isn’t in your saved facts:'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Tracked operations.”'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Led Example operations in 2025.”'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}

@@ -557,7 +557,8 @@ for (const which of ['resume', 'cover_letter']) {
         });
         await expect(target).toHaveText('Tracked Contoso operations.'); expect(await target.locator('b').count()).toBe(0);
         await leaveBlock(page);
-        await expect(h.desk.locator('.scribe__manual-state')).toContainText('isn’t in your saved facts.', { timeout: 15000 });
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Some of this text isn’t in your saved facts:', { timeout: 15000 });
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('“Tracked Contoso operations.”');
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
         const newer = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/r0/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json(); expect(newer.run.runId).toBeTruthy();
@@ -616,12 +617,13 @@ for (const which of ['resume', 'cover_letter']) {
       expect(h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open'))).toHaveLength(openBeforeFailure + 1);
       await h.desk.locator('[data-action="continue-request"]').click(); await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
       await h.desk.locator('[data-unsaved="stay"]').click(); expect(errors).toEqual([]);
+      await expect(h.desk.locator('.scribe__manual-state')).toContainText('Your text is kept. Saves in 2 seconds.');
       expect(await page.evaluate(id => globalThis.JB_SCRIBE_V2.current().manual.drafts[id].text, id)).toBe(text);
       expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.doc)).toBe(which);
       await h.desk.locator('[data-action="discard-request"]').click();
       await expect.poll(() => page.evaluate(() => { const ctl = globalThis.JB_SCRIBE_V2.current(); return !ctl.discarding && !ctl.openProposal; })).toBe(true);
       await h.desk.locator('[data-seg="doc"]').click();
-      await h.desk.locator('[data-manual="retry"]').click();
+      // R3-#7 re-arms the save on Stay; clearing the sibling request lets that timer save once.
       await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
       expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(2);
       expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(2);
@@ -662,6 +664,99 @@ for (const which of ['resume', 'cover_letter']) {
       await expect(h.desk.locator('.scribe__docpane')).toBeVisible();
       await expect(h.desk.locator('button[data-seg="doc"]')).toHaveAttribute('aria-selected', 'true');
       expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'))).toHaveLength(1);
+    } finally { await h.service.close(); }
+  });
+}
+
+async function keyboardBlock(page) {
+  return page.evaluate(() => {
+    const frame = document.querySelector('jb-scribe .scribe__frame');
+    return document.activeElement === frame ? frame.contentDocument.activeElement?.getAttribute('data-node') : null;
+  });
+}
+async function tabToBlock(page) {
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press('Tab');
+    if (await keyboardBlock(page)) return;
+  }
+  expect(await keyboardBlock(page), 'Tab must reach the document without injected focus').toBeTruthy();
+}
+async function arrowToBlock(page, id, count) {
+  for (let i = 0; i < count; i++) {
+    if (await keyboardBlock(page) === id) return;
+    await page.keyboard.press('ArrowDown');
+  }
+  expect(await keyboardBlock(page)).toBe(id);
+}
+async function keyboardEditBlock(page, desk) {
+  await page.keyboard.press('Enter');
+  const toolbar = desk.locator('.scribe__selection-actions'); await expect(toolbar).toBeVisible();
+  await expect(toolbar.locator('button').first()).toBeFocused();
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+  await expect(toolbar.locator('[data-selection="edit"]')).toBeFocused(); await page.keyboard.press('Enter');
+}
+for (const which of ['resume', 'cover_letter']) for (const width of [1440, 375]) {
+  test(`SCRP-F814 KBD-01 ${which} ${width} keyboard-only blocks, locks, manual save and Escape`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 375 ? 667 : 900 });
+    const h = await realDesk(page, which);
+    try {
+      const frame = page.frameLocator('jb-scribe .scribe__frame');
+      const blocks = await frame.locator('[data-node]').evaluateAll(els => els.map(el => ({ id: el.dataset.node, label: el.getAttribute('aria-label') })));
+      await tabToBlock(page);
+      const reached = [];
+      for (let i = 0; i < blocks.length; i++) {
+        reached.push(await keyboardBlock(page));
+        await expect(frame.locator('[data-node][tabindex="0"]')).toHaveCount(1);
+        await page.keyboard.press('ArrowDown');
+      }
+      expect(reached).toEqual(blocks.map(b => b.id));
+      for (const block of blocks) expect(block.label).toMatch(/, (locked|editable)$/);
+      expect(await frame.locator('[data-node][tabindex="0"]').evaluate(el => el.ownerDocument.defaultView.getComputedStyle(el).outlineStyle)).toBe('solid');
+      const current = await keyboardBlock(page); await page.keyboard.press('j'); await page.keyboard.press('k'); expect(await keyboardBlock(page)).toBe(current);
+      await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowDown'); expect(await keyboardBlock(page)).toBe(current);
+      if (which === 'resume') {
+        await arrowToBlock(page, 'seat:acme', blocks.length);
+        await expect(frame.locator('[data-node="seat:acme"]')).toHaveAttribute('aria-label', /, locked$/);
+        await page.keyboard.press('Enter'); await expect(h.desk.locator('.scribe__status')).toContainText('Employer, title and dates are locked.');
+        await expect(frame.locator('[data-node="seat:acme"]')).not.toHaveAttribute('contenteditable', 'plaintext-only');
+      }
+      // Typing immediately against either metric edge is refused before any request.
+      const metric = which === 'resume' ? 'stmt' : 'p:p2';
+      await arrowToBlock(page, metric, blocks.length);
+      await expect(frame.locator(`[data-node="${metric}"]`)).toHaveAttribute('aria-label', /, editable$/);
+      await keyboardEditBlock(page, h.desk);
+      const original = deriveNodes(h.pkg.model).find(n => n.id === metric);
+      const [a, b] = original.locked.spans[0];
+      for (const [offset, char] of [[a, '1'], [b, '5']]) {
+        await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.press('ArrowLeft');
+        for (let i = 0; i < offset; i++) await page.keyboard.press('ArrowRight');
+        await page.keyboard.type(char);
+        await expect(frame.locator(`[data-node="${metric}"]`)).toHaveText(original.text);
+        await expect(h.desk.locator('.scribe__manual-state')).toContainText('Figures in this line are locked.');
+      }
+      await page.keyboard.press('Escape'); await expect(frame.locator(`[data-node="${metric}"]`)).toBeFocused();
+      await page.keyboard.press('Escape'); await expect(h.desk.locator('.scribe__docscroll')).toBeFocused();
+      await tabToBlock(page);
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      await arrowToBlock(page, id, blocks.length);
+      await page.keyboard.press('Space'); await expect(h.desk.locator('.scribe__selection-actions button').first()).toBeFocused();
+      await page.keyboard.press('Escape'); await expect(frame.locator(`[data-node="${id}"]`)).toBeFocused();
+      await keyboardEditBlock(page, h.desk);
+      await expect(frame.locator(`[data-node="${id}"]`)).toHaveAttribute('contenteditable', 'plaintext-only');
+      const text = which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.';
+      await page.keyboard.press('ControlOrMeta+A'); await page.keyboard.type(text); await page.keyboard.press('Tab');
+      await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
+      expect(h.calls.filter(c => c.method === 'POST' && /\/edits\/manual$/.test(c.path))).toHaveLength(1);
+      const listing = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json();
+      expect(listing.versions).toHaveLength(2);
+      const saved = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/${listing.currentRunId}/model`)).json();
+      expect(deriveNodes(saved.model).find(n => n.id === id).text).toBe(text);
+      const sibling = which === 'resume' ? 'coverLetter' : 'resume';
+      const siblingListing = await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${sibling}`)).json();
+      expect(siblingListing.versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+      await expect(h.desk.locator('.scribe__frame')).toHaveAttribute('sandbox', 'allow-same-origin');
+      expect(await frame.locator('script').count()).toBe(0);
     } finally { await h.service.close(); }
   });
 }

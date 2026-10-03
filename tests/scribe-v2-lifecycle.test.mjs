@@ -853,3 +853,52 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F711 R2-#12 ${which} ac
   assert.doesNotMatch(ctl.refs.docscroll.getAttribute('aria-label'), /proposal/);
   ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F87 R3-#8 ${which} Discard 404 drops the dead review before recovering another request`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+  t.api.open = { proposalId: 'other-tab', doc: sibling, baseRunId: 'r2', status: 'pending', ops: [] };
+  t.api.rejectEdit = async () => { throw { status: 404 }; };
+  const reads = t.calls.filter(c => c[0] === 'open').length;
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
+  assert.equal(ctl.state.proposal, null); assert.equal(ctl.openProposal.proposalId, 'other-tab');
+  assert.equal(ctl.refs.reviewbar.querySelectorAll('[data-review]').length, 0);
+  assert.ok(ctl.refs.recover.querySelector('[data-action="continue-request"]'));
+  assert.equal(t.calls.filter(c => c[0] === 'open').length, reads + 1);
+  assert.equal(ctl.discarding, false); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F88 R3-#9 ${which} successful empty recovery drops an unsaveable terminal result`, async () => {
+  const t = reliabilityApi(which); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; }; t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } }); handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  t.api.open = null; reply.reject({ code: 'proposal_not_running' }); await flush();
+  assert.equal(ctl.state.proposal, null); assert.equal(ctl.openProposal, null);
+  assert.equal(ctl.refs.statusText.textContent, 'Those changes are no longer available.');
+  assert.equal(ctl.refs.reviewbar.querySelectorAll('[data-review]').length, 0);
+  stream.resolve(); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F89 R3-#10 ${which} Discard cancels autosave and excludes Save until DELETE settles`, async () => {
+  const t = reliabilityApi(which); const deletion = defer(); const timers = new Map(); let seq = 0, accepts = 0;
+  t.env.win.setTimeout = (fn, ms) => { timers.set(++seq, { fn, ms }); return seq; }; t.env.win.clearTimeout = id => timers.delete(id);
+  t.api.rejectEdit = () => deletion.promise; t.api.acceptEdit = async () => { accepts++; return { run: { runId: 'r3', n: 3 } }; };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  const save = ctl.refs.reviewbar.querySelector('[data-review="save"]');
+  assert.ok(ctl.autoSave); const pending = timers.get(ctl.autoSave);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]'));
+  assert.equal(ctl.autoSave, null); assert.equal([...timers.values()].filter(timer => timer.ms === pending.ms).length, 0);
+  tap(save); pending.fn(); await flush(); assert.equal(accepts, 0); assert.equal(ctl.discarding, true);
+  t.api.open = null; deletion.resolve(); await flush(); assert.equal(ctl.state.proposal, null); assert.equal(accepts, 0); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F812 R3-#13 ${which} Discarded status survives the saved-document reload`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
+  assert.equal(ctl.refs.statusText.textContent, 'Discarded.'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  assert.equal(ctl.state.currentRunId, 'r2'); assert.equal(ctl.state.proposal, null);
+  await t.submit(ctl, 'Next request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();
+});

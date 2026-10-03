@@ -94,3 +94,51 @@ test('SCRP-F710 R2-#11 multi-block Edit text is disabled with a single-block exp
   assert.equal(edit.getAttribute('aria-disabled'), 'false'); assert.equal(edit.getAttribute('title'), null);
   edit.dispatchEvent({ type: 'click', target: edit }); assert.ok(ctl.manual.active); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F82 R3-#3 ${which} margin and noneditable clicks preserve the scope`, async () => {
+  const { ctl, inner } = await desk(which);
+  for (const target of [inner.body, inner.createElement('h2')]) {
+    if (!target.parentNode) inner.body.appendChild(target);
+    inner.dispatchEvent({ type: 'pointerup', target }); assert.equal(ctl.scope, null);
+  }
+  const el = inner.querySelector(`[data-node="${which === 'resume' ? 'line:beta' : 'p:p3'}"]`);
+  inner.dispatchEvent({ type: 'pointerup', target: el }); const scope = ctl.scope;
+  inner.dispatchEvent({ type: 'pointerup', target: inner.body });
+  assert.equal(ctl.scope, scope); assert.equal(ctl.scope.stale, false); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F810 R3-#11 ${which} activating multi-block Edit text explains its restriction`, async () => {
+  const { ctl, inner, select } = await desk(which);
+  const ids = which === 'resume' ? ['line:beta', 'b:acme:c14'] : ['p:p3', 'p:p2'];
+  if (which === 'cover_letter') {
+    ctl.state.nodes.push({ id: 'p:p2', kind: 'paragraph', text: 'I led daily operations.', locked: { whole: false, spans: [] } });
+    const el = inner.createElement('p'); el.setAttribute('data-node', 'p:p2'); el.textContent = 'I led daily operations.'; inner.body.appendChild(el);
+  }
+  select(ids); const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+  assert.equal(edit.getAttribute('aria-disabled'), 'true');
+  edit.dispatchEvent({ type: 'click', target: edit, bubbles: true });
+  assert.equal(ctl.refs.statusText.textContent, 'Select one block to edit its text.');
+  assert.equal(ctl.manual.active, null); assert.equal(ctl.refs.selectionActions.hasAttribute('hidden'), false); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F813 KBD-01 ${which} roving blocks announce locks and support keyboard selection and return`, async () => {
+  const { win, ctl, inner } = await desk(which);
+  const blocks = [...inner.querySelectorAll('[data-node]')].filter(el => ctl.state.nodes.some(n => n.id === el.getAttribute('data-node') && ((which === 'cover_letter') === (n.kind === 'paragraph' || n.kind === 'salutation'))));
+  assert.equal(blocks.filter(el => el.getAttribute('tabindex') === '0').length, 1);
+  for (const el of blocks) assert.match(el.getAttribute('aria-label'), /, (locked|editable)$/);
+  ctl.refs.docscroll.dispatchEvent({ type: 'focus', target: ctl.refs.docscroll });
+  assert.equal(inner.activeElement, blocks[0]);
+  inner.dispatchEvent({ type: 'keydown', key: 'ArrowDown', target: blocks[0] });
+  const next = blocks[Math.min(1, blocks.length - 1)]; assert.equal(inner.activeElement, next);
+  assert.equal(blocks.filter(el => el.getAttribute('tabindex') === '0').length, 1);
+  inner.dispatchEvent({ type: 'keydown', key: 'Enter', target: next });
+  if (next.getAttribute('data-node') === 'seat:acme') assert.match(ctl.refs.statusText.textContent, /locked/);
+  else {
+    assert.equal(ctl.refs.selectionActions.hasAttribute('hidden'), false);
+    assert.equal(win.document.activeElement, ctl.refs.selectionActions.querySelector('button'));
+    win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: win.document.activeElement });
+    assert.equal(inner.activeElement, next);
+  }
+  inner.dispatchEvent({ type: 'keydown', key: 'Escape', target: next });
+  assert.equal(win.document.activeElement, ctl.refs.docscroll); assert.equal(ctl.closed, false); ctl.close();
+});
