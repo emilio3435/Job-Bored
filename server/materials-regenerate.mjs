@@ -35,6 +35,7 @@ import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-m
 import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
 import { runHardGates } from "./materials-rubric.mjs";
 import { resolveFamily } from "./materials-templates.mjs";
+import { currentDocuments } from "./materials-versions.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const publishing = new Set();
@@ -280,6 +281,13 @@ export async function regeneratePackage(input, deps = {}) {
   }
   const regeneratedFrom = storedRun.runId;
   let feature = typeof storedRun.feature === "string" ? storedRun.feature : "both";
+  if (!input.from) {
+    const documents = await currentDocuments(dir);
+    if (Object.keys(documents).length) {
+      storedModel.documents = documents;
+      feature = documents.resume ? (documents.coverLetter ? "both" : "resume") : "cover_letter";
+    }
+  }
   /* The resume this package speaks for: the user's current one (never a
      garbled or older snapshot). Identity, split figures and readouts in the
      stored model are refreshed from it; no model is called. */

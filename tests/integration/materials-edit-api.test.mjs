@@ -1209,3 +1209,30 @@ it("legacy paragraph splitting preserves link labels and refuses ambiguous shape
     await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
   }
 });
+
+
+it("SCRP-B21 R1-#1 regenerate merges each document's current run after single-document saves", async () => {
+  for (const savedDocs of [["resume"], ["coverLetter"], ["resume", "coverLetter"]]) {
+    const pkg = await seed();
+    for (const doc of savedDocs) {
+      await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [doc === "resume" ? op : {
+        opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations.",
+      }], confirmUnverified: [] }, true);
+    }
+    const sources = {};
+    for (const doc of ["resume", "coverLetter"]) {
+      const listing = await service.versions(pkg.dir, doc);
+      sources[doc] = (await service.model(pkg.slug, listing.currentRunId)).model.documents[doc];
+      sources[doc].templateId = doc === "resume" ? "dossier.resume" : "dossier.letter";
+    }
+    const result = await regeneratePackage({ slug: pkg.slug, template: "dossier" }, {
+      applicationsRoot: root, pdfSession, critic: async () => ({ status: "pass", issues: [] }),
+      targetLogoLoader: async () => null, employerLogoLoader: async () => [], readSavedResume: async () => null,
+    });
+    assert.deepEqual(result.template.templateIds, { resume: "dossier.resume", coverLetter: "dossier.letter" });
+    const published = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+    assert.deepEqual(published.documents, sources);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "both");
+    for (const stem of ["resume", "cover-letter"]) assert.match(await readFile(join(pkg.dir, `${stem}.html`), "utf8"), /data-family="dossier"/);
+  }
+});

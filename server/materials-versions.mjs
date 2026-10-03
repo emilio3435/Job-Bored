@@ -238,6 +238,20 @@ async function versions(dir, doc) {
   return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : latestAdopted?.run.runId || current.runId };
 }
 
+/** Read each document from its own current immutable run for a package-wide template change. */
+/** @param {string} dir */
+export async function currentDocuments(dir) {
+  /** @type {Record<string, any>} */
+  const documents = {};
+  for (const doc of ["resume", "coverLetter"]) {
+    const listing = await versions(dir, doc);
+    if (!listing.versions.length) continue;
+    const { model } = await runFiles(dir, listing.currentRunId);
+    documents[doc] = model.documents[doc];
+  }
+  return documents;
+}
+
 /** @param {Record<string, any>} proposal @param {string} event @param {unknown} data */
 function addEvent(proposal, event, data) {
   proposal.events.push({ event, data });
