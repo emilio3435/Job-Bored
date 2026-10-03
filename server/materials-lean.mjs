@@ -12,7 +12,7 @@ import { hashJd } from "./materials-jd-extract.mjs";
 import { PIPELINE_PROMPT_VERSION } from "./materials-cache.mjs";
 import { JUDGE_PROMPT_VERSION } from "./materials-judge.mjs";
 
-export const LEAN_PROMPT_VERSION = "materials.lean.v1";
+export const LEAN_PROMPT_VERSION = "materials.lean.v2";
 /** @type {Record<string, any> | undefined} */
 let leanSchemaCache;
 function leanBaseSchema() {
@@ -22,15 +22,54 @@ const Ajv = /** @type {typeof import('ajv/dist/2020.js').default} */ (/** @type 
 const ajv = new Ajv({ strict: false, allErrors: true });
 const validators = new Map();
 const EMPTY_LETTER = { hook: "", companyInsight: "", proof1: "", proof2: "", ask: "" };
-const LEADERSHIP = /\b(?:led|managed|owned|directed|headed|built|launched|founded|spearheaded|oversaw|ran)\b/gi;
-const INITIAL_WORDS = new Set("Supported Reduced Reviewed Built Shipped Ran Managed Led Owned Directed Headed Launched Founded Spearheaded Oversaw Improved Created Delivered Coordinated Prepared Developed Helped Generated Achieved Increased Maintained Analyzed Designed Worked Grew Saved Sold Made Using Working Could Would Can Please Let Thank".split(" "));
+// Counted dispatch leads and the unit "direct reports" are nouns, not leadership evidence.
+const OWNERSHIP = [
+  /(?<!\d[ \t]+(?:[\p{L}]+[ \t]+)?)\b(?:lead\p{L}*|led)\b/iu, /\bmanag\p{L}*\b/iu, /\bown\p{L}*\b/iu,
+  /\bdirect\p{L}*\b(?![ \t]+reports?\b)/iu, /\bhead\p{L}*\b/iu, /\bdesign\p{L}*\b/iu,
+  /\bcreat\p{L}*\b/iu, /\bdeliver(?:ed|ing|s)?\b/iu, /\b(?:drove|drive(?:s|n)?|driving)\b/iu,
+  /\b(?:built|build\p{L}*)\b/iu, /\blaunch\p{L}*\b/iu, /\bfound\p{L}*\b/iu,
+  /\bspearhead\p{L}*\b/iu, /\b(?:oversaw|oversee\p{L}*)\b/iu, /\b(?:ran|run\p{L}*)\b/iu,
+];
+const CREDENTIALS = /(?<![\p{L}\d])(?:director|vice\s+president|VP|head\s+of|chief|manager\s+of|master['’]s|MBA|PhD|certified|licensed)(?![\p{L}\d])/giu;
+// A small prose dictionary for sentence starts. Ownership is checked separately.
+const INITIAL_WORDS = new Set("Supported Reduced Reviewed Shipped Improved Coordinated Prepared Developed Helped Generated Achieved Increased Maintained Analyzed Worked Grew Saved Sold Made Using Working Could Would Can Please Let Thank Cut When This These Those That Weekly Scheduling Lowered Streamlined Kept Used Wrote Brought Focused Field Analyst Experience Practical With For From By After Before Through During Since Also Each Every Both Some Most More Less Together How Why What Where Who It Its There Their They You We He She Our My Your The A An At In".split(" "));
 const NAME_ALLOW = new Set(["I", "A", "An", "The", "At", "In", "My", "Your", "Our", "We", "It"]);
 /** @param {unknown} value */
 const str = (value) => typeof value === "string" ? value.trim() : "";
 /** @param {string} text */
 const wordCount = (text) => text.trim().split(/\s+/).filter(Boolean).length;
 /** @param {string} text */
-const foldUnit = (text) => text.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
+const foldUnit = (text) => /^(?:yrs?|years?)$/i.test(text) ? "year" : text.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
+/** @param {string} text */
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Unicode word boundaries, preserving acronym case. @param {string} source @param {string} word */
+function hasWord(source, word) {
+  return new RegExp(`(?<![\\p{L}\\d])${escapeRe(word)}(?![\\p{L}\\d])`, /^[A-Z\d]+$/.test(word) ? "u" : "iu").test(source);
+}
+const NUMBER_WORDS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100, thousand: 1000, million: 1e6 };
+const NUMBER_WORD = Object.keys(NUMBER_WORDS).join("|");
+const WORD_NUMBERS = new RegExp(`(?<![\\p{L}\\d])(?:a[ \\t]+dozen|double(?:d|s)?|doubling|triple(?:d|s)?|tripling|(?:${NUMBER_WORD})(?:(?:[ -]|[ \\t]+and[ \\t]+)(?:${NUMBER_WORD}))*)(?![\\p{L}\\d])`, "giu");
+const UNIT_CONNECTORS = new Set(["to", "for", "in", "of", "among", "and", "across", "with", "on", "by", "using", "at", "as"]);
+/** @param {string} tail */
+function attachedUnit(tail) {
+  const words = /^([ \t-]+)([\p{L}]+)(?:[ \t]+([\p{L}]+))?/u.exec(tail);
+  if (!words) return "";
+  return foldUnit(UNIT_CONNECTORS.has(words[2].toLowerCase()) ? words[3] || "" : words[2]);
+}
+/** @param {string} raw */
+function wordNumberValue(raw) {
+  if (/^a\s+dozen$/i.test(raw)) return 12;
+  if (/^(?:double|doubl)/i.test(raw)) return 2;
+  if (/^tripl/i.test(raw)) return 3;
+  let total = 0, part = 0;
+  for (const word of raw.toLowerCase().split(/[ -]+/)) {
+    const n = NUMBER_WORDS[/** @type {keyof typeof NUMBER_WORDS} */ (word)];
+    if (n === 100) part = (part || 1) * n;
+    else if (n >= 1000) { total += (part || 1) * n; part = 0; }
+    else if (n !== undefined) part += n;
+  }
+  return total + part;
+}
 
 /** @param {string} feature */
 export function leanSchema(feature = "both") {
@@ -43,16 +82,23 @@ export function leanSchema(feature = "both") {
 
 /** Shared grammar, with the preceding approximation mark retained for checking. @param {string} text */
 export function parseLeanNumbers(text) {
-  return [...String(text).matchAll(METRIC_RE)].map((match) => {
-    const at = /** @type {number} */ (match.index);
+  const numeric = [...String(text).matchAll(METRIC_RE)].map(match => ({ raw: match[1], start: /** @type {number} */ (match.index), token: match[1], joinedUnit: "", word: false }));
+  // The shared grammar intentionally skips digit+letter forms such as 15yrs.
+  for (const match of text.matchAll(/(?<![\p{L}\d])(?:\d[\d,]*(?:\.\d+)?)([a-z]+)(?![\p{L}\d])/giu)) {
+    const start = /** @type {number} */ (match.index);
+    if (numeric.some(n => start < n.start + n.token.length && start + match[0].length > n.start)) continue;
+    numeric.push({ raw: match[0].replace(/[a-z]+$/i, ""), token: match[0], start, joinedUnit: match[1], word: false });
+  }
+  for (const match of text.matchAll(WORD_NUMBERS)) numeric.push({ raw: match[0], token: match[0], start: /** @type {number} */ (match.index), joinedUnit: "", word: true });
+  return numeric.sort((a, b) => a.start - b.start).map(n => {
+    const { raw, start: at } = n;
     const approximate = text[at - 1] === "~";
-    const raw = match[1];
-    const prefix = raw.startsWith("$") ? "$" : /^(?:#|top-)/i.test(raw) ? "rank" : "";
-    const suffix = raw.includes("%") ? "%" : /[kmb]/i.exec(raw)?.[0].toLowerCase() || "";
-    const value = Number(raw.replace(/^(?:[$#]|top-)/, "").replace(/[,%+kKmMbB]/g, "")) * ({ k: 1e3, m: 1e6, b: 1e9 }[suffix] || 1);
-    const tail = text.slice(at + raw.length);
-    const unit = /^[\s-]+([\p{L}]+)/u.exec(tail)?.[1] || "";
-    return { token: `${approximate ? "~" : ""}${raw}`, raw, start: at - (approximate ? 1 : 0), end: at + raw.length, approximate, prefix, suffix, value, unit: foldUnit(unit) };
+    const multiplier = /^(?:doubl|tripl)/i.test(raw) || /x$/i.test(raw) || n.joinedUnit === "x";
+    const prefix = multiplier ? "multiplier" : raw.startsWith("$") ? "$" : /^(?:#|top-)/i.test(raw) ? "rank" : "";
+    const suffix = n.word ? "" : raw.includes("%") ? "%" : /[kmb]/i.exec(raw)?.[0].toLowerCase() || "";
+    const value = n.word ? wordNumberValue(raw) : Number(raw.replace(/^(?:[$#]|top-)/i, "").replace(/[,%+xkKmMbB]/g, "")) * ({ k: 1e3, m: 1e6, b: 1e9 }[suffix] || 1);
+    const unit = n.joinedUnit && n.joinedUnit !== "x" ? foldUnit(n.joinedUnit) : attachedUnit(text.slice(at + n.token.length));
+    return { token: `${approximate ? "~" : ""}${n.token}`, raw, start: at - (approximate ? 1 : 0), end: at + n.token.length, approximate, prefix, suffix, value, unit };
   });
 }
 
@@ -157,16 +203,26 @@ function shapeErrors({ value, feature = "both" }, catalog) {
   return errors;
 }
 
+/** @param {ReturnType<typeof parseLeanNumbers>[number]} number @param {ReturnType<typeof parseLeanNumbers>[number]} original */
+function numberMatches(number, original) {
+  if (number.unit !== original.unit || number.prefix !== original.prefix || (number.suffix === "%") !== (original.suffix === "%")) return false;
+  const exact = number.raw.toLowerCase().replace(/,/g, "").replace(/–/g, "-") === original.raw.toLowerCase().replace(/,/g, "").replace(/–/g, "-")
+    || !/\d[–-]\d/.test(number.raw) && !/\d[–-]\d/.test(original.raw) && !number.raw.endsWith("+") && !original.raw.endsWith("+") && number.value === original.value;
+  const yearOrRank = number.prefix === "rank" || /^\d{4}\+?$/.test(number.raw) || /^\d{4}\+?$/.test(original.raw);
+  const rounded = number.raw.endsWith("+") && !/\d[–-]\d/.test(number.raw) && !yearOrRank && number.prefix !== "multiplier" && Number.isFinite(number.value) && number.value < original.value;
+  return exact && (!yearOrRank || !number.approximate) || rounded;
+}
+
 /** @param {string} text @param {string} source */
 function numberErrors(text, source) {
   const originals = parseLeanNumbers(source);
-  const sourceWords = new Set((source.match(/[\p{L}]+/gu) || []).map(foldUnit));
-  return parseLeanNumbers(text).some(number => !originals.some(original => {
-    const exact = number.raw.toLowerCase().replace(/,/g, "") === original.raw.toLowerCase().replace(/,/g, "");
-    const rounded = number.raw.endsWith("+") && !/[–-]/.test(number.raw) && number.prefix !== "rank" && !/^\d{4}\+?$/.test(number.raw)
-      && !/^\d{4}\+?$/.test(original.raw) && number.prefix === original.prefix && (number.suffix === "%") === (original.suffix === "%") && Number.isFinite(number.value) && number.value < original.value;
-    return (exact || rounded) && (!number.unit || sourceWords.has(number.unit));
-  }));
+  let after = -1;
+  return parseLeanNumbers(text).some(number => {
+    const matched = originals.findIndex((original, index) => index > after && numberMatches(number, original));
+    if (matched < 0) return true;
+    after = matched;
+    return false;
+  });
 }
 
 /** @param {string} text @param {string} source */
@@ -176,8 +232,8 @@ function nameErrors(text, source) {
     const word = match[0].replace(/[’']s$/, "");
     if (NAME_ALLOW.has(word)) continue;
     const before = text.slice(0, match.index).trimEnd();
-    if ((!before || /[.!?]$/.test(before)) && INITIAL_WORDS.has(word)) continue;
-    if (!locateLiteral(source, word)) return true;
+    if ((!before || /[.!?]$/.test(before)) && INITIAL_WORDS.has(word) && !/^[A-Z\d]+$/.test(word)) continue;
+    if (!hasWord(source, word)) return true;
   }
   return false;
 }
@@ -188,7 +244,8 @@ function proseErrors(text, source, input, ownership, factSource = source) {
   const errors = [];
   if (numberErrors(text, factSource)) errors.push("numbers");
   if (nameErrors(text, source)) errors.push("names");
-  if (ownership && [...text.matchAll(LEADERSHIP)].some(m => !new RegExp(`\\b${m[0]}\\b`, "i").test(factSource))) errors.push("ownership");
+  if (ownership && OWNERSHIP.some(stem => stem.test(text) && !stem.test(factSource))) errors.push("ownership");
+  if ([...text.matchAll(CREDENTIALS)].some(match => !hasWord(factSource.replace(/’/g, "'"), match[0].replace(/’/g, "'")))) errors.push("credentials");
   const extra = (input.voiceProfile?.avoid || []).map((/** @type {any} */ v) => typeof v === "string" ? { pattern: v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") } : v);
   if (detectAiWords(text, extra).length || detectGush(text).length || detectContrastFrames(text).length || detectOffVoice(text).length || detectCannedAsides(text).length || detectPurposeOpeners(text).length) errors.push("voice");
   if (/<[^>]+>|\[[^\]]+\]\(|(?:\*\*|__|`)/.test(text)) errors.push("markup");
@@ -199,7 +256,7 @@ function proseErrors(text, source, input, ownership, factSource = source) {
 function companyPosting(posting) {
   let excluded = false;
   return String(posting).split(/\r?\n/).filter(line => {
-    if (/^\s*(?:benefits|compensation|salary|pay|perks)\b/i.test(line)) { excluded = /:\s*$/.test(line) || !line.includes(":"); return false; }
+    if (/^\s*(?:benefits|compensation|salary|pay|perks|what we offer)\b/i.test(line)) { excluded = /:\s*$/.test(line) || !line.includes(":"); return false; }
     if (/^\s*[\w /-]+:\s*$/.test(line)) excluded = false;
     return !excluded && !/\b(?:salary|compensation|benefits|paid leave|signing bonus|base pay|OTE)\b/i.test(line);
   }).join("\n");
@@ -225,15 +282,18 @@ export function checkLean(input) {
   /** @param {string} text @param {string} field @param {any} [claim] */
   const recordProvenance = (text, field, claim) => {
     if (!text) return;
-    const numbers = parseLeanNumbers(text).map(n => n.token);
+    const numberTokens = parseLeanNumbers(text);
+    const numbers = numberTokens.map(n => n.token);
     const names = [...new Set([
       ...TOOL_LEXICON.filter(tool => findTool(tool, text)),
       ...(text.match(/\b[A-Z][\p{L}\d]+\b/gu) || []).filter(word => !NAME_ALLOW.has(word) && !INITIAL_WORDS.has(word)),
     ])];
     const facts = [...numbers.map(token => ({ token, kind: "number" })), ...names.map(token => ({ token, kind: "name" }))].map(fact => {
-      const cited = (claim ? [claim] : ledger.claims || []).find((/** @type {any} */ c) => fact.kind === "number" ? !numberErrors(fact.token, c.text) : locateLiteral(c.text, fact.token));
-      const resumeLine = String(resumeText).split(/\r?\n/).find(line => locateLiteral(line, fact.token));
-      const postingLine = fact.kind === "name" && ["letter.hook", "letter.companyInsight"].includes(field) ? companyPosting(input.jdText).split(/\r?\n/).find(line => locateLiteral(line, fact.token)) : "";
+      const number = numberTokens.find(n => n.token === fact.token);
+      const supports = (/** @type {string} */ source) => fact.kind === "number" && number ? parseLeanNumbers(source).some(original => numberMatches(number, original)) : hasWord(source, fact.token);
+      const cited = (claim ? [claim] : ledger.claims || []).find((/** @type {any} */ c) => supports(c.text));
+      const resumeLine = String(resumeText).split(/\r?\n/).find(supports);
+      const postingLine = fact.kind === "name" && ["letter.hook", "letter.companyInsight"].includes(field) ? companyPosting(input.jdText).split(/\r?\n/).find(supports) : "";
       const source = cited?.text || resumeLine || postingLine || "";
       return { ...fact, sourceId: cited?.id || (resumeLine ? "resume:context" : "posting:context"), source };
     });
@@ -268,7 +328,7 @@ export function checkLean(input) {
   }
   /** @param {string} text @param {string} field @param {string} source */
   const checkedSentences = (text, field, source) => sentenceParts(text).filter(sentence => {
-    const failures = proseErrors(sentence, source, input, false);
+    const failures = proseErrors(sentence, source, input, true);
     if (!failures.length) return true;
     dropped = true; for (const check of failures) notes.push({ field, check, action: "drop" }); return false;
   }).join(" ");
@@ -280,8 +340,7 @@ export function checkLean(input) {
     // Posting names may describe the company; posting numbers never become candidate proof.
     const namesSource = resumeText + (beat === "hook" || beat === "companyInsight" ? "\n" + companyPosting(input.jdText) : "");
     draft.letter[/** @type {keyof typeof EMPTY_LETTER} */ (beat)] = sentenceParts(value.letter[beat]).filter(sentence => {
-      const failures = proseErrors(sentence, namesSource, input, false).filter(check => check !== "numbers");
-      if (numberErrors(sentence, resumeText)) failures.push("numbers");
+      const failures = proseErrors(sentence, namesSource, input, true, resumeText);
       if (!failures.length) return true;
       dropped = true; for (const check of failures) notes.push({ field: `letter.${beat}`, check, action: "drop" }); return false;
     }).join(" ");
@@ -304,20 +363,31 @@ export async function runLean(input) {
       const errors = shapeErrors({ ...input, value }, prompt.catalog);
       if (errors.length) throw new WriterJsonError(`Invalid lean shape: ${errors.join("; ")}`);
     },
-  }) : { value: null, call: { provider: "", model: "", attempts: 0, trace: [], errorCode: "no_pin" } };
-  const checked = checkLean({ ...input, value: result.value, retried: result.call.attempts > 1 });
+  }) : { value: null, call: { provider: "", model: "", attempts: 0, trace: [], errorCode: "no_pin", degradedReason: "No model configured." } };
+  const shapeRetried = result.call.trace.some((/** @type {any} */ attempt) => attempt.errorCode === "invalid_json");
+  const checked = checkLean({ ...input, value: result.value, retried: shapeRetried });
+  if (result.call.errorCode) {
+    const reason = result.call.degradedReason || "No model configured.";
+    checked.shapeErrors = [reason];
+    checked.notes.push({ field: "call", check: "provider", action: "fail", detail: reason });
+  } else if (shapeRetried) checked.notes.push({ field: "shape", check: "shape", action: "retry", detail: "Shape required a second reply." });
   return { ...checked, response: result.value, call: result.call, promptVersion: LEAN_PROMPT_VERSION };
 }
 
 /** Direct, schema-valid qa.v3; no judge or repair is called. @param {Record<string, any>} input */
 export function leanQa({ document, runId, finalText, disposition, notes = [], gates = [] }) {
-  const relevant = notes.filter((/** @type {any} */ n) => document === "letter" ? n.field.startsWith("letter.") : !n.field.startsWith("letter."));
+  const relevant = notes.filter((/** @type {any} */ n) => (n.field === "call" || n.field === "shape") || (document === "letter" ? n.field.startsWith("letter.") : !n.field.startsWith("letter.")));
   const hard = gates.some((/** @type {any} */ g) => g.kind === "hard" && !g.pass);
   const state = hard || disposition === "FAIL" ? "FAIL" : disposition === "REVIEW" || gates.some((/** @type {any} */ g) => !g.pass) ? "REVIEW" : "READY";
-  const reasons = [...relevant.map((/** @type {any} */ n) => ({ checkId: `lean.${n.check}`, text: `${n.field}: ${n.action}${n.claimId ? ` to ${n.claimId}` : ""}` })), ...gates.filter((/** @type {any} */ g) => !g.pass).map((/** @type {any} */ g) => ({ checkId: g.id, text: g.reason }))];
+  const reasons = [...relevant.map((/** @type {any} */ n) => ({ checkId: `lean.${n.check}`, text: n.detail || `${n.field}: ${n.action}${n.claimId ? ` to ${n.claimId}` : ""}` })), ...gates.filter((/** @type {any} */ g) => !g.pass).map((/** @type {any} */ g) => ({ checkId: g.id, text: g.reason }))];
   if (state === "FAIL" && !reasons.length) reasons.push({ checkId: "lean.shape", text: "Lean shape failed twice or a letter part became empty." });
   return { contract: "materials.qa.v3", document, runId, passId: "pass-1", textHash: `sha256:${createHash("sha256").update(finalText).digest("hex")}`, state: "graded", disposition: state, reasons,
-    checks: ["shape", "numbers", "names", "skills", "voice", "ownership"].map(id => ({ id: `lean.${id}`, kind: "gate", status: id === "shape" && disposition === "FAIL" ? "fail" : "pass", label: id, detail: relevant.filter((/** @type {any} */ n) => n.check === id).map((/** @type {any} */ n) => `${n.field}: ${n.action}`).join("; ") || "Checked final copy", sentenceIds: [] })),
+    checks: ["shape", "numbers", "names", "skills", "voice", "ownership", "credentials", "markup", "provider"].map(id => {
+      const affected = relevant.filter((/** @type {any} */ n) => n.check.split(",").includes(id));
+      const failedGate = gates.find((/** @type {any} */ g) => g.id === `lean.${id}` && !g.pass);
+      return { id: `lean.${id}`, kind: "gate", status: id === "shape" && disposition === "FAIL" || affected.some((/** @type {any} */ n) => n.action === "fail") || failedGate?.kind === "hard" ? "fail" : affected.length || failedGate ? "review" : "pass", label: id,
+        detail: affected.map((/** @type {any} */ n) => n.detail || `${n.field}: ${n.action}`).join("; ") || failedGate?.reason || "Checked final copy", sentenceIds: [] };
+    }),
     sentences: [], issues: [], ratings: [], coverage: null, reviews: [], gates, qualificationGaps: [], degraded: [],
     repair: { attempted: false, parentRunId: null, changed: null, adopted: null, before: null, after: null },
     versions: { schema: "materials.qa.v3", judgePrompt: JUDGE_PROMPT_VERSION, pipeline: PIPELINE_PROMPT_VERSION } };

@@ -784,6 +784,7 @@ async function generateOpenAICompatible(input, extraUserText, provider, _maxToke
 function strictResponseSchema(schema, provider = "anthropic") {
   /** @type {Record<string, any>} */ const out = {};
   for (const [key, value] of Object.entries(schema)) {
+    if (provider === "openai" && ["minimum", "maximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "pattern"].includes(key)) continue;
     if (key.startsWith("$") || key === "uniqueItems" || provider === "anthropic" && ["minimum", "maximum", "multipleOf", "minLength", "maxLength", "maxItems"].includes(key)) continue;
     if (provider === "anthropic" && key === "minItems" && Number(value) > 1) continue;
     if (key === "properties") out[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, strictResponseSchema(/** @type {Record<string, any>} */ (child), provider)]));
@@ -975,7 +976,7 @@ async function runModelCall(input, extraUserText, { budget, parse, sleep = defau
       const info = classifyCallError(err);
       attempt.errorCode = info.code;
       if (err instanceof ModelHttpError && err.detail) attempt.errorDetail = err.detail;
-      if (info.transient && !input.responseSchema && transientRetries < TRANSIENT_RETRIES) {
+      if (info.transient && transientRetries < TRANSIENT_RETRIES) {
         await sleep(backoffMs(transientRetries, info.retryAfterMs));
         transientRetries += 1;
         continue;
@@ -1161,7 +1162,7 @@ export async function runJsonStage(input) {
   /** @type {StageCallRecord["fallback"]} */
   let fallback;
   const failedAttempts = primary.attempts.filter((a) => a.errorCode).length;
-  const fallbackPin = !input.responseSchema && primary.value === null && failedAttempts >= 2 ? fallbackPinFor(input.pin, input.stage) : null;
+  const fallbackPin = primary.value === null && failedAttempts >= 2 ? fallbackPinFor(input.pin, input.stage) : null;
   if (fallbackPin) {
     const reason = errorCodeOf(primary.error);
     const provider = normalizeWriterProvider(fallbackPin.provider);
