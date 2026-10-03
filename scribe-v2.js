@@ -795,78 +795,78 @@
       btn.addEventListener("click", a[2]); el.appendChild(btn);
     });
     if (el.parentNode !== ctl.refs.stage) ctl.refs.stage.appendChild(el);
+    // Keep actionable manual status reachable on phone Chat/Versions.
+    ctl.refs.stage.style.display = (actions || []).some(function (a) { return a[0] === "save" || a[0] === "retry"; }) ? "flex" : "";
   }
 
   function clearManualMessage(ctl) {
     clear(ctl.refs.manualState);
     ctl.refs.manualState.setAttribute("hidden", "");
     ctl.refs.manualState.removeAttribute("data-state");
+    ctl.refs.stage.style.display = "";
   }
 
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
 
-  /** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+  /** D28: NFC, then remove only markdown markup; map back to raw UTF-16 spans.
    * @param {string} value */
   function normalizedNumericText(value) {
-    var text = String(value);
-    var offsets = Array.from({ length: text.length }, (_, i) => i);
-    /** @param {RegExp} pattern @param {boolean} [label] */
-    function strip(pattern, label = false) {
-      var from = 0;
-      /** @type {string[]} */
-      var parts = [];
-      /** @type {number[]} */
-      var next = [];
-      text.replace(pattern, (...args) => {
-        var match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
-        parts.push(text.slice(from, at), kept);
-        next = next.concat(offsets.slice(from, at));
-        if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
-        from = at + match.length;
-        return match;
-      });
-      parts.push(text.slice(from));
-      text = parts.join(""); offsets = next.concat(offsets.slice(from));
+    var source = String(value), text = "";
+    /** @type {number[]} */
+    var offsets = [], ends = [];
+    // NFC cannot cross a grapheme boundary. Keep composed characters tied to
+    // their entire raw cluster, and unchanged characters to their exact offsets.
+    for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
+      var normalized = part.segment.normalize("NFC");
+      for (var i = 0; i < normalized.length; i++) {
+        if (/[*_`~]/.test(normalized[i])) continue;
+        text += normalized[i];
+        offsets.push(part.index + (normalized === part.segment ? i : 0));
+        ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
+      }
     }
-    strip(/<[^>]*>/g);
-    strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
-    strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
-    strip(/(?:\*\*|__|~~|`|\*|_)/g);
-    strip(/^\s+|\s+$/g);
-    return { text, offsets };
+    return { text: text, offsets: offsets, ends: ends };
   }
 
   /** @param {string} text @param {number} start @param {number} end */
   function numericRun(text, start, end) {
-    while (start > 0) {
-      var prev = Array.from(text.slice(0, start)).pop() || "";
-      var before = Array.from(text.slice(0, start - prev.length)).pop() || "";
-      if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
-      start -= prev.length;
-    }
-    while (end < text.length) {
-      var next = String.fromCodePoint(text.codePointAt(end) || 0);
-      var after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
-      if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
-      end += next.length;
-    }
-    return [start, end];
+    var points = Array.from(text), offsets = [0];
+    for (var point of points) offsets.push(offsets[offsets.length - 1] + point.length);
+    var left = offsets.indexOf(start), right = offsets.indexOf(end);
+    if (left < 0 || right < 0) return [start, end];
+    var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
+    /** Spaces bridge figure components, not a preceding prose word (D28 movement).
+     * @param {number} i */
+    var joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
+      (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
+       /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
+    while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
+    while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
+    while (right > left && /^[.,:;–—\-/]$/.test(points[right - 1])) right--;
+    return [offsets[left], offsets[right]];
   }
 
-  /** Match the locked base runs as a multiset, in any order, returning raw offsets.
+  /** Match distinct locked base runs as a multiset, mapping every constituent span.
    * @param {string} base @param {number[][]} spans @param {string} result */
   function matchingNumericSpans(base, spans, result) {
     var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+    /** @type {Map<string, {a:number,b:number,spans:number[][]}>} */
+    var groups = new Map();
     /** @type {number[][]} */
     var matched = [];
-    for (var [rawStart, rawEnd] of spans) {
-      var start = original.offsets.findIndex(i => i >= rawStart);
+    for (var [index, [rawStart, rawEnd]] of spans.entries()) {
+      var start = original.ends.findIndex(i => i > rawStart);
       var end = original.offsets.findIndex(i => i >= rawEnd);
       if (end < 0) end = original.text.length;
       if (start < 0 || start >= end) return null;
-      var [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
-      var at = next.text.indexOf(run);
+      var [a, b] = numericRun(original.text, start, end), key = a + ":" + b;
+      var group = groups.get(key);
+      if (!group) { group = { a: a, b: b, spans: [] }; groups.set(key, group); }
+      group.spans.push([index, start, end]);
+    }
+    for (var item of groups.values()) {
+      var run = original.text.slice(item.a, item.b), at = next.text.indexOf(run);
       while (at >= 0) {
         var [left, right] = numericRun(next.text, at, at + run.length);
         if (left === at && right === at + run.length && !used.has(at)) break;
@@ -874,7 +874,9 @@
       }
       if (at < 0) return null;
       used.add(at);
-      matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+      for (var [index, start, end] of item.spans) {
+        matched[index] = [next.offsets[at + start - item.a], next.ends[at + end - item.a - 1]];
+      }
     }
     return matched;
   }
@@ -892,7 +894,7 @@
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
-    if (a.last !== text) m.gateRetries = 0;
+    if (a.last !== text) { m.gateRetries = 0; m.gated = false; }
     a.spans = spans;
     a.last = text;
     if (text === a.node.text) delete m.drafts[a.node.id];
@@ -910,7 +912,10 @@
     m.active = null;
     if (m.timer) root.clearTimeout(m.timer);
     m.timer = null;
-    if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
+    if (dirtyManual(ctl)) {
+      if ((m.gateRetries || 0) >= 3) manualGateMessage(ctl);
+      else m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
+    }
     else {
       m.base = null; m.doc = null;
       if (["saving", "confirm", "conflict"].indexOf(ctl.refs.manualState.getAttribute("data-state")) < 0) clearManualMessage(ctl);
@@ -1039,6 +1044,10 @@
       m.confirmation = null;
       manualGateMessage(ctl); return Promise.resolve(false);
     }
+    if (automatic) {
+      if ((m.gateRetries || 0) >= 3) { manualGateMessage(ctl); return Promise.resolve(false); }
+      if (m.gated || m.gateRetries) m.gateRetries = (m.gateRetries || 0) + 1;
+    }
     m.gated = false;
     var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
@@ -1087,7 +1096,7 @@
           manualGateMessage(owner);
           var recovery = readOpen(owner, true), recoverySequence = owner.recoverySeq;
           return recovery.then(function () {
-            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving) manualGateMessage(owner);
+            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving && !m.timer) manualGateMessage(owner);
             return false;
           });
         }
@@ -1106,18 +1115,15 @@
     clearManualMessage(ctl);
   }
 
-  function resumeManualSave(ctl, explicit) {
+  function resumeManualSave(ctl) {
     var m = ctl.manual;
-    if (explicit) m.gateRetries = 0;
     if (!dirtyManual(ctl) || m.saving) return;
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
-    m.gated = false;
     if (!ctl.refs.unsaved.hasAttribute("hidden")) {
       manualMessage(ctl, "editing", "Your text is kept."); return;
     }
     if ((m.gateRetries || 0) >= 3) { manualGateMessage(ctl); return; }
-    m.gateRetries = (m.gateRetries || 0) + 1;
     m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl, null, true); }, 2000);
     manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }
@@ -1133,7 +1139,7 @@
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
         if (entry[0] === "save") saveManual(ctl).then(function (saved) { if (saved) { el.setAttribute("hidden", ""); action(); } });
-        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl, true); ctl.refs.prompt.focus(); } }
+        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else { resumeManualSave(ctl); ctl.refs.prompt.focus(); } }
       }); el.appendChild(btn);
     });
     el.querySelector("button").focus(); return false;
@@ -2338,7 +2344,7 @@
       var buttons = Array.prototype.slice.call(r.selectionActions.querySelectorAll("button"));
       var at = buttons.indexOf(e.target); e.preventDefault(); buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus(); return;
     }
-    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl, true); r.prompt.focus(); return; }
+    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); resumeManualSave(ctl); r.prompt.focus(); return; }
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */

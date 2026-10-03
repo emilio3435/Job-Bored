@@ -4,7 +4,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { runsToText, validateRenderModel } from "./materials-render.mjs";
 
-const NUMBER = /(?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/g;
+const NUMBER = /(?:[$#]|top-)?\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?(?:[–-]\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/gu;
 
 /** @typedef {import('./materials-render.mjs').RenderModel} RenderModel */
 /** @typedef {{id:string,kind:string,text:string,locked:{whole:boolean,spans:number[][]},ref:any}} Address */
@@ -34,11 +34,11 @@ export class MaterialsEditError extends Error {
 /** @param {string} text */
 const wordCount = (text) => String(text).trim().split(/\s+/).filter(Boolean).length;
 /** @param {string} text */
-const plain = (text) => String(text)
+const plain = (text) => String(text).normalize("NFC")
   .replace(/<[^>]*>/g, "")
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
-  .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm, "")
-  .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
+  .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
+  .replace(/[*_`~]/g, "")
   .trim();
 
 /** @param {Array<{t?:string,n?:string,hl?:string}>} runs */
@@ -108,75 +108,74 @@ export function lockedSpans(model) {
 }
 
 
-/** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+/** D28: NFC, then remove only markdown markup; map back to raw UTF-16 spans.
  * @param {string} value */
 function normalizedNumericText(value) {
-  let text = String(value);
-  let offsets = Array.from({ length: text.length }, (_, i) => i);
-  /** @param {RegExp} pattern @param {boolean} [label] */
-  function strip(pattern, label = false) {
-    let from = 0;
-    /** @type {string[]} */
-    const parts = [];
-    /** @type {number[]} */
-    let next = [];
-    text.replace(pattern, (...args) => {
-      const match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
-      parts.push(text.slice(from, at), kept);
-      next = next.concat(offsets.slice(from, at));
-      if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
-      from = at + match.length;
-      return match;
-    });
-    parts.push(text.slice(from));
-    text = parts.join(""); offsets = next.concat(offsets.slice(from));
+  var source = String(value), text = "";
+  /** @type {number[]} */
+  var offsets = [], ends = [];
+  // NFC cannot cross a grapheme boundary. Keep composed characters tied to
+  // their entire raw cluster, and unchanged characters to their exact offsets.
+  for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
+    var normalized = part.segment.normalize("NFC");
+    for (var i = 0; i < normalized.length; i++) {
+      if (/[*_`~]/.test(normalized[i])) continue;
+      text += normalized[i];
+      offsets.push(part.index + (normalized === part.segment ? i : 0));
+      ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
+    }
   }
-  strip(/<[^>]*>/g);
-  strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
-  strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
-  strip(/(?:\*\*|__|~~|`|\*|_)/g);
-  strip(/^\s+|\s+$/g);
-  return { text, offsets };
+  return { text: text, offsets: offsets, ends: ends };
 }
 
 /** @param {string} text @param {number} start @param {number} end */
 function numericRun(text, start, end) {
-  while (start > 0) {
-    const prev = Array.from(text.slice(0, start)).at(-1) || "";
-    const before = Array.from(text.slice(0, start - prev.length)).at(-1) || "";
-    if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
-    start -= prev.length;
-  }
-  while (end < text.length) {
-    const next = String.fromCodePoint(text.codePointAt(end) || 0);
-    const after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
-    if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
-    end += next.length;
-  }
-  return [start, end];
+  const points = Array.from(text), offsets = [0];
+  for (const point of points) offsets.push(offsets[offsets.length - 1] + point.length);
+  let left = offsets.indexOf(start), right = offsets.indexOf(end);
+  if (left < 0 || right < 0) return [start, end];
+  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
+  /** Spaces bridge figure components, not a preceding prose word (D28 movement).
+   * @param {number} i */
+  const joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
+    (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
+     /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
+  while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
+  while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
+  while (right > left && /^[.,:;–—\-/]$/.test(points[right - 1])) right--;
+  return [offsets[left], offsets[right]];
 }
 
-/** Match the locked base runs as a multiset, in any order, returning raw offsets.
+/** Match distinct locked base runs as a multiset, mapping every constituent span.
  * @param {string} base @param {number[][]} spans @param {string} result */
 function matchingNumericSpans(base, spans, result) {
-  const original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  /** @type {Map<string, {a:number,b:number,spans:number[][]}>} */
+  var groups = new Map();
   /** @type {number[][]} */
-  const matched = [];
-  for (const [rawStart, rawEnd] of spans) {
-    const start = original.offsets.findIndex(i => i >= rawStart);
-    let end = original.offsets.findIndex(i => i >= rawEnd);
+  var matched = [];
+  for (var [index, [rawStart, rawEnd]] of spans.entries()) {
+    var start = original.ends.findIndex(i => i > rawStart);
+    var end = original.offsets.findIndex(i => i >= rawEnd);
     if (end < 0) end = original.text.length;
     if (start < 0 || start >= end) return null;
-    const [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
-    let at = next.text.indexOf(run);
+    var [a, b] = numericRun(original.text, start, end), key = a + ":" + b;
+    var group = groups.get(key);
+    if (!group) { group = { a: a, b: b, spans: [] }; groups.set(key, group); }
+    group.spans.push([index, start, end]);
+  }
+  for (var item of groups.values()) {
+    var run = original.text.slice(item.a, item.b), at = next.text.indexOf(run);
     while (at >= 0) {
-      const [left, right] = numericRun(next.text, at, at + run.length);
+      var [left, right] = numericRun(next.text, at, at + run.length);
       if (left === at && right === at + run.length && !used.has(at)) break;
       at = next.text.indexOf(run, at + 1);
     }
     if (at < 0) return null;
     used.add(at);
-    matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+    for (var [index, start, end] of item.spans) {
+      matched[index] = [next.offsets[at + start - item.a], next.ends[at + end - item.a - 1]];
+    }
   }
   return matched;
 }
@@ -192,7 +191,7 @@ function assertUnlocked(node, nextText) {
 
 /** @param {RenderModel} model */
 function metricTokens(model) {
-  return [...new Set(addressBook(model).flatMap((node) => node.locked.spans.map(([a, b]) => node.text.slice(a, b))))].sort((a, b) => b.length - a.length);
+  return [...new Set(addressBook(model).flatMap((node) => node.locked.spans.map(([a, b]) => normalizedNumericText(node.text.slice(a, b)).text)))].sort((a, b) => b.length - a.length);
 }
 
 /** @param {string} text @param {string[]} tokens */
@@ -267,6 +266,8 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
       const text = plain(op.text);
       // Normalize each raw side once inside the lock check, just as the client does.
       assertUnlocked(node, op.text);
+      // Cleanup must not strip an enumerator/sign or join HTML-separated digits.
+      assertUnlocked(node, text);
       if (["statement", "intro", "bullet", "credential"].includes(ref.kind)) ref.target.runs = toRuns(text, tokens);
       else if (ref.kind === "paragraph") { ref.target.text = text; if ("words" in ref.target) ref.target.words = wordCount(text); }
       else if (ref.kind === "line") ref.entry.line = text;

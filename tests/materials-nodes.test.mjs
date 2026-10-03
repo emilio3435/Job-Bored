@@ -212,3 +212,62 @@ for (const doc of ['resume', 'coverLetter']) {
     assert.throws(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: 'Cut defects 38%*50 across teams.' }]), { reason: 'locked' });
   });
 }
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B70 R6-#1 ${doc} D28 blocks value-changing figure attachments atomically`, () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      const { before, id } = numericModel(doc, 'Processed 38 shipments.'), original = structuredClone(before);
+      assert.throws(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: `Processed ${figure} shipments.`, flags: ['unverified'] }]), { reason: 'locked' }, figure);
+      assert.deepEqual(before, original);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) {
+      const { before, id } = numericModel(doc, base);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: after }]));
+    }
+  });
+}
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B71 R6-#2 ${doc} shared runs consume one occurrence and distinct runs keep multiplicity`, () => {
+  for (const joiner of ['x', 'e']) {
+    const { before, id } = numericModel(doc, `Processed 38${joiner}40 sheets.`, ['38', '40']);
+    const text = `We processed 38${joiner}40 sheets.`;
+    const after = applyOps(before, [{ opId: 'group', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text); assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), ['38', '40']);
+    assert.throws(() => applyOps(after, [{ opId: 'change', op: 'replace', node: id, text: text.replace('40', '50') }]), { reason: 'locked' });
+    const repeated = numericModel(doc, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, ['38', '40', '38', '40']);
+    assert.throws(() => applyOps(repeated.before, [{ opId: 'lost', op: 'replace', node: repeated.id, text }]), { reason: 'locked' });
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B74 R6-#5 ${doc} Unicode decimal figures have UTF-16 locks and cannot change`, () => {
+  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+    const { before, id } = numericModel(doc, `😀 Processed ${figure} shipments.`, [figure]);
+    const node = deriveNodes(before).find(n => n.id === id);
+    assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), [figure]);
+    assert.throws(() => applyOps(before, [{ opId: 'unicode', op: 'replace', node: id, text: node.text.replace(figure, changed), flags: ['unverified'] }]), { reason: 'locked' });
+    assert.doesNotThrow(() => applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: `${figure} shipments were processed.` }]));
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B75 R6-#6 ${doc} D28 preserves numbered text and NFC figure runs through storage`, () => {
+  for (const [base, text] of [
+    ['38. Shipments processed.', '38. All shipments processed.'],
+    ['😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.'],
+    ['Processed 38 shipments.', 'Processed 3**8** shipments.'],
+    ['Processed - 38 shipments.', 'We processed - 38 shipments.'],
+  ]) {
+    const { before, id } = numericModel(doc, base);
+    const after = applyOps(before, [{ opId: 'normalize', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text.normalize('NFC').replace(/[*_`~]/g, ''));
+    assert.ok(node.locked.spans.length); assert.equal(node.text.slice(...node.locked.spans[0]), '38');
+    assert.throws(() => applyOps(after, [{ opId: 'mutate', op: 'replace', node: id, text: node.text.replace('38', '39') }]), { reason: 'locked' });
+  }
+  const { before, id } = numericModel(doc, 'Processed 38 shipments.');
+  assert.throws(() => applyOps(before, [{ opId: 'html', op: 'replace', node: id, text: 'Processed 38<b>0</b> shipments.' }]), { reason: 'locked' }, 'storage cleanup cannot join an extra digit to a locked figure');
+});

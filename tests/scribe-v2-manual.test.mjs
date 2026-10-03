@@ -376,7 +376,13 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D2
     inner.dispatchEvent({ type: 'dblclick', target: els[0] });
     const staged = edge === 'after' ? base.replace('38', '38 ,000') : base.replace('38', ',000 38');
     els[0].textContent = staged; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, staged, 'unchanged immediate neighbours permit distant edits');
+    // D28 now treats a single space between numeric components as part of the run.
+    if (edge === 'before') {
+      assert.equal(els[0].textContent, base, 'grouped numeric prefix is blocked before it can be joined');
+      assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+      ctl.close('role-closed'); continue;
+    }
+    assert.equal(els[0].textContent, staged, 'a space before punctuation still separates the runs');
     const separator = edge === 'after' ? at + 2 : at + 4;
     caret(inner, els[0], separator + 1);
     const deletion = { type: 'beforeinput', target: els[0], inputType: 'deleteContentBackward', data: null };
@@ -467,9 +473,10 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F93 R4-#4 ${which} ad
 async function checkNumericRun(which, base, after, blocked, tokens = ['38'], channel = 'input') {
   const t = await desk(which); const { ctl, inner, els, nodes } = t;
   nodes[0].text = base;
-  nodes[0].locked.spans = tokens.map((token, i) => {
-    const start = base.indexOf(token, i ? base.indexOf(tokens[i - 1]) + tokens[i - 1].length : 0);
-    return [start, start + token.length];
+  let from = 0;
+  nodes[0].locked.spans = tokens.map(token => {
+    const start = base.indexOf(token, from); from = start + token.length;
+    return [start, from];
   });
   els[0].textContent = base; inner.dispatchEvent({ type: 'dblclick', target: els[0] });
   if (channel === 'beforeinput') {
@@ -585,3 +592,135 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
     ]) await checkNumericRun(which, base, after, after.includes('*50'), ['38%'], channel);
   });
 }
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F110 R6-#1 ${which} ${channel} D28 blocks value-changing figure attachments`, async () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      await checkNumericRun(which, 'Processed 38 shipments.', `Processed ${figure} shipments.`, true, ['38'], channel);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) await checkNumericRun(which, base, after, false, ['38'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F111 R6-#2 ${which} ${channel} groups locks sharing a run and retains distinct multiplicity`, async () => {
+    for (const joiner of ['x', 'e']) {
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}40 sheets.`, false, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}50 sheets.`, true, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, `Processed 38${joiner}40 sheets.`, true, ['38', '40', '38', '40'], channel);
+    }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 R6-#2 ${which} grouped locks map each UTF-16 span into the moved run`, async () => {
+  const t = await desk(which), base = 'Processed 38x40 sheets.', after = '😀 We processed 38x40 sheets.';
+  t.nodes[0].text = base; t.nodes[0].locked.spans = [[10, 12], [13, 15]]; t.els[0].textContent = base;
+  t.edit(t.els[0], after);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[16, 18], [19, 21]]);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  t.els[0].textContent = after.replace('40', '50'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
+  assert.equal(t.els[0].textContent, after);
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} unchanged focus and blur cannot bypass the automatic save budget`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 4); assert.equal(t.ctl.manual.gateRetries, 3);
+  for (const el of [t.els[1], t.els[0], t.els[1]]) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: el });
+    t.inner.dispatchEvent({ type: 'focusout', target: el }); await t.flush();
+    assert.equal(t.calls.length, 4, 'unchanged focus/blur never posts beyond three retries');
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  }
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Stay does not reset an exhausted budget');
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.ctl.refs.unsaved });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Escape does not reset an exhausted budget');
+  t.edit(t.els[0], 'Tracked daily work.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 8, 'changed text starts a fresh initial attempt and three retries');
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 12, 'explicit Try again starts a fresh budget');
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} blur and recovery share one budget while explicit Save resets it`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => { throw new Error('offline'); };
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  for (let i = 0; i < 6; i++) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: t.els[1] });
+    t.inner.dispatchEvent({ type: 'focusout', target: t.els[1] }); await t.flush();
+  }
+  assert.equal(t.calls.length, 4, 'blur cannot create an independent retry allowance');
+  t.api.getOpenEdit = async () => ({ proposal: null });
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  t.ctl.refs.manualState.querySelector('[data-manual="save"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 9, 'explicit Save has an initial POST and three retries');
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F113 R6-#4 ${which} recovery keeps Save while a timer is armed and Try again only when it stops`, async () => {
+  const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.'); await t.flush(); await settle();
+  assert.equal(t.calls.length, 1); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+  assert.equal(t.ctl.refs.manualState.textContent, 'Your text is kept. Saves in 2 seconds.Save');
+  assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="save"]'));
+  assert.equal(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'), null);
+  await t.flush(); assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+  const hung = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  hung.api.getOpenEdit = async () => ({ proposal: null }); hung.edit(hung.els[0], 'Tracked operations.');
+  for (let i = 0; i < 4; i++) {
+    await hung.flush();
+    assert.equal(hung.ctl.refs.manualState.textContent, i < 3 ? 'Your text is kept. Saves in 2 seconds.Save' : 'Not saved. Your text is kept.Try again');
+  }
+  assert.equal([...hung.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  hung.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 R6-#5 ${which} server-discovered Unicode locks block client edits`, async () => {
+  const { deriveNodes } = await import('../server/materials-nodes.mjs');
+  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+    const model = JSON.parse(readFileSync(new URL('../docs/programs/editor-20260927/fixtures/model.json', import.meta.url), 'utf8'));
+    model.documents.coverLetter.paragraphs[1].text = `😀 Processed ${figure} shipments.`;
+    model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: '😀 Processed ' }, { n: figure }, { t: ' shipments.' }];
+    const node = deriveNodes(model).find(n => n.id === (which === 'resume' ? 'b:acme:c14' : 'p:p2'));
+    const t = await desk(which); t.nodes[0].text = node.text; t.nodes[0].locked = node.locked; t.els[0].textContent = node.text;
+    t.edit(t.els[0], node.text.replace(figure, changed)); await t.flush();
+    assert.equal(t.els[0].textContent, node.text, 'discovered locks reach client input validation'); assert.equal(t.calls.length, 0);
+    t.ctl.close('role-closed');
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F115 R6-#6 ${which} ${channel} D28 preserves numbered text and NFC figure runs`, async () => {
+    await checkNumericRun(which, '38. Shipments processed.', '38. All shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '38. Shipments processed.', '39. All shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café39 shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**8** shipments.', false, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**9** shipments.', true, ['38'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 R6-#6 ${which} NFC offset mapping keeps subsequent locked edits blocked`, async () => {
+  const t = await desk(which), base = '😀 Cafe\u030138 shipments.', after = '😀 Café38 shipments processed.';
+  const at = base.indexOf('38'); t.nodes[0].text = base; t.nodes[0].locked.spans = [[at, at + 2]]; t.els[0].textContent = base;
+  t.edit(t.els[0], after);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[7, 9]]);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  t.els[0].textContent = after.replace('38', '39'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
+  assert.equal(t.els[0].textContent, after); t.ctl.close('role-closed');
+});

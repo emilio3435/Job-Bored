@@ -920,3 +920,43 @@ for (const which of ['resume', 'cover_letter']) for (const [style, base] of [['a
       } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F116 R6-#7 ${which} 375px Chat and Versions expose scheduled Save and exhausted Try again`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const h = await realDesk(page, which);
+    try {
+      await page.clock.install(); await page.clock.pauseAt(new Date(Date.now() + 1000));
+      await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/manual`, route => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ code: 'materials_pending', error: 'Role is busy.' }) }));
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      const text = which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.';
+      await typeBlock(page, id, text); await page.clock.fastForward(2000);
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Your text is kept. Saves in 2 seconds.Save');
+      const visibleAction = async action => {
+        for (const seg of ['chat', 'versions']) {
+          await h.desk.locator(`button[data-seg="${seg}"]`).click();
+          await expect(h.desk.locator('.scribe__stage')).toBeVisible();
+          const button = h.desk.locator(`[data-manual="${action}"]`);
+          await expect(button).toBeVisible(); await expect(button).toBeEnabled();
+          const box = await button.boundingBox(); expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(667);
+          await button.focus(); await expect(button).toBeFocused();
+          await expect(h.desk.locator('.scribe__docscroll')).toBeHidden();
+        }
+      };
+      await visibleAction('save');
+      for (let attempts = 2; attempts <= 4; attempts++) {
+        await page.clock.fastForward(2000);
+        await expect.poll(() => h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual')).length).toBe(attempts);
+        await expect.poll(() => page.evaluate(() => globalThis.JB_SCRIBE_V2.current().manual.saving)).toBe(false);
+      }
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Not saved. Your text is kept.Try again');
+      await visibleAction('retry');
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().manual.timer)).toBeNull();
+      await h.desk.locator('[data-manual="retry"]').click();
+      await expect.poll(() => h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual')).length).toBe(5);
+      expect(await page.evaluate(id => globalThis.JB_SCRIBE_V2.current().manual.drafts[id].text, id)).toBe(text);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+      await expect(h.desk.locator('.scribe__frame')).toHaveAttribute('sandbox', 'allow-same-origin');
+    } finally { await h.service.close(); }
+  });
+}
