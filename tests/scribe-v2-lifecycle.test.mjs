@@ -733,3 +733,13 @@ it('SCRP-R1-17 programmer exceptions never appear as user-facing server copy', a
   t.api.propose = async () => { throw new Error('TypeError: internal controller detail'); };
   await t.submit(ctl); assert.equal(ctl.refs.statusText.textContent, 'That didn’t work. Try again.'); ctl.close();
 });
+
+it('SCRP-R1-18 active proposals have no recovery banner or lost-choice warning', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  assert.doesNotMatch(ctl.refs.statusText.textContent, /choices weren’t kept/); ctl.close();
+});
+it('SCRP-R1-18 only ready recovered proposals warn about lost choices', async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [ROP] };
+  const ctl = t.mount(); await flush(); assert.doesNotMatch(ctl.refs.statusText.textContent, /choices weren’t kept/); ctl.close();
+});

@@ -1048,6 +1048,9 @@
     clear(r);
     var rows = ctl.openProposals || (ctl.openProposal ? [ctl.openProposal] : []);
     if (ctl.request && ctl.state.busy) rows = rows.filter(function (p) { return p.proposalId !== ctl.request.proposalId; });
+    rows = rows.filter(function (p) {
+      return !ctl.state.proposal || ctl.state.proposal.id !== p.proposalId || p.baseRunId !== ctl.state.latestRunId;
+    });
     if (!rows.length) { r.setAttribute("hidden", ""); r.removeAttribute("data-recover-doc"); return; }
     r.removeAttribute("hidden");
     rows.forEach(function (p) {
@@ -1109,7 +1112,7 @@
     ctl.openProposal = stored;
     ctl.openProposals = null;
     renderRecovery(ctl);
-    if (stored.doc !== ctl.state.doc || stored.status === "accepting") return Promise.resolve();
+    if (stored.doc !== ctl.state.doc || stored.status === "accepting" || stored.status === "pending") return Promise.resolve();
     if (ctl.state.proposal && ctl.state.proposal.id === stored.proposalId) return Promise.resolve();
     var generation = ctl.generation;
     var p = { id: stored.proposalId, doc: stored.doc, baseRunId: stored.baseRunId, instruction: stored.instruction,
@@ -1120,7 +1123,7 @@
       if (!loaded || generation !== ctl.generation || ctl.state.proposal !== p) return;
       p.ops.forEach(function (op) { markOp(ctl, op); });
       renderAll(ctl);
-      status(ctl, "recovered", "Your earlier accept/reject choices weren’t kept. Review again.");
+      if (reviewReady(p)) status(ctl, "recovered", "Your earlier accept/reject choices weren’t kept. Review again.");
     }).catch(function () {
       if (generation !== ctl.generation || ctl.closed) return;
       ctl.state.loading = false;
@@ -1404,7 +1407,12 @@
     }
     var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
       stopRequested: true, detached: false, generation: ctl.generation };
-    ctl.state.busy = true; renderStage(ctl); stopRequest(ctl, request);
+    ctl.state.proposal = { id: stored.proposalId, doc: stored.doc, baseRunId: stored.baseRunId,
+      status: "pending", ops: [], blocked: [], summary: null };
+    ctl.state.busy = true; ctl.state.loading = true; renderStage(ctl);
+    installExactBase(ctl, stored.baseRunId, stored.doc, request.generation).then(function (loaded) {
+      if (loaded && requestCurrent(ctl, request)) return stopRequest(ctl, request);
+    }).catch(function (err) { requestFailure(ctl, request, err); });
   }
 
   function detachRequest(ctl) {
