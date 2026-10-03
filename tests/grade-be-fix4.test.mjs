@@ -144,3 +144,21 @@ for (const linked of [false, true]) it(`GRADE-B FIX5-R5-1: a borrowed two-senten
   await rescoreRun({ slug: "acme", runId: result.runId }, deps);
   assert.equal((await json(join(version, "qa.resume.json"))).gates.find(g => g.id === "invented_fact").pass, false);
 }));
+
+it("GRADE-B FIX6-R6-2: a sentence already in a credentials line is existing text and cannot be rebound onto a claim slot", async () => application("resume", async ({ app, run, model, draft, draftName, deps }) => {
+  const costs = "Reduced carrier costs 38% through weekly audits.";
+  const added = "Shared the results with dispatch leads.";
+  const bullets = model.documents.resume.sections[0].entries[0].bullets;
+  model.documents.resume.sections.push({ kind: "credentials", label: "Credentials", lines: [{ runs: [{ t: costs }] }] });
+  // Unlinked c14: only the claim-id slot path can realign the slot.
+  for (const dir of [app, run]) { await save(join(dir, "render-model.json"), model); await save(join(dir, "writer-sources.json"), { resume: [] }); }
+  const before = await readFile(join(app, draftName), "utf8");
+  bullets[0].runs = [{ t: `${costs} ${added}` }];
+  const result = await commitModelAsRun({ dir: app, model, feature: "resume", source: "edit", parentRunId: "original", edit: { prompt: "Replace first bullet", accepted: ["replace-1"], rejected: [], ops: [
+    { opId: "replace-1", op: "replace", node: "b:acme:c14", text: `${costs} ${added}` },
+  ] } }, deps);
+  const version = join(app, "runs", result.runId);
+  assert.equal((await json(join(version, "qa.resume.json"))).gates.find(g => g.id === "invented_fact").pass, false, "the credentials sentence cannot borrow c14");
+  assert.equal((await json(join(version, draftName))).bullets.find(b => b.claimId === "c14").text, draft.bullets.find(b => b.claimId === "c14").text, "c14 slot text unchanged");
+  for (const dir of [app, run, version]) assert.equal(await readFile(join(dir, draftName), "utf8"), before);
+}));

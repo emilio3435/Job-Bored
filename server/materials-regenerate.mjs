@@ -166,7 +166,7 @@ function rebindDraft(draft, before, after, context) {
   // Only an accepted replacement of that exact bullet may realign its slot.
   if (context.document === "resume" && context.ops?.length) {
     const oldNodes = deriveNodes(context.original), nextNodes = deriveNodes(context.model);
-    const sourceKeys = new Set(splitMetricSentences(documentBody(context.original, "resume")).map(key));
+    const sourceKeys = new Set(splitMetricSentences(documentBody(context.original, "resume", true)).map(key));
     for (const op of context.ops) {
       if (op.op !== "replace") continue;
       const node = oldNodes.find(n => n.kind === "bullet" && n.id === op.node);
@@ -196,8 +196,8 @@ function rebindDraft(draft, before, after, context) {
   return out;
 }
 
-/** @param {import("./materials-render.mjs").RenderModel} model @param {"resume" | "letter"} document */
-function documentBody(model, document) {
+/** `includeAuxiliary` adds credential and toolkit text; the QA text hash must keep the narrower body. @param {import("./materials-render.mjs").RenderModel} model @param {"resume" | "letter"} document @param {boolean} [includeAuxiliary] */
+function documentBody(model, document, includeAuxiliary = false) {
   if (document === "letter") return (model.documents.coverLetter?.paragraphs || []).map((part) => String(part.text || "").trim()).filter(Boolean).join("\n\n");
   const resume = model.documents.resume;
   if (!resume) return "";
@@ -207,6 +207,9 @@ function documentBody(model, document) {
       for (const bullet of entry.bullets || []) lines.push(runsToText(bullet.runs).trim());
       if (!(entry.bullets || []).length && entry.line) lines.push(String(entry.line).trim());
     }
+    if (!includeAuxiliary) continue;
+    for (const line of section.lines || []) lines.push(runsToText(line.runs).trim());
+    for (const group of section.groups || []) lines.push(String(group.label || "").trim(), ...(group.items || []).map((item) => String(item).trim()));
   }
   return lines.filter(Boolean).join("\n");
 }
