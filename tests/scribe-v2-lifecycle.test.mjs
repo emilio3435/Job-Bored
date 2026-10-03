@@ -429,3 +429,23 @@ describe("Scribe v2 speaks each result once (F1-announce)", () => {
     assert.equal(live.length, 1, "announce's region is the only live region");
   });
 });
+
+it('SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts', () => {
+  const env = boot();
+  const { ctl } = openDesk(env);
+  const host = ctl.refs.host;
+  const recover = host.querySelector('.scribe__recover');
+  assert.ok(recover, 'recovery mount exists');
+  assert.equal(recover.parentNode, ctl.refs.composer);
+  assert.equal(ctl.refs.composer.firstChild, recover);
+  assert.equal(recover.getAttribute('role'), 'group');
+  assert.ok(recover.hasAttribute('hidden'));
+  const status = host.querySelector('.scribe__status');
+  assert.equal(status.parentNode, ctl.refs.composer);
+  assert.equal(status.getAttribute('role'), 'status');
+  assert.ok(status.hasAttribute('hidden'));
+  assert.ok(status.querySelector('button.scribe__status-action'));
+  assert.equal(host.querySelector('.scribe__unsaved').getAttribute('role'), 'alertdialog');
+  assert.ok(host.querySelector('.scribe__unsaved').hasAttribute('hidden'));
+  assert.ok(ctl.refs.scope.querySelector('[data-action="clear-scope"]'));
+});
