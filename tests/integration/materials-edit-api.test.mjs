@@ -1318,3 +1318,36 @@ it("SCRP-B24 R1-#5 malformed ready rows agree between GET open and the role gate
   const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
   assert.equal(saved.statusCode, 200);
 });
+
+
+it("SCRP-B26 R1-#7 proposal promise queues are pruned after terminal close, accept and reject", async () => {
+  const observed = [];
+  const NativeMap = globalThis.Map;
+  let svc;
+  try {
+    globalThis.Map = class extends NativeMap { constructor(...args) { super(...args); observed.push(this); } };
+    svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl, commit });
+  } finally { globalThis.Map = NativeMap; }
+  const queues = (id) => observed.map((map) => map.get(id)).filter((value) => value instanceof Promise);
+  const drained = async (id) => {
+    for (let i = 0; i < 3; i++) {
+      await Promise.all(queues(id).map((promise) => promise.catch(() => {})));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(queues(id).length, 0, "settled per-proposal promises must be released");
+  };
+  const rejected = await seed();
+  const pending = await svc.start(rejected.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  assert.equal(queues(pending.proposalId).length, 1, "instrumentation observes the real persistence queue");
+  await svc.reject(rejected.slug, pending.proposalId);
+  await drained(pending.proposalId);
+  const accepted = await seed();
+  const id = await readyProposal(svc, accepted);
+  await drained(id);
+  await svc.accept(accepted.slug, id, { accept: ["o1"], confirmUnverified: [] });
+  await drained(id);
+  const stopped = await seed();
+  const partial = await svc.start(stopped.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await svc.stop(stopped.slug, partial.proposalId);
+  await drained(partial.proposalId);
+});

@@ -287,9 +287,17 @@ export function createMaterialsVersionService(deps = {}) {
   const writes = new Map();
   /** @type {Map<string, Promise<void>>} */
   const terminals = new Map();
+  /** Only settled queues with no audience can be released. */
+  /** @param {Record<string, any>} proposal */
+  const pruneQueues = (proposal) => {
+    if (["pending", "accepting"].includes(proposal.status) || listeners.get(proposal.id)?.size) return;
+    writes.delete(proposal.id);
+    terminals.delete(proposal.id);
+  };
   /** Snapshot and event delivery share one queue; a failed write cannot poison Stop. */
   /** @param {Record<string, any>} proposal @param {string} [event] @param {any} [data] */
   const save = (proposal, event, data) => {
+    if (proposal.status === "rejected") return Promise.resolve();
     const snapshot = structuredClone(persisted(proposal));
     const payload = data === undefined ? undefined : structuredClone(data);
     const queued = (writes.get(proposal.id) || Promise.resolve()).catch(() => {}).then(async () => {
@@ -300,6 +308,8 @@ export function createMaterialsVersionService(deps = {}) {
       }
     });
     writes.set(proposal.id, queued);
+    const settled = () => { if (writes.get(proposal.id) === queued) pruneQueues(proposal); };
+    void queued.then(settled, settled);
     return queued;
   };
   /** @param {Record<string, any>} proposal @param {string} event @param {any} data */
@@ -591,13 +601,19 @@ export function createMaterialsVersionService(deps = {}) {
       });
       writes.set(id, replay);
       await replay;
-      if (res.writableEnded) return;
+      if (res.writableEnded) { pruneQueues(proposal); return; }
       let audience = listeners.get(id);
       if (!audience) { audience = new Set(); listeners.set(id, audience); }
       audience.add(send);
       heartbeat = setInterval(() => { if (!res.writableEnded) res.write(": ping\n\n"); }, 15_000);
       heartbeat.unref();
-      close = () => { clearInterval(heartbeat); audience.delete(send); if (!audience.size) listeners.delete(id); };
+      close = () => {
+        clearInterval(heartbeat);
+        audience.delete(send);
+        if (!audience.size) listeners.delete(id);
+        const queue = writes.get(id);
+        void queue?.catch(() => {}).then(() => { if (writes.get(id) === queue) pruneQueues(proposal); });
+      };
       res.once("close", close);
       if (!proposal.running && proposal.status === "pending") {
         void processProposal(proposal).then(() => {
@@ -716,6 +732,8 @@ export function createMaterialsVersionService(deps = {}) {
         await writes.get(id)?.catch(() => {});
         await rm(proposalPath(proposal), { force: true });
         live.delete(id);
+        writes.delete(id);
+        terminals.delete(id);
       } finally { reserved.delete(dir); }
     },
     /** @param {string} slug @param {string} id @param {Record<string, any>} [body] */
