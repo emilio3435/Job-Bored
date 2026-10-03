@@ -32,6 +32,10 @@
 
   if (!root || typeof root !== "object") return;
 
+  /* Session-only drafts, indexed by role and document; nodes remain keyed by ID. */
+  var manualRegistry = Object.create(null);
+  function manualKey(slug, which) { return JSON.stringify([slug, which]); }
+
   var DOC_LABEL = { resume: "Resume", cover_letter: "Cover letter" };
   var DOC_NOUN = { resume: "resume", cover_letter: "cover letter" };
   var DOC_ORDER = ["resume", "cover_letter"];
@@ -340,7 +344,7 @@
   function renderRegionLabel(ctl) {
     var v = currentVersion(ctl);
     var label = DOC_LABEL[ctl.state.doc] + (v ? ", version " + v.n : "");
-    if (ctl.state.proposal && ctl.state.proposal.ops.length) label += ", proposal with " + plural(ctl.state.proposal.ops.length, "change");
+    if (ctl.state.proposal && ctl.state.proposal.ops.length) label += ", " + plural(ctl.state.proposal.ops.length, "suggested change");
     ctl.refs.docscroll.setAttribute("aria-label", label);
     ctl.refs.frame.setAttribute("title", DOC_LABEL[ctl.state.doc] + " preview" + (v ? ", version " + v.n : ""));
   }
@@ -747,6 +751,10 @@
     if (locked.length) { hideSelectionActions(ctl); status(ctl, "selection", lockText(map[locked[0]])); return; }
     if (ids.some(function (id) { return map[id].locked && map[id].locked.spans.length; })) status(ctl, "selection", "Figures in this line are locked.");
     var toolbar = ctl.refs.selectionActions;
+    var edit = toolbar.querySelector('[data-selection="edit"]');
+    edit.setAttribute("aria-disabled", ids.length === 1 ? "false" : "true");
+    if (ids.length === 1) edit.removeAttribute("title");
+    else edit.setAttribute("title", "Select one block to edit its text.");
     var rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() :
       ctl.scope.anchor && ctl.scope.anchor.getBoundingClientRect && ctl.scope.anchor.getBoundingClientRect();
     toolbar.removeAttribute("hidden");
@@ -785,6 +793,12 @@
     if (el.parentNode !== ctl.refs.stage) ctl.refs.stage.appendChild(el);
   }
 
+  function clearManualMessage(ctl) {
+    clear(ctl.refs.manualState);
+    ctl.refs.manualState.setAttribute("hidden", "");
+    ctl.refs.manualState.removeAttribute("data-state");
+  }
+
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
   function changedRange(before, after) {
@@ -812,7 +826,7 @@
     if (text === a.node.text) delete m.drafts[a.node.id];
     else {
       var previous = m.drafts[a.node.id];
-      m.drafts[a.node.id] = { opId: previous ? previous.opId : "manual-" + (++ctl.manualSeq), op: "replace", node: a.node.id, text: text };
+      m.drafts[a.node.id] = { opId: previous ? previous.opId : "manual-" + (++ctl.manualSeq), op: "replace", node: a.node.id, text: text, spans: a.spans.map(function (span) { return span.slice(); }) };
     }
   }
 
@@ -825,7 +839,10 @@
     if (m.timer) root.clearTimeout(m.timer);
     m.timer = null;
     if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
-    else { m.base = null; m.doc = null; }
+    else {
+      m.base = null; m.doc = null;
+      if (ctl.refs.manualState.getAttribute("data-state") === "editing") clearManualMessage(ctl);
+    }
   }
 
   function beginManual(ctl, el) {
@@ -836,16 +853,14 @@
       if (node) manualMessage(ctl, "error", lockText(node)); return;
     }
     var m = ctl.manual;
+    m.confirmation = null;
     if (m.active && m.active.el === el) return;
     if (m.active) finishManual(ctl);
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (m.base && (m.base !== ctl.state.currentRunId || m.doc !== ctl.state.doc)) { manualConflict(ctl); return; }
     m.base = ctl.state.currentRunId; m.doc = ctl.state.doc;
     var text = m.drafts[id] ? m.drafts[id].text : node.text;
-    var spans = node.locked && node.locked.spans || [];
-    /* Retained drafts may have shifted a metric; recover its ordered offset. */
-    var from = 0;
-    spans = spans.map(function (span) { var token = node.text.slice(span[0], span[1]); var at = text.indexOf(token, from); from = at + token.length; return [at, from]; });
+    var spans = (m.drafts[id] ? m.drafts[id].spans : node.locked && node.locked.spans || []).map(function (span) { return span.slice(); });
     el.textContent = text;
     m.active = { el: el, node: node, last: text, spans: spans };
     el.setAttribute("contenteditable", "plaintext-only"); el.setAttribute("data-scribe-editing", "");
@@ -913,7 +928,10 @@
         nodes.forEach(function (node) { map[node.id] = node; });
         var invalid = Object.keys(m.drafts).some(function (id) {
           var n = map[id];
-          return !n || n.locked.whole || n.locked.spans.some(function (span) { return m.drafts[id].text.indexOf(n.text.slice(span[0], span[1])) < 0; });
+          var draft = m.drafts[id], spans = draft.spans;
+          return !n || n.locked.whole || n.locked.spans.length !== spans.length || n.locked.spans.some(function (span, i) {
+            return draft.text.slice(spans[i][0], spans[i][1]) !== n.text.slice(span[0], span[1]);
+          });
         });
         if (invalid) { manualMessage(ctl, "error", "Figures in this line are locked."); return; }
         if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true });
@@ -926,6 +944,7 @@
 
   function saveManual(ctl, confirmed) {
     var m = ctl.manual;
+    if (confirmed && m.confirmation !== confirmed) return Promise.resolve(false);
     if (m.active) finishManual(ctl);
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (!dirtyManual(ctl)) return Promise.resolve(true);
@@ -933,11 +952,14 @@
     if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
       manualMessage(ctl, "error", "Not saved. Your text is kept."); return Promise.resolve(false);
     }
-    var ops = Object.keys(m.drafts).map(function (id) { return m.drafts[id]; });
-    var which = m.doc, generation = ctl.generation;
+    var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
+    var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
+    var base = confirmed ? confirmed.base : m.base;
+    m.confirmation = null;
     m.saving = true; hideSelectionActions(ctl);
     manualMessage(ctl, "saving", "Saving…");
-    return ctl.api.manualEdit({ doc: which, baseRunId: m.base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
+    return ctl.api.manualEdit({ doc: which, baseRunId: base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
+      ctl.recoverySeq++;
       m.saving = false; m.drafts = Object.create(null); m.base = null;
       emitSaved(ctl, res && res.run && res.run.runId, which);
       if (ctl.closed || generation !== ctl.generation) return true;
@@ -952,15 +974,15 @@
       if (ctl.closed || generation !== ctl.generation) return false;
       if (err && err.code === "stale_base") manualConflict(ctl);
       else if (err && err.code === "unverified_confirmation_required") {
-        /* C4 has no fact list. Quote the user's retained replacement rather
-           than invent a fact that the server did not identify. */
-        manualMessage(ctl, "confirm", "“" + ops[0].text + "” isn’t in your saved facts.", [
-          ["confirm", "Save anyway", function () { saveManual(ctl, true); }],
+        /* C4 has no per-op fact list: identify the entire batch being approved. */
+        var batch = m.confirmation = { doc: which, base: base, ops: ops };
+        manualMessage(ctl, "confirm", ops.map(function (op) { return "“" + op.text + "”"; }).join(" · ") + " isn’t in your saved facts.", [
+          ["confirm", "Save anyway", function () { saveManual(ctl, batch); }],
           ["edit", "Edit", function () { beginManual(ctl, frameNodes(frameDoc(ctl))[ops[0].node]); }],
         ]);
       } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
       else {
-        manualMessage(ctl, "error", "Not saved. Your text is kept.", [["retry", "Try again", function () { saveManual(ctl); }]]);
+        manualMessage(ctl, "error", "Not saved. Your text is kept. " + errorText(err), [["retry", "Try again", function () { saveManual(ctl); }]]);
         if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
       }
       return false;
@@ -973,17 +995,17 @@
     if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
-    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null;
-    ctl.refs.manualState.setAttribute("hidden", "");
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null;
+    clearManualMessage(ctl);
   }
 
-  function guardManualNavigation(ctl, action) {
+  function guardManualNavigation(ctl, action, restored) {
     if (ctl.manual.active) { captureManual(ctl); finishManual(ctl); }
     if (!dirtyManual(ctl) && !ctl.manual.saving) return action();
     if (ctl.manual.timer) root.clearTimeout(ctl.manual.timer); ctl.manual.timer = null;
     var el = ctl.refs.unsaved; clear(el); el.removeAttribute("hidden");
     el.appendChild(h("span", { text: "You have unsaved text." }));
-    [["save", "Save"], ["discard", "Discard"], ["stay", "Stay"]].forEach(function (entry) {
+    (restored ? [["save", "Save"], ["discard", "Discard"]] : [["save", "Save"], ["discard", "Discard"], ["stay", "Stay"]]).forEach(function (entry) {
       var btn = h("button", { type: "button", class: "scribe__btn" + (entry[0] === "save" ? " scribe__btn--primary" : ""), "data-unsaved": entry[0], text: entry[1] });
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
@@ -1050,7 +1072,9 @@
     var rows = ctl.openProposals || (ctl.openProposal ? [ctl.openProposal] : []);
     if (ctl.request && ctl.state.busy) rows = rows.filter(function (p) { return p.proposalId !== ctl.request.proposalId; });
     rows = rows.filter(function (p) {
-      return !ctl.state.proposal || ctl.state.proposal.id !== p.proposalId || p.baseRunId !== ctl.state.latestRunId;
+      var current = ctl.state.proposal;
+      return !current || current.id !== p.proposalId || p.baseRunId !== ctl.state.latestRunId ||
+        !reviewReady(current) || !current.changes || !current.changes.length;
     });
     if (!rows.length) { r.setAttribute("hidden", ""); r.removeAttribute("data-recover-doc"); return; }
     r.removeAttribute("hidden");
@@ -1068,8 +1092,8 @@
       } else text = same ? "You have " + plural((p.ops || []).length, "suggested change") + " from an earlier request." : "The " + DOC_NOUN[p.doc] + " has suggested changes waiting.";
       var row = h("div", { "data-recover-doc": p.doc }, [h("span", { text: text })]);
       function button(label, action, fn) {
-        var el = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-action": action, "data-proposal-id": p.proposalId, text: label });
-        el.addEventListener("click", fn); row.appendChild(el);
+        var el = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-action": action, "data-proposal-id": p.proposalId, disabled: ctl.discarding, "aria-disabled": ctl.discarding ? "true" : "false", text: label });
+        el.addEventListener("click", function () { if (!ctl.discarding) fn(); }); row.appendChild(el);
       }
       if (!ctl.openProposals && p.status !== "accepting") {
         if (p.status === "pending") {
@@ -1137,20 +1161,20 @@
   }
 
   function readOpen(ctl, pending) {
-    var generation = ctl.generation;
+    var generation = ctl.generation, sequence = ++ctl.recoverySeq;
     if (typeof ctl.api.getOpenEdit !== "function") {
       if (pending) status(ctl, "error", copy("materials_pending"));
       return Promise.resolve(null);
     }
     return ctl.api.getOpenEdit().then(function (res) {
-      if (ctl.closed || generation !== ctl.generation) return null;
+      if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
       if (res && res.proposal) return recoverProposal(ctl, res.proposal);
       ctl.openProposal = null; ctl.openProposals = null;
       if (pending) status(ctl, "error", copy("materials_pending"));
       renderRecovery(ctl);
       return null;
     }).catch(function (err) {
-      if (ctl.closed || generation !== ctl.generation) return null;
+      if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
       if (err && err.code === "multiple_open_proposals") {
         ctl.openProposals = err.proposals || []; ctl.openProposal = null; renderRecovery(ctl);
       } else if (pending || err && err.code === "materials_pending") status(ctl, "error", copy("materials_pending"));
@@ -1158,7 +1182,7 @@
     });
   }
 
-  function loadDoc(ctl, keepStatus) {
+  function loadDoc(ctl, keepStatus, recoveryKnown) {
     if (!keepStatus) status(ctl, "idle", "");
     var st = ctl.state;
     var which = st.doc;
@@ -1186,7 +1210,7 @@
         if (token !== ctl.loadToken || ctl.closed) return null;
         var res = parts[0]; st.nodes = parts[1].nodes || []; st.model = parts[1].model;
         showPreview(ctl, String((res && res.html) || ""));
-        return readOpen(ctl).then(function () { return res; });
+        return recoveryKnown ? res : readOpen(ctl).then(function () { return res; });
       });
     }).catch(function (err) {
       if (token !== ctl.loadToken || ctl.closed) return null;
@@ -1373,7 +1397,9 @@
       ctl.abort = null; ctl.request = null;
       ctl.state.busy = false; ctl.state.stage = null;
       ctl.refs.docscroll.setAttribute("aria-busy", "false");
-      clearReview(ctl); ctl.state.proposal = null;
+      var p = ctl.state.proposal;
+      if (reviewReady(p) && p.ops.length) finishRun(ctl);
+      else { clearReview(ctl); ctl.state.proposal = null; }
       return readOpen(ctl).then(function () { renderAll(ctl); });
     });
     return request.stopReply;
@@ -1388,7 +1414,7 @@
   }
 
   function continueRequest(ctl, stored) {
-    if (ctl.state.busy || ctl.state.loading) return;
+    if (ctl.discarding || ctl.state.busy || ctl.state.loading) return;
     if (stored.doc !== ctl.state.doc) return guardManualNavigation(ctl, function () {
       return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
     });
@@ -1408,6 +1434,7 @@
   }
 
   function stopRecovered(ctl, stored) {
+    if (ctl.discarding) return;
     if (stored.doc !== ctl.state.doc) {
       ctl.api.stopEdit(stored.proposalId).then(function () { readOpen(ctl); }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
       return;
@@ -1441,22 +1468,28 @@
     id = id || p && p.id || ctl.openProposal && ctl.openProposal.proposalId;
     if (!id || ctl.discarding || p && p.saving) return Promise.resolve(false);
     ctl.discarding = true;
-    return ctl.api.rejectEdit(id).then(function () {
-      if (ctl.closed) return false;
-      detachRequest(ctl);
-      clearReview(ctl);
+    Array.prototype.forEach.call(ctl.refs.recover.querySelectorAll("button"), function (button) {
+      button.setAttribute("disabled", ""); button.setAttribute("aria-disabled", "true");
+    });
+    function completed(recoveryKnown) {
+      ctl.recoverySeq++;
+      detachRequest(ctl); clearReview(ctl);
       ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
       status(ctl, "idle", "Discarded.");
       logMessage(ctl, "note", ["Discarded."]); renderAll(ctl);
-      return loadDoc(ctl);
+      return loadDoc(ctl, false, recoveryKnown);
+    }
+    return ctl.api.rejectEdit(id).then(function () {
+      if (ctl.closed) return false;
+      return completed();
     }).catch(function (err) {
       if (ctl.closed) return false;
       if (err && err.status === 404) {
-        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) { clearReview(ctl); ctl.state.proposal = null; ctl.request = null; renderAll(ctl); } });
+        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) return completed(true); });
       }
       status(ctl, "error", "Couldn’t discard. The suggested changes are still open.", "Try again", function () { discard(ctl, id); });
       renderRecovery(ctl); return false;
-    }).finally(function () { ctl.discarding = false; });
+    }).finally(function () { ctl.discarding = false; if (!ctl.closed) renderRecovery(ctl); });
   }
 
   /* ---------------- Review (lane F2) ----------------
@@ -1946,6 +1979,7 @@
       accept: accepted.map(function (c) { return c.opId; }),
       confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
     }).then(function (res) {
+      ctl.recoverySeq++;
       if (ctl.closed || ctl.state.proposal !== p) {
         emitSaved(ctl, res && res.run && res.run.runId, which);
         if (!ctl.closed) return readOpen(ctl);
@@ -2212,7 +2246,7 @@
     ctl.api.star(runId, next).catch(function (err) {
       v.starred = !next;
       renderVersions(ctl);
-      announce((err && err.message) || "Star didn’t save.", true);
+      announce(errorText(err, "Star didn’t save."), true);
     });
     var btn = ctl.refs.versions.querySelector('[data-star="' + runId + '"]');
     if (btn) btn.focus();
@@ -2225,13 +2259,17 @@
     this.closed = false;
     this.loadToken = 0;
     this.generation = 0;
+    this.recoverySeq = 0;
     this.request = null;
     this.openProposal = null;
     this.openProposals = null;
     this.abort = null;
     this.autoSave = null;
     this.scope = null; this.manualSeq = 0;
-    this.manual = { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
+    var key = manualKey(opts.slug, opts.doc === "cover_letter" ? "cover_letter" : "resume");
+    this.manual = manualRegistry[key] || { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
+    delete manualRegistry[key];
+    this.manualSeq = this.manual.seq || 0;
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
     this.state = {
       doc: opts.doc === "cover_letter" ? "cover_letter" : "resume",
@@ -2273,6 +2311,7 @@
     if (!this.navigationApproved) return guardManualNavigation(this, function () { self.navigationApproved = true; var result = self.setDoc(d); self.navigationApproved = false; return result; });
     invalidateScope(this); unwatchFrameKeys(this);
     detachRequest(this);
+    clearManualMessage(this);
     this.state.doc = d;
     this.refs.host.setAttribute("data-doc", d);
     this.refs.log.appendChild(h("div", { class: "scribe__msg scribe__msg--note", text: "Now editing the " + DOC_NOUN[d] + "." }));
@@ -2339,6 +2378,7 @@
     raf(function () { if (!self.closed) r.host.classList.add("is-open"); });
     r.prompt.focus();
     loadDoc(this);
+    if (dirtyManual(this)) guardManualNavigation(this, function () {}, true);
   };
 
   Controller.prototype.close = function (reason) {
@@ -2347,7 +2387,12 @@
     if (!this.navigationApproved && reason !== "role-closed") return guardManualNavigation(this, function () { self.navigationApproved = true; self.close(reason); self.navigationApproved = false; });
     if (this.manual.active) captureManual(this);
     if (this.manual.timer) root.clearTimeout(this.manual.timer);
+    this.manual.timer = null; this.manual.confirmation = null;
     if (this.manual.active) { this.manual.active.el.removeAttribute("contenteditable"); this.manual.active = null; }
+    if (dirtyManual(this)) {
+      this.manual.seq = this.manualSeq;
+      manualRegistry[manualKey(this.opts.slug, this.manual.doc)] = this.manual;
+    }
     detachRequest(this);
     this.closed = true;
     var r = this.refs;

@@ -1381,3 +1381,35 @@ it("SCRP-B28 R1-#25 production error envelope preserves a committed nonretryable
   assert.equal(body.versions[0].runId, body.run.runId);
   assert.equal(withApiErrorEnvelope(503, { error: "A fictional transient failure", code: "internal_error" }).retryable, true);
 });
+
+it('SCRP-B30 R2-#4 failed terminal persistence finishes both concurrent subscribers once', async () => {
+  const pkg = await seed(); let failed = false; let release; let entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const fetching = new Promise(resolve => { entered = resolve; });
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: 'openai', resolvedModel: 'stub', apiKey: 'example' },
+    fetchImpl: async (...args) => { entered(); await gate; return fetchImpl(...args); },
+    persistProposal: async (path, snapshot) => {
+      if (!failed && snapshot.events.at(-1)?.event === 'done') { failed = true; throw new Error('Fictional write failure'); }
+      await writeFile(`${path}.tmp`, JSON.stringify(snapshot)); await rename(`${path}.tmp`, path);
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: 'resume', baseRunId: 'r0', instruction: 'Shorten', lockFacts: true });
+  const streams = [fakeStream(), fakeStream()];
+  const ended = streams.map(stream => once(stream, 'end'));
+  let timer;
+  try {
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), streams[0]); await fetching;
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), streams[1]); release();
+    const allEnded = await Promise.race([Promise.all(ended).then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(allEnded, true, 'every subscriber must finish after a failed terminal write');
+    assert.equal(failed, true);
+    for (const stream of streams) {
+      assert.equal(stream.chunks.join('').match(/event: done/g)?.length, 1);
+      assert.match(stream.chunks.join(''), /"status":"ready"/);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    const stored = JSON.parse(await readFile(join(pkg.dir, 'proposals', `${started.proposalId}.json`), 'utf8'));
+    assert.equal(stored.events.filter(row => row.event === 'done').length, 1);
+  } finally { clearTimeout(timer); release(); for (const stream of streams) { stream.end(); stream.emit('close'); } }
+});

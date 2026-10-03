@@ -25,7 +25,7 @@ async function desk(which = 'resume', result) {
     el.textContent = text; inner.dispatchEvent({ type: 'input', target: el }); inner.dispatchEvent({ type: 'focusout', target: el });
   };
   const flush = async () => { for (const [id, t] of [...timers]) if (t.ms === 2000) { timers.delete(id); t.fn(); } await settle(); };
-  return { ctl, inner, els, nodes, calls, timers, edit, flush };
+  return { win, api, ctl, inner, els, nodes, calls, timers, edit, flush };
 }
 for (const which of ['resume', 'cover_letter']) {
   test(`SCRP-F39 GAP-01 ${which} batches unique replacements on one base after 2 seconds`, async () => {
@@ -124,4 +124,87 @@ test('SCRP-F55 GAP-01 pending sibling Continue retains the draft behind unsaved 
   assert.equal(ctl.refs.unsaved.hasAttribute('hidden'), false); assert.equal(ctl.state.doc, 'resume'); assert.equal(Object.keys(ctl.manual.drafts).length, 1);
   ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F71 R2-#1 ${which} confirmation quotes and freezes every replacement`, async () => {
+    const { ctl, els, calls, edit, flush } = await desk(which, (_body, n) => {
+      if (n === 1) throw { code: 'unverified_confirmation_required' };
+      throw { code: 'locked' };
+    });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Contoso operations in 2025.'); await flush();
+    const prompt = ctl.refs.manualState.textContent;
+    assert.ok(prompt.includes('“Tracked operations.”'));
+    assert.ok(prompt.includes('“Led Contoso operations in 2025.”'));
+    const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+    confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].confirmUnverified)), calls[0].manualOps.map(op => op.opId));
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].manualOps)), JSON.parse(JSON.stringify(calls[0].manualOps)));
+    // A detached old confirmation cannot approve a newly edited batch.
+    edit(els[1], 'Led Example operations.'); confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.equal(calls.length, 2);
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F72 R2-#2 ${which} repeated tokens never relocate transformed UTF-16 locks`, async () => {
+    const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
+    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+    edit(els[0], '38% 😀 delays 38%.');
+    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    els[0].textContent = '38% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
+    // The new prefix is editable; only the original occurrence is locked.
+    els[0].textContent = '40% 😀 delays 38%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '40% 😀 delays 38%.');
+    inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+    assert.equal(calls[0].manualOps[0].text, '40% 😀 delays 38%.');
+    assert.deepEqual(Object.keys(calls[0].manualOps[0]).sort(), ['node', 'op', 'opId', 'text']); ctl.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F73 R2-#3 ${which} role-close drafts restore from session memory only`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+    edit(els[0], '38% 😀 delays 38%.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed'); assert.equal(ctl.closed, true); assert.equal(calls.length, 0);
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(reopened.manual.drafts[nodes[0].id].opId, opId);
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/);
+    assert.ok(reopened.refs.unsaved.querySelector('[data-unsaved="save"]'));
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+    assert.equal(els[0].textContent, nodes[0].text); reopened.close('role-closed');
+    const empty = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    assert.equal(Object.keys(empty.manual.drafts).length, 0); empty.close();
+    // A new script session has no drafts: persistence remains memory-only.
+    const fresh = await desk(which); assert.equal(Object.keys(fresh.ctl.manual.drafts).length, 0); fresh.ctl.close();
+  });
+}
+
+test('SCRP-F78 R2-#9 manual errors use mapped copy plus nextStep and keep Try again', async () => {
+  let win; let fails = true;
+  const t = await desk('resume', () => { if (fails) throw new win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'RAW server response HTTP 429', 'Try again in 30 s.'); return { run: { runId: 'r1', n: 1 } }; });
+  win = t.win; vm.runInNewContext(readFileSync(new URL('../scribe-v2-api.js', import.meta.url), 'utf8'), win);
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.match(t.ctl.refs.manualState.textContent, /Not saved\. Your text is kept\..*Too many requests right now.*Try again in 30 s\./);
+  assert.doesNotMatch(t.ctl.refs.manualState.textContent, /RAW server/);
+  fails = false; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+});
+
+test('SCRP-F79 R2-#10 zero-change blur and document navigation clear manual status', async () => {
+  const t = await desk();
+  t.edit(t.els[0], t.nodes[0].text);
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  // A saved outcome also belongs to its document, and disappears on switch.
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), false);
+  t.ctl.setDoc('cover_letter'); await settle();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  assert.equal(t.ctl.refs.manualState.textContent, ''); t.ctl.close();
 });

@@ -83,3 +83,14 @@ test('SCRP-R1-22 existing F1/F2 mounts and clear-scope handler are wired', async
   assert.equal(t.ctl.scope, null);
   assert.match(t.ctl.refs.scope.textContent, /Whole document/); t.ctl.close();
 });
+
+test('SCRP-F710 R2-#11 multi-block Edit text is disabled with a single-block explanation', async () => {
+  const { ctl, select } = await desk(); select(['b:acme:c14', 'line:beta']);
+  const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+  assert.ok(edit); assert.equal(edit.getAttribute('aria-disabled'), 'true');
+  assert.equal(edit.getAttribute('title'), 'Select one block to edit its text.');
+  edit.dispatchEvent({ type: 'click', target: edit }); assert.equal(ctl.manual.active, null);
+  select(['b:acme:c14']);
+  assert.equal(edit.getAttribute('aria-disabled'), 'false'); assert.equal(edit.getAttribute('title'), null);
+  edit.dispatchEvent({ type: 'click', target: edit }); assert.ok(ctl.manual.active); ctl.close();
+});

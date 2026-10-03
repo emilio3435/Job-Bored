@@ -781,3 +781,75 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F58 ${which} recovery R
   tap(ctl.refs.recover.querySelector('[data-action="review-request"]')); await flush();
   assert.equal(ctl.state.seg, 'doc'); assert.equal(ctl.refs.segs[0].getAttribute('aria-selected'), 'true'); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F74 R2-#5 ${which} interrupted pending streams expose Continue Stop and Discard`, async () => {
+  const t = reliabilityApi(which); const stream = defer(); t.api.stream = () => stream.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  stream.reject({ code: 'network' }); await flush();
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.state.proposal.status, 'pending');
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), false);
+  for (const action of ['continue-request', 'stop-request', 'discard-request']) assert.ok(ctl.refs.recover.querySelector(`[data-action="${action}"]`));
+  t.api.stream = async () => new Promise(() => {});
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.state.busy, true); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true); ctl.close();
+});
+
+for (const running of [false, true]) it(`SCRP-F75 R2-#6 discard 404 ${running ? 'detaches the running stream' : 'disables conflicting recovery actions'}`, async () => {
+  const t = reliabilityApi(); t.env.win.AbortController = AbortController;
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [] };
+  const deletion = defer(); const stream = defer(); let signal; let streams = 0;
+  t.api.rejectEdit = () => deletion.promise;
+  t.api.stream = async (_id, handlers) => { streams++; signal = handlers.signal; return stream.promise; };
+  const ctl = t.mount(); await flush();
+  const resume = ctl.refs.recover.querySelector('[data-action="continue-request"]');
+  const discard = ctl.refs.recover.querySelector('[data-action="discard-request"]');
+  if (running) { tap(resume); await flush(); }
+  tap(discard);
+  if (!running) assert.equal(resume.getAttribute('aria-disabled'), 'true');
+  tap(resume); await flush(); assert.equal(streams, running ? 1 : 0);
+  t.api.open = null; deletion.reject({ status: 404 }); await flush();
+  if (running) assert.equal(signal.aborted, true);
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.state.stage, null);
+  assert.equal(ctl.request, null); assert.equal(ctl.state.proposal, null);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
+  stream.resolve(); ctl.close();
+});
+
+it('SCRP-F76 R2-#7 an older recovery read cannot reinstate an accepting gate after Save', async () => {
+  const t = reliabilityApi(); const saved = defer(); const oldRead = defer(); let reads = 0;
+  t.api.acceptEdit = () => saved.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const accepting = { ...t.api.open, status: 'accepting' };
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+  t.api.getOpenEdit = () => { reads++; return reads === 1 ? oldRead.promise : Promise.resolve({ proposal: null }); };
+  ctl.setDoc('cover_letter'); await flush();
+  saved.resolve({ run: { runId: 'r3', n: 3 } }); await flush(); assert.equal(reads, 2);
+  oldRead.resolve({ proposal: accepting }); await flush();
+  assert.equal(ctl.openProposal, null); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
+});
+
+it('SCRP-F77 R2-#8 Stop keeps the received terminal result when recovery is offline', async () => {
+  const t = reliabilityApi(); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; }; t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } });
+  handlers.onEvent({ event: 'proposal', data: { summary: { changes: 1, wordsDelta: -2 } } });
+  handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  const terminal = ctl.state.proposal;
+  t.api.getOpenEdit = async () => { throw { code: 'network' }; }; reply.reject({ code: 'proposal_not_running' }); await flush();
+  assert.equal(ctl.state.proposal, terminal); assert.equal(terminal.status, 'ready');
+  assert.equal(terminal.ops[0].opId, 'o1'); assert.equal(terminal.summary.wordsDelta, -2);
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.request, null);
+  assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  stream.resolve(); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F711 R2-#12 ${which} accessible document label counts suggested changes`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.match(ctl.refs.docscroll.getAttribute('aria-label'), /1 suggested change/);
+  assert.doesNotMatch(ctl.refs.docscroll.getAttribute('aria-label'), /proposal/);
+  ctl.close();
+});
