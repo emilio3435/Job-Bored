@@ -1078,8 +1078,8 @@
       } else text = same ? "You have " + plural((p.ops || []).length, "suggested change") + " from an earlier request." : "The " + DOC_NOUN[p.doc] + " has suggested changes waiting.";
       var row = h("div", { "data-recover-doc": p.doc }, [h("span", { text: text })]);
       function button(label, action, fn) {
-        var el = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-action": action, "data-proposal-id": p.proposalId, text: label });
-        el.addEventListener("click", fn); row.appendChild(el);
+        var el = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-action": action, "data-proposal-id": p.proposalId, disabled: ctl.discarding, "aria-disabled": ctl.discarding ? "true" : "false", text: label });
+        el.addEventListener("click", function () { if (!ctl.discarding) fn(); }); row.appendChild(el);
       }
       if (!ctl.openProposals && p.status !== "accepting") {
         if (p.status === "pending") {
@@ -1168,7 +1168,7 @@
     });
   }
 
-  function loadDoc(ctl, keepStatus) {
+  function loadDoc(ctl, keepStatus, recoveryKnown) {
     if (!keepStatus) status(ctl, "idle", "");
     var st = ctl.state;
     var which = st.doc;
@@ -1196,7 +1196,7 @@
         if (token !== ctl.loadToken || ctl.closed) return null;
         var res = parts[0]; st.nodes = parts[1].nodes || []; st.model = parts[1].model;
         showPreview(ctl, String((res && res.html) || ""));
-        return readOpen(ctl).then(function () { return res; });
+        return recoveryKnown ? res : readOpen(ctl).then(function () { return res; });
       });
     }).catch(function (err) {
       if (token !== ctl.loadToken || ctl.closed) return null;
@@ -1398,7 +1398,7 @@
   }
 
   function continueRequest(ctl, stored) {
-    if (ctl.state.busy || ctl.state.loading) return;
+    if (ctl.discarding || ctl.state.busy || ctl.state.loading) return;
     if (stored.doc !== ctl.state.doc) return guardManualNavigation(ctl, function () {
       return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
     });
@@ -1418,6 +1418,7 @@
   }
 
   function stopRecovered(ctl, stored) {
+    if (ctl.discarding) return;
     if (stored.doc !== ctl.state.doc) {
       ctl.api.stopEdit(stored.proposalId).then(function () { readOpen(ctl); }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
       return;
@@ -1451,22 +1452,27 @@
     id = id || p && p.id || ctl.openProposal && ctl.openProposal.proposalId;
     if (!id || ctl.discarding || p && p.saving) return Promise.resolve(false);
     ctl.discarding = true;
-    return ctl.api.rejectEdit(id).then(function () {
-      if (ctl.closed) return false;
-      detachRequest(ctl);
-      clearReview(ctl);
+    Array.prototype.forEach.call(ctl.refs.recover.querySelectorAll("button"), function (button) {
+      button.setAttribute("disabled", ""); button.setAttribute("aria-disabled", "true");
+    });
+    function completed(recoveryKnown) {
+      detachRequest(ctl); clearReview(ctl);
       ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
       status(ctl, "idle", "Discarded.");
       logMessage(ctl, "note", ["Discarded."]); renderAll(ctl);
-      return loadDoc(ctl);
+      return loadDoc(ctl, false, recoveryKnown);
+    }
+    return ctl.api.rejectEdit(id).then(function () {
+      if (ctl.closed) return false;
+      return completed();
     }).catch(function (err) {
       if (ctl.closed) return false;
       if (err && err.status === 404) {
-        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) { clearReview(ctl); ctl.state.proposal = null; ctl.request = null; renderAll(ctl); } });
+        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) return completed(true); });
       }
       status(ctl, "error", "Couldn’t discard. The suggested changes are still open.", "Try again", function () { discard(ctl, id); });
       renderRecovery(ctl); return false;
-    }).finally(function () { ctl.discarding = false; });
+    }).finally(function () { ctl.discarding = false; if (!ctl.closed) renderRecovery(ctl); });
   }
 
   /* ---------------- Review (lane F2) ----------------

@@ -794,3 +794,24 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F74 R2-#5 ${which} inte
   tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
   assert.equal(ctl.state.busy, true); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true); ctl.close();
 });
+
+for (const running of [false, true]) it(`SCRP-F75 R2-#6 discard 404 ${running ? 'detaches the running stream' : 'disables conflicting recovery actions'}`, async () => {
+  const t = reliabilityApi(); t.env.win.AbortController = AbortController;
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [] };
+  const deletion = defer(); const stream = defer(); let signal; let streams = 0;
+  t.api.rejectEdit = () => deletion.promise;
+  t.api.stream = async (_id, handlers) => { streams++; signal = handlers.signal; return stream.promise; };
+  const ctl = t.mount(); await flush();
+  const resume = ctl.refs.recover.querySelector('[data-action="continue-request"]');
+  const discard = ctl.refs.recover.querySelector('[data-action="discard-request"]');
+  if (running) { tap(resume); await flush(); }
+  tap(discard);
+  if (!running) assert.equal(resume.getAttribute('aria-disabled'), 'true');
+  tap(resume); await flush(); assert.equal(streams, running ? 1 : 0);
+  t.api.open = null; deletion.reject({ status: 404 }); await flush();
+  if (running) assert.equal(signal.aborted, true);
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.state.stage, null);
+  assert.equal(ctl.request, null); assert.equal(ctl.state.proposal, null);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
+  stream.resolve(); ctl.close();
+});
