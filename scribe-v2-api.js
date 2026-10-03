@@ -52,8 +52,8 @@
     if (code === "invalid_json" || code === "schema_invalid") code = "unreadable_reply";
     if (code === "writer_truncated") code = "reply_cut_off";
     if (code === "writer_blocked") code = "provider_refused";
-    if (code === "no_pin") code = "llm_unconfigured";
-    if (code === "network" || code === "timeout" || /^http_(?!429)/.test(code || "")) code = "provider_failed";
+    if (code === "no_pin" || /^http_(401|403|404)$/.test(code || "")) code = "llm_unconfigured";
+    if (code === "network" || code === "timeout" || /^http_5\d\d$/.test(code || "")) code = "provider_failed";
     var copy = {
       provider_failed: "The AI provider didn’t respond. Your document is unchanged.",
       unreadable_reply: "Scribe’s reply couldn’t be read. Your document is unchanged.",
@@ -63,7 +63,7 @@
       too_many_in_flight: "Too many requests right now. Try again in a minute. Your request is kept.",
       reply_cut_off: "Scribe’s reply was cut off. Your document is unchanged.",
       provider_refused: "The AI provider declined this request. Your document is unchanged. Try rewording it.",
-      llm_unconfigured: "No AI model is set up. Choose one in Settings, then try again.",
+      llm_unconfigured: "The AI model isn’t set up correctly. Check it in Settings, then try again.",
       materials_pending: "JobBored is still working on this role. Try again in a moment.",
       stale_base: "Not saved — a newer version exists.",
       server_unreachable: "Scribe can’t reach your JobBored server. Start it, then Retry.",

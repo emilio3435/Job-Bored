@@ -449,7 +449,7 @@ describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
       ['error', 'http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
       ['error', 'writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
       ['error', 'writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
-      ['error', 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.', 'Settings'],
+      ['error', 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.', 'Settings'],
     ]) {
       it(`SCRP-F13 ${which} ${channel} ${code} uses safe per-code copy and action`, async () => {
         const data = channel === 'blocked' ? { reason: code, detail: '/private/secret/raw-provider-payload' } : { code, message: '<script>raw provider payload</script>' };
@@ -481,7 +481,7 @@ for (const which of ['resume', 'cover_letter']) {
 for (const which of ['resume', 'cover_letter']) {
   it(`SCRP-F33 ${which} HTTP no-model has Settings and a kept request`, async () => {
     const t = await outcomeDesk(which); t.ctl.close();
-    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.'); };
+    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.'); };
     const ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await t.flush();
     ctl.refs.prompt.value = 'Keep this request'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await t.flush();
     assert.equal(ctl.refs.statusAction.textContent, 'Settings');
@@ -521,4 +521,10 @@ it('SCRP-R1-D19 restore sends the desk document', async () => {
   const { JBScribeApi } = loadApi(); const rec = recordingFetch(() => response(200, { run: { runId: 'r3', n: 1 } }));
   const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: rec.fetchImpl });
   await client.restore('r0', { doc: 'cover_letter' }); assert.deepEqual(rec.calls[0].body, { doc: 'cover_letter' });
+});
+
+it('SCRP-R1-D20 writer auth and missing-model codes direct users to Settings', () => {
+  const { JBScribeApi } = loadApi();
+  for (const code of ['http_401', 'http_403', 'http_404', 'llm_unconfigured', 'no_pin']) assert.equal(JBScribeApi.errorCopy(code), 'The AI model isn’t set up correctly. Check it in Settings, then try again.');
+  for (const code of ['network', 'timeout', 'http_500', 'http_503']) assert.equal(JBScribeApi.errorCopy(code), 'The AI provider didn’t respond. Your document is unchanged.');
 });

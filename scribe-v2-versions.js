@@ -820,7 +820,7 @@
         deps.renderVersions();
         var mapped = root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(err && err.code) : "That didn’t work. Try again.";
         var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : root.JBScribeApi.errorText(err);
-        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin" || /^http_(401|403|404)$/.test(err.code || ""));
         if (deps.setStatus) deps.setStatus("error", msg, settings ? "Settings" : "Try again", function () {
           if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
           else confirmBringBack();

@@ -1243,7 +1243,7 @@
   }
 
   function errorStatus(ctl, code) {
-    var settings = code === "llm_unconfigured" || code === "no_pin";
+    var settings = code === "llm_unconfigured" || code === "no_pin" || /^http_(401|403|404)$/.test(code || "");
     status(ctl, "error", copy(code), settings ? "Settings" : "Try again", function () {
       if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
       else send(ctl);
@@ -1305,7 +1305,7 @@
     }
     if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
     var message = errorText(err);
-    var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+    var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin" || /^http_(401|403|404)$/.test(err.code || ""));
     status(ctl, "error", message, settings ? "Settings" : "Try again", function () {
       if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
       else if (request.proposalId) readOpen(ctl); else send(ctl);
@@ -1962,7 +1962,7 @@
       if (ctl.closed || ctl.state.proposal !== p) return;
       p.saving = false;
       var mapped = copy(err && err.code);
-      var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+      var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin" || /^http_(401|403|404)$/.test(err.code || ""));
       var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : mapped === "That didn’t work. Try again." ? "Not saved. Your accepted changes are still here." : errorText(err);
       status(ctl, err && err.code === "stale_base" ? "stale" : "error", message,
         err && err.code === "stale_base" ? "Review current" : settings ? "Settings" : "Try again", function () {
