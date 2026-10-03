@@ -144,7 +144,7 @@
   function versionWhat(v) {
     if (v.source === "draft") return { text: "Drafted" };
     if (v.source === "manual") return { text: "Manual edit" };
-    if (v.source === "restore") return { text: v.label || "Restored" };
+    if (v.source === "restore") return { text: v.label || "Brought back" };
     if (v.source === "regenerate") return { text: v.label || "Template changed" };
     if (v.prompt) return { text: v.prompt, quoted: true };
     return { text: v.label || "Edit" };
@@ -386,7 +386,7 @@
     if (!p || !p.summary) {
       var v = currentVersion(ctl);
       el.appendChild(h("p", { class: "scribe__reviewbar-sum", text: v
-        ? "Preview, PDF and download serve v" + v.n + "."
+        ? "Showing v" + v.n + ", the current version."
         : "Nothing saved yet." }));
       return;
     }
@@ -400,7 +400,7 @@
     var acts = h("div", { class: "scribe__reviewbar-acts" }, [
       /* region:F2-review — Accept all, per-change controls and
          "Save as vN (k accepted)" join these actions. */
-      h("button", { type: "button", class: "scribe__btn", "data-scribe": "discard", text: "Discard changes" }),
+      h("button", { type: "button", class: "scribe__btn", "data-scribe": "discard", text: "Discard" }),
     ]);
     el.appendChild(sum);
     el.appendChild(acts);
@@ -433,12 +433,8 @@
       announce: announce,
       logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
       renderVersions: function () { renderVersions(ctl); },
-      reload: function () {
-        return loadDoc(ctl).then(function (res) {
-          if (!ctl.closed) emitSaved(ctl, ctl.state.currentRunId);
-          return res;
-        });
-      },
+      setStatus: function (state, text) { status(ctl, state, text); },
+      reload: function (res) { return reloadSaved(ctl, res); },
     });
     return ctl.versionsUi;
   }
@@ -508,8 +504,15 @@
 
   /* U12: a save or a Bring back makes a new run; the rows mark this
      document's grade stale until the manifest catches up. */
-  function emitSaved(ctl, runId) {
-    emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: ctl.state.doc, runId: String(runId || "") });
+  function emitSaved(ctl, runId, which) {
+    emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: which || ctl.state.doc, runId: String(runId || "") });
+  }
+
+  function reloadSaved(ctl, res) {
+    clearReview(ctl);
+    ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
+    emitSaved(ctl, res && res.run && res.run.runId);
+    return loadDoc(ctl);
   }
 
   function renderAll(ctl) {
@@ -813,16 +816,28 @@
     } else if (frame.event === "blocked") {
       p.blocked.push(data);
       var line = blockedLine(data);
-      logMessage(ctl, "blocked", [h("b", { text: "Blocked: " }), line]);
-      announce("Blocked: " + line, true);
+      logMessage(ctl, "blocked", [line]);
+      if (data.reason !== "locked" && data.reason !== "out_of_scope") {
+        p.failure = true;
+        errorStatus(ctl, data.reason);
+      } else announce(line, true);
     } else if (frame.event === "proposal") {
       p.summary = data.summary || null;
     } else if (frame.event === "error") {
-      logMessage(ctl, "blocked", [data.message || "Scribe could not finish this request."]);
-      announce(data.message || "Scribe could not finish this request.", true);
+      p.failure = true;
+      logMessage(ctl, "blocked", [copy(data.code)]);
+      errorStatus(ctl, data.code);
     } else if (frame.event === "done") {
       p.status = data.status || "ready";
     }
+  }
+
+  function errorStatus(ctl, code) {
+    var settings = code === "llm_unconfigured" || code === "no_pin";
+    status(ctl, "error", copy(code), settings ? "Settings" : "Try again", function () {
+      if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+      else send(ctl);
+    });
   }
 
   function finishRun(ctl) {
@@ -842,13 +857,14 @@
       if (s && s.removals) bits.push(plural(s.removals, "removal"));
       if (s && typeof s.wordsDelta === "number" && s.wordsDelta) bits.push((s.wordsDelta > 0 ? "+" : "−") + Math.abs(s.wordsDelta) + " words");
       if (s && s.pages) bits.push("still " + plural(s.pages, "page"));
-      var head = p.status === "partial" ? "Stopped early" : (n === 1 ? "1 change is ready" : n + " changes are ready");
+      var head = p.status === "partial" ? "Stopped. " + plural(n, "change") + " ready to review." : plural(n, "suggested change");
       logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: head }), bits.join(" · ")]);
       announce(head + ". " + bits.join(", ") + ".");
       if (ctl.isNarrow()) ctl.setSeg("doc");
     } else {
       p.summary = null;
-      logMessage(ctl, "note", [p.status === "partial" ? "Stopped. No changes were proposed." : "No changes were proposed. Try a more specific request."]);
+      if (p.failure) { if (!ctl.refs.prompt.value) ctl.refs.prompt.value = p.instruction || ""; }
+      else logMessage(ctl, "note", [p.status === "partial" ? "Stopped. No changes suggested." : "No changes suggested. Try a more specific request."]);
       st.proposal = null;
     }
     renderAll(ctl);
@@ -947,13 +963,16 @@
 
   function continueRequest(ctl, stored) {
     if (ctl.state.busy || ctl.state.loading) return;
-    if (stored.doc !== ctl.state.doc) { ctl.setDoc(stored.doc); return; }
+    if (stored.doc !== ctl.state.doc) return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
     var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
       stopRequested: false, detached: false, generation: ctl.generation };
-    clearReview(ctl);
-    ctl.state.proposal.ops = []; ctl.state.proposal.changes = null; ctl.state.proposal.decisions = null;
-    ctl.state.busy = true; ctl.state.stage = "reading"; renderAll(ctl);
-    attachStream(ctl, request).catch(function (err) { requestFailure(ctl, request, err); });
+    ctl.state.loading = true;
+    return installExactBase(ctl, stored.baseRunId, stored.doc, request.generation).then(function (loaded) {
+      if (!loaded || !requestCurrent(ctl, request)) return;
+      ctl.state.proposal.ops = []; ctl.state.proposal.changes = null; ctl.state.proposal.decisions = null;
+      ctl.state.busy = true; ctl.state.stage = "reading"; renderAll(ctl);
+      return attachStream(ctl, request);
+    }).catch(function (err) { ctl.state.loading = false; requestFailure(ctl, request, err); });
   }
 
   function stopRecovered(ctl, stored) {
@@ -1202,7 +1221,7 @@
 
   function flagText(c) {
     var facts = (c.op.facts || []).filter(function (f) { return !/^claimId:/.test(f); });
-    return "Unverified: please confirm." + (facts.length ? " " + facts[0] : "");
+    return "Not in your saved facts — confirm before accepting." + (facts.length ? " " + facts[0] : "");
   }
 
   /* The margin rail: one note per change, beside its block. */
@@ -1303,7 +1322,7 @@
     var n = nextVersionN(ctl);
     var saveBtn;
     if (!s.pending && !s.accepted) {
-      saveBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--primary", "data-review": "discard", text: "Close without saving" });
+      saveBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--primary", "data-review": "discard", text: "Discard" });
     } else {
       saveBtn = h("button", {
         type: "button", class: "scribe__btn" + (verified > 0 ? "" : " scribe__btn--primary"), "data-review": "save",
@@ -1321,7 +1340,7 @@
       saveBtn,
     ]));
     if (ctl.autoSave) {
-      el.appendChild(h("p", { class: "scribe__autosave", text: "Every change is decided. Saving as v" + n + " in a moment." }));
+      el.appendChild(h("p", { class: "scribe__autosave", text: "All changes decided. Saving as v" + n + "…" }));
     }
   }
 
@@ -1478,7 +1497,7 @@
     if (ctl.autoSave) { root.clearTimeout(ctl.autoSave); ctl.autoSave = null; }
     var accepted = p.changes.filter(function (c) { return p.decisions[c.opId] === "accepted"; });
     if (!accepted.length) { announce("Accept at least one change first."); return; }
-    if (!p.id) { announce("This proposal has no server copy to save.", true); return; }
+    if (!p.id) { announce("These changes can’t be saved. Discard them and send the request again.", true); return; }
     p.saving = true;
     refreshReview(ctl);
     ctl.api.acceptEdit(p.id, {
@@ -1488,19 +1507,23 @@
       if (ctl.closed || ctl.state.proposal !== p) return null;
       var run = (res && res.run) || {};
       var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
-      var note = "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
-      if (run.pdf === "stale") note += " The PDF catches up when the materials browser is back.";
-      logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: "Saved as v" + n }), note.replace(/^Saved as v\d+ /, "")]);
-      announce("Saved as version " + n + ".");
-      ctl.state.proposal = null;
-      emitSaved(ctl, run.runId);
-      return loadDoc(ctl);
+      var unavailable = res && res.textSaved || run.pdf === "stale";
+      var note = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
+      logMessage(ctl, "scribe", [note]);
+      status(ctl, unavailable ? "saved-pdf-unavailable" : "saved", note);
+      return reloadSaved(ctl, res);
     }, function (err) {
       if (ctl.closed || ctl.state.proposal !== p) return;
       p.saving = false;
-      var message = (err && err.message) || "The changes did not save.";
-      logMessage(ctl, "blocked", [h("b", { text: "Not saved: " }), message]);
-      announce("Not saved: " + message, true);
+      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : "Not saved. Your accepted changes are still here.";
+      status(ctl, err && err.code === "stale_base" ? "stale" : "error", message,
+        err && err.code === "stale_base" ? "Review current" : "Try again", function () {
+          if (err && err.code === "stale_base") ctl.api.listVersions(ctl.state.doc).then(function (listing) {
+            ctl.state.versions = listing.versions; ctl.state.latestRunId = listing.currentRunId; renderAll(ctl); reviewCurrent(ctl);
+          }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
+          else save(ctl);
+        });
+      logMessage(ctl, "blocked", [message]);
       refreshReview(ctl);
     });
   }
@@ -1547,7 +1570,7 @@
     if (k === "j" || k === "k") { move(ctl, k === "j" ? 1 : -1); }
     else if (k === "A" && e.shiftKey) { decideAll(ctl, "accepted"); }
     else if (k === "a" || k === "r") {
-      if (!focused) announce("Press J to pick a change first.");
+      if (!focused) announce("Pick a change first (J/K to move).");
       else decide(ctl, focused.opId, k === "a" ? "accepted" : "rejected");
     }
     else if (k === "d" || k === "D") { toggleShow(ctl); }
@@ -1558,12 +1581,11 @@
 
   /* The blocked-op chat line (SPEC §2 Guards), worded by reason. */
   function blockedLine(data) {
-    var detail = data && data.detail ? "“" + data.detail + "”" : "";
+    var detail = data && typeof data.detail === "string" ? data.detail.slice(0, 300) : "";
     var reason = data && data.reason;
-    if (reason === "out_of_scope") return "that change was outside what you asked Scribe to edit.";
-    if (reason === "shape") return "that change would break the template's shape" + (data.detail ? " (" + data.detail + ")" : "") + ".";
-    if (reason === "invalid_model") return "Scribe returned a change the template can't hold.";
-    return "would change " + (detail || "a locked fact") + ".";
+    if (reason === "out_of_scope") return "Blocked: that change was outside what you asked Scribe to edit.";
+    if (reason === "locked") return detail ? "Blocked: “" + detail + "” is a locked fact." : "Blocked: that would change a locked fact.";
+    return copy(reason);
   }
 
   /* ---------------- Events ---------------- */
@@ -1733,7 +1755,7 @@
     ctl.api.star(runId, next).catch(function (err) {
       v.starred = !next;
       renderVersions(ctl);
-      announce((err && err.message) || "The star did not save.", true);
+      announce((err && err.message) || "Star didn’t save.", true);
     });
     var btn = ctl.refs.versions.querySelector('[data-star="' + runId + '"]');
     if (btn) btn.focus();
@@ -1789,7 +1811,7 @@
     this.state.doc = d;
     this.refs.host.setAttribute("data-doc", d);
     this.refs.log.appendChild(h("div", { class: "scribe__msg scribe__msg--note", text: "Now editing the " + DOC_NOUN[d] + "." }));
-    loadDoc(this);
+    return loadDoc(this);
   };
 
   Controller.prototype.setSide = function (s) {
@@ -1839,7 +1861,7 @@
     doc().body.appendChild(r.host);
     fitViewport(this);
     if (doc().documentElement && doc().documentElement.classList) doc().documentElement.classList.add("jb-scribe-open");
-    logMessage(this, "note", ["Ask for a change to this " + DOC_NOUN[this.state.doc] + ". Nothing is saved until you accept it."]);
+    logMessage(this, "note", ["Ask for a change. You review every suggested change before it’s saved."]);
     renderAll(this);
     var raf = typeof root.requestAnimationFrame === "function" ? root.requestAnimationFrame : function (fn) { fn(); };
     raf(function () { if (!self.closed) r.host.classList.add("is-open"); });

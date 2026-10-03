@@ -200,14 +200,14 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   /* A locked fact comes back blocked, in words. */
   api.emit(id, "blocked", { op: { opId: "o5", op: "replace", node: "stmt", text: "Cut fulfillment delays by half." }, reason: "locked", detail: "38%" });
   const log = desk.getByRole("log", { name: "Conversation with Scribe" });
-  await expect(log).toContainText("Blocked: would change “38%”.");
+  await expect(log).toContainText("Blocked: “38%” is a locked fact.");
 
   api.emit(id, "stage", { stage: "measuring" });
   await expect(stage).toHaveText("Measuring length");
   api.emit(id, "proposal", { summary: { changes: 4, removals: 1, wordsDelta: 2, lossPct: 9, pages: 1, unverified: 1 } });
   api.emit(id, "done", { status: "ready" });
   api.end(id);
-  await expect(log).toContainText("4 changes are ready");
+  await expect(log).toContainText("4 suggested changes");
   await expect(desk.getByRole("region", { name: /^Resume/ })).toHaveAttribute("aria-busy", "false");
 
   /* j/k move, a/r decide the focused change. Reading order: o1 o2 o3 o4. */
@@ -230,7 +230,7 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   await expect(note("o3")).toHaveAttribute("data-state", "rejected");
 
   /* Accept all takes the verified change and leaves the Unverified one. */
-  await expect(note("o2")).toContainText("Unverified: please confirm. Contoso");
+  await expect(note("o2")).toContainText("Not in your saved facts — confirm before accepting. Contoso");
   await desk.getByRole("button", { name: "Accept all verified" }).click();
   await expect(note("o4")).toHaveAttribute("data-state", "accepted");
   await expect(note("o2")).toHaveAttribute("data-state", "pending");
@@ -261,13 +261,13 @@ test("should take a resume from Edit through review, save, stop, compare and bri
   api.holdForStop(stopId, [{ opId: "s2", op: "replace", node: "tool:Analytics", text: "SQL, Spreadsheets, Dashboards", flags: [], facts: [] }]);
   await expect(frame.locator('[data-scribe-id="s1"]')).toHaveCount(1);
   await desk.getByRole("button", { name: "Stop" }).click();
-  await expect(log).toContainText("Stopped early");
+  await expect(log).toContainText("Stopped.");
   expect(posted(`/edits/${stopId}/stop`)).toHaveLength(1);
   await expect(rail.locator(".scribe__mm")).toHaveCount(2);
   await expect(note("s2"), "the stop reply's late op joins the review").toHaveCount(1);
   await expect(rail.getByRole("button", { name: /^Accept / })).toHaveCount(2);
   await desk.getByRole("button", { name: "Reject all" }).click();
-  await desk.getByRole("button", { name: "Close without saving" }).click();
+  await desk.getByRole("button", { name: "Discard" }).click();
   await expect(log).toContainText("Nothing was saved.");
   expect(api.calls.some((c) => c.method === "DELETE" && c.path === `/edits/${stopId}`)).toBe(true);
 

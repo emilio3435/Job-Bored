@@ -275,7 +275,7 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     const { JBScribeApi } = loadApi();
     const api = JBScribeApi.create({
       base: BASE, slug: SLUG, mode: "live",
-      fetchImpl: async () => response(409, { error: "materials_pending", message: "A draft is still running." }),
+      fetchImpl: async () => response(409, { error: "A draft is still running.", code: "materials_pending", message: "A draft is still running." }),
     });
     await assert.rejects(api.startEdit({ doc: "resume", instruction: "x" }), (err) => {
       assert.equal(err.status, 409);
@@ -290,7 +290,7 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: "live", fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
     await assert.rejects(api.listVersions("resume"), (err) => {
       assert.equal(err.code, "server_unreachable");
-      assert.match(err.message, /npm start/);
+      assert.equal(err.message, "Scribe can’t reach your JobBored server. Start it, then Retry.");
       return true;
     });
   });
@@ -390,4 +390,73 @@ describe('SCRP-F2 R1 open route and R2 truthful transport', () => {
       });
     }
   });
+});
+
+async function outcomeDesk(which, { failure, saved = false } = {}) {
+  const { makeEnv, FakeDocument } = await import('./fixtures/jb-dom.mjs');
+  const win = makeEnv({ bodyClass: 'jb-v2' }); win.Date = Date;
+  vm.runInNewContext(read('scribe-v2-api.js'), win);
+  vm.runInNewContext(read('scribe-v2-diff.js'), win);
+  vm.runInNewContext(read('scribe-v2.js'), win);
+  const calls = [], events = [];
+  win.addEventListener('jb:scribe:saved', e => events.push(plain(e.detail)));
+  let current = 'r0';
+  const api = {
+    listVersions: async () => ({ currentRunId: current, versions: [{ runId: current, n: current === 'r0' ? 0 : 1, words: 10 }] }),
+    preview: async body => { calls.push(['preview', body.baseRunId]); return { html: '<p>Saved text</p>' }; },
+    propose: async () => ({ proposalId: 'p1' }),
+    stream: async (_id, h) => {
+      if (failure) h.onEvent(failure);
+      else h.onEvent({ event: 'op', data: { op: { opId: 'o1', op: 'replace', node: 'p:p3', text: 'Measured delays.' } } });
+      h.onEvent({ event: 'done', data: { status: failure ? 'failed' : 'ready' } }); return 'ready';
+    },
+    acceptEdit: async () => { calls.push(['accept']); current = 'r1'; return { textSaved: saved, httpStatus: saved ? 503 : 200, run: { runId: current, n: 1, pdf: saved ? 'stale' : 'ready' } }; },
+    stopEdit: async () => ({ status: 'partial', ops: [] }),
+  };
+  const ctl = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api });
+  const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
+  await flush();
+  const inner = new FakeDocument(); const node = inner.createElement('p'); node.setAttribute('data-node', 'p:p3'); node.textContent = 'Original block'; inner.body.appendChild(node);
+  ctl.refs.frame.contentDocument = inner; ctl.refs.frame.onload();
+  ctl.refs.prompt.value = 'Make it punchier'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await flush();
+  const click = el => { assert.ok(el); el.dispatchEvent({ type: 'click', target: el, bubbles: true }); };
+  return { ctl, inner, calls, events, flush, click };
+}
+
+describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics', () => {
+  for (const which of ['resume', 'cover_letter']) {
+    it(`SCRP-F12 ${which} committed 503 clears review and emits one saved event`, async () => {
+      const t = await outcomeDesk(which, { saved: true });
+      t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+      t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]')); await t.flush();
+      assert.equal(t.ctl.state.proposal, null);
+      assert.equal(t.ctl.autoSave, null);
+      assert.equal(t.inner.querySelectorAll('[data-scribe-op]').length, 0);
+      assert.equal(t.ctl.refs.reviewbar.querySelector('[data-review="save"]'), null);
+      assert.match(t.ctl.refs.status.textContent, /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./);
+      assert.equal(t.ctl.refs.statusAction.hasAttribute('hidden'), true);
+      assert.deepEqual(t.events, [{ slug: 'acme-example', doc: which, runId: 'r1' }]);
+      assert.equal(t.calls.filter(c => c[0] === 'accept').length, 1);
+      assert.ok(t.calls.some(c => c[0] === 'preview' && c[1] === 'r1'));
+      t.ctl.close();
+    });
+    for (const [channel, code, expected, action] of [
+      ['blocked', 'provider_failed', 'The AI provider didn’t respond. Your document is unchanged.', 'Try again'],
+      ['blocked', 'unreadable_reply', 'Scribe’s reply couldn’t be read. Your document is unchanged.', 'Try again'],
+      ['blocked', 'invalid_model', 'Blocked: that change doesn’t fit this template’s layout.', 'Try again'],
+      ['error', 'http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
+      ['error', 'writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
+      ['error', 'writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
+      ['error', 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.', 'Settings'],
+    ]) {
+      it(`SCRP-F13 ${which} ${channel} ${code} uses safe per-code copy and action`, async () => {
+        const data = channel === 'blocked' ? { reason: code, detail: '/private/secret/raw-provider-payload' } : { code, message: '<script>raw provider payload</script>' };
+        const t = await outcomeDesk(which, { failure: { event: channel, data } });
+        assert.equal(t.ctl.refs.statusText.textContent, expected);
+        assert.equal(t.ctl.refs.statusAction.textContent, action);
+        assert.doesNotMatch(t.ctl.refs.log.textContent, /private|raw provider|script|No changes suggested/);
+        assert.equal(t.ctl.refs.prompt.value, 'Make it punchier'); t.ctl.close();
+      });
+    }
+  }
 });

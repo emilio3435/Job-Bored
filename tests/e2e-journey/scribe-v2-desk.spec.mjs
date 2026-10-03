@@ -213,8 +213,8 @@ test("should open the desk from a role's Edit button and return focus on close",
   await composer.press("Enter");
   const log = desk.getByRole("log", { name: "Conversation with Scribe" });
   await expect(log).toContainText("Make the summary punchier");
-  await expect(log).toContainText("Blocked: would change “38%”.");
-  await expect(log).toContainText("1 change is ready");
+  await expect(log).toContainText("Blocked: “38%” is a locked fact.");
+  await expect(log).toContainText("1 suggested change");
   await expect(desk.locator(".scribe__reviewbar")).toContainText("1 change");
   await page.screenshot({ path: join(EVIDENCE_DIR, "F1-desk-1440-chat.png") });
 
@@ -397,7 +397,7 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   await desk.getByRole("tab", { name: "Versions" }).click();
   const versions = desk.getByRole("list", { name: "Resume versions, newest first" });
   await expect(versions.getByRole("listitem")).toHaveCount(4);
-  await expect(versions.getByRole("listitem").first()).toContainText("Scribe edit");
+  await expect(versions.getByRole("listitem").first()).toContainText("Scribe");
 
   /* Compare with current: A | B, marked, read-only. */
   await desk.getByRole("button", { name: "Compare v0 with current" }).click();

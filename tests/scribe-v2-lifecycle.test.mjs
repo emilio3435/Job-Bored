@@ -580,3 +580,65 @@ describe('SCRP-F6 ASTRA-01 persisted recovery for both documents', () => {
     await t.submit(ctl); assert.equal(t.calls.filter(c => c[0] === 'post').length, 0); ctl.close();
   });
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F15 ${which} base-load failure keeps the created ID recoverable`, async () => {
+    const t = reliabilityApi(which); const ctl = t.mount(); await flush();
+    t.api.propose = async () => ({ proposalId: 'created-p', rebasedTo: 'r1' });
+    t.api.getModel = async () => { throw new Error('unavailable'); };
+    await t.submit(ctl);
+    assert.equal(ctl.state.proposal.id, 'created-p');
+    assert.equal(ctl.state.busy, false);
+    assert.ok(ctl.refs.recover.querySelector('[data-action="continue-request"]'));
+    assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+    assert.equal(t.calls.filter(c => c[0] === 'stream').length, 0); ctl.close();
+  });
+  it(`SCRP-F16 ${which} stale recovery keeps Save CAS and reviews current without discarding`, async () => {
+    const t = reliabilityApi(which);
+    t.api.open = { proposalId: 'stale-p', doc: which, baseRunId: 'r1', status: 'ready', ops: [ROP] };
+    vm.runInNewContext(read('scribe-v2-versions.js'), t.env.win);
+    const ctl = t.mount(); await flush();
+    assert.equal(ctl.state.currentRunId, 'r1');
+    assert.match(ctl.refs.recover.textContent, /v1; v2 is now current/);
+    tap(ctl.refs.recover.querySelector('[data-action="review-current"]')); await flush();
+    assert.equal(ctl.versionsUi.state().mode, 'view');
+    assert.equal(ctl.versionsUi.state().a, 'r2');
+    assert.equal(ctl.state.proposal.id, 'stale-p');
+    await t.submit(ctl, 'Retained request');
+    assert.equal(t.calls.filter(c => c[0] === 'post').length, 0);
+    assert.equal(t.calls.filter(c => c[0] === 'delete').length, 0); ctl.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F17 ${which} detached SSE callbacks cannot mutate the sibling`, async () => {
+    const t = reliabilityApi(which); let emit;
+    const streamed = defer();
+    t.api.stream = (_id, h) => { emit = h.onEvent; return streamed.promise; };
+    const ctl = t.mount(); await flush(); await t.submit(ctl);
+    ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume'); await flush();
+    const before = ctl.refs.log.textContent;
+    emit({ event: 'op', data: { op: ROP } }); emit({ event: 'error', data: { code: 'provider_failed' } }); streamed.resolve('ready'); await flush();
+    assert.equal(ctl.state.proposal, null); assert.equal(ctl.state.busy, false);
+    assert.equal(ctl.refs.log.textContent, before); ctl.close();
+  });
+  it(`SCRP-F18 ${which} Continue retries an exact-base load and resets replayed ops`, async () => {
+    const t = reliabilityApi(which); const ctl = t.mount(); await flush();
+    t.api.propose = async () => ({ proposalId: 'created-p', rebasedTo: 'r1' });
+    const get = t.api.getModel; t.api.getModel = async () => { throw new Error('unavailable'); };
+    await t.submit(ctl); t.api.getModel = get;
+    tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+    assert.equal(ctl.state.currentRunId, 'r1');
+    assert.equal(ctl.state.proposal.changes[0].before, 'r1 original block');
+    assert.equal(ctl.state.proposal.ops.length, 1); ctl.close();
+  });
+  it(`SCRP-F19 ${which} failed Stop never reports Stopped and stays recoverable`, async () => {
+    const t = reliabilityApi(which); t.api.stream = () => new Promise(() => {});
+    t.api.stopEdit = async () => { throw new Error('offline'); };
+    const ctl = t.mount(); await flush(); await t.submit(ctl);
+    tap(ctl.refs.stage.querySelector('[data-scribe="stop"]')); await flush();
+    assert.doesNotMatch(ctl.refs.log.textContent, /Stopped/);
+    assert.ok(ctl.refs.recover.querySelector('[data-action="stop-request"]'));
+    assert.equal(ctl.state.proposal.id, 'p1'); ctl.close();
+  });
+}
