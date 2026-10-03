@@ -253,3 +253,21 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B74 R6-#5 ${doc} Unicode d
     assert.doesNotThrow(() => applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: `${figure} shipments were processed.` }]));
   }
 });
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B75 R6-#6 ${doc} D28 preserves numbered text and NFC figure runs through storage`, () => {
+  for (const [base, text] of [
+    ['38. Shipments processed.', '38. All shipments processed.'],
+    ['😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.'],
+    ['Processed 38 shipments.', 'Processed 3**8** shipments.'],
+    ['Processed - 38 shipments.', 'We processed - 38 shipments.'],
+  ]) {
+    const { before, id } = numericModel(doc, base);
+    const after = applyOps(before, [{ opId: 'normalize', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text.normalize('NFC').replace(/[*_`~]/g, ''));
+    assert.ok(node.locked.spans.length); assert.equal(node.text.slice(...node.locked.spans[0]), '38');
+    assert.throws(() => applyOps(after, [{ opId: 'mutate', op: 'replace', node: id, text: node.text.replace('38', '39') }]), { reason: 'locked' });
+  }
+  const { before, id } = numericModel(doc, 'Processed 38 shipments.');
+  assert.throws(() => applyOps(before, [{ opId: 'html', op: 'replace', node: id, text: 'Processed 38<b>0</b> shipments.' }]), { reason: 'locked' }, 'storage cleanup cannot join an extra digit to a locked figure');
+});

@@ -806,35 +806,24 @@
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
 
-  /** D27 uses plain text on both sides; retain original UTF-16 offsets for locks.
+  /** D28: NFC, then remove only markdown markup; map back to raw UTF-16 spans.
    * @param {string} value */
   function normalizedNumericText(value) {
-    var text = String(value);
-    var offsets = Array.from({ length: text.length }, (_, i) => i);
-    /** @param {RegExp} pattern @param {boolean} [label] */
-    function strip(pattern, label = false) {
-      var from = 0;
-      /** @type {string[]} */
-      var parts = [];
-      /** @type {number[]} */
-      var next = [];
-      text.replace(pattern, (...args) => {
-        var match = args[0], at = args[args.length - 2], kept = label ? args[1] : "";
-        parts.push(text.slice(from, at), kept);
-        next = next.concat(offsets.slice(from, at));
-        if (kept) next = next.concat(offsets.slice(at + match.indexOf(kept), at + match.indexOf(kept) + kept.length));
-        from = at + match.length;
-        return match;
-      });
-      parts.push(text.slice(from));
-      text = parts.join(""); offsets = next.concat(offsets.slice(from));
+    var source = String(value), text = "";
+    /** @type {number[]} */
+    var offsets = [], ends = [];
+    // NFC cannot cross a grapheme boundary. Keep composed characters tied to
+    // their entire raw cluster, and unchanged characters to their exact offsets.
+    for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
+      var normalized = part.segment.normalize("NFC");
+      for (var i = 0; i < normalized.length; i++) {
+        if (/[*_`~]/.test(normalized[i])) continue;
+        text += normalized[i];
+        offsets.push(part.index + (normalized === part.segment ? i : 0));
+        ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
+      }
     }
-    strip(/<[^>]*>/g);
-    strip(/!?\[([^\]]*)\]\([^)]+\)/g, true);
-    strip(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm);
-    strip(/(?:\*\*|__|~~|`|\*|_)/g);
-    strip(/^\s+|\s+$/g);
-    return { text, offsets };
+    return { text: text, offsets: offsets, ends: ends };
   }
 
   /** @param {string} text @param {number} start @param {number} end */
@@ -844,7 +833,8 @@
     var left = offsets.indexOf(start), right = offsets.indexOf(end);
     if (left < 0 || right < 0) return [start, end];
     var attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
-    /** Spaces bridge figure components, not a preceding prose word (D28 movement). */
+    /** Spaces bridge figure components, not a preceding prose word (D28 movement).
+     * @param {number} i */
     var joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
       (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
        /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
@@ -863,7 +853,7 @@
     /** @type {number[][]} */
     var matched = [];
     for (var [index, [rawStart, rawEnd]] of spans.entries()) {
-      var start = original.offsets.findIndex(i => i >= rawStart);
+      var start = original.ends.findIndex(i => i > rawStart);
       var end = original.offsets.findIndex(i => i >= rawEnd);
       if (end < 0) end = original.text.length;
       if (start < 0 || start >= end) return null;
@@ -872,8 +862,8 @@
       if (!group) { group = { a: a, b: b, spans: [] }; groups.set(key, group); }
       group.spans.push([index, start, end]);
     }
-    for (var group of groups.values()) {
-      var run = original.text.slice(group.a, group.b), at = next.text.indexOf(run);
+    for (var item of groups.values()) {
+      var run = original.text.slice(item.a, item.b), at = next.text.indexOf(run);
       while (at >= 0) {
         var [left, right] = numericRun(next.text, at, at + run.length);
         if (left === at && right === at + run.length && !used.has(at)) break;
@@ -881,8 +871,8 @@
       }
       if (at < 0) return null;
       used.add(at);
-      for (var [index, start, end] of group.spans) {
-        matched[index] = [next.offsets[at + start - group.a], next.offsets[at + end - group.a - 1] + 1];
+      for (var [index, start, end] of item.spans) {
+        matched[index] = [next.offsets[at + start - item.a], next.ends[at + end - item.a - 1]];
       }
     }
     return matched;

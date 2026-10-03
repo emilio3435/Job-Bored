@@ -703,3 +703,24 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 R6-#5 ${which} s
     t.ctl.close('role-closed');
   }
 });
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F115 R6-#6 ${which} ${channel} D28 preserves numbered text and NFC figure runs`, async () => {
+    await checkNumericRun(which, '38. Shipments processed.', '38. All shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '38. Shipments processed.', '39. All shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café39 shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**8** shipments.', false, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**9** shipments.', true, ['38'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 R6-#6 ${which} NFC offset mapping keeps subsequent locked edits blocked`, async () => {
+  const t = await desk(which), base = '😀 Cafe\u030138 shipments.', after = '😀 Café38 shipments processed.';
+  const at = base.indexOf('38'); t.nodes[0].text = base; t.nodes[0].locked.spans = [[at, at + 2]]; t.els[0].textContent = base;
+  t.edit(t.els[0], after);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[7, 9]]);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  t.els[0].textContent = after.replace('38', '39'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
+  assert.equal(t.els[0].textContent, after); t.ctl.close('role-closed');
+});
