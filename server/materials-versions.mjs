@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { editDiagnostic, flagUnverifiedOps, proposeEdits, safeBlockedEdit } from "./materials-edit.mjs";
@@ -69,7 +69,7 @@ async function assertChildDirectory(dir, child) {
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") return false;
     throw error;
   }
-  if (!actual.startsWith(dir + sep)) throw failure("Path escape detected", 400, "path_escape");
+  if (!actual.startsWith(await realpath(dir) + sep)) throw failure("Path escape detected", 400, "path_escape");
   return true;
 }
 
@@ -241,6 +241,7 @@ async function versions(dir, doc) {
 /** Read each document from its own current immutable run for a package-wide template change. */
 /** @param {string} dir */
 export async function currentDocuments(dir) {
+  dir = await resolveApplicationDir(basename(dir), { root: dirname(dir) });
   /** @type {Record<string, any>} */
   const documents = {};
   for (const doc of ["resume", "coverLetter"]) {
