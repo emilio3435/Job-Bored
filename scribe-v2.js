@@ -812,7 +812,7 @@
     if (text === a.node.text) delete m.drafts[a.node.id];
     else {
       var previous = m.drafts[a.node.id];
-      m.drafts[a.node.id] = { opId: previous ? previous.opId : "manual-" + (++ctl.manualSeq), op: "replace", node: a.node.id, text: text };
+      m.drafts[a.node.id] = { opId: previous ? previous.opId : "manual-" + (++ctl.manualSeq), op: "replace", node: a.node.id, text: text, spans: a.spans.map(function (span) { return span.slice(); }) };
     }
   }
 
@@ -843,10 +843,7 @@
     if (m.base && (m.base !== ctl.state.currentRunId || m.doc !== ctl.state.doc)) { manualConflict(ctl); return; }
     m.base = ctl.state.currentRunId; m.doc = ctl.state.doc;
     var text = m.drafts[id] ? m.drafts[id].text : node.text;
-    var spans = node.locked && node.locked.spans || [];
-    /* Retained drafts may have shifted a metric; recover its ordered offset. */
-    var from = 0;
-    spans = spans.map(function (span) { var token = node.text.slice(span[0], span[1]); var at = text.indexOf(token, from); from = at + token.length; return [at, from]; });
+    var spans = (m.drafts[id] ? m.drafts[id].spans : node.locked && node.locked.spans || []).map(function (span) { return span.slice(); });
     el.textContent = text;
     m.active = { el: el, node: node, last: text, spans: spans };
     el.setAttribute("contenteditable", "plaintext-only"); el.setAttribute("data-scribe-editing", "");
@@ -914,7 +911,10 @@
         nodes.forEach(function (node) { map[node.id] = node; });
         var invalid = Object.keys(m.drafts).some(function (id) {
           var n = map[id];
-          return !n || n.locked.whole || n.locked.spans.some(function (span) { return m.drafts[id].text.indexOf(n.text.slice(span[0], span[1])) < 0; });
+          var draft = m.drafts[id], spans = draft.spans;
+          return !n || n.locked.whole || n.locked.spans.length !== spans.length || n.locked.spans.some(function (span, i) {
+            return draft.text.slice(spans[i][0], spans[i][1]) !== n.text.slice(span[0], span[1]);
+          });
         });
         if (invalid) { manualMessage(ctl, "error", "Figures in this line are locked."); return; }
         if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true });
@@ -935,7 +935,7 @@
     if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
       manualMessage(ctl, "error", "Not saved. Your text is kept."); return Promise.resolve(false);
     }
-    var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { return Object.assign({}, m.drafts[id]); });
+    var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
     var base = confirmed ? confirmed.base : m.base;
     m.confirmation = null;

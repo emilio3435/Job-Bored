@@ -146,3 +146,20 @@ for (const which of ['resume', 'cover_letter']) {
     ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F72 R2-#2 ${which} repeated tokens never relocate transformed UTF-16 locks`, async () => {
+    const { ctl, inner, els, nodes, edit, calls, flush } = await desk(which);
+    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+    edit(els[0], '38% 😀 delays 38%.');
+    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    els[0].textContent = '38% 😀 delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
+    // The new prefix is editable; only the original occurrence is locked.
+    els[0].textContent = '40% 😀 delays 38%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, '40% 😀 delays 38%.');
+    inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+    assert.equal(calls[0].manualOps[0].text, '40% 😀 delays 38%.');
+    assert.deepEqual(Object.keys(calls[0].manualOps[0]).sort(), ['node', 'op', 'opId', 'text']); ctl.close();
+  });
+}
