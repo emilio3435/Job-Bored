@@ -38,3 +38,9 @@
 | R3-12 | No doubled "Try again". The batch line reads "Some of this text isn’t in your saved facts:" followed by the quoted replacements. |
 | R3-13 | "Discarded." survives the reload (`keepStatus`). |
 | KBD-01 | D25. Playwright, both documents at 1440 and 375, keyboard only: Tab to the document, ArrowDown to a block, Enter, Edit text, type, Tab out, and exactly one manual version is saved. Plus the lock and announce checks. |
+
+## Added 11:30Z (from UX final pass, `reports/LANE-REPORT-UX.md` and `UX-DELTA.md` "For FE")
+
+| # | Fix |
+|---|---|
+| UX-FE-1 | Dossier résumé bullets lose their layout during manual edit, and after blur while a draft is kept. The `li` keeps its two-column grid, so the plain text falls into the 52px gutter. Fix this in the injected iframe CSS (`scribe-v2-diff.js`) with a shape guard that also covers retained drafts, for example `.sheet[data-family="dossier"] li[data-node^="b:"]:not(:has(> span)) { grid-template-columns: minmax(0,1fr); }`. Verify that both the blur/error retention and the restored renderer spans still look right. Add a 375px Dossier manual-edit browser check. |
