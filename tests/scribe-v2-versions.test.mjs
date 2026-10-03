@@ -573,3 +573,10 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.state.currentRunId, 'r2'); t.ctl.close();
   });
 }
+
+it('SCRP-R1-23 version load failures use literal copy and mapped next step', async () => {
+  const t = await openDesk();
+  t.api.preview = async () => { throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'Too many AI and rendering requests this minute.', 'Try again in 30 s.'); };
+  click(act(t.host, 'view', 'r0')); await settle();
+  assert.match(t.host.querySelector('.scribe__compare-cap').textContent, /didn’t load.*Too many requests right now.*Try again in 30 s\./); t.ctl.close();
+});

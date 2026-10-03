@@ -501,7 +501,8 @@
         /* The page already shown stays up; keep it listening. */
         watchFig(fig);
         fig.box.setAttribute("aria-busy", "false");
-        fig.caption.textContent += " — " + ((err && err.message) || "this version did not load.");
+        var explanation = root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err) : "That didn’t work. Try again.";
+        fig.caption.textContent += " — This version didn’t load. " + explanation;
       });
     }
 
