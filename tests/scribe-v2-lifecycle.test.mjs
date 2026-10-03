@@ -867,3 +867,16 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F87 R3-#8 ${which} Disc
   assert.equal(t.calls.filter(c => c[0] === 'open').length, reads + 1);
   assert.equal(ctl.discarding, false); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F88 R3-#9 ${which} successful empty recovery drops an unsaveable terminal result`, async () => {
+  const t = reliabilityApi(which); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; }; t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } }); handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  t.api.open = null; reply.reject({ code: 'proposal_not_running' }); await flush();
+  assert.equal(ctl.state.proposal, null); assert.equal(ctl.openProposal, null);
+  assert.equal(ctl.refs.statusText.textContent, 'Those changes are no longer available.');
+  assert.equal(ctl.refs.reviewbar.querySelectorAll('[data-review]').length, 0);
+  stream.resolve(); ctl.close();
+});

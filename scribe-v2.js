@@ -1178,7 +1178,7 @@
     });
   }
 
-  function readOpen(ctl, pending) {
+  function readOpen(ctl, pending, onEmpty) {
     var generation = ctl.generation, sequence = ++ctl.recoverySeq;
     if (typeof ctl.api.getOpenEdit !== "function") {
       if (pending) status(ctl, "error", copy("materials_pending"));
@@ -1190,6 +1190,7 @@
       ctl.openProposal = null; ctl.openProposals = null;
       if (pending) status(ctl, "error", copy("materials_pending"));
       renderRecovery(ctl);
+      if (onEmpty) onEmpty();
       return null;
     }).catch(function (err) {
       if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
@@ -1418,7 +1419,10 @@
       var p = ctl.state.proposal;
       if (reviewReady(p) && p.ops.length) finishRun(ctl);
       else { clearReview(ctl); ctl.state.proposal = null; }
-      return readOpen(ctl).then(function () { renderAll(ctl); });
+      return readOpen(ctl, false, function () {
+        clearReview(ctl); ctl.state.proposal = null;
+        status(ctl, "idle", "Those changes are no longer available.");
+      }).then(function () { renderAll(ctl); });
     });
     return request.stopReply;
   }
