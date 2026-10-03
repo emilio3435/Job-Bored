@@ -1507,7 +1507,7 @@
       if (!keepRecovery) { ctl.openProposal = null; ctl.openProposals = null; }
       status(ctl, "idle", "Discarded.");
       logMessage(ctl, "note", ["Discarded."]); renderAll(ctl);
-      return loadDoc(ctl, false, recoveryKnown);
+      return loadDoc(ctl, true, recoveryKnown);
     }
     return ctl.api.rejectEdit(id).then(function () {
       if (ctl.closed) return false;

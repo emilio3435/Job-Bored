@@ -894,3 +894,11 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F89 R3-#10 ${which} Dis
   tap(save); pending.fn(); await flush(); assert.equal(accepts, 0); assert.equal(ctl.discarding, true);
   t.api.open = null; deletion.resolve(); await flush(); assert.equal(ctl.state.proposal, null); assert.equal(accepts, 0); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F812 R3-#13 ${which} Discarded status survives the saved-document reload`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
+  assert.equal(ctl.refs.statusText.textContent, 'Discarded.'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  assert.equal(ctl.state.currentRunId, 'r2'); assert.equal(ctl.state.proposal, null);
+  await t.submit(ctl, 'Next request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();
+});
