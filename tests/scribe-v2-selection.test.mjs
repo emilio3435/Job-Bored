@@ -71,3 +71,15 @@ test('SCRP-F49 GAP-02 node removal and template changes refuse retained scope', 
     assert.equal(calls.length, 0); assert.equal(ctl.refs.statusText.textContent, 'Your selection changed. Select the text again.'); ctl.close();
   }
 });
+
+test('SCRP-R1-22 existing F1/F2 mounts and clear-scope handler are wired', async () => {
+  const t = await desk('resume');
+  assert.ok(t.ctl.refs.host.querySelector('.scribe__selection-actions'));
+  assert.ok(t.ctl.refs.host.querySelector('.scribe__manual-state'));
+  t.select(['b:acme:c14']);
+  const styles = t.win.JBScribeDiff.markStyles(() => 'blue');
+  assert.match(styles, /data-scribe-selected/); assert.match(styles, /data-scribe-editing/);
+  t.ctl.refs.clearScope.dispatchEvent({ type: 'click', target: t.ctl.refs.clearScope, bubbles: true });
+  assert.equal(t.ctl.scope, null);
+  assert.match(t.ctl.refs.scope.textContent, /Whole document/); t.ctl.close();
+});
