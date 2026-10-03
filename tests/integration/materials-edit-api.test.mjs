@@ -11,6 +11,7 @@ import express from "../../server/node_modules/express/index.js";
 import { commitModelAsRun, regeneratePackage } from "../../server/materials-regenerate.mjs";
 import { createMaterialsVersionService, registerMaterialsEditRoutes } from "../../server/materials-versions.mjs";
 import { deriveNodes } from "../../server/materials-nodes.mjs";
+import { withMonograms } from "../../server/materials-monogram.mjs";
 
 const model = JSON.parse(readFileSync(new URL("../../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
 const op = { opId: "o1", op: "replace", node: "line:beta", text: "Tracked shipments." };
@@ -1220,7 +1221,9 @@ it("legacy paragraph splitting preserves link labels and refuses ambiguous shape
 
 it("SCRP-B21 R1-#1 regenerate merges each document's current run after single-document saves", async () => {
   for (const savedDocs of [["resume"], ["coverLetter"], ["resume", "coverLetter"]]) {
-    const pkg = await seed();
+    // The fitted model now retains template marks. Seed them so this exact
+    // equality check continues to isolate preservation of both current docs.
+    const pkg = await seed(withMonograms(model));
     for (const doc of savedDocs) {
       await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [doc === "resume" ? op : {
         opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations.",
