@@ -789,6 +789,12 @@
     if (el.parentNode !== ctl.refs.stage) ctl.refs.stage.appendChild(el);
   }
 
+  function clearManualMessage(ctl) {
+    clear(ctl.refs.manualState);
+    ctl.refs.manualState.setAttribute("hidden", "");
+    ctl.refs.manualState.removeAttribute("data-state");
+  }
+
   function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
 
   function changedRange(before, after) {
@@ -829,7 +835,10 @@
     if (m.timer) root.clearTimeout(m.timer);
     m.timer = null;
     if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
-    else { m.base = null; m.doc = null; }
+    else {
+      m.base = null; m.doc = null;
+      if (ctl.refs.manualState.getAttribute("data-state") === "editing") clearManualMessage(ctl);
+    }
   }
 
   function beginManual(ctl, el) {
@@ -983,7 +992,7 @@
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
     m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null;
-    ctl.refs.manualState.setAttribute("hidden", "");
+    clearManualMessage(ctl);
   }
 
   function guardManualNavigation(ctl, action, restored) {
@@ -2298,6 +2307,7 @@
     if (!this.navigationApproved) return guardManualNavigation(this, function () { self.navigationApproved = true; var result = self.setDoc(d); self.navigationApproved = false; return result; });
     invalidateScope(this); unwatchFrameKeys(this);
     detachRequest(this);
+    clearManualMessage(this);
     this.state.doc = d;
     this.refs.host.setAttribute("data-doc", d);
     this.refs.log.appendChild(h("div", { class: "scribe__msg scribe__msg--note", text: "Now editing the " + DOC_NOUN[d] + "." }));

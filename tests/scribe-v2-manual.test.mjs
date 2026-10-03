@@ -196,3 +196,15 @@ test('SCRP-F78 R2-#9 manual errors use mapped copy plus nextStep and keep Try ag
   fails = false; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle();
   assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
 });
+
+test('SCRP-F79 R2-#10 zero-change blur and document navigation clear manual status', async () => {
+  const t = await desk();
+  t.edit(t.els[0], t.nodes[0].text);
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  // A saved outcome also belongs to its document, and disappears on switch.
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), false);
+  t.ctl.setDoc('cover_letter'); await settle();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  assert.equal(t.ctl.refs.manualState.textContent, ''); t.ctl.close();
+});
