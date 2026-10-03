@@ -193,7 +193,7 @@ describe("A proposal lands as marks on the render", () => {
     ] });
     const lines = env.host.querySelectorAll(".scribe__msg--blocked").map((m) => m.textContent);
     assert.deepEqual(plain(lines), [
-      "Blocked: “2019–2023” is a locked fact.",
+      "Blocked: that would change a locked fact.",
       "Blocked: that change was outside what you asked Scribe to edit.",
     ]);
   });

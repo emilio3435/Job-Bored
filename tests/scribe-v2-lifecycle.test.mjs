@@ -539,12 +539,12 @@ describe('SCRP-F6 ASTRA-01 persisted recovery for both documents', () => {
       const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
       const p = ctl.state.proposal;
       t.api.rejectEdit = async () => { throw Object.assign(new Error('failed'), { status: 503 }); };
-      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
       assert.equal(ctl.state.proposal, p); assert.match(ctl.refs.status.textContent, /still open/);
-      assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+      assert.ok(ctl.refs.reviewbar.querySelector('[data-review="discard"]'));
       const before = t.calls.filter(c => c[0] === 'open').length;
       t.api.rejectEdit = async () => { t.api.open = null; throw Object.assign(new Error('gone'), { status: 404 }); };
-      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
       assert.equal(t.calls.filter(c => c[0] === 'open').length, before + 1);
       assert.equal(ctl.state.proposal, null); ctl.close();
     });
@@ -639,7 +639,7 @@ for (const which of ['resume', 'cover_letter']) {
     tap(ctl.refs.stage.querySelector('[data-scribe="stop"]')); await flush();
     assert.doesNotMatch(ctl.refs.log.textContent, /Stopped/);
     assert.ok(ctl.refs.recover.querySelector('[data-action="stop-request"]'));
-    assert.equal(ctl.state.proposal.id, 'p1'); ctl.close();
+    assert.equal(ctl.openProposal.proposalId, 'p1'); ctl.close();
   });
 }
 

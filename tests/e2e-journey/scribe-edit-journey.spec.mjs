@@ -389,9 +389,9 @@ for (const which of ['resume', 'cover_letter']) {
     try {
       await t.send(); await t.ready();
       await page.route(`${t.service.baseUrl}/**/edits/*`, route => route.request().method() === 'DELETE' ? route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Try again.', code: 'unavailable' }) }) : route.fallback());
-      await t.desk.locator('[data-action="discard-request"]').click();
+      await t.desk.locator('[data-review="discard"]').click();
       await expect(t.desk.locator('.scribe__status')).toContainText('The suggested changes are still open.');
-      await expect(t.desk.locator('[data-action="discard-request"]')).toBeVisible();
+      await expect(t.desk.locator('[data-review="discard"]')).toBeVisible();
       await expect(t.desk.locator('[data-review="accept-all"]')).toBeVisible();
       expect((await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal.status).toBe('ready');
     } finally { await t.service.close(); }

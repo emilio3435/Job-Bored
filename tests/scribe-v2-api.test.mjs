@@ -23,7 +23,11 @@ import { deriveNodes } from "../server/materials-nodes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(repoRoot, rel), "utf8");
-const fixture = (name) => JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+const fixture = (name) => {
+  const data = JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+  return name === 'sse-transcript.json' ? data.map(frame => frame.event === 'blocked'
+    ? { event: 'blocked', data: { op: { opId: 'o4' }, reason: 'locked', detail: 'That would change a locked fact.' } } : frame) : data;
+};
 
 const BASE = "http://127.0.0.1:3847";
 const SLUG = "acme-platform-engineer";
@@ -69,7 +73,7 @@ describe("scribe-v2-api stub: the C0 fixtures, not invented data", () => {
   it("should carry fixtures/model.json and sse-transcript.json verbatim", () => {
     const { JBScribeApi } = loadApi();
     assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.model), fixture("model.json"));
-    assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.transcript), fixture("sse-transcript.json").map(frame => frame.event === "blocked" ? { event: "blocked", data: { op: { opId: "o4" }, reason: "locked", detail: "That would change a locked fact." } } : frame));
+    assert.deepEqual(plain(JBScribeApi.STUB_FIXTURES.transcript), fixture("sse-transcript.json"));
   });
 
   it("should serve exactly the node ids the server derives from the model", () => {

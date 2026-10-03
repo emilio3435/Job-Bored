@@ -1771,6 +1771,7 @@
       });
     }
     el.appendChild(h("div", { class: "scribe__reviewbar-acts" }, [
+      h("button", { type: "button", class: "scribe__btn scribe__btn--ghost", "data-review": "discard", text: "Discard" }),
       h("button", { type: "button", class: "scribe__btn scribe__btn--ghost", "data-review": "reject-all", "aria-disabled": s.pending ? "false" : "true", text: "Reject all" }),
       h("button", {
         type: "button", class: "scribe__btn" + (verified > 0 ? " scribe__btn--primary" : ""), "data-review": "accept-all",

@@ -491,7 +491,7 @@ describe("A page given the same document again (F3-rebind)", () => {
     assert.equal(shownDoc(host, "a"), shown, "the previous page stays up");
     assert.equal(shown.keys(), 1, "and keeps forwarding keys");
     assert.equal(sheetBusy(host, "a"), "false");
-    assert.match(pane(host).querySelector(".scribe__compare-fig--a .scribe__compare-cap").textContent, /did not load/);
+    assert.match(pane(host).querySelector(".scribe__compare-fig--a .scribe__compare-cap").textContent, /didn’t load/);
   });
 });
 
