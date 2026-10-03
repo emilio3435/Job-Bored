@@ -1106,6 +1106,9 @@
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
     m.gated = false;
+    if (!ctl.refs.unsaved.hasAttribute("hidden")) {
+      manualMessage(ctl, "editing", "Your text is kept."); return;
+    }
     m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
     manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }

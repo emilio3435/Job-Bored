@@ -514,3 +514,25 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
     await checkNumericRun(which, 'Cut delays 38% through weekly measurement.', 'Through weekly measurement, cut delays 38%.', false, ['38%'], channel);
   });
 }
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F104 R5-#4 ${which} clearing a gate waits for an unanswered unsaved choice`, async () => {
+  for (const choice of ['save', 'discard', 'stay']) {
+    const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    let open = { proposalId: 'other-request', doc: sibling, baseRunId: 'r0', status: 'ready', ops: [{ opId: 'other', op: 'replace', node: sibling === 'resume' ? 'line:beta' : 'p:p3', text: 'Other wording.' }] };
+    t.api.getOpenEdit = async () => ({ proposal: open }); t.api.rejectEdit = async () => { open = null; };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush(); t.ctl.setDoc(sibling);
+    assert.equal(t.ctl.refs.unsaved.hasAttribute('hidden'), false);
+    t.ctl.refs.recover.querySelector('[data-action="discard-request"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0, 'an unanswered prompt never arms a save');
+    assert.doesNotMatch(t.ctl.refs.manualState.textContent, /Review or discard|Saves in 2 seconds/);
+    await t.flush(); assert.equal(t.calls.length, 1); assert.equal(Object.keys(t.ctl.manual.drafts).length, 1);
+    assert.equal(t.ctl.refs.unsaved.hasAttribute('hidden'), false);
+    t.ctl.refs.unsaved.querySelector(`[data-unsaved="${choice}"]`).dispatchEvent({ type: 'click' }); await settle(); await settle();
+    if (choice === 'stay') { assert.equal(t.calls.length, 1); await t.flush(); }
+    assert.equal(t.calls.length, choice === 'discard' ? 1 : 2);
+    assert.equal(t.ctl.state.doc, choice === 'stay' ? which : sibling);
+    if (choice !== 'discard') { assert.equal(t.calls[1].baseRunId, 'r0'); assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps))); }
+    t.ctl.close();
+  }
+});

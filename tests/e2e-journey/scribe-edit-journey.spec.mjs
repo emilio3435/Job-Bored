@@ -825,3 +825,28 @@ for (const which of ['resume', 'cover_letter']) for (const width of [1440, 375])
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F104 R5-#4 ${which} real recovery does not save under an unanswered navigation prompt`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      await typeBlock(page, id, which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.');
+      const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+      const response = await fetch(`${h.service.baseUrl}${h.pkg.path}/edits`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc: sibling, baseRunId: 'r0', instruction: 'Shorten existing wording.', scope: 'all', lockFacts: true }) });
+      expect(response.status).toBe(202);
+      await expect(h.desk.locator('[data-action="continue-request"]')).toBeVisible({ timeout: 15000 });
+      await h.desk.getByRole('tab', { name: sibling === 'resume' ? 'Resume' : 'Cover letter', exact: true }).click();
+      await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
+      await h.desk.locator('[data-action="discard-request"]').click();
+      await expect.poll(() => page.evaluate(() => !globalThis.JB_SCRIBE_V2.current().openProposal)).toBe(true);
+      await page.waitForTimeout(2300);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(1);
+      await expect(h.desk.locator('.scribe__unsaved')).toBeVisible();
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Your text is kept.');
+      await h.desk.locator('[data-unsaved="discard"]').click();
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
