@@ -73,7 +73,7 @@
 
   function errorText(err, fallback) {
     var mapped = errorCopy(err && err.code);
-    var message = mapped !== "That didn’t work. Try again." ? mapped : safeText(err && err.message) || fallback || mapped;
+    var message = mapped !== "That didn’t work. Try again." ? mapped : (err instanceof ScribeApiError ? safeText(err.message) : "") || fallback || mapped;
     var fix = safeText(err && err.fix);
     return message + (fix ? " " + fix : "");
   }

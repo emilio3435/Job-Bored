@@ -1384,6 +1384,10 @@
     });
     var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
       stopRequested: false, detached: false, generation: ctl.generation };
+    if (!ctl.state.proposal || ctl.state.proposal.id !== stored.proposalId) {
+      ctl.state.proposal = { id: stored.proposalId, doc: stored.doc, baseRunId: stored.baseRunId,
+        instruction: stored.instruction, status: "pending", ops: [], blocked: [], summary: null };
+    }
     ctl.state.loading = true;
     return installExactBase(ctl, stored.baseRunId, stored.doc, request.generation).then(function (loaded) {
       if (!loaded || !requestCurrent(ctl, request)) return;

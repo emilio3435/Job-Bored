@@ -721,3 +721,15 @@ it('SCRP-R1-16 per-op validation blocks stay in the log', async () => {
   assert.notEqual(ctl.refs.status.getAttribute('data-state'), 'error'); assert.equal(ctl.state.proposal.failure, undefined);
   assert.match(ctl.refs.log.textContent, /Blocked: that change doesn’t fit/); ctl.close();
 });
+
+it('SCRP-R1-17 Continue recreates a missing local proposal', async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', instruction: 'Earlier request', status: 'pending', ops: [] };
+  const ctl = t.mount(); await flush(); ctl.state.proposal = null;
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.state.proposal?.id, 'earlier'); assert.equal(ctl.state.proposal?.ops.length, 1); ctl.close();
+});
+it('SCRP-R1-17 programmer exceptions never appear as user-facing server copy', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  t.api.propose = async () => { throw new Error('TypeError: internal controller detail'); };
+  await t.submit(ctl); assert.equal(ctl.refs.statusText.textContent, 'That didn’t work. Try again.'); ctl.close();
+});
