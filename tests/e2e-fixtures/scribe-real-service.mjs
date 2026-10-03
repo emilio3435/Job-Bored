@@ -26,7 +26,7 @@ export async function startScribeRealService(options = {}) {
   await mkdir(tempParent, { recursive: true });
   const root = await mkdtemp(join(tempParent, "scribe-service-"));
   const priorEnv = {};
-  for (const [key, file] of Object.entries({ JOBBORED_PROFILE_PATH: "profile.json", JOBBORED_LLM_CONFIG_PATH: "llm.json" })) {
+  for (const [key, file] of Object.entries({ JOBBORED_PROFILE_PATH: "profile.json", JOBBORED_LLM_CONFIG_PATH: "llm.json", JOBBORED_HOME: "home", JOBBORED_LOGOS_DIR: "home/logos" })) {
     priorEnv[key] = process.env[key];
     process.env[key] = join(root, file);
   }
