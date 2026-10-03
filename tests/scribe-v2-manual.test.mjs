@@ -208,3 +208,21 @@ test('SCRP-F79 R2-#10 zero-change blur and document navigation clear manual stat
   assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
   assert.equal(t.ctl.refs.manualState.textContent, ''); t.ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F80 R3-#1 F73 ${which} draft is adopted after reopening through the sibling row`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    edit(els[0], 'Tracked operations.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed');
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: sibling, api }); await settle();
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+    await reopened.setDoc(which); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(reopened.manual.drafts[nodes[0].id]?.opId, opId);
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(els[0].textContent, 'Tracked operations.');
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/); assert.equal(calls.length, 0);
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); reopened.close();
+  });
+}

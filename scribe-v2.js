@@ -2266,9 +2266,13 @@
     this.abort = null;
     this.autoSave = null;
     this.scope = null; this.manualSeq = 0;
-    var key = manualKey(opts.slug, opts.doc === "cover_letter" ? "cover_letter" : "resume");
-    this.manual = manualRegistry[key] || { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
-    delete manualRegistry[key];
+    this.manualRestores = Object.create(null);
+    var self = this;
+    ["resume", "cover_letter"].forEach(function (d) { self.manualRestores[d] = manualRegistry[manualKey(opts.slug, d)]; });
+    var which = opts.doc === "cover_letter" ? "cover_letter" : "resume";
+    var key = manualKey(opts.slug, which);
+    this.manual = this.manualRestores[which] || { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
+    delete manualRegistry[key]; delete this.manualRestores[which];
     this.manualSeq = this.manual.seq || 0;
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
     this.state = {
@@ -2313,9 +2317,16 @@
     detachRequest(this);
     clearManualMessage(this);
     this.state.doc = d;
+    var restored = this.manualRestores[d];
+    if (restored) {
+      this.manual = restored; this.manualSeq = restored.seq || 0;
+      delete this.manualRestores[d]; delete manualRegistry[manualKey(this.opts.slug, d)];
+    }
     this.refs.host.setAttribute("data-doc", d);
     this.refs.log.appendChild(h("div", { class: "scribe__msg scribe__msg--note", text: "Now editing the " + DOC_NOUN[d] + "." }));
-    return loadDoc(this);
+    var loaded = loadDoc(this);
+    if (restored && dirtyManual(this)) guardManualNavigation(this, function () {}, true);
+    return loaded;
   };
 
   Controller.prototype.setSide = function (s) {
