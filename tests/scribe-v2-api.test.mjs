@@ -506,3 +506,13 @@ it('SCRP-F48 GAP-02 scoped stale starts never retry against another base', async
   await assert.rejects(api.propose({ doc: 'resume', baseRunId: 'r0', scope: ['b:acme:c14'], instruction: 'Shorten.', lockFacts: true }), err => err.code === 'selection_stale');
   assert.equal(fetcher.calls.length, 1);
 });
+
+it('SCRP-R1-12 bodiless local HTTP failures never become writer failures', async () => {
+  for (const status of [401, 403, 404, 429, 503]) {
+    const { JBScribeApi } = loadApi();
+    const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: async () => response(status, null, { text: '' }) });
+    await assert.rejects(client.listVersions('resume'), err => {
+      assert.equal(err.code, `status_${status}`); assert.equal(err.message, 'That didn’t work. Try again.'); return true;
+    });
+  }
+});

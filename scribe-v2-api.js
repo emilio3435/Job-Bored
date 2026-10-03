@@ -446,7 +446,7 @@
     var prefix = opts.base + "/api/applications/" + encodeURIComponent(opts.slug);
 
     function errorFrom(res, body) {
-      var code = safeText(body && body.code) || "http_" + res.status;
+      var code = safeText(body && body.code) || "status_" + res.status;
       var message = safeText(body && body.message) || safeText(body && body.error) || errorCopy(code);
       var err = new ScribeApiError(res.status, code, message, safeText(body && (body.fix || body.nextStep)) || null);
       err.detail = safeText(body && body.detail) || null;
