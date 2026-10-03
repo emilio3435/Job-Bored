@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:
 import { join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
+import { editDiagnostic, flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
@@ -421,8 +421,9 @@ export function createMaterialsVersionService(deps = {}) {
       ]);
     } catch (error) {
       if (!claimTerminal(proposal, "failed")) return;
+      const diagnostic = editDiagnostic(String(/** @type {any} */ (error).code || "editor_failed"));
       await finishTerminal(proposal, [
-        { event: "error", data: { code: /** @type {any} */ (error).code || "editor_failed", message: /** @type {Error} */ (error).message } },
+        { event: "error", data: { code: diagnostic.reason, message: diagnostic.detail } },
         { event: "done", data: { status: "failed" } },
       ]);
     } finally {

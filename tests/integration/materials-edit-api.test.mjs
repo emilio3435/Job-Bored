@@ -521,6 +521,25 @@ async function storedProposal(pkg, overrides = {}) {
   return row;
 }
 
+it("SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text", async () => {
+  for (const [code, expectedCode, message] of [
+    ["network", "provider_failed", "The AI provider did not complete the request. Try again."],
+    ["http_429", "rate_limited", "The AI provider is rate limited. Wait and try again."],
+    ["writer_truncated", "reply_cut_off", "The AI reply was cut off. Try a smaller edit."],
+    ["writer_blocked", "provider_refused", "The AI provider declined this edit. Try another instruction."],
+    ["llm_unconfigured", "llm_unconfigured", "Choose an AI model in Settings before editing."],
+    ["ENOENT", "editor_failed", "Scribe could not complete this edit. Try again."],
+  ]) {
+    const pkg = await seed();
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => { throw Object.assign(new Error("private payload /secret/path stack token=example"), { code }); } });
+    const id = await readyProposal(svc, pkg);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${id}.json`), "utf8"));
+    assert.deepEqual(stored.events.find((row) => row.event === "error").data, { code: expectedCode, message });
+    assert.deepEqual(stored.events.filter((row) => row.event === "done").map((row) => row.data.status), ["failed"]);
+    assert.doesNotMatch(JSON.stringify(stored.events), /private|secret|stack|token=/);
+  }
+});
+
 it("SCRP-B4 GET open projects safe fields across restart and sibling documents", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
