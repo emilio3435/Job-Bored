@@ -193,3 +193,11 @@ it('SCRP-B62 R5-#1 confirmed manual requests cannot override numeric-run locks o
     }
   } finally { await fixture.close(); }
 });
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B63 R5-#3 ${doc} writer proposals may move an unchanged locked run`, () => {
+    const { before, id } = numericModel(doc, 'Cut delays 38% through weekly measurement.', ['38%']);
+    const after = applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: 'Through weekly measurement, cut delays 38%.' }]);
+    assert.equal(deriveNodes(after).find(n => n.id === id).text, 'Through weekly measurement, cut delays 38%.');
+  });
+}

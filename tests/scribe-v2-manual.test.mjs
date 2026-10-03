@@ -508,3 +508,9 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
 
 
 }
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F103 R5-#3 ${which} ${channel} allows moving an identical locked numeric run`, async () => {
+    await checkNumericRun(which, 'Cut delays 38% through weekly measurement.', 'Through weekly measurement, cut delays 38%.', false, ['38%'], channel);
+  });
+}
