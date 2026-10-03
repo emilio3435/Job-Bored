@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.4.0](https://github.com/emilio3435/Job-Bored/compare/v0.3.0...v0.4.0) (2026-10-03)
+
+
+### Features
+
+* close the Oct 2 hole map, add the score modal and the classifieds hunter ([#160](https://github.com/emilio3435/Job-Bored/issues/160)) ([3137023](https://github.com/emilio3435/Job-Bored/commit/3137023e9841d445f6f0236d973a2c31a33fd295))
+* **materials:** add grounded lean prose engine ([22a1225](https://github.com/emilio3435/Job-Bored/commit/22a1225380237ad6247698337489b5a58e574c0d))
+* **materials:** build v3 verdicts and paired reviews ([9952bab](https://github.com/emilio3435/Job-Bored/commit/9952baba333ec6d4cb2be809ce556ae1b08d0d9f))
+* **materials:** rescore versions in place with shared evidence ([e2cfb75](https://github.com/emilio3435/Job-Bored/commit/e2cfb7537ee909cd9f77d51f6294de38f97ae88a))
+* **materials:** retain repair passes and hold failing drafts ([3325b9d](https://github.com/emilio3435/Job-Bored/commit/3325b9d85253ecec73198b252e2854f732a0044b))
+* **materials:** show the verdict, never a grade, on every surface ([1b93f9e](https://github.com/emilio3435/Job-Bored/commit/1b93f9e26fbc89730153697b4f3091bf5e215290))
+
+
+### Bug Fixes
+
+* **grade:** count credential and toolkit lines as existing text when rebinding (R6-2) ([f8f73a4](https://github.com/emilio3435/Job-Bored/commit/f8f73a4f594b690fcbc0340738a502a88b139e11))
+* **grade:** fail closed when a replaced bullet reuses an existing sentence (R5-1) ([15e7290](https://github.com/emilio3435/Job-Bored/commit/15e72906a950cab69b1c9fd8441b91753f808a93))
+* **materials:** close Astra's round-1 front-end findings ([95abe62](https://github.com/emilio3435/Job-Bored/commit/95abe620fac22ce54f93dd5eefa61077cbcce7c3))
+* **materials:** close Fable's round-2 front-end findings ([0086ca8](https://github.com/emilio3435/Job-Bored/commit/0086ca81f9329ee853d72045e5c823a53995799b))
+* **materials:** contain every Rescore file and invalidate mixed root caches ([54e4681](https://github.com/emilio3435/Job-Bored/commit/54e46819e8a4028bdb8d2ce1cfe75ac41edc8139))
+* **materials:** give focus back from the held confirm; no Ready pill ([a82649b](https://github.com/emilio3435/Job-Bored/commit/a82649bc3567dec021809ed27758bf0026d6caad))
+* **materials:** grade delivered artifacts and preserve version scope ([f16f1b4](https://github.com/emilio3435/Job-Bored/commit/f16f1b4880944ca14f3dd3b0e928bc7b71a8d8cd))
+* **materials:** ground lean facts and preserve honest prose ([d04ec84](https://github.com/emilio3435/Job-Bored/commit/d04ec8468b841bc4c6fe77c05a4567ef04c402b5))
+* **materials:** guard evidence rebinding and align claim-id slots ([82efd45](https://github.com/emilio3435/Job-Bored/commit/82efd45a8b12448384a691f0e5b705d75bf6ea96))
+* **materials:** guard Rescore and preserve each version's verdict evidence ([20caece](https://github.com/emilio3435/Job-Bored/commit/20caeced82ade941154ad101f680625e5103abc7))
+* **materials:** hold lean resumes with no experience and close review notes ([48a5bca](https://github.com/emilio3435/Job-Bored/commit/48a5bca73f97e00184aee6c1551a2f36faebdded))
+* **materials:** let honest lean rewrites through and bind facts to employers ([420ee8b](https://github.com/emilio3435/Job-Bored/commit/420ee8bc10a90dc0cf404410cd509b78cdefa4d1))
+* **materials:** load the lean schema on first use so server-only images boot ([d178e49](https://github.com/emilio3435/Job-Bored/commit/d178e4935021d760b59b9f8304584ba7d2f028c0))
+* **materials:** normalise fixable lean shapes instead of failing ([e663135](https://github.com/emilio3435/Job-Bored/commit/e663135b197c09225d13118cf37866ba93765d12))
+* **materials:** paint the legacy card's Drafted status neutral ([1dfd0d9](https://github.com/emilio3435/Job-Bored/commit/1dfd0d9cbf2e0cf072b3b24e10c37f07a3825ec2))
+* **materials:** preserve repair targets and validate run additions ([c0496e2](https://github.com/emilio3435/Job-Bored/commit/c0496e27843e30486af2813b52fefd8de8499209))
+* **materials:** preserve Rescore verdicts and version source links ([6cff8ff](https://github.com/emilio3435/Job-Bored/commit/6cff8ffda219cb562f18a3cb197e4bb7b79062f0))
+* **materials:** rebind edited evidence and normalize legacy views ([ad7f900](https://github.com/emilio3435/Job-Bored/commit/ad7f900867a9ea7acca29cd0e98ae909e2c6032a))
+* **scripts:** send a fresh-draft request and record failed runs in the lean compare ([a63fa04](https://github.com/emilio3435/Job-Bored/commit/a63fa049957e89981ff1d5797f1defd408cc97c4))
+
 ## [0.3.0](https://github.com/emilio3435/Job-Bored/compare/v0.2.0...v0.3.0) (2026-10-01)
 
 
