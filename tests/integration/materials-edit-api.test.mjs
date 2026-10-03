@@ -430,7 +430,7 @@ function streamEvents(res) {
   });
 }
 
-async function heldMeasuring({ fail = false } = {}) {
+async function heldMeasuring({ fail = false, reconnectWhileHeld = false } = {}) {
   const pkg = await seed();
   const entered = deferred(), release = deferred(), claimed = deferred(), finished = deferred();
   let held = false;
@@ -459,6 +459,15 @@ async function heldMeasuring({ fail = false } = {}) {
   await entered.promise;
   const stopping = svc.stop(pkg.slug, started.proposalId);
   await claimed.promise;
+  if (reconnectWhileHeld) {
+    const connected = deferred();
+    const reconnect = fakeStream();
+    reconnect.flushHeaders = connected.resolve;
+    const joining = svc.stream(pkg.slug, started.proposalId, new EventEmitter(), reconnect);
+    await connected.promise;
+    try { assert.deepEqual(streamEvents(reconnect).filter((row) => row.event === "done"), []); }
+    finally { release.resolve(); await joining; await stopping; }
+  }
   release.resolve(); // Release the serialized writer before awaiting Stop.
   const stopped = await stopping;
   await finished.promise;
@@ -485,6 +494,10 @@ it("SCRP-B2 processing exception after Stop preserves partial; repeated Stop and
   await svc.stream(pkg.slug, id, new EventEmitter(), reconnected);
   assert.deepEqual(streamEvents(reconnected).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
   assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+});
+
+it("SCRP-B17 reconnect cannot replay a queued done before its snapshot persists", async () => {
+  await heldMeasuring({ reconnectWhileHeld: true });
 });
 
 it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async () => {
@@ -540,6 +553,22 @@ it("SCRP-B12 thrown SSE failures expose fixed code messages and no private excep
   }
 });
 
+it("SCRP-B19 recovery and replay project safe legacy blocked/error rows without writing them", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { events: [
+    { event: "blocked", data: { reason: "invalid_model", detail: "private provider payload /secret/path", op: { opId: "old-1", node: "private/path", headers: { Authorization: "example" } } } },
+    { event: "error", data: { code: "ENOENT", message: "private stack /secret/path" } },
+    { event: "done", data: { status: "ready" } },
+  ] });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const open = await service.open(pkg.slug);
+  assert.deepEqual(open.proposal.blocked, [{ op: { opId: "old-1" }, reason: "invalid_model", detail: "The suggested edit is not valid for this document." }]);
+  const res = fakeStream(); await service.stream(pkg.slug, row.id, new EventEmitter(), res);
+  assert.doesNotMatch(res.chunks.join(""), /private|secret|stack|Authorization|headers/);
+  assert.equal(await readFile(path, "utf8"), before);
+});
+
 it("SCRP-B4 GET open projects safe fields across restart and sibling documents", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -548,7 +577,7 @@ it("SCRP-B4 GET open projects safe fields across restart and sibling documents",
   const before = await readFile(path, "utf8");
   const response = await request(`${pkg.path}/edits/open`);
   assert.equal(response.status, 200);
-  const expected = { proposalId: row.id, doc: "coverLetter", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: row.createdAt, status: "ready", ops: [op], blocked: [{ reason: "locked", detail: "Protected fact." }], summary: row.summary, factCheck: "model", factCheckReason: "Checked." };
+  const expected = { proposalId: row.id, doc: "coverLetter", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: row.createdAt, status: "ready", ops: [op], blocked: [{ reason: "locked", detail: "This edit would change a protected fact." }], summary: row.summary, factCheck: "model", factCheckReason: "Checked." };
   assert.deepEqual(response.data, { proposal: expected });
   const restarted = createMaterialsVersionService({ applicationsRoot: root });
   assert.deepEqual(await restarted.open(pkg.slug), { proposal: expected });

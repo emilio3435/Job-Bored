@@ -310,6 +310,16 @@ export function editDiagnostic(code) {
   return { reason, detail: messages[reason] };
 }
 
+/** Project a blocked decision without echoing rejected provider fields. */
+/** @param {any} block @param {number} index */
+export function safeBlockedEdit(block, index) {
+  const diagnostic = editDiagnostic(String(block?.reason || "invalid_model"));
+  if (!block?.op) return diagnostic;
+  const sourceId = block.op.opId;
+  const opId = typeof sourceId === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(sourceId) ? sourceId : `edit-${index + 1}`;
+  return { op: { opId }, ...diagnostic };
+}
+
 /**
  * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl'], onFactCheck?:(ops:Array<any>,summary:Record<string,number>)=>Promise<void>}} input
  */
@@ -378,7 +388,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
       seen.add(op.opId);
     } catch (error) {
       if (!(error instanceof MaterialsEditError)) throw error;
-      blocked.push({ op: proposed, ...editDiagnostic(error.reason) });
+      blocked.push(safeBlockedEdit({ op: proposed, reason: error.reason }, index));
     }
   }
   const baseWords = count(baseNodes);
