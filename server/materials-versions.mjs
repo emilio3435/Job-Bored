@@ -352,13 +352,7 @@ export function createMaterialsVersionService(deps = {}) {
   /** @param {string} dir */
   const openProposal = async (dir) => {
     await sweep(dir);
-    for (const name of await readdir(join(dir, "proposals"))) {
-      if (!name.endsWith(".json")) continue;
-      const row = await json(join(dir, "proposals", name));
-      const emptyFinished = row && ["ready", "partial"].includes(row.status) && Array.isArray(row.ops) && row.ops.length === 0;
-      if (row && !emptyFinished && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
-    }
-    return false;
+    return (await readOpenProposals(dir)).length > 0;
   };
   /** Read-only recovery scan: expiration never deletes or creates files. */
   /** @param {string} dir */

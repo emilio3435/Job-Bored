@@ -1303,3 +1303,18 @@ it("SCRP-B23 R1-#4 a failed terminal write delivers done and reconnect replays w
     assert.equal(stored.events.filter((row) => row.event === "done").length, 1);
   } finally { clearTimeout(timer); first.end(); first.emit("close"); }
 });
+
+
+it("SCRP-B24 R1-#5 malformed ready rows agree between GET open and the role gates", async () => {
+  const pkg = await seed();
+  await mkdir(join(pkg.dir, "proposals"));
+  const id = randomUUID();
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify({
+    id, doc: "resume", status: "ready", baseRunId: "r0", createdAt: new Date().toISOString(), events: [],
+  }));
+  assert.deepEqual(await service.open(pkg.slug), { proposal: null });
+  const started = await service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await service.reject(pkg.slug, started.proposalId);
+  const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+  assert.equal(saved.statusCode, 200);
+});
