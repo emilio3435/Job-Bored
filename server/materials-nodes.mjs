@@ -134,15 +134,27 @@ function numericRun(text, start, end) {
   for (const point of points) offsets.push(offsets[offsets.length - 1] + point.length);
   let left = offsets.indexOf(start), right = offsets.indexOf(end);
   if (left < 0 || right < 0) return [start, end];
-  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
-  /** Spaces bridge figure components, not a preceding prose word (D28 movement).
+  const symbols = /^[\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  // Braille blank is also a visible grouping gap in the R7 reproduction.
+  const whitespace = /^[\s\p{Zs}\u2028\u2029\u2800]$/u;
+  const scale = /^(?:k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|per[\s\p{Zs}\u2800]+cent|pct|times)(?![\p{L}\p{N}_])/iu;
+  /** Bridge complete gaps only between numeric components, leaving prose movable.
    * @param {number} i */
-  const joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
-    (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
-     /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
+  const joins = (i) => {
+    if (!whitespace.test(points[i] || "")) return false;
+    let a = i, b = i;
+    while (a > 0 && whitespace.test(points[a - 1])) a--;
+    while (b < points.length && whitespace.test(points[b])) b++;
+    const before = points.slice(0, a).join(""), after = points.slice(b).join("");
+    const previousWord = /(?:^|[^\p{L}\p{N}_])(?:minus|negative|k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|cent|pct|times|x|to)$/iu.test(before);
+    const nextOperator = /^(?:x|to)[\s\p{Zs}\u2800]+(?=\p{N})/iu.test(after);
+    return (/^\p{N}$/u.test(points[a - 1] || "") || symbols.test(points[a - 1] || "") || previousWord) &&
+      (/^\p{N}$/u.test(points[b] || "") || symbols.test(points[b] || "") || scale.test(after) || nextOperator);
+  };
   while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
   while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
-  while (right > left && /^[.,:;–—\-/]$/.test(points[right - 1])) right--;
+  while (right > left && /^[.,:;\p{Pd}/]$/u.test(points[right - 1])) right--;
   return [offsets[left], offsets[right]];
 }
 
