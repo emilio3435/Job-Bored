@@ -256,6 +256,8 @@ function persisted(proposal) {
 
 /**
  * @param {{applicationsRoot?:string, propose?:typeof proposeEdits, commit?:typeof commitModelAsRun,
+ * persistProposal?:(path:string,snapshot:Record<string,any>)=>Promise<void>,
+ * onTransition?:(transition:{proposalId:string,from:string,to:string})=>unknown,
  * pdfSession?:import('./materials-regenerate.mjs').RegenerateDeps['pdfSession'], fetchImpl?:import('./materials-writer.mjs').WriterInput['fetchImpl'], pin?:import('./materials-writer.mjs').WriterPin}} [deps]
  */
 export function createMaterialsVersionService(deps = {}) {
@@ -267,11 +269,43 @@ export function createMaterialsVersionService(deps = {}) {
   const validated = new Map();
   /** @type {Map<string, Set<(event:string,data:any)=>void>>} */
   const listeners = new Map();
+  /** @type {Map<string, Promise<void>>} */
+  const writes = new Map();
+  /** @type {Map<string, Promise<void>>} */
+  const terminals = new Map();
+  /** Snapshot and event delivery share one queue; a failed write cannot poison Stop. */
+  /** @param {Record<string, any>} proposal @param {string} [event] @param {any} [data] */
+  const save = (proposal, event, data) => {
+    const snapshot = structuredClone(persisted(proposal));
+    const payload = data === undefined ? undefined : structuredClone(data);
+    const queued = (writes.get(proposal.id) || Promise.resolve()).catch(() => {}).then(async () => {
+      if (proposal.status === "rejected") return;
+      await (deps.persistProposal || writeJson)(proposalPath(proposal), snapshot);
+      if (proposal.status !== "rejected" && event) {
+        for (const send of listeners.get(proposal.id) || []) send(event, payload);
+      }
+    });
+    writes.set(proposal.id, queued);
+    return queued;
+  };
   /** @param {Record<string, any>} proposal @param {string} event @param {any} data */
-  const emit = async (proposal, event, data) => {
-    addEvent(proposal, event, data);
-    await writeJson(proposalPath(proposal), persisted(proposal));
-    for (const send of listeners.get(proposal.id) || []) send(event, data);
+  const emit = (proposal, event, data) => {
+    addEvent(proposal, event, structuredClone(data));
+    return save(proposal, event, data);
+  };
+  /** @param {Record<string, any>} proposal @param {string} next */
+  const claimTerminal = (proposal, next) => {
+    if (proposal.status !== "pending") return false;
+    proposal.status = next;
+    deps.onTransition?.({ proposalId: proposal.id, from: "pending", to: next });
+    return true;
+  };
+  /** Enqueue the entire winning terminal journal before yielding. */
+  /** @param {Record<string, any>} proposal @param {Array<{event:string,data:any}>} rows */
+  const finishTerminal = (proposal, rows) => {
+    const completion = Promise.all(rows.map(({ event, data }) => emit(proposal, event, data))).then(() => {});
+    terminals.set(proposal.id, completion);
+    return completion;
   };
   /** @param {string} slug */
   const dirFor = (slug) => resolveApplicationDir(slug, { root: deps.applicationsRoot });
@@ -318,15 +352,21 @@ export function createMaterialsVersionService(deps = {}) {
     proposal.running = true;
     try {
       await emit(proposal, "stage", { stage: "reading" });
+      if (proposal.status !== "pending") return;
       const { model } = await runFiles(proposal.dir, proposal.baseRunId);
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "drafting" });
+      if (proposal.status !== "pending") return;
       const ledgerResult = await readLedger();
+      if (proposal.status !== "pending") return;
       const profileResult = await readProfile();
+      if (proposal.status !== "pending") return;
       const config = loadLlmConfig();
       if (!deps.pin && !config) throw failure("No LLM pin configured", 409, "llm_unconfigured");
       const pin = deps.pin || await resolveActivePin(/** @type {import('./llm-config.mjs').LlmConfig} */ (config));
+      if (proposal.status !== "pending") return;
       const jdExtract = await json(join(proposal.dir, "jd-extract.json")) || {};
+      if (proposal.status !== "pending") return;
       const documentNodes = deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)))
         .filter((node) => proposal.doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind));
       const scope = proposal.scope === "all" ? documentNodes.map((node) => node.id) : proposal.scope;
@@ -335,6 +375,7 @@ export function createMaterialsVersionService(deps = {}) {
         scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
         profile: profileResult.ok ? profileResult.profile : {}, jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
         onFactCheck: async (ops, summary) => {
+          if (proposal.status !== "pending") return;
           validated.set(proposal.id, { ops: structuredClone(ops), summary: { ...summary }, factCheck: "fallback", factCheckReason: "Fact check stopped; token check used." });
           await emit(proposal, "stage", { stage: "checking facts" });
         },
@@ -344,7 +385,8 @@ export function createMaterialsVersionService(deps = {}) {
       await emit(proposal, "stage", { stage: "checking", done: result.ops.length, total: result.ops.length + result.blocked.length });
       for (const op of result.ops) {
         if (proposal.status !== "pending") return;
-        proposal.ops.push(op);
+        if (proposal.ops.some((/** @type {any} */ existing) => existing.opId === op.opId)) continue;
+        proposal.ops.push(structuredClone(op));
         await emit(proposal, "op", { op });
       }
       for (const blocked of result.blocked) {
@@ -353,21 +395,25 @@ export function createMaterialsVersionService(deps = {}) {
       }
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "measuring" });
+      if (!claimTerminal(proposal, "ready")) return;
       proposal.summary = result.summary;
       proposal.factCheck = result.factCheck;
       proposal.factCheckReason = result.factCheckReason;
-      proposal.status = "ready";
-      await emit(proposal, "proposal", { summary: result.summary, factCheck: result.factCheck, factCheckReason: result.factCheckReason });
-      await emit(proposal, "done", { status: "ready" });
+      await finishTerminal(proposal, [
+        { event: "proposal", data: { summary: result.summary, factCheck: result.factCheck, factCheckReason: result.factCheckReason } },
+        { event: "done", data: { status: "ready" } },
+      ]);
     } catch (error) {
-      if (proposal.status !== "pending") return;
-      proposal.status = "failed";
-      await emit(proposal, "error", { code: /** @type {any} */ (error).code || "editor_failed", message: /** @type {Error} */ (error).message });
-      await emit(proposal, "done", { status: "failed" });
+      if (!claimTerminal(proposal, "failed")) return;
+      await finishTerminal(proposal, [
+        { event: "error", data: { code: /** @type {any} */ (error).code || "editor_failed", message: /** @type {Error} */ (error).message } },
+        { event: "done", data: { status: "failed" } },
+      ]);
     } finally {
+      await terminals.get(proposal.id);
       proposal.running = false;
       validated.delete(proposal.id);
-      if (proposal.status !== "rejected") await writeJson(proposalPath(proposal), persisted(proposal));
+      if (proposal.status !== "rejected") await save(proposal);
     }
   };
   /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] @param {string} [editBaseRunId] */
@@ -462,7 +508,7 @@ export function createMaterialsVersionService(deps = {}) {
         if (await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
         const id = randomUUID();
         const proposal = { id, dir, doc, baseRunId: body.baseRunId, instruction: instruction.trim(), scope, lockFacts: true, targetPages: body.targetPages, chips: body.chips, createdAt: new Date().toISOString(), status: "pending", ops: [], events: [] };
-        await writeJson(proposalPath(proposal), persisted(proposal));
+        await save(proposal);
         live.set(id, proposal);
         return { proposalId: id, streamUrl: `/api/applications/${slug}/edits/${id}/stream` };
       } finally { reserved.delete(dir); }
@@ -505,23 +551,26 @@ export function createMaterialsVersionService(deps = {}) {
     async stop(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
       const proposal = await loadProposal(dir, id);
-      if (proposal.status === "pending") {
-        proposal.status = "partial";
+      if (claimTerminal(proposal, "partial")) {
+        const rows = [];
         const ready = validated.get(id);
         if (ready) {
           const emitted = new Set(proposal.ops.map((/** @type {any} */ op) => op.opId));
           for (const op of ready.ops) {
             if (emitted.has(op.opId)) continue;
-            proposal.ops.push(op);
-            await emit(proposal, "op", { op });
+            emitted.add(op.opId);
+            proposal.ops.push(structuredClone(op));
+            rows.push({ event: "op", data: { op } });
           }
           proposal.summary = ready.summary;
           proposal.factCheck = ready.factCheck;
           proposal.factCheckReason = ready.factCheckReason;
         }
-        await emit(proposal, "proposal", { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 }, factCheck: proposal.factCheck, factCheckReason: proposal.factCheckReason });
-        await emit(proposal, "done", { status: "partial" });
+        rows.push({ event: "proposal", data: { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 }, factCheck: proposal.factCheck, factCheckReason: proposal.factCheckReason } });
+        rows.push({ event: "done", data: { status: "partial" } });
+        await finishTerminal(proposal, rows);
       } else if (proposal.status !== "partial") throw failure("Proposal is not running", 409, "proposal_not_running");
+      else await terminals.get(id);
       return { status: "partial", ops: proposal.ops };
     },
     /** @param {string} slug @param {string} id @param {Record<string, any>} body @param {boolean} [manual] */
@@ -539,7 +588,7 @@ export function createMaterialsVersionService(deps = {}) {
           if (!["ready", "partial"].includes(priorStatus)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
           proposal.status = "accepting";
           markedAccepting = true;
-          await writeJson(proposalPath(proposal), persisted(proposal));
+          await save(proposal);
         }
         const doc = documentName(manual ? body.doc : proposal?.doc);
         const baseRunId = manual ? body.baseRunId : proposal?.baseRunId;
@@ -580,14 +629,14 @@ export function createMaterialsVersionService(deps = {}) {
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
         if (proposal && (proposal.status !== "accepting" || (await json(proposalPath(proposal)))?.status !== "accepting")) throw failure("Proposal is no longer accepting", 409, "proposal_not_ready");
         const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit, undefined, baseRunId);
-        if (proposal) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
+        if (proposal) { proposal.status = "accepted"; await save(proposal); }
         const listed = await versions(dir, doc);
         const row = listed.versions.find((v) => v.runId === committed.runId);
         return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
       } catch (error) {
         if (markedAccepting && proposal?.status === "accepting") {
           proposal.status = priorStatus;
-          await writeJson(proposalPath(proposal), persisted(proposal));
+          await save(proposal);
         }
         throw error;
       } finally { reserved.delete(dir); }
@@ -597,7 +646,10 @@ export function createMaterialsVersionService(deps = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const proposal = await loadProposal(dir, id);
+        const prior = proposal.status;
         proposal.status = "rejected";
+        deps.onTransition?.({ proposalId: proposal.id, from: prior, to: "rejected" });
+        await writes.get(id)?.catch(() => {});
         await rm(proposalPath(proposal), { force: true });
         live.delete(id);
       } finally { reserved.delete(dir); }
