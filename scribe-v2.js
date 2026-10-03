@@ -344,7 +344,7 @@
   function renderRegionLabel(ctl) {
     var v = currentVersion(ctl);
     var label = DOC_LABEL[ctl.state.doc] + (v ? ", version " + v.n : "");
-    if (ctl.state.proposal && ctl.state.proposal.ops.length) label += ", proposal with " + plural(ctl.state.proposal.ops.length, "change");
+    if (ctl.state.proposal && ctl.state.proposal.ops.length) label += ", " + plural(ctl.state.proposal.ops.length, "suggested change");
     ctl.refs.docscroll.setAttribute("aria-label", label);
     ctl.refs.frame.setAttribute("title", DOC_LABEL[ctl.state.doc] + " preview" + (v ? ", version " + v.n : ""));
   }

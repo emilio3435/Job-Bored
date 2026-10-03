@@ -846,3 +846,10 @@ it('SCRP-F77 R2-#8 Stop keeps the received terminal result when recovery is offl
   assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
   stream.resolve(); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F711 R2-#12 ${which} accessible document label counts suggested changes`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.match(ctl.refs.docscroll.getAttribute('aria-label'), /1 suggested change/);
+  assert.doesNotMatch(ctl.refs.docscroll.getAttribute('aria-label'), /proposal/);
+  ctl.close();
+});
