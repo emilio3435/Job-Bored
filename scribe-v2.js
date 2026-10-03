@@ -959,6 +959,17 @@
     }).catch(function () { manualMessage(ctl, "error", "Not saved. Your text is kept."); });
   }
 
+  function manualBlocked(ctl) {
+    return ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy;
+  }
+
+  function manualGateMessage(ctl) {
+    ctl.manual.gated = true;
+    manualMessage(ctl, "error", "Review or discard the open changes first.", [["retry", "Try again", function () {
+      readOpen(ctl).then(function () { saveManual(ctl); });
+    }]]);
+  }
+
   function saveManual(ctl, confirmed) {
     var m = ctl.manual;
     if (confirmed && m.confirmation !== confirmed) return Promise.resolve(false);
@@ -966,10 +977,11 @@
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (!dirtyManual(ctl)) return Promise.resolve(true);
     if (m.saving || ctl.closed) return Promise.resolve(false);
-    if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
+    if (manualBlocked(ctl)) {
       m.confirmation = null;
-      manualMessage(ctl, "error", "Review or discard the open changes first."); return Promise.resolve(false);
+      manualGateMessage(ctl); return Promise.resolve(false);
     }
+    m.gated = false;
     var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
     var base = confirmed ? confirmed.base : m.base;
@@ -1008,7 +1020,10 @@
         var detail = errorText(err);
         if (detail === "That didn’t work. Try again.") detail = "";
         manualMessage(ctl, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(ctl); }]]);
-        if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
+        if (err && err.code === "materials_pending") {
+          manualGateMessage(ctl);
+          return readOpen(ctl, true).then(function () { return false; });
+        }
       }
       return false;
     });
@@ -1020,16 +1035,18 @@
     if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
-    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null;
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null; m.gated = false;
     clearManualMessage(ctl);
   }
 
   function resumeManualSave(ctl) {
     var m = ctl.manual;
     if (!dirtyManual(ctl) || m.saving) return;
-    if (m.timer) root.clearTimeout(m.timer);
+    if (m.timer) root.clearTimeout(m.timer); m.timer = null;
+    if (manualBlocked(ctl)) { manualGateMessage(ctl); return; }
+    m.gated = false;
     m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
-    manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.");
+    manualMessage(ctl, "editing", "Your text is kept. Saves in 2 seconds.", [["save", "Save", function () { saveManual(ctl); }]]);
   }
 
   function guardManualNavigation(ctl, action, restored) {
@@ -1282,6 +1299,7 @@
       if (pending) status(ctl, "error", copy("materials_pending"));
       renderRecovery(ctl);
       if (onEmpty) onEmpty();
+      if (ctl.manual.gated && !manualBlocked(ctl)) resumeManualSave(ctl);
       return null;
     }).catch(function (err) {
       if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;

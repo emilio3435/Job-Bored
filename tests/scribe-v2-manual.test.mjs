@@ -290,7 +290,8 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F85 R3-#6 ${which} Sa
   edit(els[0], 'Led Example operations in 2025.'); await flush();
   const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
   ctl.state.proposal = { ops: [] }; confirm.dispatchEvent({ type: 'click' }); await settle();
-  assert.equal(ctl.refs.manualState.textContent, 'Review or discard the open changes first.');
+  assert.equal(ctl.refs.manualState.textContent, 'Review or discard the open changes first.Try again');
+  assert.ok(ctl.refs.manualState.querySelector('[data-manual="retry"]'));
   assert.equal(ctl.manual.confirmation, null); assert.equal(calls.length, 1);
   ctl.state.proposal = null; confirm.dispatchEvent({ type: 'click' }); await settle(); assert.equal(calls.length, 1);
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
@@ -400,5 +401,32 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F94 R4-#5 ${which} sh
     const paste = { type: 'paste', target: els[0], clipboardData: { getData: () => '🄁'[1] } };
     inner.dispatchEvent(paste); assert.equal(els[0].textContent, base, edge);
     assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/); ctl.close();
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F92 R4-#3 ${which} gated Stay retains retry and recovery rearms the unchanged CAS save`, async () => {
+  for (const outcome of ['discard', 'other-tab-saved']) {
+    const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    let open = { proposalId: 'other-request', doc: sibling, baseRunId: 'r0', status: 'ready', ops: [{ opId: 'other', op: 'replace', node: sibling === 'resume' ? 'line:beta' : 'p:p3', text: 'Other wording.' }] };
+    t.api.getOpenEdit = async () => ({ proposal: open });
+    t.api.rejectEdit = async () => { open = null; };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+    t.ctl.setDoc(sibling); t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+    await t.flush(); assert.equal(t.calls.length, 1);
+    assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'), 'gated draft always has Try again');
+    assert.match(t.ctl.refs.manualState.textContent, /Review or discard/);
+    if (outcome === 'discard') {
+      t.ctl.refs.recover.querySelector('[data-action="discard-request"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+      assert.equal(t.ctl.openProposal, null); assert.doesNotMatch(t.ctl.refs.manualState.textContent, /Review or discard/);
+      assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+      await t.flush();
+    } else {
+      open = null; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+    }
+    assert.equal(t.calls.length, 2); assert.equal(t.calls[1].baseRunId, 'r0');
+    assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps)));
+    assert.equal(t.ctl.manual.saving, false); assert.equal(Object.keys(t.ctl.manual.drafts).length, 0);
+    assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
   }
 });
