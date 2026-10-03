@@ -300,6 +300,7 @@ describe("The same controls by mouse", () => {
     const close = bar(env).querySelector('[data-review="discard"]');
     assert.equal(close.textContent, "Close without saving");
     click(close);
+    await settle();
     assert.equal(env.ctl.state.proposal, null);
     assert.deepEqual(plain(env.calls.filter((c) => c[0] === "rejectEdit")), [["rejectEdit", "p1"]]);
     assert.equal(env.inner.querySelectorAll(".scribe-mark").length, 0, "the page is back to its saved text");
