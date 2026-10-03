@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -415,6 +415,102 @@ it("service SSE emits blocked shape and Stop retains validated partial ops", asy
   assert.equal(stopped.status, "partial");
   assert.equal(stopped.ops[0].opId, "o1");
   assert.match(partialRes.chunks.join(""), /event: done\ndata: {"status":"partial"}/);
+});
+
+async function persistSnapshot(path, snapshot) {
+  const temp = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temp, JSON.stringify(snapshot));
+  await rename(temp, path);
+}
+
+function streamEvents(res) {
+  return res.chunks.join("").split("\n\n").filter((part) => part.startsWith("event: ")).map((part) => {
+    const [, event, data] = /^event: ([^\n]+)\ndata: (.+)$/s.exec(part);
+    return { event, data: JSON.parse(data) };
+  });
+}
+
+async function heldMeasuring({ fail = false } = {}) {
+  const pkg = await seed();
+  const entered = deferred(), release = deferred(), claimed = deferred(), finished = deferred();
+  let held = false;
+  const terminalWrites = new Set();
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    propose: async () => ({ ops: [op, { ...op }], blocked: [], summary: { changes: 1 }, factCheck: "model" }),
+    onTransition: ({ to }) => { if (to === "partial") claimed.resolve(); },
+    persistProposal: async (path, snapshot) => {
+      snapshot = structuredClone(snapshot);
+      if (!held && snapshot.events.at(-1)?.data.stage === "measuring") {
+        held = true; entered.resolve(); await release.promise;
+        if (fail) throw new Error("injected measuring failure");
+      }
+      await persistSnapshot(path, snapshot);
+      if (snapshot.events.at(-1)?.event === "done") {
+        const key = `${snapshot.status}:${snapshot.events.length}`;
+        if (terminalWrites.has(key)) finished.resolve();
+        terminalWrites.add(key);
+      }
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const res = fakeStream();
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+  await entered.promise;
+  const stopping = svc.stop(pkg.slug, started.proposalId);
+  await claimed.promise;
+  release.resolve(); // Release the serialized writer before awaiting Stop.
+  const stopped = await stopping;
+  await finished.promise;
+  const path = join(pkg.dir, "proposals", `${started.proposalId}.json`);
+  return { pkg, svc, id: started.proposalId, res, stopped, stored: JSON.parse(await readFile(path, "utf8")) };
+}
+
+it("SCRP-B1 held-measuring Stop persists only partial and unique opIds", async () => {
+  const { stored, stopped, res } = await heldMeasuring();
+  const doneStatuses = stored.events.filter((row) => row.event === "done").map((row) => row.data.status);
+  assert.deepEqual(doneStatuses, ["partial"]);
+  assert.equal(stored.status, "partial");
+  assert.equal(stopped.status, "partial");
+  assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+  assert.deepEqual(streamEvents(res).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+});
+
+it("SCRP-B2 processing exception after Stop preserves partial; repeated Stop and reconnect agree", async () => {
+  const { pkg, svc, id, stored, stopped } = await heldMeasuring({ fail: true });
+  assert.equal(stored.status, "partial");
+  assert.deepEqual(stored.events.filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+  assert.deepEqual(await svc.stop(pkg.slug, id), stopped);
+  const reconnected = fakeStream();
+  await svc.stream(pkg.slug, id, new EventEmitter(), reconnected);
+  assert.deepEqual(streamEvents(reconnected).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+  assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+});
+
+it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async () => {
+  const pkg = await seed();
+  const entered = deferred(), release = deferred(), wrote = deferred(), claimed = deferred();
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    onTransition: ({ to }) => { if (to === "rejected") claimed.resolve(); },
+    persistProposal: async (path, snapshot) => {
+      snapshot = structuredClone(snapshot);
+      if (snapshot.events.length) { entered.resolve(); await release.promise; }
+      await persistSnapshot(path, snapshot);
+      if (snapshot.events.length) wrote.resolve();
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const res = fakeStream();
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+  await entered.promise;
+  const rejecting = svc.reject(pkg.slug, started.proposalId);
+  await claimed.promise;
+  // Both the reject and the queued writer settle before checking the file.
+  release.resolve();
+  await Promise.all([rejecting, wrote.promise]);
+  await assert.rejects(readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`)), { code: "ENOENT" });
+  res.emit("close");
 });
 
 it("GET versions and model expose immutable runs, nodes and 404 errors", async (t) => {
