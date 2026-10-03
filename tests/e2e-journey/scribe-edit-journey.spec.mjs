@@ -317,7 +317,7 @@ const SCRP_OP = {
 async function realDesk(page, which, options = {}) {
   const service = await startScribeRealService({ pdfSession: async () => null,
     propose: async () => ({ ops: [SCRP_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' }), ...options });
-  const pkg = await service.seed({ slug: 'acme-example' });
+  const pkg = await service.seed({ slug: 'acme-example', model: options.model });
   const calls = [];
   page.on('request', req => { if (req.url().startsWith(service.baseUrl)) calls.push({ method: req.method(), path: new URL(req.url()).pathname }); });
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
@@ -452,6 +452,67 @@ async function typeBlock(page, id, text) {
   await leaveBlock(page);
   return el;
 }
+test('SCRP-F815 UX-FE-1 Dossier resume 375 preserves bullet layout during edit, retained blur/error and restored spans', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  const h = await realDesk(page, 'resume', { model: MODEL });
+  try {
+    const frame = page.frameLocator('jb-scribe .scribe__frame');
+    await expect(frame.locator('.sheet')).toHaveAttribute('data-family', 'dossier');
+    const bullet = frame.locator('[data-node="b:acme:c14"]');
+    const text = SCRP_OP.resume.text;
+    const layout = () => bullet.evaluate(el => {
+      const inner = el.ownerDocument;
+      const style = inner.defaultView.getComputedStyle(el);
+      const row = el.getBoundingClientRect();
+      const spans = [...el.children].filter(child => child.tagName === 'SPAN');
+      const range = inner.createRange(); range.selectNodeContents(spans.length ? spans[spans.length - 1] : el);
+      return {
+        spans: spans.length,
+        rowWidth: row.width,
+        textWidth: range.getBoundingClientRect().width,
+        lines: parseFloat(style.height) / parseFloat(style.lineHeight),
+        spanWidths: spans.map(span => span.getBoundingClientRect().width),
+      };
+    });
+    const rendered = async () => {
+      const box = await layout();
+      expect(box.spans).toBe(2);
+      expect(box.spanWidths[0]).toBeLessThan(box.rowWidth * 0.2);
+      expect(box.spanWidths[1]).toBeGreaterThan(box.rowWidth * 0.75);
+    };
+    const plain = async () => {
+      const box = await layout();
+      expect(box.spans).toBe(0);
+      expect(box.textWidth, 'plain bullet text must use the row rather than the ledger gutter').toBeGreaterThan(box.rowWidth * 0.6);
+      expect(box.lines, 'a short bullet must not wrap into a tall gutter column').toBeLessThan(3);
+      await expect(bullet).toHaveText(text);
+    };
+    const capture = state => h.desk.screenshot({ path: test.info().outputPath(`ux-fe-1-${state}.png`) });
+    await rendered(); await capture('rendered');
+    await bullet.dblclick(); await expect(bullet).toHaveAttribute('contenteditable', 'plaintext-only');
+    await bullet.fill(text);
+    await plain(); await capture('editing');
+    await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/manual`, route => route.fulfill({
+      status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Example save failed.', code: 'fixture_failure' }),
+    }), { times: 1 });
+    await page.keyboard.press('Tab');
+    await h.desk.locator('button[data-seg="doc"]').click();
+    await expect(bullet).not.toHaveAttribute('data-scribe-editing');
+    await plain(); await capture('blurred');
+    await expect(h.desk.locator('.scribe__manual-state')).toContainText('Not saved. Your text is kept.', { timeout: 15000 });
+    await plain(); await capture('error-kept');
+    expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=resume`)).json()).versions).toHaveLength(1);
+    await h.desk.locator('[data-manual="retry"]').click();
+    await expect(h.desk.locator('.scribe__manual-state')).toContainText('Text saved as v1.', { timeout: 15000 });
+    await expect(h.desk.locator('.scribe__docscroll')).toHaveAttribute('aria-busy', 'false');
+    await expect(bullet).toHaveText(text);
+    await rendered(); await capture('restored');
+    expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=resume`)).json()).versions).toHaveLength(2);
+    expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(2);
+    expect(h.fence.unexpectedExternal).toEqual([]); expect(h.fence.hostPathRequests).toEqual(h.hostPathsAtOpen);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally { await h.service.close(); }
+});
 for (const which of ['resume', 'cover_letter']) {
   for (const width of [1440, 375]) {
     test(`SCRP-F43 GAP-02 ${which} ${width} substring, multi-block, keyboard, payload and stale refusal`, async ({ page }) => {
