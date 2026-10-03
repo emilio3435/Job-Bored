@@ -1077,7 +1077,7 @@
           button("Stop", "stop-request", function () { stopRecovered(ctl, p); });
         } else button("Review", "review-request", function () {
           if (!same) ctl.setDoc(p.doc);
-          else { if (!ctl.state.proposal) recoverProposal(ctl, p); if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true }); ctl.refs.docscroll.focus(); }
+          else { if (!ctl.state.proposal) recoverProposal(ctl, p); if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true }); if (ctl.isNarrow()) ctl.setSeg("doc"); ctl.refs.docscroll.focus(); }
         });
         if (same && p.baseRunId !== ctl.state.latestRunId) button("Review current", "review-current", function () { reviewCurrent(ctl); });
       }

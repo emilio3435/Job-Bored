@@ -773,3 +773,11 @@ it('SCRP-R1-21 a saved response without n never invents a version number', async
   tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]')); await flush();
   assert.equal(ctl.refs.statusText.textContent, 'Text saved as a new version. PDF unavailable — it’s rebuilt on your next save.'); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F58 ${which} recovery Review opens the Doc segment on phones`, async () => {
+  const t = reliabilityApi(which); t.env.win.matchMedia = () => ({ matches: true });
+  t.api.open = { proposalId: 'earlier', doc: which, baseRunId: 'r1', status: 'ready', ops: [ROP] };
+  const ctl = t.mount(); await flush(); ctl.setSeg('chat');
+  tap(ctl.refs.recover.querySelector('[data-action="review-request"]')); await flush();
+  assert.equal(ctl.state.seg, 'doc'); assert.equal(ctl.refs.segs[0].getAttribute('aria-selected'), 'true'); ctl.close();
+});
