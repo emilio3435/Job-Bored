@@ -751,6 +751,10 @@
     if (locked.length) { hideSelectionActions(ctl); status(ctl, "selection", lockText(map[locked[0]])); return; }
     if (ids.some(function (id) { return map[id].locked && map[id].locked.spans.length; })) status(ctl, "selection", "Figures in this line are locked.");
     var toolbar = ctl.refs.selectionActions;
+    var edit = toolbar.querySelector('[data-selection="edit"]');
+    edit.setAttribute("aria-disabled", ids.length === 1 ? "false" : "true");
+    if (ids.length === 1) edit.removeAttribute("title");
+    else edit.setAttribute("title", "Select one block to edit its text.");
     var rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() :
       ctl.scope.anchor && ctl.scope.anchor.getBoundingClientRect && ctl.scope.anchor.getBoundingClientRect();
     toolbar.removeAttribute("hidden");
