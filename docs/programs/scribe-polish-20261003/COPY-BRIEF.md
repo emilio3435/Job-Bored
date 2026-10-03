@@ -80,3 +80,27 @@ Refs are `J`=scribe-v2.js, `A`=scribe-v2-api.js, `V`=scribe-v2-versions.js, line
 | Unsaved navigation | You have unsaved text. **Save** · **Discard** · **Stay** |
 
 Keep without change: "Facts locked" pill, "Unverified: please confirm." flag text may become "Not in your profile — confirm before accepting." (FE: apply), stage names, Compare/View/Bring back labels, chips.
+
+## AMENDMENTS after the plan check (these override the tables above)
+
+| Where | Change |
+|---|---|
+| Committed 503 | "Text saved as vN. PDF unavailable — it’s rebuilt on your next save." **No Refresh availability action** (D9). |
+| A unreachable | "Scribe can’t reach your JobBored server. Start it, then **Retry**." |
+| A default (`ScribeApiError` default, A:40) | "Scribe can’t reach your JobBored server." |
+| 409 materials_pending, GET open = proposal | Use the recover rows. |
+| 409 materials_pending, GET open = null/409 | "JobBored is still working on this role. Try again in a moment." |
+| rate_limited / too_many_in_flight | "Too many requests right now. Try again in a minute. Your request is kept." |
+| reply_cut_off | "Scribe’s reply was cut off. Your document is unchanged. **Try again**" |
+| provider_refused | "The AI provider declined this request. Your document is unchanged. Try rewording it." |
+| llm_unconfigured | "No AI model is set up. Choose one in **Settings**, then try again." |
+| provider_failed | Keep "The AI provider didn’t respond. Your document is unchanged. **Try again**" — only for network/timeout/5xx. |
+| Recover, pending | "An earlier request didn’t finish. **Continue** · **Stop**" |
+| Recover, accepting | "A save didn’t finish. **Discard**" |
+| Recover, multiple | One line per document: "{Doc} has suggested changes waiting. **Discard**" |
+| Stale actions | Use one label, **Review current**, everywhere. It shows the current version read-only; the open changes stay open and Send stays gated until **Discard**. Replace every "Load current". |
+| New fact (manual) | "“{fact}” isn’t in your saved facts. **Save anyway** · **Edit**" (manual fact checks use the ledger and the document, not the profile). |
+| Unverified flag | "Not in your saved facts — confirm before accepting." |
+| Locked block selected | Fixed strings per node kind: "Employer, title and dates are locked." / "Degree and school are locked." / "Figures in this line are locked." (Nodes carry only `locked.whole` and `locked.spans`; there is no reason text.) |
+| Initial note | "Ask for a change. You review every suggested change before it’s saved." |
+| Bring-back success | Use `n` from the restore body (BE adds it). The fallback stays as today. |

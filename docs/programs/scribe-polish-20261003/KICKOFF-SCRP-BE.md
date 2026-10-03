@@ -68,3 +68,25 @@ Section `SCRP-B` covers these claims, each of which goes red first and then gree
 - the manual 409 `materials_pending`
 
 All green, pasted in §4, first line `DONE`. Commit locally, never push.
+
+## AMENDMENTS after the plan check (these override anything above)
+
+Read SPEC §3A and `reports/VERDICT-SCRP-PLAN.md` findings 1–17, 18, 28, 31, 34, 44 and 48.
+
+1. **Drop C2.** The rebase is a client contract, so there is no server rebase payload.
+2. **New file, owned by you:** `tests/e2e-fixtures/scribe-real-service.mjs`.
+   - It runs express plus `registerMaterialsEditRoutes` over a temp root on an **ephemeral** port.
+   - It has injectable `propose`, `commit` and `pdfSession`, and a deferred-start knob (to hold POST /edits for ASTRA-02).
+   - It seeds a fictional package (Alex Example / Acme) with both docs.
+   - Export a small API so Playwright specs can start, stop and seed it, and point the page's materials base at it.
+   - Commit it **immediately after R0** and write `FIXTURE committed <sha>` in report §3. FE and QA consume it.
+3. **Order is now:** R0 → fixture → C1 (+C1b reprocess reset) → C3 (restore `n`/`versions`, `retryable:false` on all committed-503 bodies, rendered-doc-only PDF removal so the sibling PDF survives) → C4/C4b (classification + fixed safe SSE messages + mapping table) → C5 → F spec → CONTRACT-CHANGELOG. Write `<STEP> committed <sha>` in report §3 after each commit. The host merges each step and tells FE.
+4. **Red-first scope (#44):** accept and manual 503 are already green, so the red-first claims are restore `n`/`versions`, `retryable:false`, and sibling-PDF survival. R0's red must be the strict `doneStatuses` assertion showing `[partial, ready]`.
+5. **GET open is read-only.**
+   - No `sweep`, no mkdir. Expired rows count as absent. A missing folder is tolerated.
+   - It honors `pending.json` (add the route to the existing pending-table test at itest ~625-636).
+   - Its 409 `multiple_open_proposals` is written with `res.status(409).json(...)`.
+   - `blocked` is derived from `events`. Never project `events`, `targetPages` or `chips`.
+6. **SSE `error` messages are fixed per-code strings.** Never send the raw `error.message`, paths or stacks.
+7. **F spec** asserts API, disk and PDF only: changed text in the PDF, fonts **embedded** (not font names), page count, and the sibling PDF unchanged. For the fault case it checks the QA record line `PDF stale: browser unavailable.` and does not assert UI copy. Skip only with an explicit reason when the browser binary is absent.
+8. **Gate D is `npm run test:materials-contract && npm run lint:repo && npm run typecheck:repo && npm run test:contract:all`.** Every paste must show `skipped 0`. A sandbox-skipped socket test is "not run": paste it in §5.

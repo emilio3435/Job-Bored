@@ -28,3 +28,14 @@ Writes only under `/Users/emilionunezgarcia/Job-Bored.worktrees/scrp-qa/.lane-ev
 
 ## Definition of Done
 QA-REPORT.md with: per-ID before (baseline) / after (candidate) table for both docs, F1/F2 acceptance table, score-modal path results, real-PDF result or "unavailable: <reason>", live-provider result or "unavailable: <reason>", command lines and literal outputs, screenshot paths. First line `DONE`.
+
+## AMENDMENTS after the plan check (these override anything above)
+
+1. **Phase 1 additions.**
+   - **WebKit sandbox probe (verdict #32).** WebKit is now installed (host). In a scratch page, put an `iframe sandbox="allow-same-origin"` (no `allow-scripts`) with `srcdoc` text. From the parent, install `selectionchange`, `dblclick`, `keydown`, `beforeinput`, `input` and `pointerdown` listeners on `iframe.contentDocument`, and set `contenteditable="plaintext-only"` on one node.
+   - Drive real mouse and keyboard input in **chromium, chrome channel and webkit**. Record which events fire, the selection text, and whether typing changes the text.
+   - Put the result at the top of `QA-BASELINE.md`. FE-2's design depends on it.
+2. **Base moves.** Your old stale probe moved the base with a manual write. C5 now gates manual writes while a proposal is open, so move bases with a version bring-back (restore route) or a seeded run (D18).
+3. **Stop after Phase 1.** Do **not** poll. Write first line `PENDING — phase 1 done, waiting for CANDIDATE` and stop. The host relaunches you for Phase 2 with the candidate sha.
+4. **Phase 2 copy.** Adapt selectors and expected strings to `COPY-BRIEF.md` (amended) and the candidate's actual DOM (SPEC §4 anchors).
+5. **Real-service fixture.** For Phase 2 you may use the repo's `tests/e2e-fixtures/scribe-real-service.mjs` (BE) in addition to your own `qa-harness.mjs`.

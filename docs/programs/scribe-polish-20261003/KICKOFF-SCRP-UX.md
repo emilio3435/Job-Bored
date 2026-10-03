@@ -39,3 +39,15 @@ npx playwright test --config tests/e2e-journey/playwright.config.mjs tests/e2e-j
 git add scribe-v2.css tests/e2e-visual docs/programs/scribe-polish-20261003/UX-DELTA.md docs/programs/scribe-polish-20261003/ux; gitleaks protect --staged --redact
 ```
 `SCRP-U` covers: each new-state anchor rendered at 1440 and 375, no sideways scroll, 44px targets, focus ring visible. All green, pasted in §4, first line `DONE`. Commit locally, never push.
+
+## AMENDMENTS after the plan check (these override anything above)
+
+1. **Known red baseline (D17).** `tests/e2e-visual/scribe-v2.spec.mjs:230` (`scribe-v2-390-doc-darwin.png`) is red at baseline because #160 added the grade button to the header. Your **first commit** regenerates that one snapshot and names that reason in the commit body.
+2. **State injection.** Render the new states (recover, status outcomes, 503, unsaved) in your own spec using `page.route` and DOM setup, as `tests/e2e-journey/scribe-v2-desk.spec.mjs:348-355` does. Do not touch the harness.
+3. **Anchors and when to merge.**
+   - The anchors now have fixed mount points: SPEC §4 "Mount points".
+   - The host merges FE-1's anchor skeleton (`SKELETON <sha>`) early and messages you to merge.
+   - Do your **final** snapshot regeneration and UX-DELTA rows only after the host signals `FE-COPY <sha>`, which comes after FE-2.
+   - Until then, write styles, before-shots and interim visual cases.
+   - In-iframe `[data-scribe-selected]` / `[data-scribe-editing]` styles belong to FE. Put your proposed values under "For FE" in your report.
+4. **Long-lived lane.** Expect to idle between signals. When you have nothing left before the next signal, write first line `PENDING — waiting for <signal>` and stop. The host relaunches you with the next instruction.
