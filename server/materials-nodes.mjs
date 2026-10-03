@@ -156,27 +156,36 @@ function numericRun(text, start, end) {
   return [offsets[left], offsets[right]];
 }
 
-/** Match the locked base runs as a multiset, in any order, returning raw offsets.
+/** Match distinct locked base runs as a multiset, mapping every constituent span.
  * @param {string} base @param {number[][]} spans @param {string} result */
 function matchingNumericSpans(base, spans, result) {
-  const original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  /** @type {Map<string, {a:number,b:number,spans:number[][]}>} */
+  var groups = new Map();
   /** @type {number[][]} */
-  const matched = [];
-  for (const [rawStart, rawEnd] of spans) {
-    const start = original.offsets.findIndex(i => i >= rawStart);
-    let end = original.offsets.findIndex(i => i >= rawEnd);
+  var matched = [];
+  for (var [index, [rawStart, rawEnd]] of spans.entries()) {
+    var start = original.offsets.findIndex(i => i >= rawStart);
+    var end = original.offsets.findIndex(i => i >= rawEnd);
     if (end < 0) end = original.text.length;
     if (start < 0 || start >= end) return null;
-    const [a, b] = numericRun(original.text, start, end), run = original.text.slice(a, b);
-    let at = next.text.indexOf(run);
+    var [a, b] = numericRun(original.text, start, end), key = a + ":" + b;
+    var group = groups.get(key);
+    if (!group) { group = { a: a, b: b, spans: [] }; groups.set(key, group); }
+    group.spans.push([index, start, end]);
+  }
+  for (var group of groups.values()) {
+    var run = original.text.slice(group.a, group.b), at = next.text.indexOf(run);
     while (at >= 0) {
-      const [left, right] = numericRun(next.text, at, at + run.length);
+      var [left, right] = numericRun(next.text, at, at + run.length);
       if (left === at && right === at + run.length && !used.has(at)) break;
       at = next.text.indexOf(run, at + 1);
     }
     if (at < 0) return null;
     used.add(at);
-    matched.push([next.offsets[at + start - a], next.offsets[at + end - a - 1] + 1]);
+    for (var [index, start, end] of group.spans) {
+      matched[index] = [next.offsets[at + start - group.a], next.offsets[at + end - group.a - 1] + 1];
+    }
   }
   return matched;
 }

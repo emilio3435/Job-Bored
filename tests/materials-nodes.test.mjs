@@ -230,3 +230,16 @@ for (const doc of ['resume', 'coverLetter']) {
     }
   });
 }
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B71 R6-#2 ${doc} shared runs consume one occurrence and distinct runs keep multiplicity`, () => {
+  for (const joiner of ['x', 'e']) {
+    const { before, id } = numericModel(doc, `Processed 38${joiner}40 sheets.`, ['38', '40']);
+    const text = `We processed 38${joiner}40 sheets.`;
+    const after = applyOps(before, [{ opId: 'group', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text); assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), ['38', '40']);
+    assert.throws(() => applyOps(after, [{ opId: 'change', op: 'replace', node: id, text: text.replace('40', '50') }]), { reason: 'locked' });
+    const repeated = numericModel(doc, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, ['38', '40', '38', '40']);
+    assert.throws(() => applyOps(repeated.before, [{ opId: 'lost', op: 'replace', node: repeated.id, text }]), { reason: 'locked' });
+  }
+});

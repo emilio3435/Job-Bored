@@ -473,9 +473,10 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F93 R4-#4 ${which} ad
 async function checkNumericRun(which, base, after, blocked, tokens = ['38'], channel = 'input') {
   const t = await desk(which); const { ctl, inner, els, nodes } = t;
   nodes[0].text = base;
-  nodes[0].locked.spans = tokens.map((token, i) => {
-    const start = base.indexOf(token, i ? base.indexOf(tokens[i - 1]) + tokens[i - 1].length : 0);
-    return [start, start + token.length];
+  let from = 0;
+  nodes[0].locked.spans = tokens.map(token => {
+    const start = base.indexOf(token, from); from = start + token.length;
+    return [start, from];
   });
   els[0].textContent = base; inner.dispatchEvent({ type: 'dblclick', target: els[0] });
   if (channel === 'beforeinput') {
@@ -604,3 +605,24 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
     ]) await checkNumericRun(which, base, after, false, ['38'], channel);
   });
 }
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F111 R6-#2 ${which} ${channel} groups locks sharing a run and retains distinct multiplicity`, async () => {
+    for (const joiner of ['x', 'e']) {
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}40 sheets.`, false, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}50 sheets.`, true, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, `Processed 38${joiner}40 sheets.`, true, ['38', '40', '38', '40'], channel);
+    }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 R6-#2 ${which} grouped locks map each UTF-16 span into the moved run`, async () => {
+  const t = await desk(which), base = 'Processed 38x40 sheets.', after = '😀 We processed 38x40 sheets.';
+  t.nodes[0].text = base; t.nodes[0].locked.spans = [[10, 12], [13, 15]]; t.els[0].textContent = base;
+  t.edit(t.els[0], after);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.ctl.manual.drafts[t.nodes[0].id].spans)), [[16, 18], [19, 21]]);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  t.els[0].textContent = after.replace('40', '50'); t.inner.dispatchEvent({ type: 'input', target: t.els[0] });
+  assert.equal(t.els[0].textContent, after);
+  t.ctl.close('role-closed');
+});
