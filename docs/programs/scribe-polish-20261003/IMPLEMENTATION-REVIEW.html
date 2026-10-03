@@ -1,0 +1,122 @@
+<title>Scribe Editor Repairs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; status ledger tables; before/after pairs in a two-up grid that stacks on phones. JobBored's own paper/ink/mint tokens. */
+:root {
+  --paper: #FFFEF9; --paper-2: #F6F3EA; --ink: #1B2B33; --ink-2: #4A5A62; --line: #D9D2C0;
+  --mint: #2F8A5A; --mint-tint: #E7F5EC; --warn: #A15C07; --warn-tint: #FBF0DF; --err: #B4321F; --err-tint: #F9E6E2;
+  --display: "Caveat", "Bradley Hand", cursive;
+  --body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #121A1E; --paper-2: #1A242A; --ink: #E8EEF0; --ink-2: #A9B6BC; --line: #33424A;
+  --mint: #6FD39C; --mint-tint: #183326; --warn: #E3A04B; --warn-tint: #33260F; --err: #F08A78; --err-tint: #3A1A15; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #121A1E; --paper-2: #1A242A; --ink: #E8EEF0; --ink-2: #A9B6BC; --line: #33424A;
+  --mint: #6FD39C; --mint-tint: #183326; --warn: #E3A04B; --warn-tint: #33260F; --err: #F08A78; --err-tint: #3A1A15; color-scheme: dark }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 40px; }
+header { display: grid; gap: 10px; }
+.kicker { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+h1 { font-family: var(--display); font-weight: 600; font-size: clamp(40px, 7vw, 60px); line-height: 1; margin: 0; text-wrap: balance; }
+h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { font-size: 17px; color: var(--ink); }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+.meta b { color: var(--ink); font-weight: 500; }
+section { display: grid; gap: 14px; }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); background: var(--paper-2); }
+tr:last-child td { border-bottom: 0; }
+td.id { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--paper-2); padding: 1px 5px; border-radius: 4px; }
+.pill { display: inline-block; font-family: var(--mono); font-size: 11.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.ok { background: var(--mint-tint); color: var(--mint); }
+.gap { background: var(--warn-tint); color: var(--warn); }
+.no { background: var(--err-tint); color: var(--err); }
+.nums { font-variant-numeric: tabular-nums; }
+.pairs { display: grid; gap: 28px; }
+.pair { display: grid; gap: 10px; }
+.pair h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.shots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+figure img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); }
+figcaption { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
+ul.gaps { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76ch; }
+.note { color: var(--ink-2); font-size: 13.5px; }
+@media (max-width: 640px) { .shots { grid-template-columns: 1fr; } .wrap { padding-top: 20px; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="kicker">JobBored · Scribe editor · program SCRP · 2026-10-03</div>
+  <h1>Scribe editor repairs</h1>
+  <p class="lede">Both editors, résumé and cover letter, now keep unfinished suggestions recoverable. They report saves truthfully and stop cleanly, and they explain failures in plain words. You can also scope a request to selected blocks and edit a block's text directly, by mouse or keyboard.</p>
+  <div class="meta"><span>branch <b>feat/scribe-polish-20261003</b></span><span>candidate <b>3fea8656</b></span><span>base <b>3641d33f</b></span><span>local only · not pushed</span></div>
+</header>
+
+<section id="issues">
+  <h2>Issues and how each was resolved</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>What went wrong</th><th>What happens now</th><th>Proof on the candidate</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="id">RISK-01</td><td>A Stop that won the race could still be overwritten as "ready", and two finish events were sent.</td><td>A proposal finishes exactly once. Stop keeps the partial changes, a failed disk write still ends every open stream, and Discard can't bring a file back.</td><td class="nums">The strict Stop test passed 20/20 in each of 7 host rounds (140 runs). The ordering tests SCRP-B1–B3, B17, B23 and B30 failed before the fix.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">ASTRA-01</td><td>Closing, switching documents or sending a second request stranded a ready proposal and blocked both documents with "answered 409".</td><td>An unfinished request comes back with Review and Discard. Your typed text is kept. Discard waits for the server and says so if it fails.</td><td>QA: 3/3 PASS for each document in a real browser against the real service. SCRP-F21, F23, F74–F76.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">ASTRA-02</td><td>Pressing Stop before the request had an ID left a hidden pending request, and retrying got a 409.</td><td>Stop is remembered. When the late ID arrives the request is stopped. Old callbacks can't change the next document.</td><td>QA: PASS for both documents (null ID, then late stop 200, then retry 202). SCRP-F22, F77.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">ASTRA-03</td><td>The text was saved, but the PDF failed and the editor said "Not saved". Pressing Save again failed.</td><td>The editor says "Text saved as v1. PDF unavailable — it’s rebuilt on your next save." Save is gone, and the history and preview move forward. The other document's PDF is kept.</td><td>QA: PASS for both documents. The real-PDF gate passed 4/4. SCRP-B8–B10, B15/B16, B28.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">ASTRA-04</td><td>After a newer version appeared, the retried request showed the old version header and old redlines.</td><td>The editor installs the actual current version before showing any marks.</td><td>QA: PASS for both documents. SCRP-F14, F26.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">ASTRA-05</td><td>Useful server explanations were replaced by "The materials server answered 409/503". Provider failures were blamed on the template.</td><td>Each cause gets its own message and next step: provider down, unreadable reply, rate limited, cut off, model not set up, and a real layout problem. No raw payloads or paths are shown.</td><td>Real-service browser tests cover 7 codes for each document (SCRP-F27/F28). QA: PASS.</td><td><span class="pill ok">fixed</span></td></tr>
+      <tr><td class="id">GAP-02</td><td>You could select text, but every request still applied to the whole document.</td><td>Requests are scoped to the selected blocks, using server node IDs. A scope pill and actions toolbar appear. A stale selection asks you to select again and never widens silently. Blocks are reachable by keyboard.</td><td>QA: PASS at 1440 and 375 for both documents. Keyboard reachability (KBD-01) is fixed and being rechecked by QA. <span data-slot="qa3"></span></td><td><span class="pill ok" data-slot="gap02">fixed</span></td></tr>
+      <tr><td class="id">GAP-01</td><td>There was no way to type into the document directly.</td><td>Plain-text block editing saves one version two seconds after you leave the block. Locked figures can't be edited, even at their edges. New facts need explicit confirmation, with every new phrase listed. Drafts survive conflicts and closing the role.</td><td>QA: PASS for both documents (one version, sibling unchanged, lock refused, plain paste, confirmation, stale draft kept).</td><td><span class="pill ok" data-slot="gap01">fixed</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="ux">
+  <h2>Before and after</h2>
+  <p class="note">Left: base 3641d33f. Right: candidate. Fictional data. Each "before" for a new control shows the final markup with the old stylesheet.</p>
+  <div class="pairs">
+    <div class="pair"><h3>Saved text when the PDF fails (résumé, 375px)</h3><div class="shots"><figure><img src="ux/pdf-resume-375-before.png" alt="Before: the editor reports the save as failed"><figcaption>before</figcaption></figure><figure><img src="ux/pdf-resume-375-after.png" alt="After: Text saved, PDF unavailable"><figcaption>after</figcaption></figure></div></div>
+    <div class="pair"><h3>Reviewing suggested changes (résumé, 1440px)</h3><div class="shots"><figure><img src="ux/review-resume-1440-before.png" alt="Before: review bar"><figcaption>before</figcaption></figure><figure><img src="ux/review-resume-1440-after.png" alt="After: review bar with suggested-change wording and saved-fact warning"><figcaption>after</figcaption></figure></div></div>
+    <div class="pair"><h3>Provider error keeps your request (cover letter, 375px)</h3><div class="shots"><figure><img src="ux/error-letter-375-before.png" alt="Before: generic error"><figcaption>before</figcaption></figure><figure><img src="ux/error-letter-375-after.png" alt="After: specific explanation and next step"><figcaption>after</figcaption></figure></div></div>
+    <div class="pair"><h3>Selection actions (résumé, 375px)</h3><div class="shots"><figure><img src="ux/selection-resume-375-before.png" alt="Before: selection toolbar with base styles"><figcaption>before</figcaption></figure><figure><img src="ux/selection-resume-375-after.png" alt="After: wrapped toolbar with visible single-block hint"><figcaption>after</figcaption></figure></div></div>
+    <div class="pair"><h3>Direct text edit (cover letter, 375px)</h3><div class="shots"><figure><img src="ux/manual-letter-375-before.png" alt="Before: manual edit panel with base styles"><figcaption>before</figcaption></figure><figure><img src="ux/manual-letter-375-after.png" alt="After: stable manual-edit status panel"><figcaption>after</figcaption></figure></div></div>
+    <div class="pair"><h3>Unsaved text on navigation (résumé, 375px)</h3><div class="shots"><figure><img src="ux/unsaved-resume-375-before.png" alt="Before: unsaved prompt with base styles"><figcaption>before</figcaption></figure><figure><img src="ux/unsaved-resume-375-after.png" alt="After: Save, Discard, Stay"><figcaption>after</figcaption></figure></div></div>
+  </div>
+</section>
+
+<section id="proof">
+  <h2>Verification on the frozen candidate</h2>
+  <div class="tablebox"><table class="nums">
+    <thead><tr><th>Gate</th><th>Command scope</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>A · service</td><td>nodes, edit, fact-check, commit, pipeline, integration API, regenerate</td><td>142 / 142, 0 skipped</td></tr>
+      <tr><td>B · editor units</td><td>api, lifecycle, carryover, keyboard, diff, versions, selection, manual, score, node IDs</td><td>320 / 320, 0 skipped</td></tr>
+      <tr><td>C · browser</td><td>edit journey, desk, real-PDF save (both documents, real service)</td><td>70 / 70</td></tr>
+      <tr><td>CSP · visual</td><td>scriptless frame smoke · Scribe visual spec</td><td>6 / 6 · 21 / 21</td></tr>
+      <tr><td>D · contracts</td><td>materials contract, lint, typecheck, all contracts</td><td>all exit 0</td></tr>
+      <tr><td>E · Stop stress</td><td>strict Stop test, 20 separate runs</td><td>20 / 20</td></tr>
+      <tr><td>Full suite</td><td><code>npm test</code></td><td>7878 / 7889 pass, 0 skipped, 7 todo. The 4 failures also fail on base (logo resolver, submission ownership gate, Docker boot).</td></tr>
+      <tr><td>Live provider</td><td>Gemini, 2 fictional requests per document</td><td>4 / 4 saved, persisted, sibling unchanged</td></tr>
+      <tr><td>Secrets</td><td><code>gitleaks detect 3641d33f..3fea8656</code></td><td>no leaks</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Independent review: a Fable plan check before any code, then four diff rounds alternating Fable, Astra, Fable and Astra. Every finding was fixed with a test that failed first. Round 4: <span data-slot="r4">pending</span>.</p>
+</section>
+
+<section id="gaps">
+  <h2>Not proven, and what needs you</h2>
+  <ul class="gaps">
+    <li><span class="pill no">unavailable</span> Safari/WebKit. The WebKit download timed out twice, so selection and direct editing are proven in Chrome and Chromium only.</li>
+    <li><span class="pill gap">unverified</span> Physical touch, the iOS keyboard and screen-reader speech. Phone coverage is desktop Chrome at 375px.</li>
+    <li><span class="pill gap">limited</span> The live-provider check proves saves through the service and the server-rendered preview, not a browser screenshot of a live save.</li>
+    <li><span class="pill gap">your call</span> Test runs wrote 7 fictional logo files (Acme, Beta Supply, Fabrikam, Contoso, Northwind and others) into <code>~/.jobbored/logos</code> and touched its two manifests before isolation was fixed. They were left in place.</li>
+    <li><span class="pill gap">heads-up</span> <code>feat/scribe-widgets-be</code> touches five of the same files and will need a rebase after this lands. The history includes one <code>wip(scribe)</code> checkpoint commit.</li>
+  </ul>
+</section>
+</div>
