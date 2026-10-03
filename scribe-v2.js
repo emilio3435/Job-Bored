@@ -250,6 +250,16 @@
     r.unsaved = h("div", { class: "scribe__unsaved", role: "alertdialog", "aria-label": "Unsaved text", hidden: true });
     r.clearScope = h("button", { type: "button", "data-action": "clear-scope", "aria-label": "Use whole document", text: "×", hidden: true });
     r.scope = h("div", { class: "scribe__scope" });
+    r.scope.style.flexWrap = "wrap";
+    r.manualState = h("span", { class: "scribe__manual-state", role: "status", hidden: true });
+    r.selectionActions = h("div", { class: "scribe__selection-actions", role: "toolbar", "aria-label": "Selected text", hidden: true },
+      [["rewrite", "Rewrite"], ["shorten", "Shorten"], ["emphasize", "Emphasize"], ["ask", "Ask…"], ["edit", "Edit text"]].map(function (item) {
+        var button = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-selection": item[0], text: item[1] });
+        if (ctl.isNarrow()) { button.style.minHeight = "45px"; button.style.minWidth = "44px"; }
+        return button;
+      }));
+    r.docscroll.style.position = "relative";
+    r.docscroll.appendChild(r.selectionActions);
     r.chips = h("div", { class: "scribe__chips", role: "group", "aria-label": "Quick requests" }, CHIPS.map(function (c) {
       return h("button", { type: "button", class: "scribe__chip", "data-chip": c, text: c });
     }));
@@ -409,11 +419,20 @@
   function renderScope(ctl) {
     var el = ctl.refs.scope;
     clear(el);
-    el.appendChild(h("span", { text: "Scope" }));
-    el.appendChild(h("span", { class: "scribe__pill", text: ctl.state.doc === "resume" ? "Whole resume" : "Whole letter" }));
+    var scope = ctl.scope;
+    var text = !scope ? "Whole document" : scope.ids.length === 1
+      ? "Selected: " + labelFor({ op: "replace", node: scope.ids[0] }, frameNodes(frameDoc(ctl)))
+      : "Selected: " + scope.ids.length + " blocks";
+    el.appendChild(h("span", { class: "scribe__pill", text: text }));
+    if (scope) ctl.refs.clearScope.removeAttribute("hidden");
+    else ctl.refs.clearScope.setAttribute("hidden", "");
+    if (ctl.isNarrow()) { ctl.refs.clearScope.style.minWidth = "44px"; ctl.refs.clearScope.style.minHeight = "44px"; }
     el.appendChild(ctl.refs.clearScope);
-    /* region:F2-scope — a selection in the preview narrows this to
-       "2 bullets selected ×" and fills `scope` with node ids. */
+    if (scope && scope.stale) {
+      var warning = h("span", { text: "Your selection changed. Select the text again." });
+      warning.style.flexBasis = "100%"; warning.style.minWidth = "0";
+      el.appendChild(warning);
+    }
   }
 
   function logMessage(ctl, kind, parts, extra) {
@@ -522,6 +541,7 @@
     renderPages(ctl);
     renderRegionLabel(ctl);
     renderStage(ctl);
+    ctl.refs.stage.appendChild(ctl.refs.manualState);
     renderReviewbar(ctl);
     renderScope(ctl);
     renderVersions(ctl);
@@ -580,8 +600,10 @@
   function unwatchFrameKeys(ctl) {
     if (ctl.frameDoc && typeof ctl.frameDoc.removeEventListener === "function") {
       ctl.frameDoc.removeEventListener("keydown", ctl.onFrameKey);
+      Object.keys(ctl.frameHandlers || {}).forEach(function (name) { ctl.frameDoc.removeEventListener(name, ctl.frameHandlers[name]); });
+      if (ctl.frameDoc.defaultView) ctl.frameDoc.defaultView.removeEventListener("unload", ctl.onFrameUnload);
     }
-    ctl.frameDoc = null;
+    ctl.frameDoc = null; ctl.frameHandlers = null;
   }
 
   function watchFrameKeys(ctl) {
@@ -591,11 +613,19 @@
     if (!inner || typeof inner.addEventListener !== "function") return;
     ctl.frameDoc = inner;
     inner.addEventListener("keydown", ctl.onFrameKey);
+    bindCapabilities(ctl, inner);
+    ctl.onFrameUnload = function () {
+      if (ctl.manual.active) { captureManual(ctl); ctl.manual.active = null; }
+      if (ctl.manual.timer) root.clearTimeout(ctl.manual.timer); ctl.manual.timer = null;
+      invalidateScope(ctl); unwatchFrameKeys(ctl);
+    };
+    if (inner.defaultView) inner.defaultView.addEventListener("unload", ctl.onFrameUnload);
   }
 
   function showPreview(ctl, html) {
     var frame = ctl.refs.frame;
     if (ctl.frameReadyResolve) ctl.frameReadyResolve(false);
+    invalidateScope(ctl, true);
     unwatchFrameKeys(ctl);
     ctl.refs.docNote.setAttribute("hidden", "");
     ctl.refs.pageBox.removeAttribute("hidden");
@@ -619,6 +649,367 @@
     ctl.refs.docNote.removeAttribute("hidden");
     ctl.refs.pageBox.setAttribute("hidden", "");
     ctl.refs.docscroll.setAttribute("aria-busy", "false");
+  }
+
+  /* Parent-owned capabilities. The preview never runs a script. Scope and
+     manual drafts are tied to one authoritative document/run in memory. */
+  function nodeMap(ctl) {
+    var map = Object.create(null);
+    (ctl.state.nodes || []).forEach(function (n) {
+      var letter = n.kind === "paragraph" || n.kind === "salutation";
+      if ((ctl.state.doc === "cover_letter") === letter) map[n.id] = n;
+    });
+    return map;
+  }
+
+  function scopeStamp(ctl) {
+    return ctl.state.doc + "|" + ctl.state.currentRunId + "|" + JSON.stringify(ctl.state.model && ctl.state.model.template || null);
+  }
+
+  function lockText(node) {
+    if (node && node.kind === "credential") return "Degree and school are locked.";
+    if (node && node.locked && node.locked.whole) return "Employer, title and dates are locked.";
+    return "Figures in this line are locked.";
+  }
+
+  function capabilityPaused(ctl) {
+    return ctl.closed || ctl.state.loading || ctl.state.busy || ctl.state.proposal || ctl.openProposal ||
+      ctl.openProposals && ctl.openProposals.length || ctl.manual.saving || ctl.versionsUi && ctl.versionsUi.isActive();
+  }
+
+  function hideSelectionActions(ctl, focus) {
+    ctl.refs.selectionActions.setAttribute("hidden", "");
+    ctl.refs.selectionActions.style.display = "none";
+    if (focus) {
+      var target = ctl.scope && ctl.scope.anchor;
+      ctl.selectionFocusReturn = true;
+      if (target && typeof target.focus === "function") target.focus();
+      else ctl.refs.docscroll.focus();
+      ctl.selectionFocusReturn = false;
+    }
+  }
+
+  function invalidateScope(ctl, quiet) {
+    if (ctl.scope) { ctl.scope.stale = true; if (!quiet) status(ctl, "selection", "Your selection changed. Select the text again."); }
+    var inner = frameDoc(ctl);
+    if (inner) Array.prototype.forEach.call(inner.querySelectorAll("[data-scribe-selected]"), function (el) { el.removeAttribute("data-scribe-selected"); });
+    hideSelectionActions(ctl);
+    renderScope(ctl);
+  }
+
+  function clearScope(ctl) {
+    ctl.scope = null;
+    if (ctl.refs.status.getAttribute("data-state") === "selection") status(ctl, "idle", "");
+    var inner = frameDoc(ctl);
+    if (inner) Array.prototype.forEach.call(inner.querySelectorAll("[data-scribe-selected]"), function (el) { el.removeAttribute("data-scribe-selected"); });
+    hideSelectionActions(ctl);
+    renderScope(ctl);
+  }
+
+  function scopePayload(ctl) {
+    if (!ctl.scope) return "all";
+    var s = ctl.scope, map = nodeMap(ctl), rendered = frameNodes(frameDoc(ctl));
+    if (s.stale || s.stamp !== scopeStamp(ctl) || !s.ids.length || s.ids.some(function (id) { return !map[id] || !rendered[id]; })) {
+      invalidateScope(ctl); return null;
+    }
+    var locked = s.ids.filter(function (id) { return map[id].locked && map[id].locked.whole; });
+    if (locked.length) { status(ctl, "selection", lockText(map[locked[0]])); return null; }
+    return s.ids.slice();
+  }
+
+  function pickSelection(ctl, event) {
+    if (ctl.selectionFocusReturn) return;
+    if (capabilityPaused(ctl) || ctl.manual.active) { hideSelectionActions(ctl); return; }
+    var inner = frameDoc(ctl), map = nodeMap(ctl), ids = [], range = null;
+    var selection = inner && typeof inner.getSelection === "function" && inner.getSelection();
+    if (selection && selection.rangeCount && !selection.isCollapsed) {
+      range = selection.getRangeAt(0);
+      Array.prototype.forEach.call(inner.querySelectorAll("[data-node]"), function (el) {
+        var id = el.getAttribute("data-node");
+        if (map[id] && range.intersectsNode(el) && ids.indexOf(id) < 0) ids.push(id);
+      });
+    } else if (event && event.type !== "selectionchange") {
+      for (var target = event.target; target && target !== inner; target = target.parentNode) {
+        var id = target.getAttribute && target.getAttribute("data-node");
+        if (id) { if (map[id]) ids.push(id); break; }
+      }
+      /* Clicking non-document chrome does not broaden a retained scope. */
+      if (!ids.length && !target) return;
+    } else return; /* moving to the parent composer retains a valid scope */
+    ctl.scope = { ids: ids, stamp: scopeStamp(ctl), stale: !ids.length, anchor: ids.length ? frameNodes(inner)[ids[0]] : null };
+    Array.prototype.forEach.call(inner.querySelectorAll("[data-node]"), function (el) {
+      if (ids.indexOf(el.getAttribute("data-node")) >= 0) el.setAttribute("data-scribe-selected", "");
+      else el.removeAttribute("data-scribe-selected");
+    });
+    renderScope(ctl);
+    if (!ids.length) { invalidateScope(ctl); return; }
+    var locked = ids.filter(function (id) { return map[id].locked && map[id].locked.whole; });
+    if (locked.length) { hideSelectionActions(ctl); status(ctl, "selection", lockText(map[locked[0]])); return; }
+    if (ids.some(function (id) { return map[id].locked && map[id].locked.spans.length; })) status(ctl, "selection", "Figures in this line are locked.");
+    var toolbar = ctl.refs.selectionActions;
+    var rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() :
+      ctl.scope.anchor && ctl.scope.anchor.getBoundingClientRect && ctl.scope.anchor.getBoundingClientRect();
+    toolbar.removeAttribute("hidden");
+    toolbar.style.position = "absolute";
+    toolbar.style.maxWidth = "calc(100% - 16px)";
+    toolbar.style.display = "flex"; toolbar.style.flexWrap = "wrap"; toolbar.style.gap = "4px";
+    if (rect) {
+      var hostRect = ctl.refs.docscroll.getBoundingClientRect ? ctl.refs.docscroll.getBoundingClientRect() : { left: 0, top: 0 };
+      var frameRect = ctl.refs.frame.getBoundingClientRect ? ctl.refs.frame.getBoundingClientRect() : { left: 0, top: 0 };
+      var scale = parseFloat((ctl.refs.frame.style.transform || "").replace(/[^\d.]/g, "")) || 1;
+      var width = ctl.refs.docscroll.clientWidth || 300;
+      toolbar.style.left = Math.max(8, Math.min(width - (toolbar.offsetWidth || width - 16) - 8, frameRect.left - hostRect.left + rect.left * scale)) + "px";
+      toolbar.style.top = Math.max(8, frameRect.top - hostRect.top + rect.bottom * scale + (ctl.refs.docscroll.scrollTop || 0) + 8) + "px";
+    }
+  }
+
+  function selectionAction(ctl, action) {
+    var ids = scopePayload(ctl);
+    if (!ids || ids === "all" || capabilityPaused(ctl)) return;
+    if (action === "edit") { if (ids.length === 1) beginManual(ctl, ctl.scope.anchor); return; }
+    var words = { rewrite: "Rewrite the selected text.", shorten: "Shorten the selected text.", emphasize: "Emphasize the selected text.", ask: "" };
+    ctl.refs.prompt.value = words[action] || "";
+    hideSelectionActions(ctl); autogrow(ctl);
+    if (ctl.isNarrow()) ctl.setSeg("chat");
+    ctl.refs.prompt.focus();
+  }
+
+  function manualMessage(ctl, state, text, actions) {
+    var el = ctl.refs.manualState;
+    el.setAttribute("data-state", state); el.removeAttribute("hidden"); clear(el);
+    el.appendChild(h("span", { text: text }));
+    (actions || []).forEach(function (a) {
+      var btn = h("button", { type: "button", class: "scribe__btn scribe__btn--small" + (["retry", "reapply", "confirm", "save"].indexOf(a[0]) >= 0 ? " scribe__btn--primary" : ""), "data-manual": a[0], text: a[1] });
+      btn.addEventListener("click", a[2]); el.appendChild(btn);
+    });
+    if (el.parentNode !== ctl.refs.stage) ctl.refs.stage.appendChild(el);
+  }
+
+  function dirtyManual(ctl) { return Object.keys(ctl.manual.drafts).length > 0; }
+
+  function changedRange(before, after) {
+    var start = 0, end = before.length, tail = after.length;
+    while (start < end && start < tail && before.charAt(start) === after.charAt(start)) start++;
+    while (end > start && tail > start && before.charAt(end - 1) === after.charAt(tail - 1)) { end--; tail--; }
+    return { start: start, end: end, delta: after.length - before.length };
+  }
+
+  function touches(spans, start, end) {
+    return spans.some(function (span) { return start === end ? start > span[0] && start < span[1] : start < span[1] && end > span[0]; });
+  }
+
+  function captureManual(ctl) {
+    var m = ctl.manual, a = m.active;
+    if (!a) return;
+    var text = String(a.el.textContent || "");
+    var diff = changedRange(a.last, text);
+    if (touches(a.spans, diff.start, diff.end)) {
+      a.el.textContent = a.last;
+      manualMessage(ctl, "error", lockText(a.node)); return;
+    }
+    a.spans = a.spans.map(function (span) { return span[0] >= diff.end ? [span[0] + diff.delta, span[1] + diff.delta] : span; });
+    a.last = text;
+    if (text === a.node.text) delete m.drafts[a.node.id];
+    else {
+      var previous = m.drafts[a.node.id];
+      m.drafts[a.node.id] = { opId: previous ? previous.opId : "manual-" + (++ctl.manualSeq), op: "replace", node: a.node.id, text: text };
+    }
+  }
+
+  function finishManual(ctl) {
+    var m = ctl.manual;
+    if (!m.active) return;
+    captureManual(ctl);
+    m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing");
+    m.active = null;
+    if (m.timer) root.clearTimeout(m.timer);
+    m.timer = null;
+    if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
+    else { m.base = null; m.doc = null; }
+  }
+
+  function beginManual(ctl, el) {
+    if (!el || capabilityPaused(ctl)) return;
+    var map = nodeMap(ctl), id = el.getAttribute && el.getAttribute("data-node"), node = map[id];
+    if (!node || el.hasAttribute("hidden") || typeof el.getClientRects === "function" && !el.getClientRects().length ||
+        ["statement", "intro", "bullet", "line", "toolkit", "salutation", "paragraph"].indexOf(node.kind) < 0 || node.locked && node.locked.whole) {
+      if (node) manualMessage(ctl, "error", lockText(node)); return;
+    }
+    var m = ctl.manual;
+    if (m.active && m.active.el === el) return;
+    if (m.active) finishManual(ctl);
+    if (m.timer) root.clearTimeout(m.timer); m.timer = null;
+    if (m.base && (m.base !== ctl.state.currentRunId || m.doc !== ctl.state.doc)) { manualConflict(ctl); return; }
+    m.base = ctl.state.currentRunId; m.doc = ctl.state.doc;
+    var text = m.drafts[id] ? m.drafts[id].text : node.text;
+    var spans = node.locked && node.locked.spans || [];
+    /* Retained drafts may have shifted a metric; recover its ordered offset. */
+    var from = 0;
+    spans = spans.map(function (span) { var token = node.text.slice(span[0], span[1]); var at = text.indexOf(token, from); from = at + token.length; return [at, from]; });
+    el.textContent = text;
+    m.active = { el: el, node: node, last: text, spans: spans };
+    el.setAttribute("contenteditable", "plaintext-only"); el.setAttribute("data-scribe-editing", "");
+    el.setAttribute("tabindex", "0"); hideSelectionActions(ctl); el.focus();
+    manualMessage(ctl, "editing", "Editing " + labelFor({ op: "replace", node: id }, frameNodes(frameDoc(ctl))) + ". Saves when you leave the block.");
+  }
+
+  function editOffsets(inner, el) {
+    var selection = inner.getSelection && inner.getSelection();
+    if (!selection || !selection.rangeCount) return null;
+    var range = selection.getRangeAt(0);
+    if (!within(el, range.startContainer) || !within(el, range.endContainer)) return null;
+    var prefix = range.cloneRange(); prefix.selectNodeContents(el); prefix.setEnd(range.startContainer, range.startOffset);
+    var start = prefix.toString().length;
+    return { range: range, start: start, end: start + range.toString().length };
+  }
+
+  function manualBeforeInput(ctl, e) {
+    var a = ctl.manual.active;
+    if (!a || !within(a.el, e.target)) return;
+    if (e.inputType === "insertFromPaste") { e.preventDefault(); return; }
+    var allowed = /^(insertText|insertCompositionText|insertLineBreak|insertParagraph|deleteContentBackward|deleteContentForward|deleteByCut|deleteByDrag|historyUndo|historyRedo)$/;
+    if (!allowed.test(e.inputType || "")) { e.preventDefault(); return; }
+    var offsets = editOffsets(frameDoc(ctl), a.el);
+    if (!offsets) { if (a.spans.length) e.preventDefault(); return; }
+    var start = offsets.start, end = offsets.end;
+    if (start === end && e.inputType === "deleteContentBackward") start--;
+    if (start === end && e.inputType === "deleteContentForward") end++;
+    if (touches(a.spans, start, end)) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
+  }
+
+  function manualPaste(ctl, e) {
+    var a = ctl.manual.active;
+    if (!a || !within(a.el, e.target)) return;
+    e.preventDefault();
+    var text = e.clipboardData && e.clipboardData.getData("text/plain") || "";
+    var offsets = editOffsets(frameDoc(ctl), a.el);
+    if (offsets && touches(a.spans, offsets.start, offsets.end)) { manualMessage(ctl, "error", lockText(a.node)); return; }
+    if (!offsets && a.spans.length) return;
+    if (offsets) {
+      var range = offsets.range, inner = frameDoc(ctl), selection = inner.getSelection();
+      range.deleteContents(); var inserted = inner.createTextNode(text); range.insertNode(inserted);
+      range.setStartAfter(inserted); range.collapse(true); selection.removeAllRanges(); selection.addRange(range);
+    } else a.el.textContent += text;
+    captureManual(ctl);
+  }
+
+  function manualConflict(ctl) {
+    manualMessage(ctl, "conflict", "A newer version exists. Your text is kept.", [
+      ["review", "Review current", function () { ctl.api.listVersions(ctl.state.doc).then(function (listing) {
+        ctl.state.versions = listing.versions || []; ctl.state.latestRunId = listing.currentRunId; renderVersions(ctl); reviewCurrent(ctl, true);
+      }).catch(function () { manualMessage(ctl, "error", "Not saved. Your text is kept."); }); }],
+      ["reapply", "Reapply", function () { reapplyManual(ctl); }],
+    ]);
+  }
+
+  function reapplyManual(ctl) {
+    var m = ctl.manual, generation = ctl.generation;
+    if (m.saving || ctl.state.proposal || ctl.openProposal) return;
+    ctl.api.listVersions(m.doc).then(function (listing) {
+      var run = listing.currentRunId;
+      return Promise.all([ctl.api.getModel(run), ctl.api.preview({ doc: m.doc, baseRunId: run })]).then(function (parts) {
+        if (ctl.closed || generation !== ctl.generation) return;
+        var nodes = parts[0].nodes || [], map = Object.create(null);
+        nodes.forEach(function (node) { map[node.id] = node; });
+        var invalid = Object.keys(m.drafts).some(function (id) {
+          var n = map[id];
+          return !n || n.locked.whole || n.locked.spans.some(function (span) { return m.drafts[id].text.indexOf(n.text.slice(span[0], span[1])) < 0; });
+        });
+        if (invalid) { manualMessage(ctl, "error", "Figures in this line are locked."); return; }
+        if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true });
+        m.base = run; ctl.state.currentRunId = ctl.state.latestRunId = run; ctl.state.nodes = nodes; ctl.state.model = parts[0].model; ctl.state.versions = listing.versions;
+        invalidateScope(ctl);
+        showPreview(ctl, parts[1].html).then(function () { renderAll(ctl); manualMessage(ctl, "editing", "Editing " + labelFor({ op: "replace", node: Object.keys(m.drafts)[0] }, frameNodes(frameDoc(ctl))) + ". Saves when you leave the block.", [["save", "Save", function () { saveManual(ctl); }]]); });
+      });
+    }).catch(function () { manualMessage(ctl, "error", "Not saved. Your text is kept."); });
+  }
+
+  function saveManual(ctl, confirmed) {
+    var m = ctl.manual;
+    if (m.active) finishManual(ctl);
+    if (m.timer) root.clearTimeout(m.timer); m.timer = null;
+    if (!dirtyManual(ctl)) return Promise.resolve(true);
+    if (m.saving || ctl.closed) return Promise.resolve(false);
+    if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
+      manualMessage(ctl, "error", "Not saved. Your text is kept."); return Promise.resolve(false);
+    }
+    var ops = Object.keys(m.drafts).map(function (id) { return m.drafts[id]; });
+    var which = m.doc, generation = ctl.generation;
+    m.saving = true; hideSelectionActions(ctl);
+    manualMessage(ctl, "saving", "Saving…");
+    return ctl.api.manualEdit({ doc: which, baseRunId: m.base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
+      m.saving = false; m.drafts = Object.create(null); m.base = null;
+      emitSaved(ctl, res && res.run && res.run.runId, which);
+      if (ctl.closed || generation !== ctl.generation) return true;
+      var n = res.n == null ? res.run && res.run.n : res.n;
+      var text = res.textSaved ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n;
+      manualMessage(ctl, "saved", text);
+      if (res.textSaved) status(ctl, "saved-pdf-unavailable", text);
+      return loadDoc(ctl).then(function () { return true; });
+    }).catch(function (err) {
+      m.saving = false;
+      if (ctl.closed || generation !== ctl.generation) return false;
+      if (err && err.code === "stale_base") manualConflict(ctl);
+      else if (err && err.code === "unverified_confirmation_required") {
+        /* C4 has no fact list. Quote the user's retained replacement rather
+           than invent a fact that the server did not identify. */
+        manualMessage(ctl, "confirm", "“" + ops[0].text + "” isn’t in your saved facts.", [
+          ["confirm", "Save anyway", function () { saveManual(ctl, true); }],
+          ["edit", "Edit", function () { beginManual(ctl, frameNodes(frameDoc(ctl))[ops[0].node]); }],
+        ]);
+      } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
+      else {
+        manualMessage(ctl, "error", "Not saved. Your text is kept.", [["retry", "Try again", function () { saveManual(ctl); }]]);
+        if (err && err.code === "materials_pending") return readOpen(ctl, true).then(function () { return false; });
+      }
+      return false;
+    });
+  }
+
+  function discardManual(ctl) {
+    var m = ctl.manual;
+    if (m.timer) root.clearTimeout(m.timer);
+    if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
+    var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
+    Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null;
+    ctl.refs.manualState.setAttribute("hidden", "");
+  }
+
+  function guardManualNavigation(ctl, action) {
+    if (ctl.manual.active) { captureManual(ctl); finishManual(ctl); }
+    if (!dirtyManual(ctl) && !ctl.manual.saving) return action();
+    if (ctl.manual.timer) root.clearTimeout(ctl.manual.timer); ctl.manual.timer = null;
+    var el = ctl.refs.unsaved; clear(el); el.removeAttribute("hidden");
+    el.appendChild(h("span", { text: "You have unsaved text." }));
+    [["save", "Save"], ["discard", "Discard"], ["stay", "Stay"]].forEach(function (entry) {
+      var btn = h("button", { type: "button", class: "scribe__btn" + (entry[0] === "save" ? " scribe__btn--primary" : ""), "data-unsaved": entry[0], text: entry[1] });
+      btn.addEventListener("click", function () {
+        if (ctl.manual.saving) return;
+        if (entry[0] === "save") saveManual(ctl).then(function (saved) { if (saved) { el.setAttribute("hidden", ""); action(); } });
+        else { el.setAttribute("hidden", ""); if (entry[0] === "discard") { discardManual(ctl); action(); } else ctl.refs.prompt.focus(); }
+      }); el.appendChild(btn);
+    });
+    el.querySelector("button").focus(); return false;
+  }
+
+  function bindCapabilities(ctl, inner) {
+    ensureMarkStyles(inner);
+    ctl.frameHandlers = {
+      selectionchange: function (e) { pickSelection(ctl, e); },
+      focusin: function (e) { pickSelection(ctl, e); },
+      pointerup: function (e) { pickSelection(ctl, e); },
+      keyup: function (e) { if (!ctl.manual.active && /^(Arrow|Home|End|Page)/.test(e.key || "")) pickSelection(ctl, e); },
+      dblclick: function (e) { var el = e.target; while (el && !el.getAttribute("data-node")) el = el.parentElement; beginManual(ctl, el); },
+      beforeinput: function (e) { manualBeforeInput(ctl, e); },
+      input: function () { captureManual(ctl); },
+      paste: function (e) { manualPaste(ctl, e); },
+      drop: function (e) { if (ctl.manual.active) e.preventDefault(); },
+      focusout: function (e) { if (ctl.manual.active && within(ctl.manual.active.el, e.target) && !within(ctl.manual.active.el, e.relatedTarget)) finishManual(ctl); },
+    };
+    Object.keys(ctl.frameHandlers).forEach(function (name) { inner.addEventListener(name, ctl.frameHandlers[name]); });
+    var els = frameNodes(inner), map = nodeMap(ctl);
+    Object.keys(map).forEach(function (id) { if (els[id]) { els[id].setAttribute("tabindex", "0"); if (!ctl.state.proposal && ctl.manual.drafts[id]) els[id].textContent = ctl.manual.drafts[id].text; } });
   }
 
   /* ---------------- Loading a document ---------------- */
@@ -686,9 +1077,9 @@
     });
   }
 
-  function reviewCurrent(ctl) {
+  function reviewCurrent(ctl, keepDraft) {
     var ui = versionsUi(ctl);
-    if (ui) ui.view(ctl.state.latestRunId, ctl.refs.statusAction);
+    if (ui) ui.view(ctl.state.latestRunId, ctl.refs.statusAction, keepDraft);
   }
 
   /* Runs are immutable. Install one exact render without dropping the
@@ -760,7 +1151,10 @@
     var which = st.doc;
     var token = ++ctl.loadToken;
     cancelAutoSave(ctl);
+    invalidateScope(ctl, true);
+    unwatchFrameKeys(ctl);
     clearReview(ctl);
+    st.nodes = []; st.model = null;
     st.loading = true;
     st.versions = [];
     st.currentRunId = null;
@@ -774,8 +1168,10 @@
       st.latestRunId = st.currentRunId = listing && listing.currentRunId;
       st.loading = false;
       renderAll(ctl);
-      return ctl.api.preview({ doc: which, baseRunId: st.currentRunId }).then(function (res) {
+      return Promise.all([ctl.api.preview({ doc: which, baseRunId: st.currentRunId }),
+        typeof ctl.api.getModel === "function" ? ctl.api.getModel(st.currentRunId) : Promise.resolve({ nodes: [] })]).then(function (parts) {
         if (token !== ctl.loadToken || ctl.closed) return null;
+        var res = parts[0]; st.nodes = parts[1].nodes || []; st.model = parts[1].model;
         showPreview(ctl, String((res && res.html) || ""));
         return readOpen(ctl).then(function () { return res; });
       });
@@ -890,6 +1286,9 @@
     ctl.refs.docscroll.setAttribute("aria-busy", "false");
     if (!ctl.refs.prompt.value) ctl.refs.prompt.value = request.instruction || "";
     if (!request.proposalId) { ctl.state.proposal = null; ctl.request = null; }
+    if (err && (err.code === "selection_stale" || err.code === "stale_base" && request.scope !== "all")) {
+      ctl.state.proposal = null; invalidateScope(ctl); renderAll(ctl); return null;
+    }
     if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
     var message = (err && err.message) || "That didn’t work. Try again.";
     var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
@@ -907,7 +1306,11 @@
       status(ctl, "recovered", "Review or discard the open changes first. Your new request is kept below.");
       renderRecovery(ctl); return;
     }
-    if (st.busy || st.loading) return;
+    if (st.busy || st.loading || ctl.manual.saving) return;
+    if (ctl.versionsUi && ctl.versionsUi.isActive()) { invalidateScope(ctl); return; }
+    if (dirtyManual(ctl) || ctl.manual.active) { guardManualNavigation(ctl, function () { send(ctl); }); return; }
+    var scope = scopePayload(ctl);
+    if (!scope) return;
     var text = String(ctl.refs.prompt.value || "").trim();
     if (!text) { ctl.refs.prompt.focus(); return; }
     var chips = st.chipsUsed.slice();
@@ -915,10 +1318,10 @@
     logMessage(ctl, "you", [text]);
     st.busy = true; st.stage = "reading"; st.stageDetail = null;
     var request = ctl.request = { doc: st.doc, baseRunId: st.currentRunId, proposalId: null,
-      instruction: text, stopRequested: false, detached: false, generation: ctl.generation };
-    st.proposal = { id: null, doc: request.doc, baseRunId: request.baseRunId, ops: [], blocked: [], summary: null, status: "pending", instruction: text };
+      instruction: text, scope: scope, stopRequested: false, detached: false, generation: ctl.generation };
+    st.proposal = { id: null, doc: request.doc, baseRunId: request.baseRunId, ops: [], blocked: [], summary: null, status: "pending", instruction: text, scope: scope };
     ctl.refs.docscroll.setAttribute("aria-busy", "true"); renderAll(ctl);
-    ctl.api.propose({ doc: request.doc, baseRunId: request.baseRunId, instruction: text, scope: "all", lockFacts: true, chips: chips }).then(function (res) {
+    ctl.api.propose({ doc: request.doc, baseRunId: request.baseRunId, instruction: text, scope: scope, lockFacts: true, chips: chips }).then(function (res) {
       request.proposalId = res.proposalId;
       if (request.stopRequested || request.detached || ctl.closed) return stopRequest(ctl, request);
       if (!requestCurrent(ctl, request)) return null;
@@ -969,7 +1372,9 @@
 
   function continueRequest(ctl, stored) {
     if (ctl.state.busy || ctl.state.loading) return;
-    if (stored.doc !== ctl.state.doc) return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
+    if (stored.doc !== ctl.state.doc) return guardManualNavigation(ctl, function () {
+      return ctl.setDoc(stored.doc).then(function () { continueRequest(ctl, stored); });
+    });
     var request = ctl.request = { doc: stored.doc, baseRunId: stored.baseRunId, proposalId: stored.proposalId,
       stopRequested: false, detached: false, generation: ctl.generation };
     ctl.state.loading = true;
@@ -1593,7 +1998,7 @@
   function blockedLine(data) {
     var detail = data && typeof data.detail === "string" ? data.detail.slice(0, 300) : "";
     var reason = data && data.reason;
-    if (reason === "out_of_scope") return "Blocked: that change was outside what you asked Scribe to edit.";
+    if (reason === "out_of_scope") return active && active.state.proposal && Array.isArray(active.state.proposal.scope) ? "Blocked: that change is outside the selected text." : "Blocked: that change was outside what you asked Scribe to edit.";
     if (reason === "locked") return detail ? "Blocked: “" + detail + "” is a locked fact." : "Blocked: that would change a locked fact.";
     return copy(reason);
   }
@@ -1651,6 +2056,12 @@
     var r = ctl.refs;
     if (ctl.closed) return;
     if (inOtherModal(ctl, e.target)) return;
+    if (e.key === "Escape" && !r.selectionActions.hasAttribute("hidden")) { e.preventDefault(); e.stopPropagation(); hideSelectionActions(ctl, true); return; }
+    if (within(r.selectionActions, e.target) && e.key === "Tab") {
+      var buttons = Array.prototype.slice.call(r.selectionActions.querySelectorAll("button"));
+      var at = buttons.indexOf(e.target); e.preventDefault(); buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus(); return;
+    }
+    if (!r.unsaved.hasAttribute("hidden") && e.key === "Escape") { e.preventDefault(); r.unsaved.setAttribute("hidden", ""); r.prompt.focus(); return; }
     if (e.key === "Escape") {
       e.preventDefault();
       /* The desk is modal: Esc is ours, not the page's dialog stack. */
@@ -1715,6 +2126,8 @@
     while (t && t !== ctl.refs.host) {
       var act = t.getAttribute && t.getAttribute("data-scribe");
       if (act === "close" || act === "scrim") { ctl.close(act === "scrim" ? "scrim" : "button"); return; }
+      if (t.getAttribute && t.getAttribute("data-action") === "clear-scope") { clearScope(ctl); return; }
+      if (t.getAttribute && t.getAttribute("data-selection")) { selectionAction(ctl, t.getAttribute("data-selection")); return; }
       if (act === "stop") { stop(ctl); return; }
       if (act === "discard") { discard(ctl); return; }
       if (act === "show-changes") { toggleShow(ctl); return; }
@@ -1783,6 +2196,8 @@
     this.openProposals = null;
     this.abort = null;
     this.autoSave = null;
+    this.scope = null; this.manualSeq = 0;
+    this.manual = { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
     this.state = {
       doc: opts.doc === "cover_letter" ? "cover_letter" : "resume",
@@ -1809,6 +2224,9 @@
     this.refs = build(this);
   }
 
+  Controller.prototype.guardNavigation = function (action) { return guardManualNavigation(this, action); };
+  Controller.prototype.invalidateSelection = function () { invalidateScope(this); };
+
   Controller.prototype.isNarrow = function () {
     var mq = root.matchMedia;
     if (typeof mq !== "function") return false;
@@ -1817,6 +2235,9 @@
 
   Controller.prototype.setDoc = function (d) {
     if (!DOC_LABEL[d] || d === this.state.doc) return;
+    var self = this;
+    if (!this.navigationApproved) return guardManualNavigation(this, function () { self.navigationApproved = true; var result = self.setDoc(d); self.navigationApproved = false; return result; });
+    invalidateScope(this); unwatchFrameKeys(this);
     detachRequest(this);
     this.state.doc = d;
     this.refs.host.setAttribute("data-doc", d);
@@ -1846,7 +2267,14 @@
     this.onKey = function (e) { onKeydown(self, e); };
     /* Review keys (lane F2) work from inside the page too; c stays with
        compare's own frames. */
-    this.onFrameKey = function (e) { if (e.key === "Escape" || e.key === "Tab" || FRAME_REVIEW_KEYS[e.key]) onKeydown(self, e); };
+    this.onFrameKey = function (e) {
+      if (e.key === "Tab" && !self.manual.active && !self.refs.selectionActions.hasAttribute("hidden")) {
+        e.preventDefault(); var actions = self.refs.selectionActions.querySelectorAll("button"); actions[e.shiftKey ? actions.length - 1 : 0].focus();
+      } else if (e.key === "Escape" || e.key === "Tab" || FRAME_REVIEW_KEYS[e.key]) onKeydown(self, e);
+      else if (!self.manual.active && (e.key === "Enter" || e.key === "F2") && self.scope && !self.refs.selectionActions.hasAttribute("hidden")) {
+        e.preventDefault(); self.refs.selectionActions.querySelector("button").focus();
+      }
+    };
     this.onViewport = function () { fitViewport(self); };
     this.onHostClick = function (e) { onClick(self, e); };
     this.onSubmit = function (e) { e.preventDefault(); send(self); };
@@ -1881,6 +2309,11 @@
 
   Controller.prototype.close = function (reason) {
     if (this.closed) return;
+    var self = this;
+    if (!this.navigationApproved && reason !== "role-closed") return guardManualNavigation(this, function () { self.navigationApproved = true; self.close(reason); self.navigationApproved = false; });
+    if (this.manual.active) captureManual(this);
+    if (this.manual.timer) root.clearTimeout(this.manual.timer);
+    if (this.manual.active) { this.manual.active.el.removeAttribute("contenteditable"); this.manual.active = null; }
     detachRequest(this);
     this.closed = true;
     var r = this.refs;
@@ -1916,7 +2349,14 @@
     opts = opts || {};
     if (!opts.slug) return null;
     if (!opts.api && !(root.JBScribeApi && typeof root.JBScribeApi.create === "function")) return null;
-    if (active) active.close("replaced");
+    if (active) {
+      if (dirtyManual(active) || active.manual.active || active.manual.saving) {
+        var previous = active;
+        guardManualNavigation(previous, function () { previous.navigationApproved = true; previous.close("replaced"); open(opts); });
+        return previous;
+      }
+      active.close("replaced");
+    }
     var ctl = new Controller(opts);
     active = ctl;
     ctl.mount();

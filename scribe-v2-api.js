@@ -541,6 +541,7 @@
     client.propose = function (body) {
       return startEdit(body).catch(function (err) {
         if (!err || err.status !== 409 || err.code !== "stale_base") throw err;
+        if (Array.isArray(body.scope)) throw new ScribeApiError(409, "selection_stale", "Your selection changed. Select the text again.");
         return client.listVersions(body.doc).then(function (listing) {
           var retry = {};
           Object.keys(body).forEach(function (k) { retry[k] = body[k]; });

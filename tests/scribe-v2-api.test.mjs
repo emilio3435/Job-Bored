@@ -498,3 +498,11 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.state.proposal.id, 'p1'); t.ctl.close();
   });
 }
+
+it('SCRP-F48 GAP-02 scoped stale starts never retry against another base', async () => {
+  const { JBScribeApi } = loadApi();
+  const fetcher = recordingFetch(() => response(409, { code: 'stale_base', error: 'Newer version.' }));
+  const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: fetcher.fetchImpl });
+  await assert.rejects(api.propose({ doc: 'resume', baseRunId: 'r0', scope: ['b:acme:c14'], instruction: 'Shorten.', lockFacts: true }), err => err.code === 'selection_stale');
+  assert.equal(fetcher.calls.length, 1);
+});

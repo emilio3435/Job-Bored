@@ -662,7 +662,9 @@
 
     /* ---------- modes ---------- */
 
-    function enter(mode, a, b, opener) {
+    function enter(mode, a, b, opener, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { enter(mode, a, b, opener, true); });
+      if (typeof ctl.invalidateSelection === "function") ctl.invalidateSelection();
       var token = ++ui.token;
       var wasOpen = !!ui.mode;
       ui.mode = mode;
@@ -744,9 +746,9 @@
       compareWith(null, opener || doc.activeElement);
     };
 
-    ui.view = function (runId, opener) {
+    ui.view = function (runId, opener, keepDraft) {
       if (!byId(runId)) return;
-      enter("view", runId, null, opener);
+      enter("view", runId, null, opener, keepDraft);
     };
 
     ui.exit = exit;
@@ -760,7 +762,8 @@
       if (target && typeof target.focus === "function") target.focus();
     }
 
-    function askBringBack(runId) {
+    function askBringBack(runId, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { askBringBack(runId, true); });
       var v = byId(runId);
       if (!v || v.runId === ctl.state.currentRunId) return;
       if (ctl.state.busy) { announce("Wait for Scribe to finish, or press Stop.", true); return; }
