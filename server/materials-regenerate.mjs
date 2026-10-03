@@ -22,7 +22,7 @@ import { resolveProvider } from "./ai/provider.mjs";
 import { resolveApplicationDir, resolveContainedFile, getApplicationsRoot } from "./application-materials.mjs";
 import { loadEmployerMarks, readTargetMark } from "./brand-logos.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { critiqueMaterials } from "./materials-critic.mjs";
+import { critiqueMaterials, splitMetricSentences } from "./materials-critic.mjs";
 import { judgeMaterials, splitSentences, buildJudgePacket, readJudgeContext, refreshedDocumentAdvisory } from "./materials-judge.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { resolveMaterialLogos } from "./materials-logos.mjs";
@@ -166,6 +166,7 @@ function rebindDraft(draft, before, after, context) {
   // Only an accepted replacement of that exact bullet may realign its slot.
   if (context.document === "resume" && context.ops?.length) {
     const oldNodes = deriveNodes(context.original), nextNodes = deriveNodes(context.model);
+    const sourceKeys = new Set(splitMetricSentences(documentBody(context.original, "resume")).map(key));
     for (const op of context.ops) {
       if (op.op !== "replace") continue;
       const node = oldNodes.find(n => n.kind === "bullet" && n.id === op.node);
@@ -176,6 +177,17 @@ function rebindDraft(draft, before, after, context) {
       const slots = [...(draft.bullets || []), ...(draft.earlier || [])].filter(slot => typeof slot.claimId === "string"
         && node.id.endsWith(`:${slot.claimId}`) && key(slot.text) === key(node.text));
       if (slots.length !== 1) continue;
+      const currentSlots = [...(out.bullets || []), ...(out.earlier || [])];
+      const currentSlot = currentSlots.find(s => s.claimId === slots[0].claimId && key(s.text) === key(node.text));
+      if (!currentSlot) continue;
+      // A multi-sentence replacement cannot borrow even one existing sentence.
+      const addressedKeys = new Set([
+        ...before.flatMap(ref => splitMetricSentences(ref.sentence)),
+        ...after.flatMap(ref => splitMetricSentences(ref.sentence)),
+        ...currentSlots.filter(s => s !== currentSlot).flatMap(s => splitMetricSentences(s.text)),
+        ...splitMetricSentences(out.statement),
+      ].map(key));
+      if (splitMetricSentences(next.text).some(sentence => sourceKeys.has(key(sentence)) || addressedKeys.has(key(sentence)))) continue;
       if (out === draft) out = structuredClone(draft);
       const slot = [...(out.bullets || []), ...(out.earlier || [])].find(s => s.claimId === slots[0].claimId && key(s.text) === key(node.text));
       if (slot) slot.text = next.text;

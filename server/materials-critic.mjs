@@ -51,7 +51,7 @@ function metricHasSource(token, sources) {
 }
 
 /** @param {string} text */
-function splitMetricSentences(text) {
+export function splitMetricSentences(text) {
   return String(text || "").split(/\r?\n+|(?<=[!?])\s+|\.(?!\d)\s+(?=[A-Z0-9“"$])/)
     .map((part) => part.trim()).filter(Boolean);
 }
