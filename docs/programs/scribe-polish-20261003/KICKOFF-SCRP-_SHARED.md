@@ -53,3 +53,7 @@ Use conventional commits, path-spec'd to your fence: `fix(scribe): …`, `feat(s
 ## Stop
 
 Stop when the fence is exhausted, the floor is pasted, the report's first line is `DONE`, and there are commits on your branch (or the sandbox note above applies). If blocked, write first line `BLOCKED: <why>` and stop.
+
+## AMENDMENT 2026-10-03 07:59Z: storage isolation (overrides the "Isolated storage" trap above)
+
+The two-variable recipe leaked. Logo resolution defaults to `~/.jobbored` through `JOBBORED_HOME`, and early runs wrote fictional logo assets there. From now on, run `source .lane-evidence/scrp-env/env.sh` before **every** test, probe or Playwright run. That file sets `JOBBORED_HOME`, `JOBBORED_LOGOS_DIR`, `JOBBORED_LOGO_RESOLVER=off`, `JOBBORED_PROFILE_PATH` and `JOBBORED_LLM_CONFIG_PATH` inside your worktree. Any new test that resolves logos must pass its own `logoHome` or rely on this env. Never inspect or clean `~/.jobbored`; the host handles that.
