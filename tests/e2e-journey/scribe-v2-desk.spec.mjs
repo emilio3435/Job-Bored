@@ -27,6 +27,9 @@
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { applyOps } from "../../server/materials-nodes.mjs";
+import { startScribeRealService } from "../e2e-fixtures/scribe-real-service.mjs";
 import { test, expect } from "@playwright/test";
 import {
   DISPOSABLE_AUTH,
@@ -468,16 +471,16 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   /* Bring back asks first, then appends. */
   await desk.getByRole("button", { name: "Bring back v1 as a new version" }).click();
   const ask = desk.getByRole("group", { name: "Bring back v1" });
-  await expect(ask).toContainText("Bring back v1 as v4? v3 and every other version stay in the list.");
+  await expect(ask).toContainText("Bring back v1 as v4? All versions are kept.");
   await expect(versions.getByRole("listitem")).toHaveCount(4);
   await ask.getByRole("button", { name: "Bring back as v4" }).press("Enter");
   await expect(versions.getByRole("listitem")).toHaveCount(5);
-  await expect(versions.getByRole("listitem").first()).toContainText("Restored from v1");
+  await expect(versions.getByRole("listitem").first()).toContainText("Brought back from v1");
   await expect(versions.getByRole("listitem").first()).toContainText("Brought back");
   await expect(versions.getByRole("listitem").first()).toHaveAttribute("aria-current", "true");
   for (const n of ["v3", "v2", "v1", "v0"]) await expect(versions).toContainText(n);
   /* The chat panel is behind the Versions tab here, so read the log directly. */
-  await expect(desk.locator(".scribe__log")).toContainText("Brought back v1 as v4. Nothing was deleted.");
+  await expect(desk.locator(".scribe__log")).toContainText("Brought back v1 as v4.");
 
   /* 390: one page at a time behind an A/B toggle. */
   await page.setViewportSize({ width: 390, height: 844 });
@@ -506,3 +509,100 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   expect(rail.pageScrollX).toBeLessThanOrEqual(0);
   expect(fence.unexpectedExternal).toEqual([]);
 });
+
+
+const REAL_OP = {
+  resume: { opId: 'safe-edit', op: 'replace', node: 'b:acme:c14', text: 'Measured carrier delays through a weekly operations dashboard.', flags: [], facts: [] },
+  cover_letter: { opId: 'safe-edit', op: 'replace', node: 'p:p3', text: 'I welcome a conversation about improving daily operations.', flags: [], facts: [] },
+};
+async function realReliabilityDesk(page, which, propose) {
+  const service = await startScribeRealService({ pdfSession: async () => null,
+    propose: propose || (async () => ({ ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' })) });
+  const pkg = await service.seed({ slug: 'acme-example' });
+  const calls = [];
+  page.on('request', req => { if (req.url().startsWith(service.baseUrl)) calls.push({ method: req.method(), path: new URL(req.url()).pathname, body: req.method() === 'POST' ? req.postDataJSON() : null }); });
+  const fence = await bootSignedIn(page, { width: 1440, height: 900 }, { stub: false });
+  await service.pointPage(page);
+  await page.evaluate(({ slug, doc, base }) => globalThis.JB_SCRIBE_V2.open({ slug, doc, base }), { slug: pkg.slug, doc: which, base: service.baseUrl });
+  const desk = page.locator('jb-scribe');
+  await expect(desk.locator('.scribe__docscroll')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(() => page.evaluate(() => globalThis.JB_SCRIBE_V2.current().state.loading)).toBe(false);
+  const composer = desk.locator('textarea');
+  const send = async () => { await composer.fill('Shorten using existing facts.'); await composer.press('Enter'); };
+  return { service, pkg, calls, fence, desk, composer, send };
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F26 ASTRA-04 ${which} real stale retry uses the exact current redline base`, async ({ page }) => {
+    const t = await realReliabilityDesk(page, which);
+    try {
+      const baseText = which === 'resume' ? 'Resolved carrier exceptions and tracked daily shipments.' : 'I welcome a conversation about your daily operations.';
+      const alternate = applyOps(t.pkg.model, [{ ...REAL_OP[which], opId: 'seed', text: baseText }]);
+      const folder = join(t.pkg.dir, 'runs', 'rseed'); await mkdir(folder, { recursive: true });
+      await writeFile(join(folder, 'render-model.json'), JSON.stringify(alternate));
+      await writeFile(join(folder, 'run.json'), JSON.stringify({ runId: 'rseed', slug: t.pkg.slug, feature: 'both', requestedAt: '2026-09-26T10:00:00.000Z', finishedAt: '2026-09-26T10:00:00.000Z', template: { family: alternate.template.family, source: 'default' }, artifacts: [] }));
+      // Move the base by a real Bring back; manual writes are forbidden by D18.
+      const restored = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions/rseed/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+      const latest = restored.run.runId;
+      await t.send(); await expect(t.desk.locator('[data-review="accept-all"]')).toBeVisible();
+      const starts = t.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'));
+      expect(starts).toHaveLength(2); expect(starts[0].body.baseRunId).toBe('r0'); expect(starts[1].body.baseRunId).toBe(latest);
+      const state = await page.evaluate(() => {
+        const c = globalThis.JB_SCRIBE_V2.current(); const p = c.state.proposal;
+        return { currentRunId: c.state.currentRunId, before: p.changes[0].before, baseWords: p.baseWords, baseRunId: p.baseRunId };
+      });
+      expect(state.currentRunId).toBe(latest); expect(state.baseRunId).toBe(latest); expect(state.before).toBe(baseText);
+      const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json();
+      const row = listing.versions.find(v => v.runId === latest); expect(state.baseWords).toBe(row.words);
+      await expect(t.desk.locator('.scribe__stage')).toContainText(`v${row.n}`);
+      await expect(t.desk.locator('.scribe__ver[aria-current="true"]')).toHaveAttribute('data-run', latest);
+      const delText = await page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${REAL_OP[which].node}"] del`).allTextContents();
+      expect(delText.join(' ')).toMatch(which === 'resume' ? /Resolved|exceptions|shipments/ : /your|daily/);
+      await fetch(`${t.service.baseUrl}${t.pkg.path}/versions/r0/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
+      await expect(t.desk.locator('.scribe__status')).toContainText('Not saved — a newer version exists.');
+      await t.desk.locator('.scribe__status-action').click();
+      await expect(t.desk.locator('.scribe__compare')).toBeVisible();
+      await expect(t.desk.locator('.scribe__compare [data-review]')).toHaveCount(0);
+      expect(await page.evaluate(() => !!globalThis.JB_SCRIBE_V2.current().state.proposal.id)).toBe(true);
+      expect(t.fence.unexpectedExternal).toEqual([]);
+    } finally { await t.service.close(); }
+  });
+  for (const [reason, expected] of [
+    ['provider_failed', 'The AI provider didn’t respond. Your document is unchanged.'],
+    ['unreadable_reply', 'Scribe’s reply couldn’t be read. Your document is unchanged.'],
+    ['invalid_model', 'Blocked: that change doesn’t fit this template’s layout.'],
+  ]) {
+    test(`SCRP-F27 ASTRA-05 ${which} real blocked ${reason} has safe copy and a retry`, async ({ page }) => {
+      let failed = true;
+      const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      try {
+        await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+        await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+        await expect(t.composer).toHaveValue('Shorten using existing facts.');
+        await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        const before = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json(); expect(before.versions).toHaveLength(1);
+        failed = false; await t.desk.locator('.scribe__status-action').click();
+        await expect(t.desk.locator('[data-review="accept-all"]')).toBeVisible();
+        expect(t.fence.unexpectedExternal).toEqual([]);
+      } finally { await t.service.close(); }
+    });
+  }
+  for (const [code, expected, action] of [
+    ['http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
+    ['writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
+    ['writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
+    ['llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.', 'Settings'],
+  ]) {
+    test(`SCRP-F28 ASTRA-05 ${which} real SSE error ${code} is bounded and actionable`, async ({ page }) => {
+      const t = await realReliabilityDesk(page, which, async () => { throw Object.assign(new Error('/private/raw-provider-body'), { code }); });
+      try {
+        await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+        await expect(t.desk.locator('.scribe__status-action')).toHaveText(action);
+        await expect(t.composer).toHaveValue('Shorten using existing facts.');
+        await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/raw-provider-body');
+        expect(t.fence.unexpectedExternal).toEqual([]);
+      } finally { await t.service.close(); }
+    });
+  }
+}

@@ -179,7 +179,7 @@ async function openDesk(opts) {
   const ctl = win.JB_SCRIBE_V2.open({ slug: "acme-platform-engineer", doc: opts?.doc || "resume", opener: edit, api, title: "Platform Engineer", company: "Acme" });
   await settle();
   const host = win.document.body.querySelector("jb-scribe");
-  return { win, doc: win.document, host, ctl, calls, store, spoken: logged };
+  return { win, doc: win.document, host, ctl, api, calls, store, spoken: logged };
 }
 
 const click = (el) => el.dispatchEvent({ type: "click", target: el });
@@ -318,7 +318,7 @@ describe("Bring back as new", () => {
     assert.deepEqual(runs, ["r3", ...before], "one version added on top, every earlier one still listed");
     assert.equal(row(host, "r3").getAttribute("aria-current"), "true");
     assert.equal(row(host, "r3").querySelector(".scribe__compare-src").textContent, "Brought back");
-    assert.equal(row(host, "r3").querySelector(".scribe__ver-what").textContent, "Restored from v0");
+    assert.equal(row(host, "r3").querySelector(".scribe__ver-what").textContent, "Brought back from v0");
     assert.match(host.querySelector('[role="log"]').textContent, /Brought back v0 as v3\./);
     assert.ok(calls.some((c) => c[0] === "preview" && c[2] === "r3"), "the live preview reloads on the new version");
   });
@@ -528,5 +528,35 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.refs.statusAction.hasAttribute('hidden'), true);
     assert.deepEqual(events, [{ slug: 'acme-platform-engineer', doc: which, runId: 'r3' }]);
     assert.equal(t.calls.filter(c => c[0] === 'restore').length, 1); t.ctl.close();
+  });
+}
+
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F31 ${which} a late bring-back never reloads or discards the next document`, async () => {
+    const t = await openDesk({ doc: which, saved503: true }); let release;
+    const restore = t.api.restore;
+    t.api.restore = id => new Promise(done => { release = () => restore(id).then(done); });
+    const events = []; t.win.addEventListener('jb:scribe:saved', e => events.push(plain(e.detail)));
+    click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0'));
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume'; t.ctl.setDoc(sibling); await settle();
+    const current = t.ctl.state.currentRunId; release(); await settle();
+    assert.deepEqual(events, [{ slug: 'acme-platform-engineer', doc: which, runId: 'r3' }]);
+    assert.equal(t.ctl.state.currentRunId, current); assert.equal(t.ctl.state.doc, sibling);
+    assert.equal(t.calls.filter(c => c[0] === 'rejectEdit').length, 0); t.ctl.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F32 ${which} saved bring-back with failed discard keeps recovery controls`, async () => {
+    const t = await openDesk({ doc: which, saved503: true });
+    t.ctl.state.proposal = { id: 'p1', doc: which, baseRunId: 'r2', ops: [{ opId: 'o1', op: 'replace', node: 'stmt', text: 'A grounded rewrite.' }], status: 'ready' };
+    t.api.rejectEdit = async () => { throw new Error('offline'); };
+    click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0')); await settle();
+    assert.equal(t.ctl.refs.status.getAttribute('data-state'), 'saved-pdf-unavailable');
+    assert.equal(t.ctl.state.proposal, null);
+    assert.equal(t.ctl.openProposal?.proposalId, 'p1');
+    assert.ok(t.ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+    assert.match(t.ctl.refs.log.textContent, /suggested changes are still open/); t.ctl.close();
   });
 }

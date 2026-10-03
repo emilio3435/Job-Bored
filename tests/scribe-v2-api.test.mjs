@@ -420,7 +420,7 @@ async function outcomeDesk(which, { failure, saved = false } = {}) {
   ctl.refs.frame.contentDocument = inner; ctl.refs.frame.onload();
   ctl.refs.prompt.value = 'Make it punchier'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await flush();
   const click = el => { assert.ok(el); el.dispatchEvent({ type: 'click', target: el, bubbles: true }); };
-  return { ctl, inner, calls, events, flush, click };
+  return { ctl, inner, api, win, calls, events, flush, click };
 }
 
 describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics', () => {
@@ -460,3 +460,18 @@ describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
     }
   }
 });
+
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F30 ${which} a late committed save emits once for its original document`, async () => {
+    const t = await outcomeDesk(which); let resolve;
+    t.api.acceptEdit = () => new Promise(done => { resolve = done; });
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    const next = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: sibling, api: t.api }); await t.flush();
+    resolve({ textSaved: true, run: { runId: 'saved-late', n: 1, pdf: 'stale' } }); await t.flush();
+    assert.deepEqual(t.events, [{ slug: 'acme-example', doc: which, runId: 'saved-late' }]);
+    assert.equal(next.state.proposal, null); assert.equal(next.state.doc, sibling); next.close();
+  });
+}

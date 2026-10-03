@@ -783,28 +783,36 @@
       var runId = ui.confirm;
       var v = byId(runId);
       if (!v || ui.restoring) return;
+      var which = ctl.state.doc;
+      var generation = ctl.generation;
+      var proposal = ctl.state.proposal;
       ui.restoring = true;
       deps.renderVersions();
       ctl.api.restore(runId).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
-        /* Only now that a new run exists is the open proposal stale; a
-           failed restore leaves it open (Grok F3-discard). */
-        var p = ctl.state.proposal;
-        if (p && p.id) ctl.api.rejectEdit(p.id).catch(function () { /* the proposal was never saved */ });
-        if (ctl.closed) return null;
+        if (ctl.closed || generation !== ctl.generation) {
+          if (deps.notifySaved) deps.notifySaved(res, which);
+          return null;
+        }
+        var keep = null;
+        var rejected = proposal && proposal.id ? ctl.api.rejectEdit(proposal.id).catch(function () {
+          keep = { proposalId: proposal.id, doc: which, baseRunId: proposal.baseRunId || ctl.state.currentRunId,
+            ops: proposal.ops || [], status: proposal.status || "ready", instruction: proposal.instruction };
+          deps.logMessage("blocked", ["Couldn’t discard. The suggested changes are still open."]);
+        }) : Promise.resolve();
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
         var unavailable = res && res.textSaved || res && res.run && res.run.pdf === "stale";
         var msg = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
         if (deps.setStatus) deps.setStatus(unavailable ? "saved-pdf-unavailable" : "saved", msg);
         deps.logMessage("note", [msg]);
-        announce(msg);
-        return deps.reload(res).then(function () {
-          focusIn(r.versions, '[aria-current="true"] button');
+        return rejected.then(function () {
+          if (ctl.closed || generation !== ctl.generation) { if (deps.notifySaved) deps.notifySaved(res, which); return null; }
+          return deps.reload(res, keep).then(function () { focusIn(r.versions, '[aria-current="true"] button'); });
         });
-      }).catch(function (err) {
+      }).catch(function () {
         ui.restoring = false;
-        if (ctl.closed) return;
+        if (ctl.closed || generation !== ctl.generation) return;
         deps.renderVersions();
         var msg = "Bring back didn’t save. Nothing changed. Try again.";
         deps.logMessage("blocked", [msg]);

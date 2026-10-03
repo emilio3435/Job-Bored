@@ -144,7 +144,7 @@
   function versionWhat(v) {
     if (v.source === "draft") return { text: "Drafted" };
     if (v.source === "manual") return { text: "Manual edit" };
-    if (v.source === "restore") return { text: v.label || "Brought back" };
+    if (v.source === "restore") return { text: v.label ? v.label.replace(/^Restored from /, "Brought back from ") : "Brought back" };
     if (v.source === "regenerate") return { text: v.label || "Template changed" };
     if (v.prompt) return { text: v.prompt, quoted: true };
     return { text: v.label || "Edit" };
@@ -434,7 +434,8 @@
       logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
       renderVersions: function () { renderVersions(ctl); },
       setStatus: function (state, text) { status(ctl, state, text); },
-      reload: function (res) { return reloadSaved(ctl, res); },
+      notifySaved: function (res, which) { emitSaved(ctl, res && res.run && res.run.runId, which); },
+      reload: function (res, keep) { return reloadSaved(ctl, res, keep); },
     });
     return ctl.versionsUi;
   }
@@ -508,9 +509,9 @@
     emit("jb:scribe:saved", { slug: ctl.opts.slug, doc: which || ctl.state.doc, runId: String(runId || "") });
   }
 
-  function reloadSaved(ctl, res) {
+  function reloadSaved(ctl, res, keep) {
     clearReview(ctl);
-    ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
+    ctl.state.proposal = null; ctl.openProposal = keep || null; ctl.openProposals = null; ctl.request = null;
     emitSaved(ctl, res && res.run && res.run.runId);
     return loadDoc(ctl);
   }
@@ -676,7 +677,7 @@
           button("Stop", "stop-request", function () { stopRecovered(ctl, p); });
         } else button("Review", "review-request", function () {
           if (!same) ctl.setDoc(p.doc);
-          else { if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true }); ctl.refs.docscroll.focus(); }
+          else { if (!ctl.state.proposal) recoverProposal(ctl, p); if (ctl.versionsUi && ctl.versionsUi.isActive()) ctl.versionsUi.exit({ silent: true }); ctl.refs.docscroll.focus(); }
         });
         if (same && p.baseRunId !== ctl.state.latestRunId) button("Review current", "review-current", function () { reviewCurrent(ctl); });
       }
@@ -841,6 +842,7 @@
   }
 
   function finishRun(ctl) {
+    ctl.refs.docscroll.setAttribute("aria-busy", "false");
     var st = ctl.state;
     var p = st.proposal;
     st.busy = false;
@@ -888,7 +890,7 @@
     ctl.refs.docscroll.setAttribute("aria-busy", "false");
     if (!ctl.refs.prompt.value) ctl.refs.prompt.value = request.instruction || "";
     if (!request.proposalId) { ctl.state.proposal = null; ctl.request = null; }
-    if (err && err.code === "materials_pending") return readOpen(ctl, true);
+    if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
     var message = (err && err.message) || "That didn’t work. Try again.";
     status(ctl, "error", message, "Try again", function () { if (request.proposalId) readOpen(ctl); else send(ctl); });
     logMessage(ctl, "blocked", [message]); renderAll(ctl);
@@ -1498,13 +1500,14 @@
     var accepted = p.changes.filter(function (c) { return p.decisions[c.opId] === "accepted"; });
     if (!accepted.length) { announce("Accept at least one change first."); return; }
     if (!p.id) { announce("These changes can’t be saved. Discard them and send the request again.", true); return; }
+    var which = p.doc || ctl.state.doc;
     p.saving = true;
     refreshReview(ctl);
     ctl.api.acceptEdit(p.id, {
       accept: accepted.map(function (c) { return c.opId; }),
       confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
     }).then(function (res) {
-      if (ctl.closed || ctl.state.proposal !== p) return null;
+      if (ctl.closed || ctl.state.proposal !== p) { emitSaved(ctl, res && res.run && res.run.runId, which); return null; }
       var run = (res && res.run) || {};
       var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
       var unavailable = res && res.textSaved || run.pdf === "stale";
