@@ -243,6 +243,12 @@
          (scribe-v2-versions.js adds it to the document pane). */
     ]);
 
+    r.recover = h("div", { class: "scribe__recover", role: "group", "aria-label": "Unfinished request", hidden: true });
+    r.statusText = h("span");
+    r.statusAction = h("button", { type: "button", class: "scribe__btn scribe__btn--small scribe__status-action", hidden: true });
+    r.status = h("div", { class: "scribe__status", role: "status", "data-state": "idle", hidden: true }, [r.statusText, r.statusAction]);
+    r.unsaved = h("div", { class: "scribe__unsaved", role: "alertdialog", "aria-label": "Unsaved text", hidden: true });
+    r.clearScope = h("button", { type: "button", "data-action": "clear-scope", "aria-label": "Use whole document", text: "×", hidden: true });
     r.scope = h("div", { class: "scribe__scope" });
     r.chips = h("div", { class: "scribe__chips", role: "group", "aria-label": "Quick requests" }, CHIPS.map(function (c) {
       return h("button", { type: "button", class: "scribe__chip", "data-chip": c, text: c });
@@ -250,8 +256,10 @@
     r.prompt = h("textarea", { id: ids.prompt, rows: "1", maxlength: String(root.JBScribeApi ? root.JBScribeApi.MAX_INSTRUCTION : 2000) });
     r.send = h("button", { type: "submit", class: "scribe__btn scribe__btn--primary", text: "Send" });
     r.composer = h("form", { class: "scribe__composer", autocomplete: "off", novalidate: true }, [
+      r.recover,
       r.scope,
       r.chips,
+      r.status,
       h("div", { class: "scribe__compose-box" }, [
         h("label", { for: ids.prompt, class: "scribe__sr", text: "Ask Scribe for a change" }),
         r.prompt,
@@ -274,7 +282,7 @@
 
     r.announcer = h("div", { class: "scribe__sr", role: "status", "aria-live": "polite" });
     r.sheet = h("div", { class: "scribe__sheet", role: "dialog", "aria-modal": "true", "aria-labelledby": ids.title, "data-seg": "doc" }, [
-      head, seg, h("div", { class: "scribe__body" }, [docpane, side]), r.announcer,
+      head, seg, h("div", { class: "scribe__body" }, [docpane, side]), r.unsaved, r.announcer,
     ]);
     r.scrim = h("div", { class: "scribe__scrim", "data-scribe": "scrim" });
     r.host = h("jb-scribe", { class: "scribe", "data-slug": ctl.opts.slug }, [r.scrim, r.sheet]);
@@ -402,6 +410,7 @@
     clear(el);
     el.appendChild(h("span", { text: "Scope" }));
     el.appendChild(h("span", { class: "scribe__pill", text: ctl.state.doc === "resume" ? "Whole resume" : "Whole letter" }));
+    el.appendChild(ctl.refs.clearScope);
     /* region:F2-scope — a selection in the preview narrows this to
        "2 bullets selected ×" and fills `scope` with node ids. */
   }
