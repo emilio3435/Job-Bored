@@ -4,6 +4,7 @@ Human-readable history of changes to **[AGENT_CONTRACT.md](../AGENT_CONTRACT.md)
 
 | Date (UTC) | Change                                                                                                                                                                                             | Compatibility                               |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| 2026-10-03 | **Scribe D20 (R1-#6).** Writer `http_401`, `http_403` and `http_404` map to `llm_unconfigured` with Settings guidance. Transport/timeout/5xx failures remain `provider_failed`; other unclassified HTTP errors use the safe editor fallback. | Changes diagnostic classification only; no raw provider messages are exposed. |
 | 2026-10-03 | **Scribe D19 (R1-#2+#3).** Restore accepts optional `{doc:"resume"\|"coverLetter"\|"cover_letter"}` and appends a restore run for that document only, preserving the sibling's current version and artifacts. `run.n` and `versions` describe the selected document. Restore remains append-only and takes no base CAS. | Additive request field; omitting `doc` preserves the historical whole-version restore behavior. |
 | 2026-10-03 | **Scribe repairs (SCRP C1–C5).** Read-only persisted-proposal recovery, pending replay reset, nonretryable committed-503 metadata, safe writer/SSE diagnostics and the manual open-proposal gate. C2 is client-side only. Exact shapes and writer mappings below. | Additive recovery and restore fields; manual writes now reject persisted open proposals with 409 `materials_pending`. |
 | 2026-10-02 | ATS scorecard response (HOLES MATQ, M12): optional `overallScoreSource` (`dimensions` \| `model`), `docHash` (`sha256:<64 hex>` of the request's `docText` exactly as sent) and `runId`. The local server now computes `overallScore` as the rounded mean of the five `dimensionScores`, keeping the provider's own number (labelled `model`) only when no dimension score came back, and drops evidence whose `sourceSnippet` is not in `docText`. `examples/ats-scorecard-response.v1.json` shows the new fields. | Additive: every new field is optional and `overallScore` stays an integer 0–100. Scores from the local server can differ from the provider's own `overallScore`. |
@@ -66,12 +67,12 @@ C4 follows `schemas/api-error.v1.schema.json` (`error,code,detail?,nextStep?,ret
 
 | Writer code or cause | Blocked reason / SSE error code | Fixed safe detail / message |
 | --- | --- | --- |
-| `network`, `timeout`, `http_5xx`, other `http_*`, `call_failed` | `provider_failed` | The AI provider did not complete the request. Try again. |
+| `network`, `timeout`, `http_5xx`, `http_5NN`, `call_failed` | `provider_failed` | The AI provider did not complete the request. Try again. |
 | `http_429` | `rate_limited` | The AI provider is rate limited. Wait and try again. |
 | `invalid_json`, `schema_invalid`, absent/non-array ops | `unreadable_reply` | The AI reply could not be read as edit operations. Try again. |
 | `writer_truncated` | `reply_cut_off` | The AI reply was cut off. Try a smaller edit. |
 | `writer_blocked` | `provider_refused` | The AI provider declined this edit. Try another instruction. |
-| `no_pin`, `llm_unconfigured` | `llm_unconfigured` | Choose an AI model in Settings before editing. |
+| `no_pin`, `llm_unconfigured`, `http_401`, `http_403`, `http_404` | `llm_unconfigured` | The AI model isn’t set up correctly. Check it in Settings, then try again. |
 | applyOps invalid model / malformed operation | `invalid_model` | The suggested edit is not valid for this document. |
 | applyOps protected fact | `locked` | This edit would change a protected fact. |
 | applyOps scope violation | `out_of_scope` | This edit targets a block outside the selected scope. |

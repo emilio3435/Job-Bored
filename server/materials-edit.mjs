@@ -289,8 +289,8 @@ export function editDiagnostic(code) {
     : ["invalid_json", "schema_invalid"].includes(code) ? "unreadable_reply"
     : code === "writer_truncated" ? "reply_cut_off"
     : code === "writer_blocked" ? "provider_refused"
-    : code === "no_pin" ? "llm_unconfigured"
-    : ["network", "timeout", "call_failed"].includes(code) || code.startsWith("http_") ? "provider_failed"
+    : ["no_pin", "http_401", "http_403", "http_404"].includes(code) ? "llm_unconfigured"
+    : ["network", "timeout", "call_failed", "http_5xx"].includes(code) || /^http_5\d\d$/.test(code) ? "provider_failed"
     : code;
   /** @type {Record<string,string>} */
   const messages = {
@@ -300,7 +300,7 @@ export function editDiagnostic(code) {
     rate_limited: "The AI provider is rate limited. Wait and try again.",
     reply_cut_off: "The AI reply was cut off. Try a smaller edit.",
     provider_refused: "The AI provider declined this edit. Try another instruction.",
-    llm_unconfigured: "Choose an AI model in Settings before editing.",
+    llm_unconfigured: "The AI model isn’t set up correctly. Check it in Settings, then try again.",
     locked: "This edit would change a protected fact.",
     out_of_scope: "This edit targets a block outside the selected scope.",
     shape: "This edit exceeds the document's template limits.",

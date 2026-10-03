@@ -540,7 +540,7 @@ it("SCRP-B12 thrown SSE failures expose fixed code messages and no private excep
     ["http_429", "rate_limited", "The AI provider is rate limited. Wait and try again."],
     ["writer_truncated", "reply_cut_off", "The AI reply was cut off. Try a smaller edit."],
     ["writer_blocked", "provider_refused", "The AI provider declined this edit. Try another instruction."],
-    ["llm_unconfigured", "llm_unconfigured", "Choose an AI model in Settings before editing."],
+    ["llm_unconfigured", "llm_unconfigured", "The AI model isn’t set up correctly. Check it in Settings, then try again."],
     ["ENOENT", "editor_failed", "Scribe could not complete this edit. Try again."],
   ]) {
     const pkg = await seed();
