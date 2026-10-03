@@ -495,7 +495,11 @@ for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
     const booted = await openDesk(page, { width, height: mobile ? 667 : 1000 }, "reduce", doc);
     const { desk } = booted;
     const single = doc === "resume" ? "b:acme:c14" : "p:p3";
-    const multiple = doc === "resume" ? ["b:acme:c14", "b:acme:c19"] : ["p:p2", "p:p3"];
+    // D29: a block with a locked figure cannot be edited by hand, so the multi-block
+// hint and the manual step both use unlocked blocks (fixture nodes carry no
+// locked spans on these); p:p2 and stmt each hold a locked figure.
+    const multiple = doc === "resume" ? ["b:acme:c14", "b:acme:c19"] : ["sal", "p:p1"];
+    const lockedBlock = doc === "resume" ? "stmt" : "p:p2";
     await selectLiveBlocks(page, multiple);
     const toolbar = desk.locator(".scribe__selection-actions");
     await expectPresentation(page, toolbar, true);
@@ -519,6 +523,16 @@ for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
     await expect(scope).toContainText("Whole document");
     await expect(scope.getByRole("button", { name: "Use whole document" })).toBeHidden();
     if (mobile) await desk.getByRole("tab", { name: "Doc", exact: true }).click();
+    await selectLiveBlocks(page, [lockedBlock]);
+    await expect(edit).toHaveAttribute("aria-disabled", "true");
+    await expect(edit).toHaveAttribute("title", "This line has locked figures. Ask Scribe to change it.");
+    await edit.click({ force: true });
+    await expect(page.frameLocator("jb-scribe .scribe__frame").locator(`[data-node="${lockedBlock}"]`)).not.toHaveAttribute("contenteditable", "plaintext-only");
+    await expect(desk.locator('.scribe__manual-state[data-state="editing"]')).toHaveCount(0);
+    await expect(desk.locator(".scribe__status")).toHaveText("This line has locked figures. Ask Scribe to change it.");
+    if (mobile) await desk.getByRole("tab", { name: "Doc", exact: true }).click();
+    // The locked refusal parks focus in the composer; release it so the next selection is read.
+    await page.evaluate(() => document.activeElement && document.activeElement.blur());
     await selectLiveBlocks(page, [single]);
     await expect(edit).toHaveAttribute("aria-disabled", "false");
     await expect(edit).not.toHaveAttribute("title");
