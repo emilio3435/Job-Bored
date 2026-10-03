@@ -1043,6 +1043,7 @@
     var r = ctl.refs.recover;
     clear(r);
     var rows = ctl.openProposals || (ctl.openProposal ? [ctl.openProposal] : []);
+    if (ctl.request && ctl.state.busy) rows = rows.filter(function (p) { return p.proposalId !== ctl.request.proposalId; });
     if (!rows.length) { r.setAttribute("hidden", ""); r.removeAttribute("data-recover-doc"); return; }
     r.removeAttribute("hidden");
     rows.forEach(function (p) {
@@ -1417,6 +1418,7 @@
     ctl.discarding = true;
     return ctl.api.rejectEdit(id).then(function () {
       if (ctl.closed) return false;
+      detachRequest(ctl);
       clearReview(ctl);
       ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
       status(ctl, "idle", "Discarded.");

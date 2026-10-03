@@ -642,3 +642,17 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(ctl.state.proposal.id, 'p1'); ctl.close();
   });
 }
+
+it('SCRP-R1-9 Continue then Discard aborts the request and permits Send', async () => {
+  const t = reliabilityApi(); t.env.win.AbortController = AbortController; const pending = defer(); let signal;
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [] };
+  t.api.stream = async (_id, handlers) => { signal = handlers.signal; return pending.promise; };
+  const ctl = t.mount(); await flush();
+  const discard = ctl.refs.recover.querySelector('[data-action="discard-request"]');
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true, 'running request has no recovery controls');
+  tap(discard); await flush();
+  assert.equal(signal.aborted, true); assert.equal(ctl.state.busy, false); assert.equal(ctl.state.stage, null);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
+  pending.resolve(); ctl.close();
+});
