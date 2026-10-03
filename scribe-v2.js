@@ -1926,7 +1926,11 @@
       accept: accepted.map(function (c) { return c.opId; }),
       confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
     }).then(function (res) {
-      if (ctl.closed || ctl.state.proposal !== p) { emitSaved(ctl, res && res.run && res.run.runId, which); return null; }
+      if (ctl.closed || ctl.state.proposal !== p) {
+        emitSaved(ctl, res && res.run && res.run.runId, which);
+        if (!ctl.closed) return readOpen(ctl);
+        return null;
+      }
       var run = (res && res.run) || {};
       var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
       var unavailable = res && res.textSaved || run.pdf === "stale";

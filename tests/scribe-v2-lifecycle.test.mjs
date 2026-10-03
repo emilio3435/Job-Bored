@@ -701,3 +701,15 @@ for (const state of ['pending', 'ready', 'partial']) it(`SCRP-R1-14 recovered ${
   assert.equal(!!ctl.refs.rail.querySelector('[data-review="accept"]'), state !== 'pending');
   assert.equal(!!ctl.refs.reviewbar.querySelector('[data-review="save"]'), state !== 'pending'); ctl.close();
 });
+
+it('SCRP-R1-15 late save clears the matching unfinished-save gate', async () => {
+  const t = reliabilityApi(); const saved = defer(); t.api.acceptEdit = () => saved.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const id = ctl.state.proposal.id;
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+  t.api.open.status = 'accepting'; ctl.setDoc('cover_letter'); await flush();
+  assert.equal(ctl.openProposal.proposalId, id);
+  t.api.open = null; saved.resolve({ run: { runId: 'r3', n: 3 } }); await flush();
+  assert.equal(ctl.openProposal, null); await t.submit(ctl, 'Next request');
+  assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
+});
