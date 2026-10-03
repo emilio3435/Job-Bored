@@ -580,3 +580,10 @@ it('SCRP-R1-23 version load failures use literal copy and mapped next step', asy
   click(act(t.host, 'view', 'r0')); await settle();
   assert.match(t.host.querySelector('.scribe__compare-cap').textContent, /didn’t load.*Too many requests right now.*Try again in 30 s\./); t.ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-R1-D19 ${which} Bring back passes its own doc`, async () => {
+  const t = await openDesk({ doc: which }); let body;
+  const restore = t.api.restore; t.api.restore = (id, request) => { body = plain(request); return restore(id); };
+  click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0')); await settle();
+  assert.deepEqual(body, { doc: which }); t.ctl.close();
+});

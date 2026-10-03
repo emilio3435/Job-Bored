@@ -748,7 +748,7 @@ it('SCRP-R1-19 starting and successfully finishing clears obsolete status', asyn
   const t = reliabilityApi(); const ctl = t.mount(); await flush();
   t.api.propose = async () => { throw { code: 'rate_limited' }; }; await t.submit(ctl);
   assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
-  let statusAtPost; t.api.propose = async body => { statusAtPost = ctl.refs.status.hasAttribute('hidden'); return { proposalId: 'next' }; };
+  let statusAtPost; t.api.propose = async () => { statusAtPost = ctl.refs.status.hasAttribute('hidden'); return { proposalId: 'next' }; };
   await t.submit(ctl); assert.equal(statusAtPost, true); assert.equal(ctl.refs.status.hasAttribute('hidden'), true);
   await t.submit(ctl, 'Blocked second request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
   ctl.setDoc('cover_letter'); await flush(); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();

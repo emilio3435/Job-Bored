@@ -644,3 +644,24 @@ for (const which of ['resume', 'cover_letter']) {
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F58 ${which} phone recovery Review reveals the document`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 1000 });
+    const h = await realDesk(page, which);
+    try {
+      await h.desk.locator('[data-seg="chat"]').click();
+      await h.send(); await h.ready();
+      const newer = await fetch(`${h.service.baseUrl}${h.pkg.path}/versions/r0/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc: which }) });
+      const restored = await newer.json(); expect(restored.run.runId).toBeTruthy();
+      if (newer.status === 503) expect(restored.run.pdf).toBe('stale');
+      await page.evaluate(async doc => { const ctl = globalThis.JB_SCRIBE_V2.current(); await ctl.setDoc(doc === 'resume' ? 'cover_letter' : 'resume'); await ctl.setDoc(doc); }, which);
+      await h.desk.locator('[data-seg="chat"]').click();
+      await expect(h.desk.locator('[data-action="review-request"]')).toBeVisible();
+      await h.desk.locator('[data-action="review-request"]').click();
+      await expect(h.desk.locator('.scribe__docpane')).toBeVisible();
+      await expect(h.desk.locator('button[data-seg="doc"]')).toHaveAttribute('aria-selected', 'true');
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'))).toHaveLength(1);
+    } finally { await h.service.close(); }
+  });
+}
