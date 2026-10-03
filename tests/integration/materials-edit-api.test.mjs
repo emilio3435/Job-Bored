@@ -828,6 +828,28 @@ it("DELETE proposal rejects all and leaves the run untouched", async (t) => {
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).runId, "r0");
 });
 
+it("SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const status of ["pending", "ready", "partial", "accepting"]) {
+    for (const proposalDoc of ["resume", "coverLetter"]) {
+      const pkg = await seed();
+      const row = await storedProposal(pkg, { status, doc: proposalDoc });
+      const runBefore = await readFile(join(pkg.dir, "run.json"), "utf8");
+      const proposalBefore = await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8");
+      const result = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
+      assert.equal(result.status, 409);
+      assert.equal(result.data.code, "materials_pending");
+      assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), runBefore);
+      assert.equal(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"), proposalBefore);
+      await service.reject(pkg.slug, row.id);
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "missing", manualOps: [op] })).data.code, "stale_base");
+      const invented = { ...op, text: "Tracked 72 daily shipments for Kafka in 2025." };
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [invented] })).data.code, "unverified_confirmation_required");
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] })).status, 200);
+    }
+  }
+});
+
 it("POST manual saves a manual version and rejects cross-document ops", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
