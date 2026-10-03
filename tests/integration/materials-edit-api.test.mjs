@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -513,6 +513,82 @@ it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async 
   res.emit("close");
 });
 
+async function storedProposal(pkg, overrides = {}) {
+  const id = randomUUID();
+  const row = { id, doc: "resume", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: new Date().toISOString(), status: "ready", ops: [op], events: [{ event: "blocked", data: { reason: "locked", detail: "Protected fact." } }], summary: { changes: 1 }, factCheck: "model", factCheckReason: "Checked.", targetPages: 1, chips: ["shorter"], dir: "private-path", profile: { private: true }, ...overrides };
+  await mkdir(join(pkg.dir, "proposals"), { recursive: true });
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify(row));
+  return row;
+}
+
+it("SCRP-B4 GET open projects safe fields across restart and sibling documents", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { doc: "coverLetter" });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 200);
+  const expected = { proposalId: row.id, doc: "coverLetter", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: row.createdAt, status: "ready", ops: [op], blocked: [{ reason: "locked", detail: "Protected fact." }], summary: row.summary, factCheck: "model", factCheckReason: "Checked." };
+  assert.deepEqual(response.data, { proposal: expected });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root });
+  assert.deepEqual(await restarted.open(pkg.slug), { proposal: expected });
+  assert.equal(await readFile(path, "utf8"), before);
+  await assert.rejects(service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }), { code: "materials_pending" });
+});
+
+it("SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const missing = await seed();
+  assert.deepEqual((await request(`${missing.path}/edits/open`)).data, { proposal: null });
+  await assert.rejects(readdir(join(missing.dir, "proposals")), { code: "ENOENT" });
+  const pkg = await seed();
+  for (const status of ["accepted", "failed", "rejected"]) await storedProposal(pkg, { status });
+  for (const status of ["ready", "partial"]) await storedProposal(pkg, { status, ops: [] });
+  await storedProposal(pkg, { status: "pending", createdAt: "2000-01-01T00:00:00.000Z" });
+  const files = await readdir(join(pkg.dir, "proposals"));
+  assert.deepEqual((await request(`${pkg.path}/edits/open`)).data, { proposal: null });
+  assert.deepEqual(await readdir(join(pkg.dir, "proposals")), files);
+  for (const status of ["pending", "partial", "accepting"]) {
+    const row = await storedProposal(pkg, { status });
+    assert.equal((await request(`${pkg.path}/edits/open`)).data.proposal.status, status);
+    await rm(join(pkg.dir, "proposals", `${row.id}.json`));
+  }
+});
+
+it("SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const rows = [await storedProposal(pkg), await storedProposal(pkg, { doc: "coverLetter", status: "partial" })];
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 409);
+  assert.equal(response.data.code, "multiple_open_proposals");
+  assert.deepEqual(response.data.proposals.sort((a, b) => a.proposalId.localeCompare(b.proposalId)), rows.map(({ id, doc, status }) => ({ proposalId: id, doc, status })).sort((a, b) => a.proposalId.localeCompare(b.proposalId)));
+  assert.equal((await request('/api/applications/bad%2Fslug/edits/open')).status, 400);
+  const escape = await seed();
+  await symlink(root, join(escape.dir, "proposals"));
+  assert.equal((await request(`${escape.path}/edits/open`)).data.code, "path_escape");
+  const guarded = express();
+  guarded.use((_req, res) => res.status(401).json({ code: "unauthorized" }));
+  registerMaterialsEditRoutes(guarded, { service });
+  const listener = await new Promise((done) => { const handle = guarded.listen(0, "127.0.0.1", () => done(handle)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${listener.address().port}${pkg.path}/edits/open`)).status, 401); }
+  finally { await new Promise((done) => listener.close(done)); }
+});
+
+it("SCRP-B7 restarted pending stream resets ops and journal before reprocessing", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { status: "pending", events: [{ event: "op", data: { op: { ...op, text: "Old text." } } }, { event: "done", data: { status: "ready" } }] });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => ({ ops: [op], blocked: [], summary: { changes: 1 }, factCheck: "model" }) });
+  const res = fakeStream(); const ended = once(res, "end");
+  await restarted.stream(pkg.slug, row.id, new EventEmitter(), res); await ended;
+  const saved = JSON.parse(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"));
+  assert.deepEqual(saved.ops, [op]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(saved.events.filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "op").map((event) => event.data.op.text), [op.text]);
+});
+
 it("GET versions and model expose immutable runs, nodes and 404 errors", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -723,6 +799,7 @@ it("all Scribe routes honor pending.json before edits", async (t) => {
   const pkg = await seed();
   await writeFile(join(pkg.dir, "pending.json"), "{}");
   for (const [path, method, body] of [
+    [`${pkg.path}/edits/open`, "GET"],
     [`${pkg.path}/versions/r0/model`, "GET"],
     [`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0" }],
     [`${pkg.path}/edits`, "POST", { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }],

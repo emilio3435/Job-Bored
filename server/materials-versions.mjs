@@ -346,6 +346,22 @@ export function createMaterialsVersionService(deps = {}) {
     }
     return false;
   };
+  /** Read-only recovery scan: expiration never deletes or creates files. */
+  /** @param {string} dir */
+  const readOpenProposals = async (dir) => {
+    const folder = join(dir, "proposals");
+    if (!await assertChildDirectory(dir, folder)) return [];
+    const rows = [];
+    for (const name of await readdir(folder)) {
+      if (!name.endsWith(".json") || !PROPOSAL_ID.test(name.slice(0, -5))) continue;
+      const row = await json(join(folder, name));
+      if (!row || Date.now() - Date.parse(row.createdAt) >= WEEK_MS) continue;
+      if (!["pending", "ready", "partial", "accepting"].includes(row.status)) continue;
+      if (["ready", "partial"].includes(row.status) && (!Array.isArray(row.ops) || !row.ops.length)) continue;
+      rows.push(row);
+    }
+    return rows;
+  };
   /** @param {Record<string, any>} proposal */
   const processProposal = async (proposal) => {
     if (proposal.running || proposal.status !== "pending") return;
@@ -460,6 +476,22 @@ export function createMaterialsVersionService(deps = {}) {
   };
   return {
     dirFor, versions,
+    /** @param {string} slug */
+    async open(slug) {
+      const dir = await dirFor(slug); pendingGuard(dir);
+      const rows = await readOpenProposals(dir);
+      if (rows.length > 1) return { code: "multiple_open_proposals", error: "More than one unfinished request exists for this role.", retryable: false, proposals: rows.map((row) => ({ proposalId: row.id, doc: row.doc, status: row.status })) };
+      const row = rows[0];
+      if (!row) return { proposal: null };
+      return { proposal: {
+        proposalId: row.id, doc: row.doc, baseRunId: row.baseRunId, instruction: row.instruction,
+        scope: row.scope, lockFacts: true, createdAt: row.createdAt, status: row.status, ops: row.ops,
+        blocked: (row.events || []).filter((/** @type {any} */ event) => event.event === "blocked").map((/** @type {any} */ event) => event.data),
+        ...(row.summary ? { summary: row.summary } : {}),
+        ...(row.factCheck ? { factCheck: row.factCheck } : {}),
+        ...(row.factCheckReason ? { factCheckReason: row.factCheckReason } : {}),
+      } };
+    },
     /** @param {string} slug @param {string} id */
     async model(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
@@ -517,6 +549,10 @@ export function createMaterialsVersionService(deps = {}) {
     async stream(slug, id, req, res) {
       const dir = await dirFor(slug); pendingGuard(dir);
       const proposal = await loadProposal(dir, id);
+      if (!proposal.running && proposal.status === "pending" && proposal.events.length) {
+        proposal.ops = [];
+        proposal.events = [];
+      }
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -695,6 +731,11 @@ export function registerMaterialsEditRoutes(app, options = {}) {
   app.get(`${base}/versions/:runId/model`, wrap(async (req, res) => { res.json(await service.model(req.params.slug, req.params.runId)); }));
   app.post(`${base}/preview`, wrap(async (req, res) => { res.json(await service.preview(req.params.slug, object(req.body))); }));
   app.post(`${base}/edits`, wrap(async (req, res) => { res.status(202).json(await service.start(req.params.slug, object(req.body))); }));
+  app.get(`${base}/edits/open`, wrap(async (req, res) => {
+    const result = await service.open(req.params.slug);
+    if (result.code === "multiple_open_proposals") res.status(409).json(result);
+    else res.json(result);
+  }));
   app.get(`${base}/edits/:id/stream`, wrap(async (req, res) => { await service.stream(req.params.slug, req.params.id, req, res); }));
   app.post(`${base}/edits/:id/stop`, wrap(async (req, res) => { res.json(await service.stop(req.params.slug, req.params.id)); }));
   app.post(`${base}/edits/:id/accept`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, req.params.id, object(req.body)); res.status(result.statusCode).json(result.body); }));
