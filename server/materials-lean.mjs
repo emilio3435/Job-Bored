@@ -13,7 +13,11 @@ import { PIPELINE_PROMPT_VERSION } from "./materials-cache.mjs";
 import { JUDGE_PROMPT_VERSION } from "./materials-judge.mjs";
 
 export const LEAN_PROMPT_VERSION = "materials.lean.v1";
-const schema = JSON.parse(readFileSync(new URL("../schemas/materials-lean.v1.schema.json", import.meta.url), "utf8"));
+/** @type {Record<string, any> | undefined} */
+let leanSchemaCache;
+function leanBaseSchema() {
+  return leanSchemaCache ??= JSON.parse(readFileSync(new URL("../schemas/materials-lean.v1.schema.json", import.meta.url), "utf8"));
+}
 const Ajv = /** @type {typeof import('ajv/dist/2020.js').default} */ (/** @type {unknown} */ (Ajv2020));
 const ajv = new Ajv({ strict: false, allErrors: true });
 const validators = new Map();
@@ -30,7 +34,7 @@ const foldUnit = (text) => text.toLowerCase().replace(/ies$/, "y").replace(/s$/,
 
 /** @param {string} feature */
 export function leanSchema(feature = "both") {
-  const out = structuredClone(schema);
+  const out = structuredClone(leanBaseSchema());
   const removed = feature === "resume" ? ["letter"] : feature === "cover_letter" ? ["statement", "roles", "earlier", "skills"] : [];
   for (const field of removed) delete out.properties[field];
   out.required = out.required.filter((/** @type {string} */ key) => !removed.includes(key));
