@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -47,6 +48,8 @@ async function startScraper(port, extraEnv = {}) {
       ...process.env,
       PORT: String(port),
       LISTEN_HOST: "127.0.0.1",
+      JOBBORED_HOME: join(tmpDir, ".jobbored"),
+      JOBBORED_LLM_CONFIG_PATH: join(tmpDir, "llm.json"),
       JOBBORED_PROFILE_PATH: join(tmpDir, "profile.json"),
       HERMES_APPLICATIONS_ROOT: join(tmpDir, "applications"),
       HOME: tmpDir,
@@ -115,6 +118,9 @@ describe("F0D-F12-JSON malformed body schema", () => {
 
 describe("F0D-F05-REDACT upstream 502 schema", () => {
   it("does not echo provider body or keys on ATS 502", async () => {
+    const inheritedPinPath = process.env.JOBBORED_LLM_CONFIG_PATH;
+    const readInheritedPin = () => inheritedPinPath && existsSync(inheritedPinPath) ? createHash("sha256").update(readFileSync(inheritedPinPath)).digest("hex") : null;
+    const inheritedPin = readInheritedPin();
     const secret = "sk-leaked-provider-secret-SHOULD-NOT-ECHO";
     const providerPort = await getOpenPort();
     const provider = createHttpServer((req, res) => {
@@ -151,6 +157,7 @@ describe("F0D-F05-REDACT upstream 502 schema", () => {
       assert.equal(typeof body.error, "string");
       assert.equal(typeof body.code, "string");
       assert.ok(body.code);
+      assert.equal(readInheritedPin(), inheritedPin, "the child must not migrate its ATS pin into another test's config");
     } finally {
       stopScraper(handle);
       await new Promise((resolveClose) => provider.close(resolveClose));
