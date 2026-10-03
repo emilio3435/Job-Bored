@@ -71,6 +71,13 @@
     return copy[code] || "That didn’t work. Try again.";
   }
 
+  function errorText(err, fallback) {
+    var mapped = errorCopy(err && err.code);
+    var message = mapped !== "That didn’t work. Try again." ? mapped : safeText(err && err.message) || fallback || mapped;
+    var fix = safeText(err && err.fix);
+    return message + (fix ? " " + fix : "");
+  }
+
   function clientDoc(value) { return value === "coverLetter" ? "cover_letter" : value; }
 
   function openReply(body) {
@@ -582,6 +589,7 @@
     resolveMode: resolveMode,
     ScribeApiError: ScribeApiError,
     errorCopy: errorCopy,
+    errorText: errorText,
     STUB_FIXTURES: { model: STUB_MODEL, nodes: STUB_NODES, transcript: STUB_TRANSCRIPT },
   };
 })(typeof window !== "undefined" ? window : globalThis);

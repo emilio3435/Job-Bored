@@ -686,3 +686,11 @@ for (const rejected of [false, true]) it(`SCRP-R1-11 stop ${rejected ? 'rejectio
   assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
   stream.resolve(); ctl.close();
 });
+
+it('SCRP-R1-13 known server errors use copy plus nextStep', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  const rec = t.env.win.JBScribeApi.create({ slug: 'acme-example', base: 'http://127.0.0.1:1', fetchImpl: async () => ({ ok: false, status: 429, text: async () => JSON.stringify({ error: 'Too many AI and rendering requests this minute.', code: 'rate_limited', retryable: true, nextStep: 'Try again in 30 s.' }) }) });
+  t.api.propose = body => rec.propose(body);
+  await t.submit(ctl);
+  assert.equal(ctl.refs.statusText.textContent, 'Too many requests right now. Try again in a minute. Your request is kept. Try again in 30 s.'); ctl.close();
+});

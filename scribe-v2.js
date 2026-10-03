@@ -1030,6 +1030,10 @@
     return root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(code) : "That didn’t work. Try again.";
   }
 
+  function errorText(err, fallback) {
+    return root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err, fallback) : fallback || "That didn’t work. Try again.";
+  }
+
   function requestCurrent(ctl, request) {
     return !ctl.closed && ctl.request === request && request.generation === ctl.generation && !request.detached;
   }
@@ -1180,7 +1184,7 @@
       if (token !== ctl.loadToken || ctl.closed) return null;
       st.loading = false;
       renderAll(ctl);
-      showDocNote(ctl, (err && err.message) || "The " + DOC_NOUN[which] + " didn’t load.", "error");
+      showDocNote(ctl, errorText(err, "The " + DOC_NOUN[which] + " didn’t load."), "error");
       return readOpen(ctl);
     });
   }
@@ -1291,7 +1295,7 @@
       ctl.state.proposal = null; invalidateScope(ctl); renderAll(ctl); return null;
     }
     if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
-    var message = (err && err.message) || "That didn’t work. Try again.";
+    var message = errorText(err);
     var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
     status(ctl, "error", message, settings ? "Settings" : "Try again", function () {
       if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
@@ -1933,7 +1937,7 @@
       p.saving = false;
       var mapped = copy(err && err.code);
       var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
-      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : mapped === "That didn’t work. Try again." ? "Not saved. Your accepted changes are still here." : (err && err.message) || mapped;
+      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : mapped === "That didn’t work. Try again." ? "Not saved. Your accepted changes are still here." : errorText(err);
       status(ctl, err && err.code === "stale_base" ? "stale" : "error", message,
         err && err.code === "stale_base" ? "Review current" : settings ? "Settings" : "Try again", function () {
           if (err && err.code === "stale_base") ctl.api.listVersions(ctl.state.doc).then(function (listing) {
