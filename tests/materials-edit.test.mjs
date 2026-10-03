@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { deriveNodes } from "../server/materials-nodes.mjs";
-import { proposeEdits } from "../server/materials-edit.mjs";
+import { editDiagnostic, proposeEdits } from "../server/materials-edit.mjs";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../docs/programs/editor-20260927/fixtures/${name}.json`, import.meta.url), "utf8"));
 const model = fixture("model");
@@ -267,10 +267,38 @@ describe("materials edit proposal", () => {
     assert.ok(result.summary.lossPct > 20, JSON.stringify(result.summary));
   });
 
+  it("SCRP-B13 writer diagnostic table covers every emitted code without payloads", () => {
+    for (const [code, reason] of [
+      ["network", "provider_failed"], ["timeout", "provider_failed"], ["http_5xx", "provider_failed"], ["http_401", "provider_failed"],
+      ["http_429", "rate_limited"], ["invalid_json", "unreadable_reply"], ["schema_invalid", "unreadable_reply"],
+      ["writer_truncated", "reply_cut_off"], ["writer_blocked", "provider_refused"], ["no_pin", "llm_unconfigured"], ["llm_unconfigured", "llm_unconfigured"],
+      ["invalid_model", "invalid_model"], ["locked", "locked"], ["out_of_scope", "out_of_scope"], ["shape", "shape"],
+    ]) assert.equal(editDiagnostic(code).reason, reason);
+    assert.equal(editDiagnostic("/private/path").reason, "editor_failed");
+  });
+
+  it("SCRP-B11 writer transport, unreadable reply and apply rejection have distinct safe codes", async () => {
+    const provider = await propose({}, { fetchImpl: async () => { throw new Error("private provider payload /secret/path token=example"); } });
+    const unreadable = await propose("private provider payload /secret/path");
+    const absent = await propose({ value: "private provider payload" });
+    const invalid = await propose({ ops: [{ opId: "bad", op: "replace", node: "private/path", text: "Allowed text." }] });
+    for (const [result, reason, detail] of [
+      [provider, "provider_failed", "The AI provider did not complete the request. Try again."],
+      [unreadable, "unreadable_reply", "The AI reply could not be read as edit operations. Try again."],
+      [absent, "unreadable_reply", "The AI reply could not be read as edit operations. Try again."],
+      [invalid, "invalid_model", "The suggested edit is not valid for this document."],
+    ]) {
+      assert.deepEqual(result.ops, []);
+      assert.equal(result.blocked[0].reason, reason);
+      assert.equal(result.blocked[0].detail, detail);
+      assert.equal(result.summary.changes, 0);
+    }
+  });
+
   it("turns junk model output into a blocked empty proposal", async () => {
     const result = await propose("this is not JSON");
     assert.deepEqual(result.ops, []);
-    assert.equal(result.blocked[0].reason, "invalid_model");
+    assert.equal(result.blocked[0].reason, "unreadable_reply");
     assert.equal(result.summary.changes, 0);
   });
 });
