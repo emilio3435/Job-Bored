@@ -618,7 +618,8 @@ export function createMaterialsVersionService(deps = {}) {
       res.once("close", close);
       if (!proposal.running && proposal.status === "pending") {
         void processProposal(proposal).then(() => {
-          if (!res.writableEnded) send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+          const data = { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" };
+          for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
         }).catch(() => {
           const data = { status: proposal.status, message: editDiagnostic("editor_failed").detail };
           for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
