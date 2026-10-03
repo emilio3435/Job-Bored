@@ -430,3 +430,31 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F92 R4-#3 ${which} ga
     assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
   }
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F93 R4-#4 ${which} adopted failures resolve conflict, confirmation and retry in the reopened controller`, async () => {
+  for (const code of ['stale_base', 'unverified_confirmation_required', 'provider_failed', 'materials_pending', 'locked']) {
+    let reject; const pending = new Promise((_resolve, fail) => { reject = fail; });
+    const t = await desk(which, (_body, n) => n === 1 ? pending : { run: { runId: 'r1', n: 1 } });
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+    t.ctl.close('role-closed');
+    const owner = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await settle();
+    owner.refs.frame.contentDocument = t.inner; owner.refs.frame.onload(); await settle();
+    let reads = 0;
+    t.api.getOpenEdit = async () => { reads++; return { proposal: { proposalId: 'other-request', doc: which === 'resume' ? 'cover_letter' : 'resume', baseRunId: 'r0', status: 'pending', ops: [] } }; };
+    reject({ code, status: code === 'stale_base' || code === 'materials_pending' ? 409 : 400 }); await settle(); await settle();
+    assert.equal(owner.manual.saving, false); assert.equal(owner.refs.unsaved.hasAttribute('hidden'), true, code);
+    assert.equal(owner.manual.drafts[t.nodes[0].id].text, 'Tracked operations.'); assert.equal(owner.manual.base, 'r0');
+    const action = code === 'stale_base' ? 'reapply' : code === 'unverified_confirmation_required' ? 'confirm' : code === 'locked' ? null : 'retry';
+    assert.equal(owner.refs.manualState.getAttribute('data-state'), code === 'stale_base' ? 'conflict' : code === 'unverified_confirmation_required' ? 'confirm' : 'error');
+    if (action) assert.ok(owner.refs.manualState.querySelector(`[data-manual="${action}"]`), code);
+    else assert.match(owner.refs.manualState.textContent, /locked/);
+    assert.equal(reads, code === 'materials_pending' ? 1 : 0);
+    if (code === 'provider_failed' || code === 'unverified_confirmation_required') {
+      owner.refs.manualState.querySelector(`[data-manual="${action}"]`).dispatchEvent({ type: 'click' }); await settle();
+      assert.equal(t.calls.length, 2); assert.equal(t.calls[1].baseRunId, 'r0');
+      assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps)));
+      assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].confirmUnverified)), code === 'unverified_confirmation_required' ? [t.calls[0].manualOps[0].opId] : []);
+      assert.equal(Object.keys(owner.manual.drafts).length, 0); owner.close();
+    } else { owner.close(); owner.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); }
+  }
+});
