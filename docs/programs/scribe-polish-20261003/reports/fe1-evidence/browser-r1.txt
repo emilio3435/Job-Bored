@@ -1,0 +1,586 @@
+
+Running 21 tests using 1 worker
+
+(node:33939) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   1 tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back (4.3s)
+(node:34820) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   2 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal (1.9s)
+(node:34890) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   3 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal (2.0s)
+(node:35042) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   4 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal (1.5s)
+(node:35465) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   5 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID (1.8s)
+(node:35734) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   6 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID (1.7s)
+(node:35819) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   7 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID (1.7s)
+(node:35892) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   8 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID (1.5s)
+(node:36000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   9 tests/e2e-journey/scribe-edit-journey.spec.mjs:386:3 › SCRP-F23 ASTRA-01 resume failed discard retains controls (1.6s)
+  ✘  10 tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once (1.8s)
+(node:37268) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  11 tests/e2e-journey/scribe-edit-journey.spec.mjs:416:3 › SCRP-F25 ASTRA-03 resume ordinary 503 stays unsaved and retryable (1.6s)
+  ✘  12 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal (1.8s)
+(node:37670) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  13 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal (2.0s)
+(node:37872) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  14 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal (1.4s)
+(node:37926) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  15 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID (1.7s)
+(node:37997) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  16 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID (1.7s)
+(node:38075) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  17 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID (2.1s)
+(node:38192) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  18 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID (1.6s)
+(node:38318) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  19 tests/e2e-journey/scribe-edit-journey.spec.mjs:386:3 › SCRP-F23 ASTRA-01 cover_letter failed discard retains controls (1.5s)
+  ✘  20 tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once (1.7s)
+(node:38442) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  21 tests/e2e-journey/scribe-edit-journey.spec.mjs:416:3 › SCRP-F25 ASTRA-03 cover_letter ordinary 503 stays unsaved and retryable (1.5s)
+
+
+  1) tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back
+
+    Error: locator.click: Error: strict mode violation: getByRole('dialog', { name: 'Scribe' }).getByRole('button', { name: 'Discard' }) resolved to 2 elements:
+        1) <button type="button" data-review="discard" class="scribe__btn scribe__btn--primary">Discard</button> aka getByRole('region', { name: 'Document' }).getByRole('button', { name: 'Discard' })
+        2) <button type="button" data-proposal-id="prop-2" data-action="discard-request" class="scribe__btn scribe__btn--small">Discard</button> aka getByRole('group', { name: 'Unfinished request' }).getByRole('button', { name: 'Discard' })
+
+    Call log:
+      - waiting for getByRole('dialog', { name: 'Scribe' }).getByRole('button', { name: 'Discard' })
+
+
+      269 |   await expect(rail.getByRole("button", { name: /^Accept / })).toHaveCount(2);
+      270 |   await desk.getByRole("button", { name: "Reject all" }).click();
+    > 271 |   await desk.getByRole("button", { name: "Discard" }).click();
+          |                                                       ^
+      272 |   await expect(log).toContainText("Discarded.");
+      273 |   expect(api.calls.some((c) => c.method === "DELETE" && c.path === `/edits/${stopId}`)).toBe(true);
+      274 |
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:271:55
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  7) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  9) tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    Expected: {"paragraphs": [{"beat": "thesis", "id": "p1", "text": "I connect operations data to decisions that teams can act on."}, {"beat": "analytics-proof", "claimId": "c14", "id": "p2", "text": "At Acme Logistics, I helped reduce fulfillment delays 38% through weekly measurement."}, {"beat": "next-step", "id": "p3", "text": "I would welcome a conversation about improving your daily operations."}], "salutation": "Dear hiring team,", "templateId": "signal.letter"}
+    Received: undefined
+
+      411 |       expect(listing.versions).toHaveLength(2); expect(listing.versions[0].n).toBe(1);
+      412 |       const model = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions/${listing.currentRunId}/model`)).json();
+    > 413 |       const sibling = which === 'resume' ? 'coverLetter' : 'resume'; expect(model.model.documents[sibling]).toEqual(t.pkg.model.documents[sibling]);
+          |                                                                                                             ^
+      414 |     } finally { await t.service.close(); }
+      415 |   });
+      416 |   test(`SCRP-F25 ASTRA-03 ${which} ordinary 503 stays unsaved and retryable`, async ({ page }) => {
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:413:109
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  10) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  11) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  12) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      359 |         const body = await response.json(); expect(body.proposal.proposalId).toBe(id); expect(body.proposal.status).toBe('ready');
+      360 |         expect(body.proposal.doc).toBe(which === 'resume' ? 'resume' : 'coverLetter');
+    > 361 |         t.fence.assertNoForbidden();
+          |                 ^
+      362 |       } finally { await t.service.close(); }
+      363 |     });
+      364 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:361:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  13) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  14) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  15) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID
+
+    TypeError: t.fence.assertNoForbidden is not a function
+
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+      381 |         if (action === 'Stop') await expect(t.desk.locator('.scribe__log')).toContainText('Stopped. No changes suggested.');
+    > 382 |         t.fence.assertNoForbidden();
+          |                 ^
+      383 |       } finally { await t.service.close(); }
+      384 |     });
+      385 |   }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:382:17
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  17) tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    Expected: {"intro": {"claimIds": ["c14"], "runs": [{"t": "Connects operations data to decisions."}]}, "sections": [{"entries": [{"bullets": [{"claimId": "c14", "runs": [{"t": "Measured carrier delays and built a weekly dashboard for the operations team."}]}, {"claimId": "c19", "runs": [{"t": "Documented the handoff process and trained new coordinators."}]}], "employerId": "acme", "meta": ["2021–2024"], "org": "Acme Logistics", "seat": "Operations Analyst"}], "kind": "experience", "label": "Experience"}, {"entries": [{"employerId": "beta", "line": "Tracked daily shipments and resolved exceptions.", "meta": ["2019–2021"], "org": "Beta Supply", "seat": "Coordinator"}], "kind": "earlier", "label": "Earlier"}, {"kind": "credentials", "label": "Credentials", "lines": [{"claimId": "education", "runs": [{"t": "B.A. Economics, Example College."}]}]}, {"groups": [{"items": ["SQL", "Spreadsheets"], "label": "Analytics"}], "kind": "toolkit", "label": "Toolkit"}], "statement": {"runs": [{"t": "Operations analyst who reduced fulfillment delays "}, {"n": "38%"}, {"t": " through careful measurement and practical process changes. Builds clear dashboards, tests assumptions, and helps teams turn reliable evidence into daily decisions."}], "words": 28}, "templateId": "signal.resume"}
+    Received: undefined
+
+      411 |       expect(listing.versions).toHaveLength(2); expect(listing.versions[0].n).toBe(1);
+      412 |       const model = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions/${listing.currentRunId}/model`)).json();
+    > 413 |       const sibling = which === 'resume' ? 'coverLetter' : 'resume'; expect(model.model.documents[sibling]).toEqual(t.pkg.model.documents[sibling]);
+          |                                                                                                             ^
+      414 |     } finally { await t.service.close(); }
+      415 |   });
+      416 |   test(`SCRP-F25 ASTRA-03 ${which} ordinary 503 stays unsaved and retryable`, async ({ page }) => {
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:413:109
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/error-context.md
+
+    Error Context: .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-r1-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  17 failed
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once
+  4 passed (55.5s)

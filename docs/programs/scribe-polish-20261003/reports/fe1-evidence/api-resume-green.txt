@@ -1,0 +1,93 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (2.417708ms)
+  ✔ should serve exactly the node ids the server derives from the model (0.894541ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (3.834958ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (0.911125ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.2045ms)
+  ✔ should refuse to open without a package slug (0.509791ms)
+✔ scribe-v2-api mode flag (2.733542ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.371917ms)
+  ✔ should keep a separate history per document (0.492125ms)
+  ✔ should preview the package's real rendered file for each document (0.610458ms)
+  ✔ should say which document failed when the preview file is missing (0.522792ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.63ms)
+  ✔ should refuse an empty or over-long instruction (0.409333ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.387875ms)
+  ✔ should end a stopped stream as partial (0.377875ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (1.491583ms)
+✔ scribe-v2-api stub behaviour (6.498625ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.771583ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.666167ms)
+  ✖ should map a server refusal to one error shape (1.195542ms)
+  ✖ should tell the user how to start a server that is not answering (0.650833ms)
+  ✔ should retry a stale base once onto the current run (0.465209ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.796333ms)
+✖ scribe-v2-api live mode: the SPEC §3.2 routes (4.677583ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✔ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.545792ms)
+  ✔ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.361125ms)
+  ✔ SCRP-F3 resume manualEdit resolves only the committed 503 (0.266834ms)
+  ✔ SCRP-F3 resume restore resolves only the committed 503 (0.279084ms)
+  ✔ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.307416ms)
+  ✔ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.279667ms)
+  ✔ SCRP-F3 cover_letter restore resolves only the committed 503 (0.2645ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.402333ms)
+  ✔ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.406625ms)
+✔ SCRP-F2 R1 open route and R2 truthful transport (3.202583ms)
+ℹ tests 29
+ℹ suites 5
+ℹ pass 27
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 88.058041
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:274:3
+✖ should map a server refusal to one error shape (1.195542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'http_409'
+  - 'materials_pending'
+
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:282:14)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:280:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'http_409',
+    expected: 'materials_pending',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:288:3
+✖ should tell the user how to start a server that is not answering (0.650833ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /npm start/. Input:
+
+  'Scribe can’t reach your JobBored server. Start it, then Retry.'
+
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:293:14)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:291:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Scribe can’t reach your JobBored server. Start it, then Retry.',
+    expected: /npm start/,
+    operator: 'match',
+    diff: 'simple'
+  }

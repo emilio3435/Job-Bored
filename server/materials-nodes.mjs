@@ -4,7 +4,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { runsToText, validateRenderModel } from "./materials-render.mjs";
 
-const NUMBER = /(?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/g;
+const NUMBER = /(?:[$#]|top-)?\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?(?:[–-]\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/gu;
 
 /** @typedef {import('./materials-render.mjs').RenderModel} RenderModel */
 /** @typedef {{id:string,kind:string,text:string,locked:{whole:boolean,spans:number[][]},ref:any}} Address */
@@ -33,13 +33,16 @@ export class MaterialsEditError extends Error {
 
 /** @param {string} text */
 const wordCount = (text) => String(text).trim().split(/\s+/).filter(Boolean).length;
-/** @param {string} text */
-const plain = (text) => String(text)
-  .replace(/<[^>]*>/g, "")
+/** @param {string} text @param {boolean} [literal] */
+const plain = (text, literal = false) => {
+  if (literal) return String(text);
+  const normalized = String(text).normalize("NFC");
+  return normalized.replace(/<\/?[A-Za-z][^<>]*>/g, "")
   .replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1")
-  .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/gm, "")
+  .replace(/^\s*(?:#{1,6}\s+|>\s+|[-*+]\s+(?!\p{N}))/gmu, "")
   .replace(/(?:\*\*|__|~~|`|\*|_)/g, "")
   .trim();
+};
 
 /** @param {Array<{t?:string,n?:string,hl?:string}>} runs */
 function metricSpans(runs) {
@@ -107,23 +110,103 @@ export function lockedSpans(model) {
   return Object.fromEntries(deriveNodes(model).map(({ id, locked }) => [id, locked]));
 }
 
+
+/** D28: NFC, then remove only markdown markup; map back to raw UTF-16 spans.
+ * @param {string} value */
+function normalizedNumericText(value) {
+  var source = String(value), text = "";
+  /** @type {number[]} */
+  var offsets = [], ends = [];
+  // NFC cannot cross a grapheme boundary. Keep composed characters tied to
+  // their entire raw cluster, and unchanged characters to their exact offsets.
+  for (var part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)) {
+    var normalized = part.segment.normalize("NFC");
+    for (var i = 0; i < normalized.length; i++) {
+      if (/[*_`]/.test(normalized[i])) continue;
+      text += normalized[i];
+      offsets.push(part.index + (normalized === part.segment ? i : 0));
+      ends.push(part.index + (normalized === part.segment ? i + 1 : part.segment.length));
+    }
+  }
+  return { text: text, offsets: offsets, ends: ends };
+}
+
+/** @param {string} text @param {number} start @param {number} end */
+function numericRun(text, start, end) {
+  const points = Array.from(text), offsets = [0];
+  for (const point of points) offsets.push(offsets[offsets.length - 1] + point.length);
+  let left = offsets.indexOf(start), right = offsets.indexOf(end);
+  if (left < 0 || right < 0) return [start, end];
+  const symbols = /^[\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}\p{Pd}\p{Sc}\p{Sm}.,'’‘´·٫٬．，%‰‱٪％﹪/／:^~]$/u;
+  // Braille blank is also a visible grouping gap in the R7 reproduction.
+  const whitespace = /^[\s\p{Zs}\u2028\u2029\u2800]$/u;
+  const scale = /^(?:k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|per[\s\p{Zs}\u2800]+cent|pct|times)(?![\p{L}\p{N}_])/iu;
+  /** Bridge complete gaps only between numeric components, leaving prose movable.
+   * @param {number} i */
+  const joins = (i) => {
+    if (!whitespace.test(points[i] || "")) return false;
+    let a = i, b = i;
+    while (a > 0 && whitespace.test(points[a - 1])) a--;
+    while (b < points.length && whitespace.test(points[b])) b++;
+    const before = points.slice(0, a).join(""), after = points.slice(b).join("");
+    const previousWord = /(?:^|[^\p{L}\p{N}_])(?:minus|negative|k|m|b|bn|mm|million|billion|thousand|hundred|dozen|percent|cent|pct|times|x|to)$/iu.test(before);
+    const nextOperator = /^(?:x|to)[\s\p{Zs}\u2800]+(?=\p{N})/iu.test(after);
+    return (/^\p{N}$/u.test(points[a - 1] || "") || symbols.test(points[a - 1] || "") || previousWord) &&
+      (/^\p{N}$/u.test(points[b] || "") || symbols.test(points[b] || "") || scale.test(after) || nextOperator);
+  };
+  while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
+  while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
+  while (right > left && /^[.,:;\p{Pd}/]$/u.test(points[right - 1])) right--;
+  return [offsets[left], offsets[right]];
+}
+
+/** Match distinct locked base runs as a multiset, mapping every constituent span.
+ * @param {string} base @param {number[][]} spans @param {string} result */
+function matchingNumericSpans(base, spans, result) {
+  var original = normalizedNumericText(base), next = normalizedNumericText(result), used = new Set();
+  /** @type {Map<string, {a:number,b:number,spans:number[][]}>} */
+  var groups = new Map();
+  /** @type {number[][]} */
+  var matched = [];
+  for (var [index, [rawStart, rawEnd]] of spans.entries()) {
+    var start = original.ends.findIndex(i => i > rawStart);
+    var end = original.offsets.findIndex(i => i >= rawEnd);
+    if (end < 0) end = original.text.length;
+    if (start < 0 || start >= end) return null;
+    var [a, b] = numericRun(original.text, start, end), key = a + ":" + b;
+    var group = groups.get(key);
+    if (!group) { group = { a: a, b: b, spans: [] }; groups.set(key, group); }
+    group.spans.push([index, start, end]);
+  }
+  for (var item of groups.values()) {
+    var run = original.text.slice(item.a, item.b), at = next.text.indexOf(run);
+    while (at >= 0) {
+      var [left, right] = numericRun(next.text, at, at + run.length);
+      if (left === at && right === at + run.length && !used.has(at)) break;
+      at = next.text.indexOf(run, at + 1);
+    }
+    if (at < 0) return null;
+    used.add(at);
+    for (var [index, start, end] of item.spans) {
+      matched[index] = [next.offsets[at + start - item.a], next.ends[at + end - item.a - 1]];
+    }
+  }
+  return matched;
+}
+
 /** @param {Address} node @param {string|null} nextText */
 function assertUnlocked(node, nextText) {
   if (node.locked.whole) throw new MaterialsEditError("locked", node.text);
   if (!node.locked.spans.length) return;
-  if (nextText === null) throw new MaterialsEditError("locked", node.text.slice(...node.locked.spans[0]));
-  let from = 0;
-  for (const [start, end] of node.locked.spans) {
-    const token = node.text.slice(start, end);
-    const at = nextText.indexOf(token, from);
-    if (at < 0) throw new MaterialsEditError("locked", token);
-    from = at + token.length;
+  if (nextText === null || !matchingNumericSpans(node.text, node.locked.spans, nextText)) {
+    throw new MaterialsEditError("locked", node.text.slice(...node.locked.spans[0]));
   }
 }
 
 /** @param {RenderModel} model */
 function metricTokens(model) {
-  return [...new Set(addressBook(model).flatMap((node) => node.locked.spans.map(([a, b]) => node.text.slice(a, b))))].sort((a, b) => b.length - a.length);
+  return [...new Set(addressBook(model).flatMap((node) => node.locked.spans.map(([a, b]) => normalizedNumericText(node.text.slice(a, b)).text)))].sort((a, b) => b.length - a.length);
 }
 
 /** @param {string} text @param {string[]} tokens */
@@ -150,7 +233,8 @@ function checkShape(model) {
     const count = wordCount(runsToText(resume.statement.runs));
     if (count < 20 || count > 55) throw new MaterialsEditError("shape", `statement has ${count} words; expected 20–55`);
     for (const section of resume.sections) for (const entry of section.entries || []) {
-      if (entry.bullets && (entry.bullets.length < MATERIALS_BUDGETS.resume.bulletsPerFeatured[0] || entry.bullets.length > MATERIALS_BUDGETS.resume.bulletsPerFeatured[1])) throw new MaterialsEditError("shape", `${entry.employerId} has ${entry.bullets.length} bullets; expected ${MATERIALS_BUDGETS.resume.bulletsPerFeatured.join("–")}`);
+      const [min, max] = MATERIALS_BUDGETS.resume.bulletsPerFeatured;
+      if (entry.bullets && (entry.bullets.length < min || entry.bullets.length > max)) throw new MaterialsEditError("shape", `${entry.employerId} has ${entry.bullets.length} bullets; expected ${min}–${max}`);
     }
   }
   const letter = model.documents?.coverLetter;
@@ -162,9 +246,9 @@ function checkShape(model) {
  * locked | out_of_scope | shape | invalid_model. The input is never changed.
  * @param {RenderModel} model
  * @param {Array<any>} ops
- * @param {{scope?:'all'|string[]}} [options]
+ * @param {{scope?:'all'|string[],plainTextOpIds?:string[],beforeOp?:(candidate:RenderModel,op:any)=>void}} [options]
  */
-export function applyOps(model, ops, { scope = "all" } = {}) {
+export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], beforeOp } = {}) {
   if (!Array.isArray(ops) || !Array.isArray(scope) && scope !== "all") throw new MaterialsEditError("invalid_model", "invalid edit batch or scope");
   const base = validateRenderModel(model);
   if (!base.ok) throw new MaterialsEditError("invalid_model", base.errors.join("; "));
@@ -179,10 +263,12 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
     if (scope !== "all" && !scope.includes(id)) throw new MaterialsEditError("out_of_scope", id);
     const node = addressBook(out).find((item) => item.id === id);
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
+    beforeOp?.(out, op);
     const { ref } = node;
+    const literal = plainTextOpIds.includes(op.opId);
     if (op.op === "insert") {
-      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
-      const text = plain(op.text);
+      if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literal).trim()) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
+      const text = plain(op.text, literal);
       if (ref.kind === "bullet") {
         if (ref.owner.some((/** @type {{claimId:string}} */ b) => b.claimId === op.claimId)) throw new MaterialsEditError("invalid_model", `duplicate claimId: ${op.claimId}`);
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { claimId: op.claimId, runs: toRuns(text, tokens) });
@@ -195,8 +281,11 @@ export function applyOps(model, ops, { scope = "all" } = {}) {
         ref.owner.splice(ref.owner.indexOf(ref.target) + 1, 0, { id: paragraphId, beat, claimId: op.claimId, text, words: wordCount(text) });
       } else throw new MaterialsEditError("invalid_model", `cannot insert after ${id}`);
     } else if (op.op === "replace") {
-      if (typeof op.text !== "string" || !plain(op.text)) throw new MaterialsEditError("invalid_model", "replace needs text");
-      const text = plain(op.text);
+      if (typeof op.text !== "string" || !plain(op.text, literal).trim()) throw new MaterialsEditError("invalid_model", "replace needs text");
+      const text = plain(op.text, literal);
+      // Normalize each raw side once inside the lock check, just as the client does.
+      assertUnlocked(node, op.text);
+      // Cleanup must not strip an enumerator/sign or join HTML-separated digits.
       assertUnlocked(node, text);
       if (["statement", "intro", "bullet", "credential"].includes(ref.kind)) ref.target.runs = toRuns(text, tokens);
       else if (ref.kind === "paragraph") { ref.target.text = text; if ("words" in ref.target) ref.target.words = wordCount(text); }

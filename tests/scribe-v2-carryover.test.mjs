@@ -301,3 +301,39 @@ describe("the v2 rail tells the truth about what is saved (from scribe-state)", 
     assert.equal(host.querySelectorAll(".scribe__ver").length, 0);
   });
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F14 ASTRA-04 ${which} installs the exact rebase before streaming and marking`, async () => {
+    const { FakeDocument } = await import('./fixtures/jb-dom.mjs');
+    const win = makeEnv({ bodyClass: 'jb-v2' }); win.Date = Date;
+    vm.runInNewContext(read('scribe-v2-api.js'), win); vm.runInNewContext(read('scribe-v2-diff.js'), win); vm.runInNewContext(read('scribe-v2.js'), win);
+    let current = 'r0', started = false;
+    const calls = [];
+    const api = {
+      listVersions: async () => ({ currentRunId: current, versions: [{ runId: 'r1', n: 1, words: 23 }, { runId: 'r0', n: 0, words: 10 }] }),
+      getModel: async id => { calls.push(['model', id]); return { model: {}, nodes: [{ id: 'p:p3', kind: 'paragraph', text: 'A newer exact block' }] }; },
+      preview: async body => { calls.push(['preview', body.baseRunId]); return { html: body.baseRunId === 'r1' ? 'A newer exact block' : 'Old block', words: body.baseRunId === 'r1' ? 23 : 10 }; },
+      propose: async () => { current = 'r1'; return { proposalId: 'p1', rebasedTo: 'r1' }; },
+      stream: async (_id, h) => { started = true; h.onEvent({ event: 'op', data: { op: { opId: 'o1', op: 'replace', node: 'p:p3', text: 'A shorter block' } } }); h.onEvent({ event: 'done', data: { status: 'ready' } }); },
+    };
+    const ctl = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api });
+    const flush = async () => { for (let i = 0; i < 5; i++) await settle(); };
+    await flush();
+    const frame = ctl.refs.frame;
+    const original = new FakeDocument(); const p0 = original.createElement('p'); p0.setAttribute('data-node', 'p:p3'); p0.textContent = 'Old block'; original.body.appendChild(p0);
+    frame.contentDocument = original; frame.onload();
+    ctl.refs.prompt.value = 'Shorter'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await flush();
+    assert.equal(started, false, 'the exact iframe load gates SSE');
+    assert.equal(ctl.state.proposal.id, 'p1');
+    assert.ok(calls.some(c => c[0] === 'model' && c[1] === 'r1'));
+    assert.equal(frame.srcdoc, 'A newer exact block');
+    const exact = new FakeDocument(); const p1 = exact.createElement('p'); p1.setAttribute('data-node', 'p:p3'); p1.textContent = 'A newer exact block'; exact.body.appendChild(p1);
+    frame.contentDocument = exact; frame.onload(); await flush();
+    assert.equal(started, true);
+    assert.equal(ctl.state.currentRunId, 'r1');
+    assert.equal(ctl.state.proposal.baseWords, 23);
+    assert.equal(ctl.state.proposal.changes[0].before, 'A newer exact block');
+    assert.match(frame.getAttribute('title'), /version 1/);
+    assert.equal(ctl.refs.versions.querySelector('[aria-current="true"]').getAttribute('data-run'), 'r1'); ctl.close();
+  });
+}

@@ -41,7 +41,7 @@
 
   var SOURCE_LABEL = {
     draft: "Draft",
-    edit: "Scribe edit",
+    edit: "Scribe",
     manual: "Manual",
     regenerate: "Regenerated",
     restore: "Brought back",
@@ -501,7 +501,8 @@
         /* The page already shown stays up; keep it listening. */
         watchFig(fig);
         fig.box.setAttribute("aria-busy", "false");
-        fig.caption.textContent += " — " + ((err && err.message) || "this version did not load.");
+        var explanation = root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err) : "That didn’t work. Try again.";
+        fig.caption.textContent += " — This version didn’t load. " + explanation;
       });
     }
 
@@ -585,6 +586,7 @@
       changes.appendChild(h("h3", { class: "scribe__compare-head", text: head }));
       if (ui.diffError) {
         changes.appendChild(h("p", { class: "scribe__compare-note", "data-tone": "error", text: ui.diffError }));
+        changes.appendChild(h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-cmp-act": "retry", text: "Try again" }));
         return;
       }
       if (!ui.diff) {
@@ -662,7 +664,9 @@
 
     /* ---------- modes ---------- */
 
-    function enter(mode, a, b, opener) {
+    function enter(mode, a, b, opener, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { enter(mode, a, b, opener, true); });
+      if (typeof ctl.invalidateSelection === "function") ctl.invalidateSelection();
       var token = ++ui.token;
       var wasOpen = !!ui.mode;
       ui.mode = mode;
@@ -696,7 +700,7 @@
           announce("Comparing v" + byId(a).n + " with v" + byId(b).n + ". " + summaryText());
         }, function (err) {
           if (token !== ui.token) return;
-          ui.diffError = (err && err.message) || "The versions could not be read, so nothing is marked.";
+          ui.diffError = root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err, "The versions could not be read, so nothing is marked.") : "The versions could not be read, so nothing is marked.";
           renderChanges();
         });
       }
@@ -744,9 +748,9 @@
       compareWith(null, opener || doc.activeElement);
     };
 
-    ui.view = function (runId, opener) {
+    ui.view = function (runId, opener, keepDraft) {
       if (!byId(runId)) return;
-      enter("view", runId, null, opener);
+      enter("view", runId, null, opener, keepDraft);
     };
 
     ui.exit = exit;
@@ -760,7 +764,8 @@
       if (target && typeof target.focus === "function") target.focus();
     }
 
-    function askBringBack(runId) {
+    function askBringBack(runId, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { askBringBack(runId, true); });
       var v = byId(runId);
       if (!v || v.runId === ctl.state.currentRunId) return;
       if (ctl.state.busy) { announce("Wait for Scribe to finish, or press Stop.", true); return; }
@@ -783,29 +788,44 @@
       var runId = ui.confirm;
       var v = byId(runId);
       if (!v || ui.restoring) return;
+      var which = ctl.state.doc;
+      var generation = ctl.generation;
+      var proposal = ctl.state.proposal;
       ui.restoring = true;
       deps.renderVersions();
-      ctl.api.restore(runId).then(function (res) {
+      ctl.api.restore(runId, { doc: which }).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
-        /* Only now that a new run exists is the open proposal stale; a
-           failed restore leaves it open (Grok F3-discard). */
-        var p = ctl.state.proposal;
-        if (p && p.id) ctl.api.rejectEdit(p.id).catch(function () { /* the proposal was never saved */ });
-        if (ctl.closed) return null;
+        if (ctl.closed || generation !== ctl.generation) {
+          if (deps.notifySaved) deps.notifySaved(res, which);
+          return null;
+        }
+        var keep = null;
+        var rejected = proposal && proposal.id ? ctl.api.rejectEdit(proposal.id).catch(function () {
+          keep = { proposalId: proposal.id, doc: which, baseRunId: proposal.baseRunId || ctl.state.currentRunId,
+            ops: proposal.ops || [], status: proposal.status || "ready", instruction: proposal.instruction };
+          deps.logMessage("blocked", ["Couldn’t discard. The suggested changes are still open."]);
+        }) : Promise.resolve();
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
-        var msg = "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ". Nothing was deleted.";
+        var unavailable = res && res.textSaved || res && res.run && res.run.pdf === "stale";
+        var msg = unavailable ? (n == null ? "Text saved as a new version." : "Text saved as v" + n + ".") + " PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
+        if (deps.setStatus) deps.setStatus(unavailable ? "saved-pdf-unavailable" : "saved", msg);
         deps.logMessage("note", [msg]);
-        announce(msg);
-        return deps.reload().then(function () {
-          focusIn(r.versions, '[aria-current="true"] button');
+        return rejected.then(function () {
+          if (ctl.closed || generation !== ctl.generation) { if (deps.notifySaved) deps.notifySaved(res, which); return null; }
+          return deps.reload(res, keep).then(function () { focusIn(r.versions, '[aria-current="true"] button'); });
         });
       }).catch(function (err) {
         ui.restoring = false;
-        if (ctl.closed) return;
+        if (ctl.closed || generation !== ctl.generation) return;
         deps.renderVersions();
-        var msg = "Bring back didn’t save" + (err && err.message ? ": " + err.message : ".") +
-          (ctl.state.proposal ? " Your versions and open proposal are unchanged." : " Your versions are unchanged.");
+        var mapped = root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(err && err.code) : "That didn’t work. Try again.";
+        var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : root.JBScribeApi.errorText(err);
+        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin" || /^http_(401|403|404)$/.test(err.code || ""));
+        if (deps.setStatus) deps.setStatus("error", msg, settings ? "Settings" : "Try again", function () {
+          if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+          else confirmBringBack();
+        });
         deps.logMessage("blocked", [msg]);
         announce(msg, true);
         focusIn(r.versions, '[data-ver-act="confirm"]');
@@ -833,11 +853,9 @@
       if (ui.confirm === v.runId) {
         var top = versions()[0];
         var next = top ? top.n + 1 : null;
-        var cur = current();
         confirm = h("div", { class: "scribe__compare-confirm", role: "group", "aria-label": "Bring back v" + v.n }, [
-          h("p", { text: "Bring back v" + v.n + " as " + (next != null ? "v" + next : "a new version") + "? " +
-            (cur ? "v" + cur.n + " and every other version stay in the list." : "Every version stays in the list.") +
-            (ctl.state.proposal ? " The open proposal will be discarded." : "") }),
+          h("p", { text: "Bring back v" + v.n + " as " + (next != null ? "v" + next : "a new version") + "? All versions are kept." +
+            (ctl.state.proposal ? " Your open suggested changes will be discarded." : "") }),
           h("div", { class: "scribe__compare-acts" }, [
             h("button", { type: "button", class: "scribe__btn scribe__btn--small scribe__btn--primary", "data-ver-act": "confirm", "data-run": v.runId, "aria-disabled": ui.restoring ? "true" : null, text: ui.restoring ? "Bringing back…" : "Bring back as " + (next != null ? "v" + next : "new") }),
             h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-ver-act": "cancel", "data-run": v.runId, text: "Cancel" }),
@@ -878,6 +896,7 @@
         if (act === "cancel") { cancelBringBack(); return; }
         var cmp = t.getAttribute("data-cmp-act");
         if (cmp === "exit") { exit(); return; }
+        if (cmp === "retry") { enter("compare", ui.a, ui.b, ui.opener); return; }
         if (cmp === "compare") { compareWith(ui.a, ui.opener); return; }
         if (cmp === "bring") { askBringBack(ui.a); return; }
         var ab = t.getAttribute("data-ab");

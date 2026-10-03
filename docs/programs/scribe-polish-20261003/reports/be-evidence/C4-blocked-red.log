@@ -1,0 +1,42 @@
+▶ materials edit proposal
+  ✖ SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads (48.094542ms)
+✖ materials edit proposal (48.519666ms)
+ℹ tests 1
+ℹ suites 1
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 142.296667
+
+✖ failing tests:
+
+test at tests/materials-edit.test.mjs:298:3
+✖ SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads (48.094542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   headers: {
+  +     Authorization: 'example'
+  +   },
+  +   node: 'private/path',
+  +   op: 'replace',
+  +   opId: '/secret/path',
+  +   text: 'private provider payload'
+  -   opId: 'edit-1'
+    }
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/materials-edit.test.mjs:301:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 14)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { opId: '/secret/path', op: 'replace', node: 'private/path', text: 'private provider payload', headers: { Authorization: 'example' } },
+    expected: { opId: 'edit-1' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

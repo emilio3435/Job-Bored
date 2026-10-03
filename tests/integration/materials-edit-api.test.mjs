@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -10,6 +10,8 @@ import { after, before, it } from "node:test";
 import express from "../../server/node_modules/express/index.js";
 import { commitModelAsRun, regeneratePackage } from "../../server/materials-regenerate.mjs";
 import { createMaterialsVersionService, registerMaterialsEditRoutes } from "../../server/materials-versions.mjs";
+import { deriveNodes } from "../../server/materials-nodes.mjs";
+import { withMonograms } from "../../server/materials-monogram.mjs";
 
 const model = JSON.parse(readFileSync(new URL("../../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
 const op = { opId: "o1", op: "replace", node: "line:beta", text: "Tracked shipments." };
@@ -72,12 +74,12 @@ after(async () => {
 });
 
 let sequence = 0;
-async function seed(renderModel = model) {
+async function seed(renderModel = model, feature = "both") {
   const slug = `example-${++sequence}`;
   const dir = join(root, slug);
   const runDir = join(dir, "runs", "r0");
   await mkdir(runDir, { recursive: true });
-  const run = { runId: "r0", slug, feature: "both", requestedAt: "2026-09-27T10:00:00.000Z", finishedAt: "2026-09-27T10:00:00.000Z", template: { family: "signal", source: "default" }, artifacts: [{ path: "resume.pdf", pages: 1 }] };
+  const run = { runId: "r0", slug, feature, requestedAt: "2026-09-27T10:00:00.000Z", finishedAt: "2026-09-27T10:00:00.000Z", template: { family: "signal", source: "default" }, artifacts: [{ path: "resume.pdf", pages: 1 }] };
   for (const folder of [dir, runDir]) {
     await writeFile(join(folder, "run.json"), JSON.stringify(run));
     await writeFile(join(folder, "render-model.json"), JSON.stringify(renderModel));
@@ -423,6 +425,226 @@ it("service SSE emits blocked shape and Stop retains validated partial ops", asy
   assert.match(partialRes.chunks.join(""), /event: done\ndata: {"status":"partial"}/);
 });
 
+async function persistSnapshot(path, snapshot) {
+  const temp = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temp, JSON.stringify(snapshot));
+  await rename(temp, path);
+}
+
+function streamEvents(res) {
+  return res.chunks.join("").split("\n\n").filter((part) => part.startsWith("event: ")).map((part) => {
+    const [, event, data] = /^event: ([^\n]+)\ndata: (.+)$/s.exec(part);
+    return { event, data: JSON.parse(data) };
+  });
+}
+
+async function heldMeasuring({ fail = false, reconnectWhileHeld = false } = {}) {
+  const pkg = await seed();
+  const entered = deferred(), release = deferred(), claimed = deferred(), finished = deferred();
+  let held = false;
+  const terminalWrites = new Set();
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    propose: async () => ({ ops: [op, { ...op }], blocked: [], summary: { changes: 1 }, factCheck: "model" }),
+    onTransition: ({ to }) => { if (to === "partial") claimed.resolve(); },
+    persistProposal: async (path, snapshot) => {
+      snapshot = structuredClone(snapshot);
+      if (!held && snapshot.events.at(-1)?.data.stage === "measuring") {
+        held = true; entered.resolve(); await release.promise;
+        if (fail) throw new Error("injected measuring failure");
+      }
+      await persistSnapshot(path, snapshot);
+      if (snapshot.events.at(-1)?.event === "done") {
+        const key = `${snapshot.status}:${snapshot.events.length}`;
+        if (terminalWrites.has(key)) finished.resolve();
+        terminalWrites.add(key);
+      }
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const res = fakeStream();
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+  await entered.promise;
+  const stopping = svc.stop(pkg.slug, started.proposalId);
+  await claimed.promise;
+  if (reconnectWhileHeld) {
+    const connected = deferred();
+    const reconnect = fakeStream();
+    reconnect.flushHeaders = connected.resolve;
+    const joining = svc.stream(pkg.slug, started.proposalId, new EventEmitter(), reconnect);
+    await connected.promise;
+    try { assert.deepEqual(streamEvents(reconnect).filter((row) => row.event === "done"), []); }
+    finally { release.resolve(); await joining; await stopping; }
+  }
+  release.resolve(); // Release the serialized writer before awaiting Stop.
+  const stopped = await stopping;
+  await finished.promise;
+  const path = join(pkg.dir, "proposals", `${started.proposalId}.json`);
+  return { pkg, svc, id: started.proposalId, res, stopped, stored: JSON.parse(await readFile(path, "utf8")) };
+}
+
+it("SCRP-B1 held-measuring Stop persists only partial and unique opIds", async () => {
+  const { stored, stopped, res } = await heldMeasuring();
+  const doneStatuses = stored.events.filter((row) => row.event === "done").map((row) => row.data.status);
+  assert.deepEqual(doneStatuses, ["partial"]);
+  assert.equal(stored.status, "partial");
+  assert.equal(stopped.status, "partial");
+  assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+  assert.deepEqual(streamEvents(res).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+});
+
+it("SCRP-B2 processing exception after Stop preserves partial; repeated Stop and reconnect agree", async () => {
+  const { pkg, svc, id, stored, stopped } = await heldMeasuring({ fail: true });
+  assert.equal(stored.status, "partial");
+  assert.deepEqual(stored.events.filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+  assert.deepEqual(await svc.stop(pkg.slug, id), stopped);
+  const reconnected = fakeStream();
+  await svc.stream(pkg.slug, id, new EventEmitter(), reconnected);
+  assert.deepEqual(streamEvents(reconnected).filter((row) => row.event === "done").map((row) => row.data.status), ["partial"]);
+  assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
+});
+
+it("SCRP-B17 reconnect cannot replay a queued done before its snapshot persists", async () => {
+  await heldMeasuring({ reconnectWhileHeld: true });
+});
+
+it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async () => {
+  const pkg = await seed();
+  const entered = deferred(), release = deferred(), wrote = deferred(), claimed = deferred();
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    onTransition: ({ to }) => { if (to === "rejected") claimed.resolve(); },
+    persistProposal: async (path, snapshot) => {
+      snapshot = structuredClone(snapshot);
+      if (snapshot.events.length) { entered.resolve(); await release.promise; }
+      await persistSnapshot(path, snapshot);
+      if (snapshot.events.length) wrote.resolve();
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const res = fakeStream();
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+  await entered.promise;
+  const rejecting = svc.reject(pkg.slug, started.proposalId);
+  await claimed.promise;
+  // Both the reject and the queued writer settle before checking the file.
+  release.resolve();
+  await Promise.all([rejecting, wrote.promise]);
+  await assert.rejects(readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`)), { code: "ENOENT" });
+  res.emit("close");
+});
+
+async function storedProposal(pkg, overrides = {}) {
+  const id = randomUUID();
+  const row = { id, doc: "resume", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: new Date().toISOString(), status: "ready", ops: [op], events: [{ event: "blocked", data: { reason: "locked", detail: "Protected fact." } }], summary: { changes: 1 }, factCheck: "model", factCheckReason: "Checked.", targetPages: 1, chips: ["shorter"], dir: "private-path", profile: { private: true }, ...overrides };
+  await mkdir(join(pkg.dir, "proposals"), { recursive: true });
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify(row));
+  return row;
+}
+
+it("SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text", async () => {
+  for (const [code, expectedCode, message] of [
+    ["network", "provider_failed", "The AI provider did not complete the request. Try again."],
+    ["http_429", "rate_limited", "The AI provider is rate limited. Wait and try again."],
+    ["writer_truncated", "reply_cut_off", "The AI reply was cut off. Try a smaller edit."],
+    ["writer_blocked", "provider_refused", "The AI provider declined this edit. Try another instruction."],
+    ["llm_unconfigured", "llm_unconfigured", "The AI model isn’t set up correctly. Check it in Settings, then try again."],
+    ["ENOENT", "editor_failed", "Scribe could not complete this edit. Try again."],
+  ]) {
+    const pkg = await seed();
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => { throw Object.assign(new Error("private payload /secret/path stack token=example"), { code }); } });
+    const id = await readyProposal(svc, pkg);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${id}.json`), "utf8"));
+    assert.deepEqual(stored.events.find((row) => row.event === "error").data, { code: expectedCode, message });
+    assert.deepEqual(stored.events.filter((row) => row.event === "done").map((row) => row.data.status), ["failed"]);
+    assert.doesNotMatch(JSON.stringify(stored.events), /private|secret|stack|token=/);
+  }
+});
+
+it("SCRP-B19 recovery and replay project safe legacy blocked/error rows without writing them", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { events: [
+    { event: "blocked", data: { reason: "invalid_model", detail: "private provider payload /secret/path", op: { opId: "old-1", node: "private/path", headers: { Authorization: "example" } } } },
+    { event: "error", data: { code: "ENOENT", message: "private stack /secret/path" } },
+    { event: "done", data: { status: "ready" } },
+  ] });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const open = await service.open(pkg.slug);
+  assert.deepEqual(open.proposal.blocked, [{ op: { opId: "old-1" }, reason: "invalid_model", detail: "The suggested edit is not valid for this document." }]);
+  const res = fakeStream(); await service.stream(pkg.slug, row.id, new EventEmitter(), res);
+  assert.doesNotMatch(res.chunks.join(""), /private|secret|stack|Authorization|headers/);
+  assert.equal(await readFile(path, "utf8"), before);
+});
+
+it("SCRP-B4 GET open projects safe fields across restart and sibling documents", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { doc: "coverLetter" });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 200);
+  const expected = { proposalId: row.id, doc: "coverLetter", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: row.createdAt, status: "ready", ops: [op], blocked: [{ reason: "locked", detail: "This edit would change a protected fact." }], summary: row.summary, factCheck: "model", factCheckReason: "Checked." };
+  assert.deepEqual(response.data, { proposal: expected });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root });
+  assert.deepEqual(await restarted.open(pkg.slug), { proposal: expected });
+  assert.equal(await readFile(path, "utf8"), before);
+  await assert.rejects(service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }), { code: "materials_pending" });
+});
+
+it("SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const missing = await seed();
+  assert.deepEqual((await request(`${missing.path}/edits/open`)).data, { proposal: null });
+  await assert.rejects(readdir(join(missing.dir, "proposals")), { code: "ENOENT" });
+  const pkg = await seed();
+  for (const status of ["accepted", "failed", "rejected"]) await storedProposal(pkg, { status });
+  for (const status of ["ready", "partial"]) await storedProposal(pkg, { status, ops: [] });
+  await storedProposal(pkg, { status: "pending", createdAt: "2000-01-01T00:00:00.000Z" });
+  const files = await readdir(join(pkg.dir, "proposals"));
+  assert.deepEqual((await request(`${pkg.path}/edits/open`)).data, { proposal: null });
+  assert.deepEqual(await readdir(join(pkg.dir, "proposals")), files);
+  for (const status of ["pending", "partial", "accepting"]) {
+    const row = await storedProposal(pkg, { status });
+    assert.equal((await request(`${pkg.path}/edits/open`)).data.proposal.status, status);
+    await rm(join(pkg.dir, "proposals", `${row.id}.json`));
+  }
+});
+
+it("SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const rows = [await storedProposal(pkg), await storedProposal(pkg, { doc: "coverLetter", status: "partial" })];
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 409);
+  assert.equal(response.data.code, "multiple_open_proposals");
+  assert.deepEqual(response.data.proposals.sort((a, b) => a.proposalId.localeCompare(b.proposalId)), rows.map(({ id, doc, status }) => ({ proposalId: id, doc, status })).sort((a, b) => a.proposalId.localeCompare(b.proposalId)));
+  assert.equal((await request('/api/applications/bad%2Fslug/edits/open')).status, 400);
+  const escape = await seed();
+  await symlink(root, join(escape.dir, "proposals"));
+  assert.equal((await request(`${escape.path}/edits/open`)).data.code, "path_escape");
+  const guarded = express();
+  guarded.use((_req, res) => res.status(401).json({ code: "unauthorized" }));
+  registerMaterialsEditRoutes(guarded, { service });
+  const listener = await new Promise((done) => { const handle = guarded.listen(0, "127.0.0.1", () => done(handle)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${listener.address().port}${pkg.path}/edits/open`)).status, 401); }
+  finally { await new Promise((done) => listener.close(done)); }
+});
+
+it("SCRP-B7 restarted pending stream resets ops and journal before reprocessing", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { status: "pending", events: [{ event: "op", data: { op: { ...op, text: "Old text." } } }, { event: "done", data: { status: "ready" } }] });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => ({ ops: [op], blocked: [], summary: { changes: 1 }, factCheck: "model" }) });
+  const res = fakeStream(); const ended = once(res, "end");
+  await restarted.stream(pkg.slug, row.id, new EventEmitter(), res); await ended;
+  const saved = JSON.parse(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"));
+  assert.deepEqual(saved.ops, [op]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(saved.events.filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "op").map((event) => event.data.op.text), [op.text]);
+});
+
 it("GET versions and model expose immutable runs, nodes and 404 errors", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -569,6 +791,56 @@ it("POST accept writes selected ops as a new run and rejects unconfirmed or stal
   assert.equal((await request(`${pkg.path}/edits/${id}/accept`, "POST", { accept: ["o1"], confirmUnverified: [] })).data.code, "proposal_not_ready");
 });
 
+it("SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  browserAvailable = false;
+  try {
+    const accepted = await service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    const manual = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: accepted.body.run.runId, manualOps: [{ ...op, text: "Tracked daily shipments." }] }, true);
+    const restored = await service.restore(pkg.slug, "r0");
+    for (const [index, result] of [accepted, manual, restored].entries()) {
+      assert.equal(result.statusCode, 503);
+      assert.equal(result.body.code, "browser_unavailable");
+      assert.equal(result.body.run.pdf, "stale");
+      assert.ok(result.body.run.runId);
+      assert.equal(result.body.retryable, false);
+      assert.equal(result.body.run.n, index + 1);
+      assert.ok(result.body.versions.some((version) => version.runId === result.body.run.runId));
+    }
+    assert.equal(restored.body.run.restoredFrom, "r0");
+  } finally { browserAvailable = true; }
+  const restored = await service.restore(pkg.slug, "r0");
+  assert.equal(restored.body.run.n, 4);
+  assert.equal(restored.body.versions.length, 5);
+  const ordinary = createMaterialsVersionService({ applicationsRoot: root, commit: async () => { throw Object.assign(new Error("Provider failed."), { statusCode: 503, code: "provider_failed" }); } });
+  const before = await readFile(join(pkg.dir, "run.json"), "utf8");
+  await assert.rejects(ordinary.restore(pkg.slug, "r0"), { statusCode: 503, code: "provider_failed" });
+  assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), before);
+});
+
+it("SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs", async () => {
+  for (const [doc, stem, sibling, change] of [
+    ["resume", "resume", "cover-letter", op],
+    ["coverLetter", "cover-letter", "resume", { opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations." }],
+  ]) {
+    for (const available of [true, false]) {
+      const pkg = await seed();
+      await writeFile(join(pkg.dir, `${sibling}.pdf`), "sibling PDF bytes");
+      const beforeModel = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+      browserAvailable = available;
+      try {
+        const result = await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [change] }, true);
+        assert.equal(result.statusCode, available ? 200 : 503);
+        assert.equal(await readFile(join(pkg.dir, `${sibling}.pdf`), "utf8"), "sibling PDF bytes");
+        const saved = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+        assert.deepEqual(saved.documents[doc === "resume" ? "coverLetter" : "resume"], beforeModel.documents[doc === "resume" ? "coverLetter" : "resume"]);
+        if (!available) await assert.rejects(readFile(join(pkg.dir, `${stem}.pdf`)), { code: "ENOENT" });
+      } finally { browserAvailable = true; }
+    }
+  }
+});
+
 it("POST accept returns 503 browser_unavailable after saving HTML and a stale-PDF run", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -593,6 +865,28 @@ it("DELETE proposal rejects all and leaves the run untouched", async (t) => {
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).runId, "r0");
 });
 
+it("SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const status of ["pending", "ready", "partial", "accepting"]) {
+    for (const proposalDoc of ["resume", "coverLetter"]) {
+      const pkg = await seed();
+      const row = await storedProposal(pkg, { status, doc: proposalDoc });
+      const runBefore = await readFile(join(pkg.dir, "run.json"), "utf8");
+      const proposalBefore = await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8");
+      const result = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
+      assert.equal(result.status, 409);
+      assert.equal(result.data.code, "materials_pending");
+      assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), runBefore);
+      assert.equal(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"), proposalBefore);
+      await service.reject(pkg.slug, row.id);
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "missing", manualOps: [op] })).data.code, "stale_base");
+      const invented = { ...op, text: "Tracked 72 daily shipments for Kafka in 2025." };
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [invented] })).data.code, "unverified_confirmation_required");
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] })).status, 200);
+    }
+  }
+});
+
 it("POST manual saves a manual version and rejects cross-document ops", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -601,6 +895,18 @@ it("POST manual saves a manual version and rejects cross-document ops", async (t
   const saved = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
   assert.equal(saved.status, 200);
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).template.source, "manual");
+});
+
+it("SCRP-B10 restore adds n and versions for ready and stale PDFs", async () => {
+  for (const available of [true, false]) {
+    const pkg = await seed(); browserAvailable = available;
+    try {
+      const result = await service.restore(pkg.slug, "r0");
+      assert.equal(result.body.run.n, 1);
+      assert.equal(result.body.versions.length, 2);
+      assert.equal(result.body.versions[0].runId, result.body.run.runId);
+    } finally { browserAvailable = true; }
+  }
 });
 
 it("POST restore appends a new run without deleting its source and errors on an unknown source", async (t) => {
@@ -633,10 +939,645 @@ it("all Scribe routes honor pending.json before edits", async (t) => {
   const pkg = await seed();
   await writeFile(join(pkg.dir, "pending.json"), "{}");
   for (const [path, method, body] of [
+    [`${pkg.path}/edits/open`, "GET"],
     [`${pkg.path}/versions/r0/model`, "GET"],
     [`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0" }],
     [`${pkg.path}/edits`, "POST", { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }],
     [`${pkg.path}/versions/r0/restore`, "POST", {}],
     [`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] }],
   ]) assert.equal((await request(path, method, body)).data.code, "materials_pending");
+});
+
+
+it("edits historical single-document runs without validating an unrequested shell", async () => {
+  for (const [feature, doc, other, change] of [
+    ["resume", "resume", "coverLetter", op],
+    ["cover_letter", "coverLetter", "resume", { opId: "letter-edit", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const legacy = structuredClone(model);
+    if (other === "coverLetter") {
+      legacy.documents.coverLetter.paragraphs = [];
+      const entry = legacy.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+      for (const claimId of ["c22", "c23", "c24"]) entry.bullets.push({ claimId, runs: [{ t: "Built clear daily reports." }] });
+    }
+    else legacy.documents.resume.statement.runs = [{ t: "Analyst" }];
+    const pkg = await seed(legacy, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, commit,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        const content = body.messages[0].content.includes("materials.fact-check.v1")
+          ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+      },
+    });
+    const loaded = await svc.model(pkg.slug, "r0");
+    assert.deepEqual(Object.keys(loaded.model.documents), [doc]);
+    assert.equal((await svc.versions(await svc.dirFor(pkg.slug), other)).versions.length, 0, "shell is absent from document history");
+    const started = await svc.start(pkg.slug, { doc, baseRunId: "r0", instruction: "Make the wording clearer", scope: "all", lockFacts: true });
+    const res = fakeStream();
+    const ended = once(res, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+    await ended;
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+    assert.deepEqual(stored.events.filter((e) => e.event === "blocked"), []);
+    assert.equal(stored.ops.length, 1);
+    const preview = await svc.preview(pkg.slug, { doc, baseRunId: "r0", ops: stored.ops });
+    assert.ok(preview.html.includes(change.text));
+    const accepted = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+    assert.equal(accepted.statusCode, 200);
+    const saved = await svc.model(pkg.slug, accepted.body.run.runId);
+    assert.equal(saved.nodes.find((node) => node.id === change.node).text, change.text);
+    assert.deepEqual(Object.keys(saved.model.documents), [doc]);
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8")), legacy, "historical source remains immutable");
+  }
+});
+
+it("all-scope proposals stay within the selected document", async () => {
+  const pkg = await seed();
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: "wrong-doc", op: "replace", node: "sal", text: "Hello team," }] }) } }] }) }),
+  });
+  const id = await readyProposal(svc, pkg);
+  const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${id}.json`), "utf8"));
+  assert.deepEqual(stored.ops, []);
+  assert.equal(stored.events.find((event) => event.event === "blocked").data.reason, "out_of_scope");
+});
+
+
+it("manual edits and restores retain the historical source document feature", async () => {
+  const legacy = structuredClone(model);
+  legacy.documents.coverLetter.paragraphs = [];
+  const pkg = await seed(legacy, "resume");
+  const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+  const manual = await svc.accept(pkg.slug, "manual", { doc: "resume", baseRunId: "r0", manualOps: [op] }, true);
+  assert.equal(manual.statusCode, 200);
+  const current = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  current.feature = "both";
+  await writeFile(join(pkg.dir, "run.json"), JSON.stringify(current));
+  const restored = await svc.restore(pkg.slug, "r0");
+  assert.equal(restored.statusCode, 200);
+  const run = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  assert.equal(run.feature, "resume");
+  assert.deepEqual(Object.keys((await svc.model(pkg.slug, run.runId)).model.documents), ["resume"]);
+});
+
+it("keeps malformed requested documents and ambiguous both-document runs blocked", async () => {
+  for (const feature of ["cover_letter", "both"]) {
+    const malformed = structuredClone(model);
+    malformed.documents.coverLetter.paragraphs = [];
+    const pkg = await seed(malformed, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+    const doc = feature === "cover_letter" ? "coverLetter" : "resume";
+    const edit = feature === "cover_letter" ? { opId: "salutation", op: "replace", node: "sal", text: "Hello team," } : op;
+    await assert.rejects(svc.preview(pkg.slug, { doc, baseRunId: "r0", ops: [edit] }), { reason: "invalid_model" });
+  }
+});
+
+
+it("edits the latest version of either document after a sibling-only run", async () => {
+  for (const [firstDoc, firstFeature, siblingDoc, siblingFeature, change] of [
+    ["resume", "resume", "coverLetter", "cover_letter", op],
+    ["coverLetter", "cover_letter", "resume", "resume", { opId: "letter-change", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const first = structuredClone(model);
+    delete first.documents[siblingDoc];
+    const pkg = await seed(first, firstFeature);
+    const sibling = structuredClone(model);
+    delete sibling.documents[firstDoc];
+    const siblingRunDir = join(pkg.dir, "runs/r1");
+    await mkdir(siblingRunDir);
+    const laterRun = { runId: "r1", slug: pkg.slug, feature: siblingFeature, requestedAt: "2026-09-28T10:00:00.000Z", finishedAt: "2026-09-28T10:00:00.000Z", template: { family: "signal", source: "default" } };
+    await writeFile(join(siblingRunDir, "render-model.json"), JSON.stringify(sibling));
+    await writeFile(join(siblingRunDir, "run.json"), JSON.stringify(laterRun));
+    await writeFile(join(pkg.dir, "run.json"), JSON.stringify(laterRun));
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, commit,
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        const content = body.messages[0].content.includes("materials.fact-check.v1")
+          ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+      },
+    });
+    const listing = await svc.versions(await svc.dirFor(pkg.slug), firstDoc);
+    assert.equal(listing.currentRunId, "r0");
+    const started = await svc.start(pkg.slug, { doc: firstDoc, baseRunId: listing.currentRunId, instruction: "Clarify the wording", scope: "all", lockFacts: true });
+    const res = fakeStream(); const ended = once(res, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res); await ended;
+    const accepted = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+    assert.equal(accepted.statusCode, 200);
+    const saved = await svc.model(pkg.slug, accepted.body.run.runId);
+    assert.equal(saved.nodes.find((node) => node.id === change.node).text, change.text);
+    const siblingListing = await svc.versions(await svc.dirFor(pkg.slug), siblingDoc);
+    assert.equal(siblingListing.currentRunId, "r1", "sibling keeps its own model version");
+    assert.deepEqual((await svc.model(pkg.slug, "r1")).model, sibling);
+    await assert.rejects(svc.start(pkg.slug, { doc: firstDoc, baseRunId: "r0", instruction: "Edit again", scope: "all", lockFacts: true }), { code: "stale_base" });
+  }
+});
+
+it("rejected repair versions cannot become the current editable document", async () => {
+  const first = structuredClone(model); delete first.documents.coverLetter;
+  const pkg = await seed(first, "resume");
+  for (const [id, feature, adopted, day] of [["r1", "cover_letter", true, "28"], ["r2", "resume", false, "29"]]) {
+    const m = structuredClone(model); delete m.documents[feature === "resume" ? "coverLetter" : "resume"];
+    const run = { runId: id, slug: pkg.slug, feature, requestedAt: `2026-09-${day}T10:00:00.000Z`, finishedAt: `2026-09-${day}T10:00:00.000Z`, repair: { adopted }, template: { family: "signal", source: "default" } };
+    const runDir = join(pkg.dir, "runs", id); await mkdir(runDir);
+    await writeFile(join(runDir, "run.json"), JSON.stringify(run));
+    await writeFile(join(runDir, "render-model.json"), JSON.stringify(m));
+    if (adopted) await writeFile(join(pkg.dir, "run.json"), JSON.stringify(run));
+  }
+  const svc = createMaterialsVersionService({ applicationsRoot: root });
+  const list = await svc.versions(await svc.dirFor(pkg.slug), "resume");
+  assert.equal(list.currentRunId, "r0");
+  assert.equal(list.versions.length, 2, "rejected repair remains viewable");
+  await assert.rejects(svc.start(pkg.slug, { doc: "resume", baseRunId: "r2", instruction: "Edit rejected repair", scope: "all", lockFacts: true }), { code: "stale_base" });
+});
+
+
+it("allows retry after every proposed edit was blocked", async () => {
+  const pkg = await seed();
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: "blocked", op: "replace", node: "seat:acme", text: "Director" }] }) } }] }) }),
+  });
+  const blockedId = await readyProposal(svc, pkg);
+  const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${blockedId}.json`), "utf8"));
+  assert.deepEqual(stored.ops, []);
+  assert.equal(stored.status, "ready");
+  const retry = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Try a different edit", scope: "all", lockFacts: true });
+  assert.ok(retry.proposalId);
+  assert.notEqual(retry.proposalId, blockedId);
+});
+
+it("editing an older combined run preserves the newer sibling document", async () => {
+  for (const [doc, siblingDoc, siblingFeature, change] of [
+    ["resume", "coverLetter", "cover_letter", op],
+    ["coverLetter", "resume", "resume", { opId: "letter-change", op: "replace", node: "p:p1", text: "I build clear daily reports for operations teams." }],
+  ]) {
+    const pkg = await seed();
+    const sibling = structuredClone(model); delete sibling.documents[doc];
+    if (siblingDoc === "coverLetter") sibling.documents.coverLetter.salutation = "Hello updated team,";
+    else sibling.documents.resume.sections.find((s) => s.kind === "earlier").entries[0].line = "Updated daily reporting.";
+    const dir = join(pkg.dir, "runs/r1"); await mkdir(dir);
+    const run = { runId: "r1", slug: pkg.slug, feature: siblingFeature, requestedAt: "2026-09-28T10:00:00.000Z", finishedAt: "2026-09-28T10:00:00.000Z", template: { family: "signal", source: "default" } };
+    await writeFile(join(dir, "run.json"), JSON.stringify(run));
+    await writeFile(join(dir, "render-model.json"), JSON.stringify(sibling));
+    await writeFile(join(pkg.dir, "run.json"), JSON.stringify(run));
+    const siblingFile = siblingDoc === "resume" ? "resume.html" : "cover-letter.html";
+    await writeFile(join(pkg.dir, siblingFile), "current sibling artifact");
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit });
+    const saved = await svc.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [change] }, true);
+    assert.equal(saved.statusCode, 200);
+    assert.deepEqual(Object.keys((await svc.model(pkg.slug, saved.body.run.runId)).model.documents), [doc]);
+    assert.equal((await svc.versions(await svc.dirFor(pkg.slug), siblingDoc)).currentRunId, "r1");
+    assert.deepEqual((await svc.model(pkg.slug, "r1")).model, sibling);
+    assert.equal(await readFile(join(pkg.dir, siblingFile), "utf8"), "current sibling artifact");
+  }
+});
+
+
+it("edits a legacy two-paragraph letter using its existing sentences", async () => {
+  const legacy = structuredClone(model); delete legacy.documents.resume;
+  const letter = legacy.documents.coverLetter;
+  const first = { id: "p1", beat: "thesis", text: "I build daily reports and reduced delays 38%. I turn clear data into useful decisions. I also built a daily exception review.", words: 24,
+    links: [{ text: "daily reports", href: "https://example.com/reports" }] };
+  const close = { id: "p1-split", beat: "next-step", text: "Could we compare one daily operations report?" };
+  letter.paragraphs = [first, close];
+  letter.pullQuote = { text: "I also built a daily exception review.", fromParagraph: first.id };
+  const pkg = await seed(legacy, "cover_letter");
+  const change = { opId: "letter-close", op: "replace", node: "p:p1-split", text: "Could we review one daily operations report?" };
+  const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      const content = body.messages[0].content.includes("materials.fact-check.v1")
+        ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+    },
+  });
+  const rawBefore = await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8");
+  const loaded = await svc.model(pkg.slug, "r0");
+  assert.deepEqual(await svc.model(pkg.slug, "r0"), loaded, "normalization is idempotent");
+  const normalized = loaded.model.documents.coverLetter;
+  assert.equal(normalized.paragraphs.length, 3);
+  assert.equal(new Set(normalized.paragraphs.map((p) => p.id)).size, 3);
+  assert.equal(normalized.paragraphs.map((p) => p.text).join(" "), [first.text, close.text].join(" "));
+  assert.equal(normalized.paragraphs.filter((p) => p.links?.length).length, 1);
+  assert.deepEqual(normalized.paragraphs.find((p) => p.links?.length).links, first.links);
+  const quoted = normalized.paragraphs.find((p) => p.id === normalized.pullQuote.fromParagraph);
+  assert.ok(quoted.text.includes(normalized.pullQuote.text));
+  for (const part of normalized.paragraphs.filter((p) => "words" in p)) assert.equal(part.words, part.text.trim().split(/\s+/).length);
+  const metric = loaded.nodes.find((n) => n.text.includes("38%"));
+  await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "metric", op: "replace", node: metric.id, text: metric.text.replace("38%", "39%") }] }), { reason: "locked" });
+  assert.ok((await svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [change] })).html.includes(change.text));
+  const started = await svc.start(pkg.slug, { doc: "coverLetter", baseRunId: "r0", instruction: "Make the close clearer", scope: "all", lockFacts: true });
+  const res = fakeStream(); const ended = once(res, "end");
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res); await ended;
+  const proposed = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+  assert.equal(proposed.ops.length, 1);
+  assert.deepEqual(proposed.events.filter((e) => e.event === "blocked"), []);
+  const saved = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+  assert.equal(saved.statusCode, 200);
+  assert.equal((await svc.model(pkg.slug, saved.body.run.runId)).nodes.find((n) => n.id === change.node).text, change.text);
+  assert.equal(await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8"), rawBefore);
+});
+
+it("keeps unsplittable legacy letters and other invalid models blocked", async () => {
+  const legacy = structuredClone(model); delete legacy.documents.resume;
+  legacy.documents.coverLetter.paragraphs = [
+    { id: "p1", beat: "thesis", text: "One unbroken sentence" },
+    { id: "p2", beat: "next-step", text: "Another unbroken sentence" },
+  ];
+  const pkg = await seed(legacy, "cover_letter");
+  const svc = createMaterialsVersionService({ applicationsRoot: root });
+  await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "close", op: "replace", node: "p:p2", text: "Another clear sentence" }] }), { reason: "invalid_model" });
+});
+
+
+it("legacy paragraph splitting preserves link labels and refuses ambiguous shapes", async () => {
+  const blockedParagraphs = [
+    [],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results. I act on findings." }],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results." }, { id: "p2", beat: "next-step", text: "" }],
+    [{ id: "p1", beat: "thesis", text: "Mr. Rivera builds reports" }, { id: "p2", beat: "next-step", text: "No boundary here" }],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results.", links: [{ text: "I build reports. I review results.", href: "https://example.com/reports" }] }, { id: "p2", beat: "next-step", text: "No boundary here" }],
+  ];
+  for (const paragraphs of blockedParagraphs) {
+    const legacy = structuredClone(model); delete legacy.documents.resume;
+    legacy.documents.coverLetter.paragraphs = paragraphs;
+    const pkg = await seed(legacy, "cover_letter");
+    const svc = createMaterialsVersionService({ applicationsRoot: root });
+    await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
+  }
+  for (const feature of ["both", "unknown"]) {
+    const legacy = structuredClone(model);
+    legacy.documents.coverLetter.paragraphs = [
+      { id: "p1", beat: "thesis", text: "I build reports. I review results." },
+      { id: "p2", beat: "next-step", text: "Could we compare notes?" },
+    ];
+    const pkg = await seed(legacy, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root });
+    await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
+  }
+});
+
+
+it("SCRP-B21 R1-#1 regenerate merges each document's current run after single-document saves", async () => {
+  for (const savedDocs of [["resume"], ["coverLetter"], ["resume", "coverLetter"]]) {
+    // The fitted model now retains template marks. Seed them so this exact
+    // equality check continues to isolate preservation of both current docs.
+    const pkg = await seed(withMonograms(model));
+    for (const doc of savedDocs) {
+      await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [doc === "resume" ? op : {
+        opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations.",
+      }], confirmUnverified: [] }, true);
+    }
+    const sources = {};
+    for (const doc of ["resume", "coverLetter"]) {
+      const listing = await service.versions(pkg.dir, doc);
+      sources[doc] = (await service.model(pkg.slug, listing.currentRunId)).model.documents[doc];
+      sources[doc].templateId = doc === "resume" ? "dossier.resume" : "dossier.letter";
+    }
+    const result = await regeneratePackage({ slug: pkg.slug, template: "dossier" }, {
+      applicationsRoot: root, pdfSession, critic: async () => ({ status: "pass", issues: [] }),
+      targetLogoLoader: async () => null, employerLogoLoader: async () => [], readSavedResume: async () => null,
+    });
+    assert.deepEqual(result.template.templateIds, { resume: "dossier.resume", coverLetter: "dossier.letter" });
+    const published = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+    assert.deepEqual(published.documents, sources);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "both");
+    for (const stem of ["resume", "cover-letter"]) assert.match(await readFile(join(pkg.dir, `${stem}.html`), "utf8"), /data-family="dossier"/);
+  }
+});
+
+
+it("SCRP-B22 R1-#2+#3 D19 letter restore has its own numbering and leaves the resume byte-equal", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const available of [true, false]) {
+    const pkg = await seed();
+    const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+    const before = {};
+    for (const name of ["resume.html", "resume.pdf", "resume.txt", "qa.resume.json"]) before[name] = await readFile(join(pkg.dir, name));
+    const original = await readFile(join(pkg.dir, "runs", "r0", "render-model.json"));
+    const resumeList = await service.versions(pkg.dir, "resume");
+    browserAvailable = available;
+    let restored;
+    try { restored = await request(`${pkg.path}/versions/r0/restore`, "POST", { doc: "cover_letter" }); }
+    finally { browserAvailable = true; }
+    assert.equal(restored.status, available ? 200 : 503);
+    assert.equal(restored.data.run.n, 1);
+    assert.deepEqual(restored.data.versions.map((row) => row.source), ["restore", "draft"]);
+    assert.equal(restored.data.versions[0].runId, restored.data.run.runId);
+    assert.deepEqual(await service.versions(pkg.dir, "resume"), resumeList);
+    assert.equal((await service.versions(pkg.dir, "resume")).currentRunId, saved.body.run.runId);
+    for (const [name, bytes] of Object.entries(before)) assert.deepEqual(await readFile(join(pkg.dir, name)), bytes, name);
+    assert.deepEqual(await readFile(join(pkg.dir, "runs", "r0", "render-model.json")), original);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "cover_letter");
+  }
+});
+
+
+it("SCRP-B23 R1-#4 a failed terminal write delivers done and reconnect replays without rejection", async () => {
+  const pkg = await seed();
+  let failed = false;
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl,
+    persistProposal: async (path, snapshot) => {
+      if (!failed && snapshot.events.at(-1)?.event === "done") {
+        failed = true;
+        throw Object.assign(new Error("Fictional terminal persistence failure"), { code: "ENOSPC" });
+      }
+      const temporary = `${path}.tmp`;
+      await writeFile(temporary, JSON.stringify(snapshot));
+      await rename(temporary, path);
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const first = fakeStream();
+  const ended = once(first, "end");
+  let timer;
+  try {
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), first);
+    const delivered = await Promise.race([ended.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(delivered, true, "failed terminal persistence must not hang the stream");
+    assert.equal(failed, true);
+    assert.equal(first.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(first.chunks.join(""), /"status":"ready"/);
+    assert.doesNotMatch(first.chunks.join(""), /Fictional terminal persistence failure|ENOSPC/);
+    // Let final housekeeping finish, then reconnect through the same real queue.
+    await new Promise((resolve) => setImmediate(resolve));
+    const replay = fakeStream();
+    const replayed = once(replay, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), replay);
+    await replayed;
+    assert.equal(replay.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(replay.chunks.join(""), /"status":"ready"/);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+    assert.equal(stored.status, "ready");
+    assert.equal(stored.events.filter((row) => row.event === "done").length, 1);
+  } finally { clearTimeout(timer); first.end(); first.emit("close"); }
+});
+
+
+it("SCRP-B24 R1-#5 malformed ready rows agree between GET open and the role gates", async () => {
+  const pkg = await seed();
+  await mkdir(join(pkg.dir, "proposals"));
+  const id = randomUUID();
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify({
+    id, doc: "resume", status: "ready", baseRunId: "r0", createdAt: new Date().toISOString(), events: [],
+  }));
+  assert.deepEqual(await service.open(pkg.slug), { proposal: null });
+  const started = await service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await service.reject(pkg.slug, started.proposalId);
+  const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+  assert.equal(saved.statusCode, 200);
+});
+
+
+it("SCRP-B26 R1-#7 proposal promise queues are pruned after terminal close, accept and reject", async () => {
+  const observed = [];
+  const NativeMap = globalThis.Map;
+  let svc;
+  try {
+    globalThis.Map = class extends NativeMap { constructor(...args) { super(...args); observed.push(this); } };
+    svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl, commit });
+  } finally { globalThis.Map = NativeMap; }
+  const queues = (id) => observed.map((map) => map.get(id)).filter((value) => value instanceof Promise);
+  const drained = async (id) => {
+    for (let i = 0; i < 3; i++) {
+      await Promise.all(queues(id).map((promise) => promise.catch(() => {})));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(queues(id).length, 0, "settled per-proposal promises must be released");
+  };
+  const rejected = await seed();
+  const pending = await svc.start(rejected.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  assert.equal(queues(pending.proposalId).length, 1, "instrumentation observes the real persistence queue");
+  await svc.reject(rejected.slug, pending.proposalId);
+  await drained(pending.proposalId);
+  const accepted = await seed();
+  const id = await readyProposal(svc, accepted);
+  await drained(id);
+  await svc.accept(accepted.slug, id, { accept: ["o1"], confirmUnverified: [] });
+  await drained(id);
+  const stopped = await seed();
+  const partial = await svc.start(stopped.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await svc.stop(stopped.slug, partial.proposalId);
+  await drained(partial.proposalId);
+});
+
+
+it("SCRP-B28 R1-#25 production error envelope preserves a committed nonretryable 503", async () => {
+  // Import the real envelope while suppressing index's auto-start and startup migrations.
+  // No serving stack or default port is opened by this test.
+  const listen = express.application.listen;
+  let preventedStartup = false;
+  let withApiErrorEnvelope;
+  try {
+    express.application.listen = function () { preventedStartup = true; return this; };
+    ({ withApiErrorEnvelope } = await import("../../server/index.mjs"));
+  } finally { express.application.listen = listen; }
+  assert.equal(preventedStartup, true);
+  assert.equal(typeof withApiErrorEnvelope, "function", "the real production envelope must be exported");
+  const pkg = await seed();
+  browserAvailable = false;
+  let saved;
+  try { saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true); }
+  finally { browserAvailable = true; }
+  const body = withApiErrorEnvelope(saved.statusCode, saved.body);
+  assert.equal(saved.statusCode, 503);
+  assert.equal(body.retryable, false);
+  assert.equal(body.code, "browser_unavailable");
+  assert.deepEqual(body.run, saved.body.run);
+  assert.deepEqual(body.versions, saved.body.versions);
+  assert.equal(body.run.pdf, "stale");
+  assert.ok(body.run.runId);
+  assert.equal(body.versions[0].runId, body.run.runId);
+  assert.equal(withApiErrorEnvelope(503, { error: "A fictional transient failure", code: "internal_error" }).retryable, true);
+});
+
+it('SCRP-B30 R2-#4 failed terminal persistence finishes both concurrent subscribers once', async () => {
+  const pkg = await seed(); let failed = false; let release; let entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const fetching = new Promise(resolve => { entered = resolve; });
+  const svc = createMaterialsVersionService({ applicationsRoot: root,
+    pin: { provider: 'openai', resolvedModel: 'stub', apiKey: 'example' },
+    fetchImpl: async (...args) => { entered(); await gate; return fetchImpl(...args); },
+    persistProposal: async (path, snapshot) => {
+      if (!failed && snapshot.events.at(-1)?.event === 'done') { failed = true; throw new Error('Fictional write failure'); }
+      await writeFile(`${path}.tmp`, JSON.stringify(snapshot)); await rename(`${path}.tmp`, path);
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: 'resume', baseRunId: 'r0', instruction: 'Shorten', lockFacts: true });
+  const streams = [fakeStream(), fakeStream()];
+  const ended = streams.map(stream => once(stream, 'end'));
+  let timer;
+  try {
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), streams[0]); await fetching;
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), streams[1]); release();
+    const allEnded = await Promise.race([Promise.all(ended).then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(allEnded, true, 'every subscriber must finish after a failed terminal write');
+    assert.equal(failed, true);
+    for (const stream of streams) {
+      assert.equal(stream.chunks.join('').match(/event: done/g)?.length, 1);
+      assert.match(stream.chunks.join(''), /"status":"ready"/);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    const stored = JSON.parse(await readFile(join(pkg.dir, 'proposals', `${started.proposalId}.json`), 'utf8'));
+    assert.equal(stored.events.filter(row => row.event === 'done').length, 1);
+  } finally { clearTimeout(timer); release(); for (const stream of streams) { stream.end(); stream.emit('close'); } }
+});
+
+it('SCRP-B51 R4-#1 confirmed manual adjacency violations stay 400 locked and persist nothing', async (t) => {
+  if (!await needsSocket(t)) return;
+  for (const doc of ['resume', 'coverLetter']) {
+    const input = structuredClone(model); const id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+    if (doc === 'resume') input.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Processed ' }, { n: '38' }, { t: ' shipments.' }];
+    else input.documents.coverLetter.paragraphs[1].text = 'Processed 38 shipments.';
+    const pkg = await seed(input);
+    for (const figure of ['38%', '%38', '$38', '38$', '38,000', ',00038', '🄁38', '38🄁']) {
+      const res = await fetch(base + pkg.path + '/edits/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'edge', op: 'replace', node: id, text: 'Processed ' + figure + ' shipments.' }], confirmUnverified: ['edge'] }) });
+      assert.equal(res.status, 400, doc + figure); assert.equal((await res.json()).code, 'locked');
+    }
+    const listing = await (await fetch(base + pkg.path + '/versions?doc=' + doc)).json();
+    assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B80 D29 ${doc} manual locked blocks reject unchanged figures even when confirmed`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const confirmed of [false, true]) {
+    const pkg = await seed();
+    const id = doc === 'resume' ? 'stmt' : 'p:p2';
+    const node = deriveNodes(model).find(n => n.id === id);
+    const res = await request(`${pkg.path}/edits/manual`, 'POST', {
+      doc, baseRunId: 'r0', manualOps: [{ opId: 'd29', op: 'replace', node: id, text: node.text + ' Today.' }],
+      confirmUnverified: confirmed ? ['d29'] : [],
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.data.code, 'locked');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), model);
+    assert.deepEqual((await readdir(join(pkg.dir, 'runs'))), ['r0']);
+    if (doc === 'resume') {
+      const whole = await request(`${pkg.path}/edits/manual`, 'POST', {
+        doc, baseRunId: 'r0', manualOps: [{ opId: 'whole', op: 'replace', node: 'seat:acme', text: 'Director' }],
+        confirmUnverified: confirmed ? ['whole'] : [],
+      });
+      assert.equal(whole.status, 400); assert.equal(whole.data.code, 'locked');
+    }
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} committed unrelated AI edit preserves the approximation`, async () => {
+  const before = structuredClone(model), text = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const node = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+  if (doc === 'resume') before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Cut costs ~' }, { n: '40%' }, { t: ' across teams.' }];
+  else before.documents.coverLetter.paragraphs[1].text = text;
+  const pkg = await seed(before), edit = { opId: 'approx', op: 'replace', node, text: next };
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' }, commit,
+    propose: async () => ({ ops: [edit], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+  });
+  const started = await svc.start(pkg.slug, { doc, baseRunId: 'r0', instruction: 'Clarify teams.', scope: [node], lockFacts: true });
+  const stream = fakeStream(), ended = once(stream, 'end');
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+  const saved = await svc.accept(pkg.slug, started.proposalId, { accept: ['approx'], confirmUnverified: ['approx'] });
+  const stored = (await svc.model(pkg.slug, saved.body.run.runId)).model;
+  assert.equal(deriveNodes(stored).find(n => n.id === node).text, next);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], before.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B85 R7-#6 ${doc} plaintext manual save preserves literal angle text and escapes rendering`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+  const text = 'Kept latency <50ms and uptime >99.9% all year. Keep <plan> and <b>literal</b> visible.';
+  const saved = await request(`${pkg.path}/edits/manual`, 'POST', {
+    doc, baseRunId: 'r0', manualOps: [{ opId: 'angles', op: 'replace', node, text }], confirmUnverified: ['angles'],
+  });
+  assert.equal(saved.status, 200);
+  const stored = await request(`${pkg.path}/versions/${saved.data.run.runId}/model`);
+  assert.equal(stored.data.nodes.find(n => n.id === node).text, text);
+  const preview = await request(`${pkg.path}/preview`, 'POST', { doc, baseRunId: saved.data.run.runId, ops: [] });
+  assert.equal(preview.status, 200);
+  assert.ok(preview.data.html.includes('&lt;50ms'));
+  assert.ok(preview.data.html.includes('&gt;99.9%'));
+  assert.ok(preview.data.html.includes('&lt;plan&gt;'));
+  assert.ok(preview.data.html.includes('&lt;b&gt;literal&lt;/b&gt;'));
+  assert.equal(preview.data.html.includes('<b>literal</b>'), false);
+  const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+  assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+});
+
+for (const doc of ['resume', 'coverLetter']) for (const first of ['manual', 'AI']) {
+  it(`SCRP-B90 R8-#2 ${doc} rejects manual edits to locks created by an earlier ${first} op`, async (t) => {
+    if (!(await needsSocket(t))) return;
+    const input = structuredClone(model), node = doc === 'resume' ? 'b:acme:c14' : 'p:p3';
+    if (doc === 'resume') input.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Reduced delays across teams.' }];
+    const pkg = await seed(input);
+    assert.equal(deriveNodes(input).find(n => n.id === node).locked.spans.length, 0);
+    const createLock = { opId: 'create-lock', op: 'replace', node, text: 'Reduced delays 38% across teams.' };
+    const editLocked = { opId: 'edit-locked', op: 'replace', node, text: 'Reduced delays 38% across all teams.' };
+    let path = `${pkg.path}/edits/manual`, body = { doc, baseRunId: 'r0', manualOps: [createLock, editLocked], confirmUnverified: ['create-lock', 'edit-locked'] };
+    if (first === 'AI') {
+      const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
+        propose: async () => ({ ops: [createLock], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+      });
+      const started = await svc.start(pkg.slug, { doc, baseRunId: 'r0', instruction: 'Clarify delays.', scope: [node], lockFacts: true });
+      const stream = fakeStream(), ended = once(stream, 'end');
+      await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+      assert.equal(JSON.parse(await readFile(join(pkg.dir, 'proposals', `${started.proposalId}.json`), 'utf8')).status, 'ready');
+      path = `${pkg.path}/edits/${started.proposalId}/accept`;
+      body = { accept: ['create-lock'], manualOps: [editLocked], confirmUnverified: ['create-lock', 'edit-locked'] };
+    }
+    const res = await request(path, 'POST', body);
+    assert.equal(res.status, 400); assert.equal(res.data.code, 'locked');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
+    assert.deepEqual(await readdir(join(pkg.dir, 'runs')), ['r0']);
+  });
+}
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B91 R8-#3 ${doc} manual literal text round-trips through save reopen and escaped preview`, async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const text of ['Use snake_case.', 'Use file_name.', 'Use A* search.', 'Keep <team_name> visible.', '> expected', '[portfolio](https://example.com)', '  Keep Cafe\u0301 *literal* text.\nNext line.  ']) {
+    const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
+    const saved = await request(`${pkg.path}/edits/manual`, 'POST', {
+      doc, baseRunId: 'r0', manualOps: [{ opId: 'literal', op: 'replace', node, text }], confirmUnverified: ['literal'],
+    });
+    assert.equal(saved.status, 200, text);
+    const reopened = createMaterialsVersionService({ applicationsRoot: root });
+    assert.equal((await reopened.model(pkg.slug, saved.data.run.runId)).nodes.find(n => n.id === node).text, text);
+    const preview = await request(`${pkg.path}/preview`, 'POST', { doc, baseRunId: saved.data.run.runId, ops: [] });
+    assert.equal(preview.status, 200);
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    assert.ok(preview.data.html.includes(escaped), text);
+    const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
+    assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B93 R9-#1/#2 ${doc} AI cleanup and locks still apply on a manually saved block`, async () => {
+  const node = doc === 'resume' ? 'b:acme:c14' : 'p:p3';
+  const manualText = doc === 'resume' ? 'Measured carrier delays and reduced fulfillment delays 38% for the team. ' : 'I would welcome a conversation about improving delays 38% in daily operations. ';
+  const aiEdit = async (pkg, baseRunId, text, node) => {
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
+      propose: async () => ({ ops: [{ opId: 'ai', op: 'replace', node, text }], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+    });
+    const started = await svc.start(pkg.slug, { doc, baseRunId, instruction: 'Emphasize.', scope: [node], lockFacts: true });
+    const stream = fakeStream(), ended = once(stream, 'end');
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+    const edited = await svc.accept(pkg.slug, started.proposalId, { accept: ['ai'], confirmUnverified: ['ai'] });
+    return (await svc.model(pkg.slug, edited.body.run.runId)).nodes.find(n => n.id === node);
+  };
+  const stage = async (node, manualText) => {
+    const pkg = await seed();
+    const saved = await service.accept(pkg.slug, '', { doc, baseRunId: 'r0', manualOps: [{ opId: 'manual', op: 'replace', node, text: manualText }], confirmUnverified: ['manual'] }, true);
+    return { pkg, runId: saved.body.run.runId };
+  };
+  const locked = await stage(node, manualText);
+  const stored = await aiEdit(locked.pkg, locked.runId, manualText.trim().replace('38%', '3*8%'), node);
+  assert.equal(stored.text, manualText.trim());
+  assert.ok(stored.locked.spans.length > 0);
+  assert.equal(stored.text.slice(...stored.locked.spans[0]), '38%');
+  const plainNode = doc === 'resume' ? 'line:beta' : 'p:p1';
+  const marked = await stage(plainNode, 'Tracked daily shipments across teams. ');
+  const emphasized = await aiEdit(marked.pkg, marked.runId, 'Tracked **daily** shipments across teams.', plainNode);
+  assert.equal(emphasized.text.includes('**'), false);
 });

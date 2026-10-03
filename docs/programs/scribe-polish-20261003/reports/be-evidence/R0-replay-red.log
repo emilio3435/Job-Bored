@@ -1,0 +1,38 @@
+✖ SCRP-B17 reconnect cannot replay a queued done before its snapshot persists (16.411666ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 201.748417
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:499:1
+✖ SCRP-B17 reconnect cannot replay a queued done before its snapshot persists (16.411666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + [
+  +   {
+  +     data: {
+  +       status: 'partial'
+  +     },
+  +     event: 'done'
+  +   }
+  + ]
+  - []
+
+      at heldMeasuring (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:468:18)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:500:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { event: 'done', data: [Object] } ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

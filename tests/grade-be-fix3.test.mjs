@@ -23,10 +23,9 @@ const session = async () => ({
   pdf: async (_html, path) => { await writeFile(path, "%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n"); return { path, pages: 1, blockedRequests: 0 }; },
   rasterize: async src => src, close: async () => {},
 });
-async function application(fn) {
+async function application(fn, body = "I reduced dispatch delays 40%.") {
   const root = await mkdtemp(join(tmpdir(), "grade-fix3-"));
   const app = join(root, "acme"), run = join(app, "runs", "original");
-  const body = "I reduced dispatch delays 40%.";
   const ledger = { claims: [{ id: "1", text: body, verified: true, metrics: [{ token: "40%" }] }] };
   const refs = { cover_letter: [{ sentence: body, claimIds: ["1"] }] };
   const model = JSON.parse(await readFile(new URL("../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
@@ -106,14 +105,14 @@ it("GRADE-B FIX3-R1: a new metric sentence cannot borrow the edited sentence's e
 }));
 
 it("GRADE-B FIX3-R1: no-browser manual edits snapshot aligned links and draft slots", async () => application(async ({ root, app, run, refs }) => {
-  const sentence = "I cut dispatch delays 40%.";
+  const sentence = "I cut dispatch delays.";
   const service = createMaterialsVersionService({ applicationsRoot: root, pdfSession: null });
   const result = await service.accept("acme", "manual", { baseRunId: "original", doc: "cover_letter", manualOps: [{ opId: "edit-1", op: "replace", node: "p:p2", text: sentence }], confirmUnverified: ["edit-1"] }, true);
   assert.equal(result.statusCode, 503);
   assert.deepEqual((await json(join(app, "runs", result.body.run.runId, "writer-sources.json"))).cover_letter, [{ ...refs.cover_letter[0], sentence }]);
   assert.equal((await json(join(app, "runs", result.body.run.runId, "draft.cover_letter.json"))).letter.proof1, sentence);
   assert.deepEqual(await json(join(run, "writer-sources.json")), refs);
-}));
+}, "I reduced dispatch delays."));
 
 it("GRADE-B FIX3-R2: absent resume QA cannot inherit another document's Held", async () => application(async ({ app, record }) => {
   await writeFile(join(app, "resume.html"), "<p>A saved resume.</p>");

@@ -1,0 +1,3 @@
+1 failed terminal write: {"firstStream":"HUNG (no done within 2.5 s)","reconnect":"ended, 0 bytes","stop":[409,"proposal_not_running"],"openStatus":"ready","openOps":1,"unhandledRejections":["ENOSPC: no space left on device, write '/private/secret/path'"]}
+2 locked node stmt "Operations analyst who reduced fulfillme" → blocked rows: [{"op":{"opId":"x1"},"reason":"locked","detail":"This edit would change a protected fact."}]
+3 ready row without an ops array: {"getOpen":{"proposal":null},"postEdits":[409,"materials_pending"]}

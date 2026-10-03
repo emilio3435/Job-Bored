@@ -1,0 +1,66 @@
+▶ Scribe v2 is absent until a package binds it (R1)
+  ✔ should put no Scribe node in the page on boot (1.8675ms)
+  ✔ should mount nothing without a package slug (0.774708ms)
+✔ Scribe v2 is absent until a package binds it (R1) (3.052125ms)
+▶ Scribe v2 open
+  ✔ should mount one modal dialog bound to the role's package (6.110959ms)
+  ✔ should render the real document in a script-less sandboxed srcdoc iframe (1.652459ms)
+  ✔ should list every version newest first, marking the current one (1.107375ms)
+  ✔ should fill the composer from a chip without sending (1.098292ms)
+  ✔ should switch documents through a real tablist (1.33425ms)
+✔ Scribe v2 open (11.50475ms)
+▶ Scribe v2 close
+  ✔ should remove the node and return focus to the Edit button (1.315ms)
+  ✔ should close on Esc (0.804541ms)
+  ✔ should stop a request in flight on the first Esc, not close (1.750042ms)
+  ✔ should close when the role closes, and ignore it afterwards (0.773959ms)
+  ✔ should find the live Edit button when the rows were repainted (0.746709ms)
+  ✔ should keep exactly one desk when a second Edit opens (1.02625ms)
+  ✔ should close when the boot contract unmounts the v2 surfaces (1.706334ms)
+✔ Scribe v2 close (8.304417ms)
+▶ Scribe v2 keeps the keyboard while it is open (F1-trap)
+  ✔ should close on Esc even when focus has fallen to the page body (0.657917ms)
+  ✔ should pull Tab from the page body back into the dialog (0.860291ms)
+  ✔ should stop listening on the document once closed (0.615875ms)
+  ✔ should keep focus on Stop when a stage tick re-renders it (2.459416ms)
+  ✔ B1M-STAGE shows checking facts as the current step (0.933042ms)
+  ✔ should hand focus to the composer when the run ends under a focused Stop (1.185959ms)
+  ✔ should take Esc and Tab from inside the preview iframe (1.093125ms)
+✔ Scribe v2 keeps the keyboard while it is open (F1-trap) (8.01675ms)
+▶ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)
+  ✔ should shrink the sheet above the keyboard and follow it (1.250375ms)
+  ✔ should drop its visualViewport listeners on close (0.7905ms)
+  ✔ should leave the CSS sizing alone on a wide screen (0.679833ms)
+✔ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard) (2.829417ms)
+▶ Scribe v2 speaks each result once (F1-announce)
+  ✔ should keep the transcript a log but not a second live region (0.635666ms)
+✔ Scribe v2 speaks each result once (F1-announce) (0.663333ms)
+✖ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (1.63525ms)
+ℹ tests 26
+ℹ suites 6
+ℹ pass 25
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93.122459
+
+✖ failing tests:
+
+test at tests/scribe-v2-lifecycle.test.mjs:433:1
+✖ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (1.63525ms)
+  AssertionError [ERR_ASSERTION]: recovery mount exists
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:438:10)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Suite.postRun (node:internal/test_runner/test:1235:19)
+      at Suite.run (node:internal/test_runner/test:1533:10)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

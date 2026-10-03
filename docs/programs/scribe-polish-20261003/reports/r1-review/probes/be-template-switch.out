@@ -1,0 +1,14 @@
+### candidate a192a10c
+seeded         {"topRun":"r0","feature":"both","source":"default","templateFamily":"signal","topModelDocs":["resume","coverLetter"],"topModelFamily":"signal","resumeHtmlFamily":"signal","letterHtmlFamily":"signal"}
+resume save    200 {"runId":"mr_20261003084511_acme-example-1_6ac1","n":1,"pages":1,"pdf":"ready"}
+after resume   {"topRun":"ample-1_6ac1","feature":"resume","source":"edit","templateFamily":"signal","topModelDocs":["resume","coverLetter"],"topModelFamily":"signal","resumeHtmlFamily":"signal","letterHtmlFamily":"signal"}
+regenerate     {"ok":true,"template":{"family":"dossier","version":"1.4","templateIds":{"resume":"dossier.resume"},"source":"regenerate","regeneratedFrom":"mr_20261003084511_acme-example-1_6ac1"}}
+after switch   {"topRun":"ample-1_cafc","feature":"resume","source":"regenerate","templateFamily":"dossier","topModelDocs":["resume","coverLetter"],"topModelFamily":"dossier","resumeHtmlFamily":"dossier","letterHtmlFamily":"signal"}
+restore r0 from the letter desk after one resume save: {"resumeSaveStatus":200,"letterListBefore":["v0"],"restoreStatus":200,"bodyRunN":2,"bodyVersions":["v2:restore","v1:edit","v0:draft"],"letterListAfter":["v1:restore","v0:draft"],"resumeListAfter":["v2:restore","v1:edit","v0:draft"]}
+### base 3641d33f
+seeded         {"topRun":"r0","feature":"both","source":"default","templateFamily":"signal","topModelDocs":["resume","coverLetter"],"topModelFamily":"signal","resumeHtmlFamily":"signal","letterHtmlFamily":"signal"}
+resume save    200 {"runId":"mr_20261003084518_acme-example-1_3963","n":1,"pages":1,"pdf":"ready"}
+after resume   {"topRun":"ample-1_3963","feature":"both","source":"edit","templateFamily":"signal","topModelDocs":["resume","coverLetter"],"topModelFamily":"signal","resumeHtmlFamily":"signal","letterHtmlFamily":"signal"}
+regenerate     {"ok":true,"template":{"family":"dossier","version":"1.4","templateIds":{"resume":"dossier.resume","coverLetter":"dossier.letter"},"source":"regenerate","regeneratedFrom":"mr_20261003084518_acme-example-1_3963"}}
+after switch   {"topRun":"ample-1_b599","feature":"both","source":"regenerate","templateFamily":"dossier","topModelDocs":["resume","coverLetter"],"topModelFamily":"dossier","resumeHtmlFamily":"dossier","letterHtmlFamily":"dossier"}
+restore r0 from the letter desk after one resume save: {"resumeSaveStatus":200,"letterListBefore":["v1","v0"],"restoreStatus":200,"letterListAfter":["v2:restore","v1:edit","v0:draft"],"resumeListAfter":["v2:restore","v1:edit","v0:draft"]}

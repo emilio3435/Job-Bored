@@ -1,0 +1,129 @@
+
+> command-center@0.3.0 test:materials-contract
+> node scripts/test-materials-contract.mjs
+
+OK budget: every edit-op fixture and SSE op follows materials.edit-op.v1
+OK budget: insert without claimId is rejected
+OK budget: editor fixture follows materials.render-model.v1
+OK budget: insert fixture has a ledger claim
+OK budget: legacy materials.run.v1 remains valid
+OK budget: edit materials.run.v1 validates
+OK budget: edit run edit ops validate
+OK budget: manual materials.run.v1 validates
+OK budget: manual run edit ops validate
+OK budget: restore materials.run.v1 validates
+OK budget: letter 119 words is too short
+OK budget: letter 120 words passes
+OK budget: letter 200 words passes
+OK budget: letter 201 words is too long
+OK budget: short-letter message names the table band 120–200
+OK budget: statement 27 words is flagged
+OK budget: statement 28 words passes
+OK budget: statement 48 words passes
+OK budget: no capabilities section is never flagged
+OK budget: repair prompt names the table band 120–200
+OK budget: family signal letter band matches the table
+OK budget: family dossier letter band matches the table
+OK budget: family editorial letter band matches the table
+materials budget contract: no drift
+
+> command-center@0.3.0 lint:repo
+> npm run lint:js && npm run lint:skills && npm run lint:tokens
+
+
+> command-center@0.3.0 lint:js
+> eslint .
+
+
+> command-center@0.3.0 lint:skills
+> node scripts/lint-integration-skills.mjs
+
+OK integrations/openclaw-command-center/SKILL.md
+
+> command-center@0.3.0 lint:tokens
+> node tools/lint-tokens.mjs
+
+lint:tokens ok: 40 sheet(s), 0 new finding(s), 0 brace error(s)
+
+> command-center@0.3.0 typecheck:repo
+> npm run typecheck:browser-use-discovery && node --check app.js && node --check discovery-coach.js && node --check discovery-payload.js && node --check expired-review.js && node --check dev-server.mjs && node --check discovery-wizard-local.js && node --check discovery-wizard-probes.js && node --check discovery-wizard-relay.js && node --check discovery-wizard-shell.js && node --check discovery-wizard-ui.js && node --check discovery-wizard-verify.js && node --check discovery-setup-modals.js && node --check role-materials.js && node --check materials-queue.js && node --check settings-tabs.js && node --check settings-profile-tab.js && node --check user-content-store.js && node --check onboarding-telemetry.js && node --check resume-bundle.js && node --check resume-generate.js && node --check model-download.js && node --check document-templates.js && node --check bridge-registry.js && node --check config.example.js && node --check config-overrides.js && node --check discovery-drawer.js && node --check whats-next-banner.js && node --check materials-feature.js && node --check settings-modal.js && node --check settings-tab-schema.js && node --check app-bootstrap.js && node --check app-compat.js && node --check app-config-core.js && node --check auth-session.js && node --check daily-brief.js && node --check discovery-readiness.js && node --check discovery-status-handoff.js && node --check resume-generation.js && node --check setup-doctor.js && node --check sheet-access-setup.js && node --check scripts/lib/paths.mjs && node --check scripts/lib/schedule.mjs && node --check scripts/setup.mjs && node --check scripts/run-scheduled-discovery.mjs && node --check scripts/run-scheduled-expired-cleanup.mjs && node --check scripts/install-expired-cleanup-schedule.mjs && node --check scripts/uninstall-expired-cleanup-schedule.mjs && node --check scripts/install-repo.mjs && node --check scripts/doctor.mjs && node --check scripts/install-discovery-worker-autostart.mjs && node --check scripts/uninstall-discovery-worker-autostart.mjs && node --check scripts/install-discovery-tunnel-autostart.mjs && node --check scripts/uninstall-discovery-tunnel-autostart.mjs && node --check scripts/lib/discovery-transport.mjs && node --check scripts/bootstrap-local-discovery.mjs && node --check scripts/discovery-keep-alive.mjs && node --check scripts/lib/discovery-worker-policy.mjs && npm run typecheck:server && node --check stage-registry.js && node --check pipeline.js && node --check pipeline-render.js && node --check pipeline-controller.js && node --check dawn.js && node --check dawn-data.js && node --check expired-review-ui.js && node --check pipeline-transition-adapter.js && node --check pipeline-transitions.js && node --check today-data.js && node --check today.js && node --check jb-a11y.js && node --check fit-profile-wizard.js && node --check scribe-score-adapter.js && node --check scribe-v2-api.js && node --check scribe-v2-diff.js && node --check scribe-v2-versions.js && node --check scribe-v2.js && node --check submission-flow.js && node --check recruiter-strip.js && node --check discovery-readiness-truth.js && node --check discovery-run-preview.js && node --check dossier-field-provenance.js && node --check local-server.js && node --check scripts/lib/runtime-env.mjs && node --check scripts/desktop-selftest.mjs && node --check oneflow-route-local.js && node --check onboarding-flow.js && node --check oneflow-beat-google.js && node --check judge-picker.js && node --check oneflow-beat-ai.js && node --check server/profile-draft-shared.js && node --check oneflow-beat-resume.js && node --check oneflow-beat-fit.js && node --check oneflow-beat-discovery.js && node --check oneflow-beat-payoff.js && node --check oneflow-demo-board.js && node --check discovery-run-tracker.js && node --check scripts/discovery-canary.mjs && node --check onboarding-celebration.js && node --check scripts/restart-dev-services.mjs && node --check profile-identity.js && node --check oneflow-beat-details.js && node --check server/profile-voice-shared.js && node --check profile-voice.js && node --check oneflow-beat-voice.js && node --check scripts/probe-judge-providers.mjs && node --check materials-score.js && node --check hunts-store.js && node --check hunts-hitlist.js && node --check hunts-ui.js && node --check blacklist-manager.js && node --check scripts/stage-server-image-assets.mjs
+
+
+> command-center@0.3.0 typecheck:browser-use-discovery
+> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json
+
+
+> command-center@0.3.0 typecheck:server
+> tsc --noEmit --project server/tsconfig.json
+
+
+> command-center@0.3.0 test:contract:all
+> npm run test:contract && npm run test:ats-contract && npm run test:materials-contract && npm run test:pipeline-contract && npm run test:pipeline-update-contract && npm run lint:skills
+
+
+> command-center@0.3.0 test:contract
+> node scripts/test-contract.mjs
+
+OK schema: examples/discovery-webhook-request.v1.json
+OK schema: examples/discovery-webhook-request.v1-with-profile.json
+OK schema: examples/discovery-webhook-request.v1-preview-parity.json
+OK discovery-payload.js covers schema properties schemas/discovery-webhook-request.v1.schema.json
+OK discovery-readiness.js delegates to discovery-payload.js
+
+> command-center@0.3.0 test:ats-contract
+> node scripts/test-ats-scorecard-contract.mjs
+
+OK schema (ATS request): examples/ats-scorecard-request.v1.json
+OK schema (ATS response): examples/ats-scorecard-response.v1.json
+OK ats-scorecard.js request builder matches schema for full bundle payload
+OK ats-scorecard.js request builder matches schema for sparse payload
+
+> command-center@0.3.0 test:materials-contract
+> node scripts/test-materials-contract.mjs
+
+OK budget: every edit-op fixture and SSE op follows materials.edit-op.v1
+OK budget: insert without claimId is rejected
+OK budget: editor fixture follows materials.render-model.v1
+OK budget: insert fixture has a ledger claim
+OK budget: legacy materials.run.v1 remains valid
+OK budget: edit materials.run.v1 validates
+OK budget: edit run edit ops validate
+OK budget: manual materials.run.v1 validates
+OK budget: manual run edit ops validate
+OK budget: restore materials.run.v1 validates
+OK budget: letter 119 words is too short
+OK budget: letter 120 words passes
+OK budget: letter 200 words passes
+OK budget: letter 201 words is too long
+OK budget: short-letter message names the table band 120–200
+OK budget: statement 27 words is flagged
+OK budget: statement 28 words passes
+OK budget: statement 48 words passes
+OK budget: no capabilities section is never flagged
+OK budget: repair prompt names the table band 120–200
+OK budget: family signal letter band matches the table
+OK budget: family dossier letter band matches the table
+OK budget: family editorial letter band matches the table
+materials budget contract: no drift
+
+> command-center@0.3.0 test:pipeline-contract
+> node scripts/test-pipeline-contract.mjs
+
+OK schemas/pipeline-row.v1.json ↔ README.md ↔ app-config-core.js ↔ pipeline-render.js
+
+> command-center@0.3.0 test:pipeline-update-contract
+> node scripts/test-pipeline-update-contract.mjs
+
+OK schema (pipeline-update request): examples/pipeline-update-request.v1.json
+OK schema (pipeline-update request v2): examples/pipeline-update-request.v2.json
+OK v2 rejects: Applied without appliedDate
+OK v2 rejects: Applied without source
+OK v2 rejects: Applied with an empty appliedDate
+OK v2 rejects: Applied with a blank source
+OK v2 rejects: free-text appliedDate
+OK v2 rejects: free-text lastContact
+
+> command-center@0.3.0 lint:skills
+> node scripts/lint-integration-skills.mjs
+
+OK integrations/openclaw-command-center/SKILL.md

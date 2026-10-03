@@ -512,6 +512,9 @@ async function runPipelineBody(input, assertBase) {
       draft, outline, ledger, links: profileVoice?.links || [], resumeText, profile: profileIdentity,
       request: { company: payload.company, title: payload.title }, family, roleHeadline, marks, nowIso: isoNow(),
     });
+    // Store only the documents this run wrote; unrequested shells cannot be edited.
+    if (!documents.includes("resume")) delete model.documents.resume;
+    if (!documents.includes("letter")) delete model.documents.coverLetter;
     const renderStarted = Date.now();
     const session = openSession ? await openSession() : null;
     /** @type {Awaited<ReturnType<typeof renderPackage>>} */

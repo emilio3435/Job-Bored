@@ -1,0 +1,69 @@
+
+Running 1 test using 1 worker
+
+(node:26504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+SCRP fixture starting
+SCRP fixture started
+SCRP fixture seeded
+SCRP page loaded
+SCRP desk open
+  ✘  1 tests/e2e-journey/scribe-edit-journey.spec.mjs:345:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal (20.3s)
+
+
+  1) tests/e2e-journey/scribe-edit-journey.spec.mjs:345:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+
+    Test timeout of 20000ms exceeded.
+
+    Error: locator.click: Test timeout of 20000ms exceeded.
+    Call log:
+      - waiting for locator('jb-scribe').getByRole('button', { name: 'Close Scribe' })
+        - locator resolved to <button type="button" data-scribe="close" aria-label="Close Scribe" class="scribe__btn scribe__btn--ghost">Close</button>
+      - attempting click action
+        2 × waiting for element to be visible, enabled and stable
+          - element is not stable
+        - retrying click action
+        - waiting 20ms
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <div id="oneFlowMount" aria-hidden="false" class="discovery-setup-wizard-root oneflow-root">…</div> intercepts pointer events
+        - retrying click action
+          - waiting 100ms
+        37 × waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <div id="oneFlowMount" aria-hidden="false" class="discovery-setup-wizard-root oneflow-root">…</div> intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+
+
+      348 |         await t.send(); await t.ready();
+      349 |         const id = await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal.id);
+    > 350 |         if (action === 'close') { await t.desk.getByRole('button', { name: 'Close Scribe' }).click(); await t.open(); await t.ready(); }
+          |                                                                                              ^
+      351 |         if (action === 'switch') {
+      352 |           await t.desk.getByRole('tab', { name: which === 'resume' ? 'Cover letter' : 'Resume', exact: true }).click();
+      353 |           await expect(t.desk.locator('.scribe__recover')).toContainText('suggested changes waiting');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:350:94
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-diagnose-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-diagnose-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-diagnose-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-diagnose-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-diagnose-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:345:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal

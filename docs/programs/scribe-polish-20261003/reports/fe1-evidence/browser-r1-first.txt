@@ -1,0 +1,111 @@
+
+Running 21 tests using 1 worker
+
+(node:15556) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   1 tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back (8.1s)
+(node:15935) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   2 tests/e2e-journey/scribe-edit-journey.spec.mjs:340:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal (1.3m)
+
+
+  1) tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator:  getByRole('dialog', { name: 'Scribe' }).getByRole('region', { name: /^Resume/ })
+    Expected: "false"
+    Received: "true"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveAttribute" getByRole('dialog', { name: 'Scribe' }).getByRole('region', { name: /^Resume/ }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Scribe' }).getByRole('region', { name: /^Resume/ })
+        14 × locator resolved to <div role="region" tabindex="-1" aria-busy="true" id="scribe-doc-1" class="scribe__docscroll" aria-label="Resume, version 1, proposal with 4 changes">…</div>
+           - unexpected value "true"
+
+
+      210 |   api.end(id);
+      211 |   await expect(log).toContainText("4 suggested changes");
+    > 212 |   await expect(desk.getByRole("region", { name: /^Resume/ })).toHaveAttribute("aria-busy", "false");
+          |                                                               ^
+      213 |
+      214 |   /* j/k move, a/r decide the focused change. Reading order: o1 o2 o3 o4. */
+      215 |   const rail = desk.locator(".scribe__rail");
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:212:63
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-first-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-first-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/error-context.md
+
+    Error Context: .lane-evidence/fe-first-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-first-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-first-pw/scribe-edit-journey-should-259d1-stop-compare-and-bring-back/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e-journey/scribe-edit-journey.spec.mjs:340:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+
+    Test was interrupted.
+
+    Error: locator.click: Test ended.
+    Call log:
+      - waiting for locator('jb-scribe').getByRole('button', { name: 'Close Scribe' })
+        - locator resolved to <button type="button" data-scribe="close" aria-label="Close Scribe" class="scribe__btn scribe__btn--ghost">Close</button>
+      - attempting click action
+        2 × waiting for element to be visible, enabled and stable
+          - element is not stable
+        - retrying click action
+        - waiting 20ms
+        - waiting for element to be visible, enabled and stable
+        - element is not stable
+      2 × retrying click action
+          - waiting 100ms
+          - waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <div id="oneFlowMount" aria-hidden="false" class="discovery-setup-wizard-root oneflow-root">…</div> intercepts pointer events
+      144 × retrying click action
+            - waiting 500ms
+            - waiting for element to be visible, enabled and stable
+            - element is visible, enabled and stable
+            - scrolling into view if needed
+            - done scrolling
+            - <div id="oneFlowMount" aria-hidden="false" class="discovery-setup-wizard-root oneflow-root">…</div> intercepts pointer events
+      - retrying click action
+        - waiting 500ms
+
+
+      343 |         await t.send(); await t.ready();
+      344 |         const id = await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal.id);
+    > 345 |         if (action === 'close') { await t.desk.getByRole('button', { name: 'Close Scribe' }).click(); await t.open(); await t.ready(); }
+          |                                                                                              ^
+      346 |         if (action === 'switch') {
+      347 |           await t.desk.getByRole('tab', { name: which === 'resume' ? 'Cover letter' : 'Resume', exact: true }).click();
+      348 |           await expect(t.desk.locator('.scribe__recover')).toContainText('suggested changes waiting');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:345:94
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-first-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-first-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-first-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:157:1 › should take a resume from Edit through review, save, stop, compare and bring back
+  1 interrupted
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:340:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+  19 did not run

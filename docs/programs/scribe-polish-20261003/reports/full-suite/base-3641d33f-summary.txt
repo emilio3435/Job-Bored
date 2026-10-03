@@ -1,0 +1,18 @@
+✖ answers 501 logos_unavailable when the resolver script is absent (557.807667ms)
+ℹ cancelled 0
+ℹ duration_ms 37384.389042
+✖ E5 server-only boot (Docker context simulation) (2353.035917ms)
+ℹ Error: Test "B1M-STOP streams validated token-flagged ops when stopped during fact check" at tests/materials-edit-factcheck-model.test.mjs:177:1 generated asynchronous activity after the test ended. This activity created the error "Error: ENOENT: no such file or directory, rename '/private/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/jb-factcheck-stop-fH2fPn/stopped-check-example/proposals/4ffc0f82-8205-421c-af25-e45506fd39d9.json.b9bc56fc-57cf-425c-b8fd-25222cd4ddb5.tmp' -> '/private/var/folders/mz/s4_hwhz948b9f94lgg07qhnm0000gn/T/jb-factcheck-stop-fH2fPn/stopped-check-example/proposals/4ffc0f82-8205-421c-af25-e45506fd39d9.json'" and would have caused the test to fail, but instead triggered an unhandledRejection event.
+ℹ fail 5
+✖ failing tests:
+✖ G15/E5 logo resolver guard (9.200833ms)
+ℹ pass 7680
+✖ persists and can remove the canonical submission evidence record (3.392042ms) # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store
+✖ POST /api/brand-logos/:slug accepts a real image upload and exposes it via GET (914.84525ms)
+✖ POST /api/brand-logos/:slug rejects uploads when uploads dir escapes template root (12.118667ms)
+✖ runResolver rejects logos_unavailable when the script is missing (8.413125ms)
+ℹ skipped 0
+ℹ suites 1653
+ℹ tests 7692
+✖ tests/materials-edit-factcheck-model.test.mjs (3153.568417ms)
+ℹ todo 7

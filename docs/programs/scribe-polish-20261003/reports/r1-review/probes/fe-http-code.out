@@ -1,0 +1,3 @@
+save, JobBored 500 (HTML body) → {"code":"http_500","message":"The AI provider didn’t respond. Your document is unchanged."}
+load versions, proxy 502 → {"code":"http_502","message":"The AI provider didn’t respond. Your document is unchanged."}
+bring back, 404 from an older server → {"code":"http_404","message":"The AI provider didn’t respond. Your document is unchanged."}

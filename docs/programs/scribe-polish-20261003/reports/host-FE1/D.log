@@ -1,0 +1,69 @@
+OK budget: every edit-op fixture and SSE op follows materials.edit-op.v1
+OK budget: insert without claimId is rejected
+OK budget: editor fixture follows materials.render-model.v1
+OK budget: insert fixture has a ledger claim
+OK budget: legacy materials.run.v1 remains valid
+OK budget: edit materials.run.v1 validates
+OK budget: edit run edit ops validate
+OK budget: manual materials.run.v1 validates
+OK budget: manual run edit ops validate
+OK budget: restore materials.run.v1 validates
+OK budget: letter 119 words is too short
+OK budget: letter 120 words passes
+OK budget: letter 200 words passes
+OK budget: letter 201 words is too long
+OK budget: short-letter message names the table band 120–200
+OK budget: statement 27 words is flagged
+OK budget: statement 28 words passes
+OK budget: statement 48 words passes
+OK budget: no capabilities section is never flagged
+OK budget: repair prompt names the table band 120–200
+OK budget: family signal letter band matches the table
+OK budget: family dossier letter band matches the table
+OK budget: family editorial letter band matches the table
+materials budget contract: no drift
+OK integrations/openclaw-command-center/SKILL.md
+lint:tokens ok: 40 sheet(s), 0 new finding(s), 0 brace error(s)
+OK schema: examples/discovery-webhook-request.v1.json
+OK schema: examples/discovery-webhook-request.v1-with-profile.json
+OK schema: examples/discovery-webhook-request.v1-preview-parity.json
+OK discovery-payload.js covers schema properties schemas/discovery-webhook-request.v1.schema.json
+OK discovery-readiness.js delegates to discovery-payload.js
+OK schema (ATS request): examples/ats-scorecard-request.v1.json
+OK schema (ATS response): examples/ats-scorecard-response.v1.json
+OK ats-scorecard.js request builder matches schema for full bundle payload
+OK ats-scorecard.js request builder matches schema for sparse payload
+OK budget: every edit-op fixture and SSE op follows materials.edit-op.v1
+OK budget: insert without claimId is rejected
+OK budget: editor fixture follows materials.render-model.v1
+OK budget: insert fixture has a ledger claim
+OK budget: legacy materials.run.v1 remains valid
+OK budget: edit materials.run.v1 validates
+OK budget: edit run edit ops validate
+OK budget: manual materials.run.v1 validates
+OK budget: manual run edit ops validate
+OK budget: restore materials.run.v1 validates
+OK budget: letter 119 words is too short
+OK budget: letter 120 words passes
+OK budget: letter 200 words passes
+OK budget: letter 201 words is too long
+OK budget: short-letter message names the table band 120–200
+OK budget: statement 27 words is flagged
+OK budget: statement 28 words passes
+OK budget: statement 48 words passes
+OK budget: no capabilities section is never flagged
+OK budget: repair prompt names the table band 120–200
+OK budget: family signal letter band matches the table
+OK budget: family dossier letter band matches the table
+OK budget: family editorial letter band matches the table
+materials budget contract: no drift
+OK schemas/pipeline-row.v1.json ↔ README.md ↔ app-config-core.js ↔ pipeline-render.js
+OK schema (pipeline-update request): examples/pipeline-update-request.v1.json
+OK schema (pipeline-update request v2): examples/pipeline-update-request.v2.json
+OK v2 rejects: Applied without appliedDate
+OK v2 rejects: Applied without source
+OK v2 rejects: Applied with an empty appliedDate
+OK v2 rejects: Applied with a blank source
+OK v2 rejects: free-text appliedDate
+OK v2 rejects: free-text lastContact
+OK integrations/openclaw-command-center/SKILL.md

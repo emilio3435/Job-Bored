@@ -131,7 +131,7 @@ function apiErrorText(value) {
  * @param {unknown} body
  * @returns {unknown}
  */
-function withApiErrorEnvelope(status, body) {
+export function withApiErrorEnvelope(status, body) {
   if (status < 400 || !body || typeof body !== "object" || Array.isArray(body)) {
     return body;
   }

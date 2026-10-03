@@ -397,6 +397,11 @@
     var line = t("--jb-line", "currentColor");
     var inkSoft = t("--jb-ink-2", "currentColor");
     return [
+      "[data-node]:focus-visible{outline:2px solid " + t("--jb-focus-color", pending) + ";outline-offset:" + t("--jb-space-1", "4px") + "}",
+      "[data-scribe-selected]{outline:2px solid " + t("--jb-focus-color", pending) + ";outline-offset:2px;background:" + t("--jb-info-tint", "transparent") + "}",
+      "[data-scribe-editing]{outline:2px solid " + pending + ";outline-offset:2px;background:" + t("--jb-paper", "white") + ";white-space:pre-wrap}",
+      /* Plain-text drafts keep the full Dossier row even after editing blurs. */
+      '.sheet[data-family="dossier"] li[data-node^="b:"]:not(:has(> span)){grid-template-columns:minmax(0,1fr)}',
       "ins.scribe-mark{text-decoration:none;background:" + ins + ";box-shadow:inset 0 -2px 0 " + inkAccent + ";border-radius:2px}",
       "del.scribe-mark{color:" + err + ";text-decoration:line-through;text-decoration-thickness:1.5px}",
       ".scribe-mark-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}",
