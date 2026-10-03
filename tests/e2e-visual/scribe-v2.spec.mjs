@@ -99,7 +99,7 @@ async function openDesk(page, viewport, motion) {
     nodesOf: deriveNodes,
     manifest,
     runs: [
-      { runId: "run-00", createdAt: hoursAgo(72), source: "draft", label: "Drafted", model: MODEL },
+      { runId: "run-00", createdAt: "2026-09-25T15:00:00.000Z", source: "draft", label: "Drafted", model: MODEL },
       { runId: "run-01", createdAt: hoursAgo(26), source: "edit", prompt: "Shorter summary", model: MODEL },
     ],
   });
