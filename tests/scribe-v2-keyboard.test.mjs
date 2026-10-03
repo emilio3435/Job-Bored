@@ -356,7 +356,7 @@ describe("Stop", () => {
     const p = env.ctl.state.proposal;
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. 2 changes ready to review\./);
     assert.match(bar(env).textContent, /Save as v5/);
     press(env, "j");
     press(env, "a");
@@ -372,7 +372,7 @@ describe("Stop", () => {
     assert.ok(p, "the proposal is kept");
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. 2 changes ready to review\./);
     assert.doesNotMatch(env.host.querySelector(".scribe__log").textContent, /No changes suggested/);
     assert.match(bar(env).textContent, /Save as v5/);
   });
