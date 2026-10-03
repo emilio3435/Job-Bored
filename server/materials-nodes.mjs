@@ -245,9 +245,9 @@ function checkShape(model) {
  * locked | out_of_scope | shape | invalid_model. The input is never changed.
  * @param {RenderModel} model
  * @param {Array<any>} ops
- * @param {{scope?:'all'|string[],plainTextOpIds?:string[]}} [options]
+ * @param {{scope?:'all'|string[],plainTextOpIds?:string[],beforeOp?:(candidate:RenderModel,op:any)=>void}} [options]
  */
-export function applyOps(model, ops, { scope = "all", plainTextOpIds = [] } = {}) {
+export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], beforeOp } = {}) {
   if (!Array.isArray(ops) || !Array.isArray(scope) && scope !== "all") throw new MaterialsEditError("invalid_model", "invalid edit batch or scope");
   const base = validateRenderModel(model);
   if (!base.ok) throw new MaterialsEditError("invalid_model", base.errors.join("; "));
@@ -262,6 +262,7 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [] } = {}
     if (scope !== "all" && !scope.includes(id)) throw new MaterialsEditError("out_of_scope", id);
     const node = addressBook(out).find((item) => item.id === id);
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
+    beforeOp?.(out, op);
     const { ref } = node;
     const literalAngles = plainTextOpIds.includes(op.opId);
     if (op.op === "insert") {

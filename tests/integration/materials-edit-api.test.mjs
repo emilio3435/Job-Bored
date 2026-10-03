@@ -1496,3 +1496,31 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B85 R7-#6 ${doc} plaintext
   const published = JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8'));
   assert.deepEqual(published.documents[doc === 'resume' ? 'coverLetter' : 'resume'], model.documents[doc === 'resume' ? 'coverLetter' : 'resume']);
 });
+
+for (const doc of ['resume', 'coverLetter']) for (const first of ['manual', 'AI']) {
+  it(`SCRP-B90 R8-#2 ${doc} rejects manual edits to locks created by an earlier ${first} op`, async (t) => {
+    if (!(await needsSocket(t))) return;
+    const input = structuredClone(model), node = doc === 'resume' ? 'b:acme:c14' : 'p:p3';
+    if (doc === 'resume') input.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: 'Reduced delays across teams.' }];
+    const pkg = await seed(input);
+    assert.equal(deriveNodes(input).find(n => n.id === node).locked.spans.length, 0);
+    const createLock = { opId: 'create-lock', op: 'replace', node, text: 'Reduced delays 38% across teams.' };
+    const editLocked = { opId: 'edit-locked', op: 'replace', node, text: 'Reduced delays 38% across all teams.' };
+    let path = `${pkg.path}/edits/manual`, body = { doc, baseRunId: 'r0', manualOps: [createLock, editLocked], confirmUnverified: ['create-lock', 'edit-locked'] };
+    if (first === 'AI') {
+      const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
+        propose: async () => ({ ops: [createLock], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+      });
+      const started = await svc.start(pkg.slug, { doc, baseRunId: 'r0', instruction: 'Clarify delays.', scope: [node], lockFacts: true });
+      const stream = fakeStream(), ended = once(stream, 'end');
+      await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+      assert.equal(JSON.parse(await readFile(join(pkg.dir, 'proposals', `${started.proposalId}.json`), 'utf8')).status, 'ready');
+      path = `${pkg.path}/edits/${started.proposalId}/accept`;
+      body = { accept: ['create-lock'], manualOps: [editLocked], confirmUnverified: ['create-lock', 'edit-locked'] };
+    }
+    const res = await request(path, 'POST', body);
+    assert.equal(res.status, 400); assert.equal(res.data.code, 'locked');
+    assert.deepEqual(JSON.parse(await readFile(join(pkg.dir, 'render-model.json'), 'utf8')), input);
+    assert.deepEqual(await readdir(join(pkg.dir, 'runs')), ['r0']);
+  });
+}

@@ -708,7 +708,15 @@ export function createMaterialsVersionService(deps = {}) {
         try {
           const proposalScope = proposal?.scope || "all";
           if (proposalScope !== "all" && selectedProposal.some((op) => !proposalScope.includes(op.op === "insert" ? op.after : op.node))) throw new MaterialsEditError("out_of_scope", "Proposal edit targets a node outside its scope");
-          candidate = applyOps(base, checked, { plainTextOpIds: manualOps.map((op) => op.opId) });
+          const manualIds = new Set(manualOps.map((op) => op.opId));
+          candidate = applyOps(base, checked, {
+            plainTextOpIds: [...manualIds],
+            beforeOp(evolving, op) {
+              if (!manualIds.has(op.opId)) return;
+              const lockedIds = new Set(deriveNodes(evolving).filter((node) => node.locked.whole || node.locked.spans.length).map((node) => node.id));
+              if (lockedIds.has(op.op === "insert" ? op.after : op.node)) throw new MaterialsEditError("locked", "This line has locked figures. Ask Scribe to change it.");
+            },
+          });
         }
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
