@@ -284,3 +284,14 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 R3-#5 ${which} un
   }
   ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F85 R3-#6 ${which} Save anyway explains the open-change gate and revokes consent`, async () => {
+  const { ctl, els, edit, flush, calls } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+  edit(els[0], 'Led Example operations in 2025.'); await flush();
+  const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+  ctl.state.proposal = { ops: [] }; confirm.dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(ctl.refs.manualState.textContent, 'Review or discard the open changes first.');
+  assert.equal(ctl.manual.confirmation, null); assert.equal(calls.length, 1);
+  ctl.state.proposal = null; confirm.dispatchEvent({ type: 'click' }); await settle(); assert.equal(calls.length, 1);
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});

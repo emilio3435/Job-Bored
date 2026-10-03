@@ -954,7 +954,8 @@
     if (!dirtyManual(ctl)) return Promise.resolve(true);
     if (m.saving || ctl.closed) return Promise.resolve(false);
     if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
-      manualMessage(ctl, "error", "Not saved. Your text is kept."); return Promise.resolve(false);
+      m.confirmation = null;
+      manualMessage(ctl, "error", "Review or discard the open changes first."); return Promise.resolve(false);
     }
     var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { var draft = m.drafts[id]; return { opId: draft.opId, op: draft.op, node: draft.node, text: draft.text }; });
     var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
