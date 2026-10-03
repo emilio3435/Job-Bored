@@ -26,7 +26,7 @@ export async function startScribeRealService(options = {}) {
   await mkdir(tempParent, { recursive: true });
   const root = await mkdtemp(join(tempParent, "scribe-service-"));
   const priorEnv = {};
-  for (const [key, file] of Object.entries({ JOBBORED_PROFILE_PATH: "profile.json", JOBBORED_LLM_CONFIG_PATH: "llm.json" })) {
+  for (const [key, file] of Object.entries({ JOBBORED_PROFILE_PATH: "profile.json", JOBBORED_LLM_CONFIG_PATH: "llm.json", JOBBORED_HOME: "home", JOBBORED_LOGOS_DIR: "home/logos" })) {
     priorEnv[key] = process.env[key];
     process.env[key] = join(root, file);
   }
@@ -105,6 +105,12 @@ export async function startScribeRealService(options = {}) {
     /** Call after the hermetic fence; only this service's origin is allowed through. */
     async pointPage(page) {
       await page.route(`${baseUrl}/**`, (route) => route.continue());
+      // A loaded role can retain its earlier materials origin. Rewrite only
+      // editor routes to the real service while retaining streaming responses.
+      await page.route(/^https?:\/\/[^/]+\/api\/applications\/[^/]+\/(?:edits(?:\/[^?#]*)?|versions(?:\/[^?#]*)?|preview)(?:\?[^#]*)?$/, (route) => {
+        const url = new URL(route.request().url());
+        return route.continue({ url: baseUrl + url.pathname + url.search });
+      });
       await page.evaluate((base) => {
         window.COMMAND_CENTER_CONFIG = { ...window.COMMAND_CENTER_CONFIG, jobPostingScrapeUrl: base, scribeV2Api: "live" };
       }, baseUrl);

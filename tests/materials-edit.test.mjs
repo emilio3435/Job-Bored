@@ -295,6 +295,14 @@ describe("materials edit proposal", () => {
     }
   });
 
+  it("SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads", async () => {
+    const result = await propose({ ops: [{ opId: "/secret/path", op: "replace", node: "private/path", text: "private provider payload", headers: { Authorization: "example" } }] });
+    assert.equal(result.blocked[0].reason, "invalid_model");
+    assert.deepEqual(result.blocked[0].op, { opId: "edit-1" });
+    assert.doesNotMatch(JSON.stringify(result.blocked), /secret|private|Authorization|headers/);
+    assert.deepEqual(result.ops, []);
+  });
+
   it("turns junk model output into a blocked empty proposal", async () => {
     const result = await propose("this is not JSON");
     assert.deepEqual(result.ops, []);
