@@ -7,12 +7,12 @@ import { TOOL_LEXICON } from "./materials-ledger-build.mjs";
 import { findTool } from "./materials-tool-match.mjs";
 import { detectAiWords, detectGush, detectContrastFrames, detectOffVoice, detectCannedAsides, detectPurposeOpeners } from "./materials-voice-tells.mjs";
 import { locateLiteral } from "./resume-text-fold.mjs";
-import { runJsonStage, WriterJsonError } from "./materials-writer.mjs";
+import { runJsonStage } from "./materials-writer.mjs";
 import { hashJd } from "./materials-jd-extract.mjs";
 import { PIPELINE_PROMPT_VERSION } from "./materials-cache.mjs";
 import { JUDGE_PROMPT_VERSION } from "./materials-judge.mjs";
 
-export const LEAN_PROMPT_VERSION = "materials.lean.v3";
+export const LEAN_PROMPT_VERSION = "materials.lean.v4";
 /** @type {Record<string, any> | undefined} */
 let leanSchemaCache;
 function leanBaseSchema() {
@@ -216,7 +216,7 @@ export function buildLeanPrompt(input) {
 function shapeErrors({ value, feature = "both" }, catalog) {
   if (!validators.has(feature)) validators.set(feature, ajv.compile(leanSchema(feature)));
   const valid = validators.get(feature);
-  if (!valid(value)) return [ajv.errorsText(valid.errors)];
+  if (!valid(value)) return (valid.errors || []).map((/** @type {any} */ error) => `${error.instancePath || "/"}: ${error.message}${error.params?.missingProperty ? ` (${error.params.missingProperty})` : ""}`);
   /** @type {string[]} */
   const errors = [];
   const used = new Set();
@@ -243,9 +243,64 @@ function shapeErrors({ value, feature = "both" }, catalog) {
   }
   if (value.letter) {
     const words = wordCount(Object.values(value.letter).join(" "));
-    if (words < 120 || words > 200) errors.push("letter must have 120–200 words");
+    if (words < 120 || words > 200) errors.push(`letter: ${words} body words; target 120–200; retained for review`);
   }
   return errors;
+}
+
+/** Repair selection shape without asking a model to rewrite usable prose.
+ * @param {Record<string, any>} input @param {any} catalog */
+function normalizeLean(input, catalog) {
+  const raw = input.value;
+  const errors = shapeErrors(input, catalog);
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  /** @type {any} */
+  const value = { needs: [], statement: str(source.statement), roles: [], earlier: [], skills: [], letter: { ...EMPTY_LETTER } };
+  for (const key of ["needs", "roles", "earlier", "skills"]) if (!Array.isArray(source[key])) errors.push(`${key}: defaulted missing or invalid optional array to []`);
+  value.needs = Array.isArray(source.needs) ? source.needs.filter((/** @type {any} */ item) => typeof item === "string" && item.trim()) : [];
+  value.skills = Array.isArray(source.skills) ? [...new Set(source.skills.filter((/** @type {any} */ item) => typeof item === "string"))] : [];
+  for (const beat of Object.keys(EMPTY_LETTER)) value.letter[beat] = str(source.letter?.[beat]);
+  const groups = new Map(), used = new Set();
+  /** @param {any} bullet @param {string} roleId @param {string} path */
+  const accept = (bullet, roleId, path) => {
+    const claim = catalog.bullets.get(bullet?.basedOn);
+    const error = !catalog.roles.has(roleId) ? `unknown roleId ${roleId}` : !claim ? `unknown basedOn ${bullet?.basedOn}` : claim.roleId !== roleId ? `basedOn ${bullet.basedOn} belongs to another role` : used.has(bullet.basedOn) ? `duplicate basedOn ${bullet.basedOn}` : !str(bullet.text) ? "empty bullet text" : "";
+    if (error) { errors.push(`${path}: dropped ${error}`); return false; }
+    used.add(bullet.basedOn); return true;
+  };
+  for (const [index, row] of (Array.isArray(source.roles) ? source.roles : []).entries()) {
+    const roleId = row?.roleId;
+    if (!catalog.roles.has(roleId)) { errors.push(`/roles/${index}: dropped unknown roleId ${roleId}`); continue; }
+    const employerId = catalog.roles.get(roleId).employerId;
+    if (!groups.has(employerId)) groups.set(employerId, []);
+    const bullets = groups.get(employerId);
+    for (const [at, bullet] of (Array.isArray(row.bullets) ? row.bullets : []).entries()) {
+      if (!accept(bullet, roleId, `/roles/${index}/bullets/${at}`)) continue;
+      if (bullets.length === 5) { errors.push(`/roles/${index}/bullets/${at}: kept first 5 bullets for employer ${employerId}`); continue; }
+      bullets.push({ roleId, text: str(bullet.text), basedOn: bullet.basedOn });
+    }
+  }
+  const featured = new Set(), earlier = new Set();
+  for (const [employerId, bullets] of groups) {
+    if (!bullets.length) continue;
+    if (bullets.length === 1 || featured.size === 3) {
+      value.earlier.push(bullets[0]); earlier.add(employerId);
+      errors.push(`employer ${employerId}: moved to earlier (${bullets.length === 1 ? "only 1 bullet" : "more than 3 featured employers"})`); continue;
+    }
+    featured.add(employerId);
+    for (const bullet of bullets) {
+      let row = value.roles.find((/** @type {any} */ role) => role.roleId === bullet.roleId);
+      if (!row) { row = { roleId: bullet.roleId, bullets: [] }; value.roles.push(row); }
+      row.bullets.push({ text: bullet.text, basedOn: bullet.basedOn });
+    }
+  }
+  for (const [index, line] of (Array.isArray(source.earlier) ? source.earlier : []).entries()) {
+    if (!accept(line, line?.roleId, `/earlier/${index}`)) continue;
+    const employerId = catalog.roles.get(line.roleId).employerId;
+    if (featured.has(employerId) || earlier.has(employerId)) { errors.push(`/earlier/${index}: dropped repeated employer ${employerId}`); continue; }
+    earlier.add(employerId); value.earlier.push({ roleId: line.roleId, text: str(line.text), basedOn: line.basedOn });
+  }
+  return { value, errors: [...new Set(errors)] };
 }
 
 /** @param {ReturnType<typeof parseLeanNumbers>[number]} number @param {ReturnType<typeof parseLeanNumbers>[number]} original */
@@ -349,9 +404,9 @@ function sentenceParts(text) { return text.split(/(?<=[.!?])\s+(?=[A-Z“"$])/).
 
 /** Checks every prose field, then checks the checked copy again. @param {Record<string, any>} input */
 export function checkLean(input) {
-  const { value, ledger, resumeText, feature = "both" } = input;
+  const { ledger, resumeText, feature = "both" } = input;
   const catalog = catalogFor(input);
-  const errors = shapeErrors(input, catalog);
+  const { value, errors } = normalizeLean(input, catalog);
   /** @type {Array<any>} */
   const notes = [];
   /** @type {Array<any>} */
@@ -359,7 +414,7 @@ export function checkLean(input) {
   const draft = { contract: "materials.draft.v2", jdHash: hashJd(input.jdText || ""), ledgerHash: ledger.ledgerHash || "sha256:0", statement: "", bullets: /** @type {Array<{claimId:string,text:string}>} */ ([]), earlier: /** @type {Array<{claimId:string,text:string}>} */ ([]), letter: { ...EMPTY_LETTER } };
   /** @type {any} */
   const outline = { featured: [], earlier: [], toolsLine: [] };
-  if (errors.length) return { draft, outline, skills: [], disposition: "FAIL", notes, provenance, shapeErrors: errors };
+  for (const detail of errors) notes.push({ field: "shape", check: "shape", action: "normalize", detail });
   let dropped = false;
   /** @param {string} text @param {string} field @param {any} [claim] */
   const recordProvenance = (text, field, claim) => {
@@ -435,27 +490,46 @@ export function checkLean(input) {
     if (!valid) notes.push({ field: "skills", check: "skills", action: "remove" }); return valid;
   });
   outline.toolsLine = skills;
-  const finalErrors = outline.featured.some((/** @type {any} */ g) => g.claimIds.length < 2) || feature !== "resume" && Object.values(draft.letter).some(text => !text.trim());
-  return { draft, outline, skills, disposition: finalErrors ? "FAIL" : dropped || input.retried ? "REVIEW" : "READY", notes, provenance, shapeErrors: [] };
+  // Fact checking can empty a selected slot; repair the employer shape again.
+  for (const group of outline.featured) if (group.claimIds.length === 1) {
+    const claimId = group.claimIds[0];
+    const bullet = draft.bullets.find(item => item.claimId === claimId);
+    if (bullet) { draft.earlier.push(bullet); outline.earlier.push(claimId); draft.bullets = draft.bullets.filter(item => item !== bullet); }
+    const detail = `employer ${group.employerId}: moved to earlier (only 1 bullet after checking)`;
+    errors.push(detail); notes.push({ field: "shape", check: "shape", action: "normalize", detail });
+  }
+  outline.featured = outline.featured.filter((/** @type {any} */ group) => group.claimIds.length >= 2);
+  const finalErrors = [];
+  if (feature !== "cover_letter" && !draft.statement && !draft.bullets.length) finalErrors.push("resume: no usable statement or bullets remain");
+  if (feature !== "resume") for (const [beat, text] of Object.entries(draft.letter)) if (!text.trim()) finalErrors.push(`letter.${beat}: empty after checking`);
+  for (const detail of finalErrors) notes.push({ field: "shape", check: "shape", action: "fail", detail });
+  return { draft, outline, skills, disposition: finalErrors.length ? "FAIL" : dropped || errors.length || input.retried ? "REVIEW" : "READY", notes, provenance, shapeErrors: [...errors, ...finalErrors] };
 }
 
-/** Schema and role membership are validated inside the transport's single retry budget. @param {Record<string, any>} input */
+/** Keep transport parsing separate from fixable selection shape. @param {Record<string, any>} input */
 export async function runLean(input) {
   const prompt = buildLeanPrompt(input);
-  const result = input.pin ? await runJsonStage({ ...input, pin: input.pin, fetchImpl: input.fetchImpl, stage: "materials.lean", systemPrompt: prompt.systemPrompt, userText: prompt.userText, responseSchema: prompt.schema, temperature: 0.3,
-    validate: (value) => {
-      const errors = shapeErrors({ ...input, value }, prompt.catalog);
-      if (errors.length) throw new WriterJsonError(`Invalid lean shape: ${errors.join("; ")}`);
-    },
-  }) : { value: null, call: { provider: "", model: "", attempts: 0, trace: [], errorCode: "no_pin", degradedReason: "No model configured." } };
-  const shapeRetried = result.call.trace.some((/** @type {any} */ attempt) => attempt.errorCode === "invalid_json");
-  const checked = checkLean({ ...input, value: result.value, retried: shapeRetried });
+  const result = input.pin ? await runJsonStage({ ...input, pin: input.pin, fetchImpl: input.fetchImpl, stage: "materials.lean", systemPrompt: prompt.systemPrompt, userText: prompt.userText, responseSchema: prompt.schema, temperature: 0.3, captureRawReply: true })
+    : { value: null, rawReply: undefined, call: { provider: "", model: "", attempts: 0, trace: [], errorCode: "no_pin", degradedReason: "No model configured." } };
+  // The shared parser requires an object. A valid scalar/array is a shape
+  // failure with preserved evidence, rather than a JSON syntax failure.
+  if (result.value === null && result.call.errorCode === "invalid_json" && result.rawReply !== undefined) {
+    try {
+      const value = JSON.parse(result.rawReply);
+      result.value = value;
+      delete result.call.errorCode; delete result.call.degradedReason;
+      result.call.trace = result.call.trace.map((/** @type {any} */ attempt) => attempt.errorCode === "invalid_json" ? { ...attempt, errorCode: "schema_invalid" } : attempt);
+    } catch { /* Actual malformed JSON retains the transport cause and raw reply. */ }
+  }
+  const retried = result.call.trace.some((/** @type {any} */ attempt) => attempt.errorCode === "invalid_json");
+  const checked = checkLean({ ...input, value: result.value, retried });
   if (result.call.errorCode) {
     const reason = result.call.degradedReason || "No model configured.";
     checked.shapeErrors = [reason];
+    checked.notes = checked.notes.filter(note => note.field !== "shape");
     checked.notes.push({ field: "call", check: "provider", action: "fail", detail: reason });
-  } else if (shapeRetried) checked.notes.push({ field: "shape", check: "shape", action: "retry", detail: "Shape required a second reply." });
-  return { ...checked, response: result.value, call: result.call, promptVersion: LEAN_PROMPT_VERSION };
+  } else if (retried) checked.notes.push({ field: "shape", check: "shape", action: "retry", detail: "JSON parsing required a second reply." });
+  return { ...checked, response: result.value, ...(result.value === null && result.rawReply !== undefined ? { rawReply: result.rawReply } : {}), call: result.call, promptVersion: LEAN_PROMPT_VERSION };
 }
 
 /** Direct, schema-valid qa.v3; no judge or repair is called. @param {Record<string, any>} input */
@@ -464,7 +538,7 @@ export function leanQa({ document, runId, finalText, disposition, notes = [], ga
   const hard = gates.some((/** @type {any} */ g) => g.kind === "hard" && !g.pass);
   const state = hard || disposition === "FAIL" ? "FAIL" : disposition === "REVIEW" || gates.some((/** @type {any} */ g) => !g.pass) ? "REVIEW" : "READY";
   const reasons = [...relevant.map((/** @type {any} */ n) => ({ checkId: `lean.${n.check}`, text: n.detail || `${n.field}: ${n.action}${n.claimId ? ` to ${n.claimId}` : ""}` })), ...gates.filter((/** @type {any} */ g) => !g.pass).map((/** @type {any} */ g) => ({ checkId: g.id, text: g.reason }))];
-  if (state === "FAIL" && !reasons.length) reasons.push({ checkId: "lean.shape", text: "Lean shape failed twice or a letter part became empty." });
+  if (state === "FAIL" && !reasons.length) reasons.push({ checkId: "lean.shape", text: "No usable requested document remains." });
   return { contract: "materials.qa.v3", document, runId, passId: "pass-1", textHash: `sha256:${createHash("sha256").update(finalText).digest("hex")}`, state: "graded", disposition: state, reasons,
     checks: ["shape", "numbers", "names", "skills", "voice", "ownership", "credentials", "employer", "markup", "provider"].map(id => {
       const affected = relevant.filter((/** @type {any} */ n) => n.check.split(",").includes(id));
