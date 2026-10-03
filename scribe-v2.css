@@ -282,7 +282,13 @@ jb-scribe.scribe .scribe__hint kbd {
   jb-scribe.scribe .scribe__sidetabs { display: none; }
   jb-scribe.scribe .scribe__sheet[data-seg="doc"] .scribe__side { display: none; }
   jb-scribe.scribe .scribe__sheet[data-seg="chat"] .scribe__docpane,
-  jb-scribe.scribe .scribe__sheet[data-seg="versions"] .scribe__docpane { display: none; }
+  jb-scribe.scribe .scribe__sheet[data-seg="versions"] .scribe__docpane { display: contents; }
+  /* R4-#6: keep busy Stop above Chat/Versions without exposing the document. */
+  jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) :is(.scribe__docscroll, .scribe__reviewbar) { display: none; }
+  jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__stage:not(:has([data-scribe="stop"])) { display: none; }
+  jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__body { grid-template-rows: auto minmax(0, 1fr); }
+  jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__stage { grid-row: 1; }
+  jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__side { grid-row: 2; }
   jb-scribe.scribe .scribe__sheet[data-seg="versions"] .scribe__composer { display: none; }
   jb-scribe.scribe .scribe__stage { padding: 6px var(--jb-space-3); }
   jb-scribe.scribe .scribe__stages { display: none; }

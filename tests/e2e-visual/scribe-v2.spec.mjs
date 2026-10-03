@@ -545,3 +545,56 @@ for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
     expectHermetic(booted);
   });
 }
+
+for (const doc of ["resume", "cover_letter"]) for (const segment of ["Chat", "Versions"]) {
+  test(`SCRP-F95 R4-#6 ${doc} 375 ${segment}: Stop stays reachable before and after the proposal ID`, async ({ page }) => {
+    const booted = await openDesk(page, { width: 375, height: 667 }, "reduce", doc);
+    const { desk } = booted;
+    let releaseStart, releaseStop, startSeen = false, stopSeen = false;
+    const startGate = new Promise(resolve => { releaseStart = resolve; });
+    const stopGate = new Promise(resolve => { releaseStop = resolve; });
+    const prefix = `${DISPOSABLE_AUTH.materialsOrigin}/api/applications/${HERMETIC_APPLICATION_SLUG}`;
+    await page.route(`${prefix}/edits`, async route => {
+      if (route.request().method() !== "POST") return route.fallback();
+      startSeen = true; await startGate; await route.fallback();
+    });
+    await page.route(`${prefix}/edits/*/stop`, async route => {
+      if (route.request().method() !== "POST") return route.fallback();
+      stopSeen = true; await stopGate; await route.fallback();
+    });
+    const view = desk.getByRole("tablist", { name: "View" });
+    const stop = desk.locator('[data-scribe="stop"]');
+    const reachable = async () => {
+      await expect(stop).toBeVisible(); await expect(stop).toBeEnabled();
+      const box = await stop.boundingBox();
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(375); expect(box.y + box.height).toBeLessThanOrEqual(667);
+      const stage = await desk.locator('.scribe__stage').boundingBox();
+      const side = await desk.locator('.scribe__side').boundingBox();
+      expect(stage.y + stage.height, 'busy stage precedes the active side panel').toBeLessThanOrEqual(side.y + 1);
+      await expect(desk.locator('.scribe__docscroll')).toBeHidden();
+      await expect(desk.locator('.scribe__reviewbar')).toBeHidden();
+      await expectNoSidewaysScroll(page);
+    };
+    try {
+      await view.getByRole("tab", { name: "Chat", exact: true }).click();
+      const prompt = desk.getByRole("textbox", { name: "Ask Scribe for a change" });
+      await prompt.fill('Shorten existing wording.'); await prompt.press('Enter');
+      await expect.poll(() => startSeen).toBe(true);
+      await view.getByRole("tab", { name: segment, exact: true }).click();
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().request.proposalId)).toBeNull();
+      await reachable();
+      releaseStart(); await expect.poll(() => api.proposals.length).toBe(1);
+      const id = api.proposals[0].id; await api.streamOpened(id);
+      await expect.poll(() => page.evaluate(() => globalThis.JB_SCRIBE_V2.current().request.proposalId)).toBe(id);
+      api.emit(id, 'stage', { stage: 'drafting' }); await reachable();
+      await stop.click(); await expect.poll(() => stopSeen).toBe(true);
+      await expect(stop).toBeVisible(); await expect(stop).toHaveText('Stopping…'); await expect(stop).toBeDisabled();
+      await test.info().attach('phone-stop', { body: await page.screenshot(), contentType: 'image/png' });
+      releaseStop(); await expect(stop).toHaveCount(0);
+      await expect(desk.locator('.scribe__stage')).toBeHidden();
+      expect(api.runs).toHaveLength(2); expectHermetic(booted);
+    } finally { releaseStart(); releaseStop(); }
+  });
+}
