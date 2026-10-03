@@ -433,7 +433,7 @@
       announce: announce,
       logMessage: function (kind, parts) { return logMessage(ctl, kind, parts); },
       renderVersions: function () { renderVersions(ctl); },
-      setStatus: function (state, text) { status(ctl, state, text); },
+      setStatus: function (state, text, label, action) { status(ctl, state, text, label, action); },
       notifySaved: function (res, which) { emitSaved(ctl, res && res.run && res.run.runId, which); },
       reload: function (res, keep) { return reloadSaved(ctl, res, keep); },
     });
@@ -892,7 +892,11 @@
     if (!request.proposalId) { ctl.state.proposal = null; ctl.request = null; }
     if (err && err.code === "materials_pending") { renderAll(ctl); return readOpen(ctl, true); }
     var message = (err && err.message) || "That didn’t work. Try again.";
-    status(ctl, "error", message, "Try again", function () { if (request.proposalId) readOpen(ctl); else send(ctl); });
+    var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+    status(ctl, "error", message, settings ? "Settings" : "Try again", function () {
+      if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+      else if (request.proposalId) readOpen(ctl); else send(ctl);
+    });
     logMessage(ctl, "blocked", [message]); renderAll(ctl);
     return null;
   }
@@ -1518,12 +1522,15 @@
     }, function (err) {
       if (ctl.closed || ctl.state.proposal !== p) return;
       p.saving = false;
-      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : "Not saved. Your accepted changes are still here.";
+      var mapped = copy(err && err.code);
+      var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+      var message = err && err.code === "stale_base" ? "Not saved — a newer version exists." : mapped === "That didn’t work. Try again." ? "Not saved. Your accepted changes are still here." : (err && err.message) || mapped;
       status(ctl, err && err.code === "stale_base" ? "stale" : "error", message,
-        err && err.code === "stale_base" ? "Review current" : "Try again", function () {
+        err && err.code === "stale_base" ? "Review current" : settings ? "Settings" : "Try again", function () {
           if (err && err.code === "stale_base") ctl.api.listVersions(ctl.state.doc).then(function (listing) {
             ctl.state.versions = listing.versions; ctl.state.latestRunId = listing.currentRunId; renderAll(ctl); reviewCurrent(ctl);
           }).catch(function () { status(ctl, "error", "That didn’t work. Try again."); });
+          else if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
           else save(ctl);
         });
       logMessage(ctl, "blocked", [message]);

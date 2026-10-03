@@ -378,6 +378,8 @@ describe('SCRP-F2 R1 open route and R2 truthful transport', () => {
       [{ message: 'Preferred message', error: 'Other', code: 'provider_failed', fix: 'Try again' }, 'Preferred message'],
       [{ code: 'unreadable_reply' }, 'Scribe’s reply couldn’t be read. Your document is unchanged.'],
       [{ code: 'unknown' }, 'That didn’t work. Try again.'],
+      [{ code: 'unknown', message: {}, error: {} }, 'That didn’t work. Try again.'],
+      [{ code: 'unknown', message: {}, error: 'A safe explanation' }, 'A safe explanation'],
       [{ message: 'x'.repeat(500) }, 'x'.repeat(300)],
     ]) {
       const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: async () => response(409, body) });
@@ -473,5 +475,26 @@ for (const which of ['resume', 'cover_letter']) {
     resolve({ textSaved: true, run: { runId: 'saved-late', n: 1, pdf: 'stale' } }); await t.flush();
     assert.deepEqual(t.events, [{ slug: 'acme-example', doc: which, runId: 'saved-late' }]);
     assert.equal(next.state.proposal, null); assert.equal(next.state.doc, sibling); next.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F33 ${which} HTTP no-model has Settings and a kept request`, async () => {
+    const t = await outcomeDesk(which); t.ctl.close();
+    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.'); };
+    const ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await t.flush();
+    ctl.refs.prompt.value = 'Keep this request'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await t.flush();
+    assert.equal(ctl.refs.statusAction.textContent, 'Settings');
+    assert.equal(ctl.refs.prompt.value, 'Keep this request'); ctl.close();
+  });
+  it(`SCRP-F34 ${which} HTTP save rate-limit keeps the specific safe explanation`, async () => {
+    const t = await outcomeDesk(which);
+    const message = 'Too many requests right now. Try again in a minute. Your request is kept.';
+    t.api.acceptEdit = async () => { throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', message); };
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]')); await t.flush();
+    assert.equal(t.ctl.refs.statusText.textContent, message);
+    assert.equal(t.ctl.refs.statusAction.textContent, 'Try again');
+    assert.equal(t.ctl.state.proposal.id, 'p1'); t.ctl.close();
   });
 }

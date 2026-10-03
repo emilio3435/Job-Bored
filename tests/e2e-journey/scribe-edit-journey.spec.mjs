@@ -422,7 +422,7 @@ for (const which of ['resume', 'cover_letter']) {
       await t.send(); await t.ready();
       await page.route(`${t.service.baseUrl}/**/accept`, route => route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Unavailable.', code: 'provider_failed' }) }));
       await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
-      await expect(t.desk.locator('.scribe__status')).toContainText('Not saved. Your accepted changes are still here.');
+      await expect(t.desk.locator('.scribe__status')).toContainText('Unavailable.');
       await expect(t.desk.locator('[data-review="save"]')).toBeVisible();
       const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json(); expect(listing.versions).toHaveLength(1);
     } finally { await t.service.close(); }

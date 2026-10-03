@@ -810,11 +810,17 @@
           if (ctl.closed || generation !== ctl.generation) { if (deps.notifySaved) deps.notifySaved(res, which); return null; }
           return deps.reload(res, keep).then(function () { focusIn(r.versions, '[aria-current="true"] button'); });
         });
-      }).catch(function () {
+      }).catch(function (err) {
         ui.restoring = false;
         if (ctl.closed || generation !== ctl.generation) return;
         deps.renderVersions();
-        var msg = "Bring back didn’t save. Nothing changed. Try again.";
+        var mapped = root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(err && err.code) : "That didn’t work. Try again.";
+        var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : (err && err.message) || mapped;
+        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+        if (deps.setStatus) deps.setStatus("error", msg, settings ? "Settings" : "Try again", function () {
+          if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+          else confirmBringBack();
+        });
         deps.logMessage("blocked", [msg]);
         announce(msg, true);
         focusIn(r.versions, '[data-ver-act="confirm"]');

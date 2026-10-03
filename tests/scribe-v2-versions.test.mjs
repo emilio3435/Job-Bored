@@ -169,6 +169,7 @@ async function openDesk(opts) {
   const win = makeEnv({ bodyClass: "jb-v2" });
   win.Date = Date;
   win.JBScribeApi = { MAX_INSTRUCTION: 2000, create: () => { throw new Error("tests pass their own api"); } };
+  vm.runInNewContext(read("scribe-v2-api.js"), win);
   const logged = [];
   win.JobBoredA11y = { live: { announce: (msg, o) => logged.push([msg, o ? o.politeness : "polite"]) } };
   vm.runInNewContext(read("scribe-v2-versions.js"), win);
@@ -558,5 +559,17 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.openProposal?.proposalId, 'p1');
     assert.ok(t.ctl.refs.recover.querySelector('[data-action="discard-request"]'));
     assert.match(t.ctl.refs.log.textContent, /suggested changes are still open/); t.ctl.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F35 ${which} HTTP bring-back rate-limit keeps its explanation and retry action`, async () => {
+    const t = await openDesk({ doc: which });
+    const message = 'Too many requests right now. Try again in a minute. Your request is kept.';
+    t.api.restore = async () => { throw { code: 'rate_limited', message }; };
+    click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0')); await settle();
+    assert.equal(t.ctl.refs.statusText.textContent, message);
+    assert.equal(t.ctl.refs.statusAction.textContent, 'Try again');
+    assert.equal(t.ctl.state.currentRunId, 'r2'); t.ctl.close();
   });
 }
