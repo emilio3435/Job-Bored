@@ -735,6 +735,56 @@ it("POST accept writes selected ops as a new run and rejects unconfirmed or stal
   assert.equal((await request(`${pkg.path}/edits/${id}/accept`, "POST", { accept: ["o1"], confirmUnverified: [] })).data.code, "proposal_not_ready");
 });
 
+it("SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  browserAvailable = false;
+  try {
+    const accepted = await service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    const manual = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: accepted.body.run.runId, manualOps: [{ ...op, text: "Tracked daily shipments." }] }, true);
+    const restored = await service.restore(pkg.slug, "r0");
+    for (const [index, result] of [accepted, manual, restored].entries()) {
+      assert.equal(result.statusCode, 503);
+      assert.equal(result.body.code, "browser_unavailable");
+      assert.equal(result.body.run.pdf, "stale");
+      assert.ok(result.body.run.runId);
+      assert.equal(result.body.retryable, false);
+      assert.equal(result.body.run.n, index + 1);
+      assert.ok(result.body.versions.some((version) => version.runId === result.body.run.runId));
+    }
+    assert.equal(restored.body.run.restoredFrom, "r0");
+  } finally { browserAvailable = true; }
+  const restored = await service.restore(pkg.slug, "r0");
+  assert.equal(restored.body.run.n, 4);
+  assert.equal(restored.body.versions.length, 5);
+  const ordinary = createMaterialsVersionService({ applicationsRoot: root, commit: async () => { throw Object.assign(new Error("Provider failed."), { statusCode: 503, code: "provider_failed" }); } });
+  const before = await readFile(join(pkg.dir, "run.json"), "utf8");
+  await assert.rejects(ordinary.restore(pkg.slug, "r0"), { statusCode: 503, code: "provider_failed" });
+  assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), before);
+});
+
+it("SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs", async () => {
+  for (const [doc, stem, sibling, change] of [
+    ["resume", "resume", "cover-letter", op],
+    ["coverLetter", "cover-letter", "resume", { opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations." }],
+  ]) {
+    for (const available of [true, false]) {
+      const pkg = await seed();
+      await writeFile(join(pkg.dir, `${sibling}.pdf`), "sibling PDF bytes");
+      const beforeModel = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+      browserAvailable = available;
+      try {
+        const result = await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [change] }, true);
+        assert.equal(result.statusCode, available ? 200 : 503);
+        assert.equal(await readFile(join(pkg.dir, `${sibling}.pdf`), "utf8"), "sibling PDF bytes");
+        const saved = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+        assert.deepEqual(saved.documents[doc === "resume" ? "coverLetter" : "resume"], beforeModel.documents[doc === "resume" ? "coverLetter" : "resume"]);
+        if (!available) await assert.rejects(readFile(join(pkg.dir, `${stem}.pdf`)), { code: "ENOENT" });
+      } finally { browserAvailable = true; }
+    }
+  }
+});
+
 it("POST accept returns 503 browser_unavailable after saving HTML and a stale-PDF run", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -767,6 +817,18 @@ it("POST manual saves a manual version and rejects cross-document ops", async (t
   const saved = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
   assert.equal(saved.status, 200);
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).template.source, "manual");
+});
+
+it("SCRP-B10 restore adds n and versions for ready and stale PDFs", async () => {
+  for (const available of [true, false]) {
+    const pkg = await seed(); browserAvailable = available;
+    try {
+      const result = await service.restore(pkg.slug, "r0");
+      assert.equal(result.body.run.n, 1);
+      assert.equal(result.body.versions.length, 2);
+      assert.equal(result.body.versions[0].runId, result.body.run.runId);
+    } finally { browserAvailable = true; }
+  }
 });
 
 it("POST restore appends a new run without deleting its source and errors on an unknown source", async (t) => {
