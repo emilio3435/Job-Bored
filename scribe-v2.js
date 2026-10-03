@@ -32,6 +32,10 @@
 
   if (!root || typeof root !== "object") return;
 
+  /* Session-only drafts, indexed by role and document; nodes remain keyed by ID. */
+  var manualRegistry = Object.create(null);
+  function manualKey(slug, which) { return JSON.stringify([slug, which]); }
+
   var DOC_LABEL = { resume: "Resume", cover_letter: "Cover letter" };
   var DOC_NOUN = { resume: "resume", cover_letter: "cover letter" };
   var DOC_ORDER = ["resume", "cover_letter"];
@@ -981,13 +985,13 @@
     ctl.refs.manualState.setAttribute("hidden", "");
   }
 
-  function guardManualNavigation(ctl, action) {
+  function guardManualNavigation(ctl, action, restored) {
     if (ctl.manual.active) { captureManual(ctl); finishManual(ctl); }
     if (!dirtyManual(ctl) && !ctl.manual.saving) return action();
     if (ctl.manual.timer) root.clearTimeout(ctl.manual.timer); ctl.manual.timer = null;
     var el = ctl.refs.unsaved; clear(el); el.removeAttribute("hidden");
     el.appendChild(h("span", { text: "You have unsaved text." }));
-    [["save", "Save"], ["discard", "Discard"], ["stay", "Stay"]].forEach(function (entry) {
+    (restored ? [["save", "Save"], ["discard", "Discard"]] : [["save", "Save"], ["discard", "Discard"], ["stay", "Stay"]]).forEach(function (entry) {
       var btn = h("button", { type: "button", class: "scribe__btn" + (entry[0] === "save" ? " scribe__btn--primary" : ""), "data-unsaved": entry[0], text: entry[1] });
       btn.addEventListener("click", function () {
         if (ctl.manual.saving) return;
@@ -2235,7 +2239,10 @@
     this.abort = null;
     this.autoSave = null;
     this.scope = null; this.manualSeq = 0;
-    this.manual = { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
+    var key = manualKey(opts.slug, opts.doc === "cover_letter" ? "cover_letter" : "resume");
+    this.manual = manualRegistry[key] || { drafts: Object.create(null), active: null, base: null, doc: null, timer: null, saving: false };
+    delete manualRegistry[key];
+    this.manualSeq = this.manual.seq || 0;
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
     this.state = {
       doc: opts.doc === "cover_letter" ? "cover_letter" : "resume",
@@ -2343,6 +2350,7 @@
     raf(function () { if (!self.closed) r.host.classList.add("is-open"); });
     r.prompt.focus();
     loadDoc(this);
+    if (dirtyManual(this)) guardManualNavigation(this, function () {}, true);
   };
 
   Controller.prototype.close = function (reason) {
@@ -2351,7 +2359,12 @@
     if (!this.navigationApproved && reason !== "role-closed") return guardManualNavigation(this, function () { self.navigationApproved = true; self.close(reason); self.navigationApproved = false; });
     if (this.manual.active) captureManual(this);
     if (this.manual.timer) root.clearTimeout(this.manual.timer);
+    this.manual.timer = null; this.manual.confirmation = null;
     if (this.manual.active) { this.manual.active.el.removeAttribute("contenteditable"); this.manual.active = null; }
+    if (dirtyManual(this)) {
+      this.manual.seq = this.manualSeq;
+      manualRegistry[manualKey(this.opts.slug, this.manual.doc)] = this.manual;
+    }
     detachRequest(this);
     this.closed = true;
     var r = this.refs;

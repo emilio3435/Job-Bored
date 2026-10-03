@@ -163,3 +163,25 @@ for (const which of ['resume', 'cover_letter']) {
     assert.deepEqual(Object.keys(calls[0].manualOps[0]).sort(), ['node', 'op', 'opId', 'text']); ctl.close();
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F73 R2-#3 ${which} role-close drafts restore from session memory only`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    nodes[0].text = '😀 delays 38%.'; nodes[0].locked.spans = [[10, 13]]; els[0].textContent = nodes[0].text;
+    edit(els[0], '38% 😀 delays 38%.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed'); assert.equal(ctl.closed, true); assert.equal(calls.length, 0);
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(els[0].textContent, '38% 😀 delays 38%.');
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(reopened.manual.drafts[nodes[0].id].opId, opId);
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/);
+    assert.ok(reopened.refs.unsaved.querySelector('[data-unsaved="save"]'));
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+    assert.equal(els[0].textContent, nodes[0].text); reopened.close('role-closed');
+    const empty = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    assert.equal(Object.keys(empty.manual.drafts).length, 0); empty.close();
+    // A new script session has no drafts: persistence remains memory-only.
+    const fresh = await desk(which); assert.equal(Object.keys(fresh.ctl.manual.drafts).length, 0); fresh.ctl.close();
+  });
+}
