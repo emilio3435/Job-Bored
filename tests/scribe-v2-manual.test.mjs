@@ -549,3 +549,29 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F105 R5-#5 ${which} p
     t.ctl.close('role-closed');
   }
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} pending retries stop after three automatic attempts and restart only explicitly`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  let reads = 0; t.api.getOpenEdit = async () => { reads++; return { proposal: null }; };
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  for (let i = 0; i < 6; i++) await t.flush();
+  assert.equal(t.calls.length, 4, 'initial POST plus at most three automatic retries');
+  assert.equal(reads, 4); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  assert.equal(t.ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+  assert.equal(t.ctl.manual.drafts[t.nodes[0].id].text, 'Tracked operations.');
+  assert.ok(t.calls.every(body => body.baseRunId === 'r0'));
+  assert.ok(t.calls.every(body => JSON.stringify(body.manualOps) === JSON.stringify(t.calls[0].manualOps)));
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  assert.equal(t.calls.length, 5);
+  for (let i = 0; i < 6; i++) await t.flush();
+  assert.equal(t.calls.length, 8); assert.equal(reads, 9, "Try again performs one explicit recovery read in addition to pending-error recovery"); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} a transient gate can save on the third automatic retry`, async () => {
+  const t = await desk(which, (_body, n) => { if (n <= 3) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.');
+  for (let i = 0; i < 4; i++) await t.flush();
+  assert.equal(t.calls.length, 4); assert.equal(Object.keys(t.ctl.manual.drafts).length, 0);
+  assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+});

@@ -872,3 +872,25 @@ for (const which of ['resume', 'cover_letter']) {
     } finally { await h.service.close(); }
   });
 }
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F106 R5-#6 ${which} a hung pending claim stops automatically and exposes Try again`, async ({ page }) => {
+    const h = await realDesk(page, which);
+    try {
+      await page.route(`${h.service.baseUrl}${h.pkg.path}/edits/manual`, route => route.fulfill({ status: 409, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ code: 'materials_pending', error: 'Role is busy.' }) }));
+      const openReadsBefore = h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open')).length;
+      const id = which === 'resume' ? 'line:beta' : 'p:p3';
+      await typeBlock(page, id, which === 'resume' ? 'Tracked daily shipments.' : 'I welcome a conversation about improving daily operations.');
+      await page.waitForTimeout(11500);
+      expect(h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual'))).toHaveLength(4);
+      expect(h.calls.filter(c => c.method === 'GET' && c.path.endsWith('/edits/open'))).toHaveLength(openReadsBefore + 4);
+      await expect(h.desk.locator('.scribe__manual-state')).toHaveText('Not saved. Your text is kept.Try again');
+      await expect(h.desk.locator('.scribe__recover')).toBeHidden();
+      expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().manual.timer)).toBeNull();
+      await h.desk.locator('[data-manual="retry"]').click();
+      await expect.poll(() => h.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits/manual')).length).toBe(5);
+      expect((await (await fetch(`${h.service.baseUrl}${h.pkg.path}/versions?doc=${which}`)).json()).versions).toHaveLength(1);
+      expect(h.fence.unexpectedExternal).toEqual([]);
+    } finally { await h.service.close(); }
+  });
+}
