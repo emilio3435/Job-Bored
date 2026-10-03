@@ -845,7 +845,7 @@
     if (dirtyManual(ctl)) m.timer = root.setTimeout(function () { m.timer = null; saveManual(ctl); }, 2000);
     else {
       m.base = null; m.doc = null;
-      if (ctl.refs.manualState.getAttribute("data-state") === "editing") clearManualMessage(ctl);
+      if (["saving", "confirm", "conflict"].indexOf(ctl.refs.manualState.getAttribute("data-state")) < 0) clearManualMessage(ctl);
     }
   }
 

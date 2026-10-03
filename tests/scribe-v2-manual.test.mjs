@@ -55,10 +55,14 @@ for (const which of ['resume', 'cover_letter']) {
   });
 }
 test('SCRP-F42 GAP-01 paste uses text only and metric edits roll back locally', async () => {
-  const { ctl, inner, els, nodes, edit, calls, flush } = await desk();
+  const { ctl, inner, els, nodes, calls, flush } = await desk();
   nodes[0].text = '😀 Reduced delays 38%.'; nodes[0].locked.spans = [[18, 21]]; els[0].textContent = nodes[0].text;
-  edit(els[0], '😀 Reduced delays 40%.'); await flush(); assert.equal(calls.length, 0); assert.equal(els[0].textContent, nodes[0].text);
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  els[0].textContent = '😀 Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
   assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+  assert.equal(calls.length, 0); assert.equal(els[0].textContent, nodes[0].text);
+  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true);
   inner.dispatchEvent({ type: 'dblclick', target: els[1] });
   const ev = { type: 'paste', target: els[1], clipboardData: { getData: type => type === 'text/plain' ? 'Plain text' : '<b>Markup</b>' } };
   inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true); assert.equal(ctl.manual.drafts[nodes[1].id].text, "Tracked daily operations.Plain text"); ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: "click" });
@@ -261,4 +265,22 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} ad
   assert.equal(reopened.state.currentRunId, 'r1'); assert.equal(reopened.state.latestRunId, 'r1');
   assert.equal(reopened.manual.saving, false); assert.equal(Object.keys(reopened.manual.drafts).length, 0);
   assert.match(reopened.refs.manualState.textContent, /Saved as v1/); assert.equal(calls.length, 1); reopened.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 R3-#5 ${which} unchanged blur clears lock refusal and preserves pending decisions`, async () => {
+  const { ctl, inner, els, nodes, calls, flush } = await desk(which);
+  nodes[0].text = 'Reduced delays 38%.'; nodes[0].locked.spans = [[15, 18]]; els[0].textContent = nodes[0].text;
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  els[0].textContent = 'Reduced delays 40%.'; inner.dispatchEvent({ type: 'input', target: els[0] });
+  assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'error');
+  inner.dispatchEvent({ type: 'focusout', target: els[0] }); await flush();
+  assert.equal(ctl.refs.manualState.hasAttribute('hidden'), true); assert.equal(calls.length, 0);
+  for (const state of ['saving', 'confirm', 'conflict']) {
+    inner.dispatchEvent({ type: 'dblclick', target: els[1] });
+    ctl.refs.manualState.setAttribute('data-state', state);
+    inner.dispatchEvent({ type: 'focusout', target: els[1] });
+    assert.equal(ctl.refs.manualState.getAttribute('data-state'), state);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false);
+  }
+  ctl.close();
 });
