@@ -265,7 +265,7 @@ export function applyOps(model, ops, { scope = "all", plainTextOpIds = [], befor
     if (!node) throw new MaterialsEditError("invalid_model", `unknown node: ${id}`);
     beforeOp?.(out, op);
     const { ref } = node;
-    const literal = plainTextOpIds.includes(op.opId) || plain(node.text) !== node.text;
+    const literal = plainTextOpIds.includes(op.opId);
     if (op.op === "insert") {
       if (typeof op.claimId !== "string" || !op.claimId || typeof op.text !== "string" || !plain(op.text, literal).trim()) throw new MaterialsEditError("invalid_model", "insert needs claimId and text");
       const text = plain(op.text, literal);

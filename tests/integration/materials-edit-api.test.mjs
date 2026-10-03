@@ -1544,17 +1544,31 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B91 R8-#3 ${doc} manual li
   }
 });
 
-for (const doc of ['resume', 'coverLetter']) it(`SCRP-B92 R8-#3 ${doc} unrelated AI rewrite preserves literal text already in its base`, async () => {
-  const pkg = await seed(), node = doc === 'resume' ? 'line:beta' : 'p:p3';
-  const text = 'Please keep <plan> and <b>literal</b> visible across teams.';
-  const saved = await service.accept(pkg.slug, '', { doc, baseRunId: 'r0', manualOps: [{ opId: 'literal-base', op: 'replace', node, text }], confirmUnverified: ['literal-base'] }, true);
-  const next = text.replace('teams.', 'all teams.');
-  const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
-    propose: async () => ({ ops: [{ opId: 'clarify', op: 'replace', node, text: next }], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
-  });
-  const started = await svc.start(pkg.slug, { doc, baseRunId: saved.body.run.runId, instruction: 'Clarify teams.', scope: [node], lockFacts: true });
-  const stream = fakeStream(), ended = once(stream, 'end');
-  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
-  const edited = await svc.accept(pkg.slug, started.proposalId, { accept: ['clarify'], confirmUnverified: ['clarify'] });
-  assert.equal((await svc.model(pkg.slug, edited.body.run.runId)).nodes.find(n => n.id === node).text, next);
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B93 R9-#1/#2 ${doc} AI cleanup and locks still apply on a manually saved block`, async () => {
+  const node = doc === 'resume' ? 'b:acme:c14' : 'p:p3';
+  const manualText = doc === 'resume' ? 'Measured carrier delays and reduced fulfillment delays 38% for the team. ' : 'I would welcome a conversation about improving delays 38% in daily operations. ';
+  const aiEdit = async (pkg, baseRunId, text, node) => {
+    const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' },
+      propose: async () => ({ ops: [{ opId: 'ai', op: 'replace', node, text }], blocked: [], summary: { changes: 1 }, factCheck: 'model' }),
+    });
+    const started = await svc.start(pkg.slug, { doc, baseRunId, instruction: 'Emphasize.', scope: [node], lockFacts: true });
+    const stream = fakeStream(), ended = once(stream, 'end');
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), stream); await ended;
+    const edited = await svc.accept(pkg.slug, started.proposalId, { accept: ['ai'], confirmUnverified: ['ai'] });
+    return (await svc.model(pkg.slug, edited.body.run.runId)).nodes.find(n => n.id === node);
+  };
+  const stage = async (node, manualText) => {
+    const pkg = await seed();
+    const saved = await service.accept(pkg.slug, '', { doc, baseRunId: 'r0', manualOps: [{ opId: 'manual', op: 'replace', node, text: manualText }], confirmUnverified: ['manual'] }, true);
+    return { pkg, runId: saved.body.run.runId };
+  };
+  const locked = await stage(node, manualText);
+  const stored = await aiEdit(locked.pkg, locked.runId, manualText.trim().replace('38%', '3*8%'), node);
+  assert.equal(stored.text, manualText.trim());
+  assert.ok(stored.locked.spans.length > 0);
+  assert.equal(stored.text.slice(...stored.locked.spans[0]), '38%');
+  const plainNode = doc === 'resume' ? 'line:beta' : 'p:p1';
+  const marked = await stage(plainNode, 'Tracked daily shipments across teams. ');
+  const emphasized = await aiEdit(marked.pkg, marked.runId, 'Tracked **daily** shipments across teams.', plainNode);
+  assert.equal(emphasized.text.includes('**'), false);
 });
