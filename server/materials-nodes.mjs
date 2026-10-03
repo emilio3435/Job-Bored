@@ -4,7 +4,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { runsToText, validateRenderModel } from "./materials-render.mjs";
 
-const NUMBER = /(?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/g;
+const NUMBER = /(?:[$#]|top-)?\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?(?:[–-]\p{Nd}[\p{Nd},]*(?:\.\p{Nd}+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?/gu;
 
 /** @typedef {import('./materials-render.mjs').RenderModel} RenderModel */
 /** @typedef {{id:string,kind:string,text:string,locked:{whole:boolean,spans:number[][]},ref:any}} Address */

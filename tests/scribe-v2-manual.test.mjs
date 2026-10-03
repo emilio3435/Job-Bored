@@ -689,3 +689,17 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F113 R6-#4 ${which} r
   assert.equal([...hung.timers.values()].filter(timer => timer.ms === 2000).length, 0);
   hung.ctl.close('role-closed');
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 R6-#5 ${which} server-discovered Unicode locks block client edits`, async () => {
+  const { deriveNodes } = await import('../server/materials-nodes.mjs');
+  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+    const model = JSON.parse(readFileSync(new URL('../docs/programs/editor-20260927/fixtures/model.json', import.meta.url), 'utf8'));
+    model.documents.coverLetter.paragraphs[1].text = `😀 Processed ${figure} shipments.`;
+    model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: '😀 Processed ' }, { n: figure }, { t: ' shipments.' }];
+    const node = deriveNodes(model).find(n => n.id === (which === 'resume' ? 'b:acme:c14' : 'p:p2'));
+    const t = await desk(which); t.nodes[0].text = node.text; t.nodes[0].locked = node.locked; t.els[0].textContent = node.text;
+    t.edit(t.els[0], node.text.replace(figure, changed)); await t.flush();
+    assert.equal(t.els[0].textContent, node.text, 'discovered locks reach client input validation'); assert.equal(t.calls.length, 0);
+    t.ctl.close('role-closed');
+  }
+});

@@ -243,3 +243,13 @@ for (const doc of ['resume', 'coverLetter']) it(`SCRP-B71 R6-#2 ${doc} shared ru
     assert.throws(() => applyOps(repeated.before, [{ opId: 'lost', op: 'replace', node: repeated.id, text }]), { reason: 'locked' });
   }
 });
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B74 R6-#5 ${doc} Unicode decimal figures have UTF-16 locks and cannot change`, () => {
+  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+    const { before, id } = numericModel(doc, `😀 Processed ${figure} shipments.`, [figure]);
+    const node = deriveNodes(before).find(n => n.id === id);
+    assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), [figure]);
+    assert.throws(() => applyOps(before, [{ opId: 'unicode', op: 'replace', node: id, text: node.text.replace(figure, changed), flags: ['unverified'] }]), { reason: 'locked' });
+    assert.doesNotThrow(() => applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: `${figure} shipments were processed.` }]));
+  }
+});
