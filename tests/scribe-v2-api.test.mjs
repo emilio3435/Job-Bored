@@ -516,3 +516,9 @@ it('SCRP-R1-12 bodiless local HTTP failures never become writer failures', async
     });
   }
 });
+
+it('SCRP-R1-D19 restore sends the desk document', async () => {
+  const { JBScribeApi } = loadApi(); const rec = recordingFetch(() => response(200, { run: { runId: 'r3', n: 1 } }));
+  const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: rec.fetchImpl });
+  await client.restore('r0', { doc: 'cover_letter' }); assert.deepEqual(rec.calls[0].body, { doc: 'cover_letter' });
+});

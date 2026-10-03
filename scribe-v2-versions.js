@@ -792,7 +792,7 @@
       var proposal = ctl.state.proposal;
       ui.restoring = true;
       deps.renderVersions();
-      ctl.api.restore(runId).then(function (res) {
+      ctl.api.restore(runId, { doc: which }).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
         if (ctl.closed || generation !== ctl.generation) {

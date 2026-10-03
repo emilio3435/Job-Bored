@@ -536,7 +536,7 @@
       acceptEdit: function (id, body) { return call("POST", "/edits/" + encodeURIComponent(id) + "/accept", body, true); },
       rejectEdit: function (id) { return call("DELETE", "/edits/" + encodeURIComponent(id)); },
       manualEdit: function (body) { return call("POST", "/edits/manual", body, true); },
-      restore: function (runId) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", {}, true); },
+      restore: function (runId, body) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", body || {}, true); },
       star: function (runId, starred) { return call("PUT", "/versions/" + encodeURIComponent(runId) + "/star", { starred: !!starred }); },
     };
   }
