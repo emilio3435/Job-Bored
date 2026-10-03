@@ -942,7 +942,8 @@
       emitSaved(ctl, res && res.run && res.run.runId, which);
       if (ctl.closed || generation !== ctl.generation) return true;
       var n = res.n == null ? res.run && res.run.n : res.n;
-      var text = res.textSaved ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n;
+      var text = n == null ? "Text saved as a new version." : res.textSaved ? "Text saved as v" + n + "." : "Saved as v" + n;
+      if (res.textSaved) text += " PDF unavailable — it’s rebuilt on your next save.";
       manualMessage(ctl, "saved", text);
       if (res.textSaved) status(ctl, "saved-pdf-unavailable", text);
       return loadDoc(ctl, true).then(function () { return true; });
@@ -1950,9 +1951,10 @@
         return null;
       }
       var run = (res && res.run) || {};
-      var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
+      var n = typeof run.n === "number" ? run.n : null;
       var unavailable = res && res.textSaved || run.pdf === "stale";
-      var note = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
+      var note = n == null ? "Text saved as a new version." : unavailable ? "Text saved as v" + n + "." : "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
+      if (unavailable) note += " PDF unavailable — it’s rebuilt on your next save.";
       logMessage(ctl, "scribe", [note]);
       status(ctl, unavailable ? "saved-pdf-unavailable" : "saved", note);
       return reloadSaved(ctl, res);

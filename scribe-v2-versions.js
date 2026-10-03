@@ -806,7 +806,7 @@
         }) : Promise.resolve();
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
         var unavailable = res && res.textSaved || res && res.run && res.run.pdf === "stale";
-        var msg = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
+        var msg = unavailable ? (n == null ? "Text saved as a new version." : "Text saved as v" + n + ".") + " PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
         if (deps.setStatus) deps.setStatus(unavailable ? "saved-pdf-unavailable" : "saved", msg);
         deps.logMessage("note", [msg]);
         return rejected.then(function () {

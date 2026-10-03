@@ -766,3 +766,10 @@ it('SCRP-R1-20 an older initial load cannot overwrite the exact recovered base',
   first.resolve({ currentRunId: 'r2', versions: [{ runId: 'r2', n: 2 }] }); await flush();
   assert.equal(ctl.state.currentRunId, 'r1'); assert.equal(ctl.refs.frame.srcdoc, '<p data-node="b:acme:c14">r1 original block</p>'); ctl.close();
 });
+
+it('SCRP-R1-21 a saved response without n never invents a version number', async () => {
+  const t = reliabilityApi(); t.api.acceptEdit = async () => { t.api.open = null; return { textSaved: true, run: { runId: 'r3', pdf: 'stale' } }; };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]')); await flush();
+  assert.equal(ctl.refs.statusText.textContent, 'Text saved as a new version. PDF unavailable — it’s rebuilt on your next save.'); ctl.close();
+});
