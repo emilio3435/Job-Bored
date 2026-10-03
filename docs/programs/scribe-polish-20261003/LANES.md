@@ -1,13 +1,16 @@
-# SCRP lanes
+# SCRP lanes: final
 
-| Lane | Family · rung | Branch | Worktree | Report (absolute) | Workspace | PID | Status |
-|---|---|---|---|---|---|---|---|
-| PLAN-CHECK | fable | — (read-only on integration) | scribe-polish-integration | reports/VERDICT-SCRP-PLAN.md | workspace:18 | | DONE: PASS-WITH-FIXES (48 findings, all folded) |
-| BE | sol | feat/scribe-polish-20261003-be | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/.lane-evidence/LANE-REPORT-BE.md | workspace:21 | 72997 | DONE, merged a8431419, swept |
-| FE1 | sol | feat/scribe-polish-20261003-fe | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/.lane-evidence/LANE-REPORT-FE1.md | workspace:22 | 73114 | DONE, merged a192a10c, swept |
-| FE2 | sol | feat/scribe-polish-20261003-fe2 | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe2 | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe2/.lane-evidence/LANE-REPORT-FE2.md | | | not spawned |
-| UX | sol | feat/scribe-polish-20261003-ux | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-ux | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-ux/.lane-evidence/LANE-REPORT-UX.md | workspace:23 | 73287 | running (pin verified argv) |
-| QA | astra (cua) | detached | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-qa | /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-qa/.lane-evidence/LANE-REPORT-QA.md | workspace:24 | 73340 | running (pin verified argv) |
+All lanes are swept. Branches are kept until the program lands. Reports are in `reports/`.
 
-Model mix: see SPEC §1. Changes logged in PROGRAM-LOG.md.
-| REVIEW-R1 | fable | detached a192a10c (optional scrp-review-r1) | scribe-polish-integration | /Users/emilionunezgarcia/Job-Bored.worktrees/scribe-polish-integration/.lane-evidence/VERDICT-SCRP-R1.md | | | pending |
+| Lane | Family | Branch | Outcome |
+|---|---|---|---|
+| PLAN-CHECK | Fable | — | PASS-WITH-FIXES, 48 findings folded |
+| BE | Sol | feat/scribe-polish-20261003-be | DONE: R0, fixture, C1, C3–C5, F gate |
+| FE1 | Sol | feat/scribe-polish-20261003-fe | DONE: R1/R2 client, copy |
+| UX | Sol | feat/scribe-polish-20261003-ux | DONE; the host rescue-committed the final pass |
+| QA | Astra | chore/scrp-qa-phase1 (evidence only, never merge) | Phases 1–3 done |
+| FE2 | Sol | feat/scribe-polish-20261003-fe2 | DONE: F1/F2 (respawned once) |
+| BEFIX | Sol | feat/scribe-polish-20261003-befix | DONE: R1 server fixes (one red bounce) |
+| FIX2–FIX8 | Sol | feat/scribe-polish-20261003-fix2..fix8 | DONE: R2–R8 fixes |
+| R9 fixes | Sonnet subagent | integration | 71f109e9, ffa89fa1 |
+| Reviews R1–R9 | Fable/Astra alternating | — | Verdicts in reports/VERDICT-SCRP-R*.md |
