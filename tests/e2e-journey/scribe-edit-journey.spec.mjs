@@ -988,7 +988,10 @@ for (const width of [1440, 375]) for (const id of ['seat:acme', 'cred:education'
       if (width === 375) await h.desk.locator('button[data-seg="doc"]').click();
       const block = page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${id}"]`);
       await block.dblclick();
-      await expect(h.desk.locator('.scribe__status')).toHaveText(id === 'cred:education' ? 'Degree and school are locked.' : 'Employer, title and dates are locked.');
+      const lockCopy = id === 'cred:education' ? 'Degree and school are locked.' : 'Employer, title and dates are locked.';
+      await expect(h.desk.locator('.scribe__status')).toHaveText(lockCopy);
+      await expect(h.desk.locator('.scribe__manual-state')).toBeVisible();
+      await expect(h.desk.locator('.scribe__manual-state')).toContainText(lockCopy);
       await expect(block).toBeFocused(); await expect(h.composer).not.toBeFocused();
       await expect(block).not.toHaveAttribute('contenteditable', 'plaintext-only');
       expect(await page.evaluate(() => globalThis.JB_SCRIBE_V2.current().scope.ids)).toEqual([id]);

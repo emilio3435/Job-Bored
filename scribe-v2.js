@@ -936,6 +936,7 @@
       hideSelectionActions(ctl);
       if (node.locked.whole) {
         status(ctl, "selection", lockText(node));
+        manualMessage(ctl, "error", lockText(node));
         focusBlock(ctl, el); return;
       }
       status(ctl, "selection", "This line has locked figures. Ask Scribe to change it.");
