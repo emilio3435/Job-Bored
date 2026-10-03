@@ -1489,10 +1489,11 @@
     Array.prototype.forEach.call(ctl.refs.recover.querySelectorAll("button"), function (button) {
       button.setAttribute("disabled", ""); button.setAttribute("aria-disabled", "true");
     });
-    function completed(recoveryKnown) {
+    function completed(recoveryKnown, keepRecovery) {
       ctl.recoverySeq++;
       detachRequest(ctl); clearReview(ctl);
-      ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
+      ctl.state.proposal = null; ctl.request = null;
+      if (!keepRecovery) { ctl.openProposal = null; ctl.openProposals = null; }
       status(ctl, "idle", "Discarded.");
       logMessage(ctl, "note", ["Discarded."]); renderAll(ctl);
       return loadDoc(ctl, false, recoveryKnown);
@@ -1503,7 +1504,10 @@
     }).catch(function (err) {
       if (ctl.closed) return false;
       if (err && err.status === 404) {
-        return readOpen(ctl).then(function () { if (!ctl.openProposal && !ctl.openProposals) return completed(true); });
+        detachRequest(ctl); clearReview(ctl); ctl.state.proposal = null;
+        if (ctl.openProposal && ctl.openProposal.proposalId === id) ctl.openProposal = null;
+        if (ctl.openProposals) ctl.openProposals = ctl.openProposals.filter(function (open) { return open.proposalId !== id; });
+        return readOpen(ctl).then(function () { return completed(true, true); });
       }
       status(ctl, "error", "Couldn’t discard. The suggested changes are still open.", "Try again", function () { discard(ctl, id); });
       renderRecovery(ctl); return false;

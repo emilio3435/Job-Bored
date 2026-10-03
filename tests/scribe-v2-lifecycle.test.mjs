@@ -853,3 +853,17 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F711 R2-#12 ${which} ac
   assert.doesNotMatch(ctl.refs.docscroll.getAttribute('aria-label'), /proposal/);
   ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F87 R3-#8 ${which} Discard 404 drops the dead review before recovering another request`, async () => {
+  const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+  t.api.open = { proposalId: 'other-tab', doc: sibling, baseRunId: 'r2', status: 'pending', ops: [] };
+  t.api.rejectEdit = async () => { throw { status: 404 }; };
+  const reads = t.calls.filter(c => c[0] === 'open').length;
+  tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
+  assert.equal(ctl.state.proposal, null); assert.equal(ctl.openProposal.proposalId, 'other-tab');
+  assert.equal(ctl.refs.reviewbar.querySelectorAll('[data-review]').length, 0);
+  assert.ok(ctl.refs.recover.querySelector('[data-action="continue-request"]'));
+  assert.equal(t.calls.filter(c => c[0] === 'open').length, reads + 1);
+  assert.equal(ctl.discarding, false); ctl.close();
+});
