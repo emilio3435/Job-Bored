@@ -618,6 +618,7 @@ export function createMaterialsVersionService(deps = {}) {
       let priorStatus = "";
       let markedAccepting = false;
       try {
+        if (manual && await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
         let current = await currentRun(dir);
         if (!manual) {
           proposal = await loadProposal(dir, id);
