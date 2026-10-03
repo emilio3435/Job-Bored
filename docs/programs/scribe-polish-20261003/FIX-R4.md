@@ -33,3 +33,25 @@ A locked figure is atomic by **adjacency equality**. After any edit to a block (
 | 3 | A manual save gated by `materials_pending` keeps an explicit **Save** (or **Try again**) action. Once recovery shows the gate has cleared (the other request is discarded or saved), re-arm the pending save and refresh the message. Never leave text that refers to changes that are already gone. |
 | 4 | The adopted-save failure path also resolves the adopting controller and shows its conflict, confirmation or retry controls. |
 | 5 | Covered by D26: classify by whole code points. Add a test for the shared-high-surrogate case. |
+
+## Added 12:30Z: QA phase 3 (`reports/qa-phase3/QA-REPORT-P3.md`), host-confirmed
+
+| # | Fix |
+|---|---|
+| 6 (P2, also on base) | **Stop is unreachable on a phone while you are on Chat or Versions.** At ≤599px, `.scribe__docpane` is `display:none` for `data-seg=chat` and `versions` (`scribe-v2.css` ~284-285). That hides `.scribe__stage`, and Stop with it. Fix it in CSS only, so that while a run is busy the stage line with Stop shows above the side panel on every segment, and the doc scroll and review bar stay hidden. This verified candidate passed in a browser with Stop visible and enabled at 308×231 and 44px tall: |
+
+```css
+jb-scribe.scribe .scribe__sheet[data-seg="chat"] .scribe__docpane,
+jb-scribe.scribe .scribe__sheet[data-seg="versions"] .scribe__docpane { display: contents; }
+jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) :is(.scribe__docscroll, .scribe__reviewbar) { display: none; }
+jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__stage:not(:has([data-scribe="stop"])) { display: none; }
+jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__body { grid-template-rows: auto minmax(0, 1fr); }
+jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__stage { grid-row: 1; }
+jb-scribe.scribe .scribe__sheet:not([data-seg="doc"]) .scribe__side { grid-row: 2; }
+```
+
+Add a red-first Playwright case for both documents at 375×667, on the Chat segment and again on Versions. Hold the POST open, then assert that `[data-scribe="stop"]` is visible, enabled, and has an in-viewport `boundingBox`, both before and after the proposal ID arrives. Then click Stop and assert "Stopping…". Run the visual spec afterwards. If a snapshot moves only because of this change, regenerate that one snapshot and name it.
+
+**QA-P3-OPENER: no change.** Not a product defect: Tab reaches the cover-letter Edit button on press 29 on both base and candidate. QA's probe read `activeElement.doc` instead of `data-feature`.
+
+**Fence extension for FIX4:** add `scribe-v2.css` and `tests/e2e-visual/scribe-v2.spec.mjs` with its snapshots, for item 6 only. No other lane writes them now.
