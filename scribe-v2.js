@@ -1021,7 +1021,7 @@
 
   function manualGateMessage(ctl) {
     ctl.manual.gated = true;
-    manualMessage(ctl, "error", "Review or discard the open changes first.", [["retry", "Try again", function () {
+    manualMessage(ctl, "error", manualBlocked(ctl) ? "Review or discard the open changes first." : "Not saved. Your text is kept.", [["retry", "Try again", function () {
       readOpen(ctl).then(function () { saveManual(ctl); });
     }]]);
   }
@@ -1083,7 +1083,11 @@
         manualMessage(owner, "error", "Not saved. Your text is kept." + (detail ? " " + detail : ""), [["retry", "Try again", function () { saveManual(owner); }]]);
         if (err && err.code === "materials_pending") {
           manualGateMessage(owner);
-          return readOpen(owner, true).then(function () { return false; });
+          var recovery = readOpen(owner, true), recoverySequence = owner.recoverySeq;
+          return recovery.then(function () {
+            if (!owner.closed && owner.manual === m && owner.recoverySeq === recoverySequence && dirtyManual(owner) && !m.saving) manualGateMessage(owner);
+            return false;
+          });
         }
       }
       return false;

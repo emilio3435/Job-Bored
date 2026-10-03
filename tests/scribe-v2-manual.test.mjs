@@ -536,3 +536,16 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F104 R5-#4 ${which} c
     t.ctl.close();
   }
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F105 R5-#5 ${which} pending without recoverable changes keeps truthful retry copy`, async () => {
+  for (const recovery of ['refused', 'missing-api', 'offline']) {
+    const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+    if (recovery !== 'missing-api') t.api.getOpenEdit = async () => { throw recovery === 'refused' ? { code: 'materials_pending', status: 409 } : new Error('offline'); };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush(); await settle();
+    assert.equal(t.ctl.refs.recover.hasAttribute('hidden'), true);
+    assert.equal(t.ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+    assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+    t.ctl.close('role-closed');
+  }
+});
