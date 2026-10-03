@@ -491,7 +491,7 @@ describe("A page given the same document again (F3-rebind)", () => {
     assert.equal(shownDoc(host, "a"), shown, "the previous page stays up");
     assert.equal(shown.keys(), 1, "and keeps forwarding keys");
     assert.equal(sheetBusy(host, "a"), "false");
-    assert.match(pane(host).querySelector(".scribe__compare-fig--a .scribe__compare-cap").textContent, /did not load/);
+    assert.match(pane(host).querySelector(".scribe__compare-fig--a .scribe__compare-cap").textContent, /didn’t load/);
   });
 });
 
@@ -573,3 +573,17 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.state.currentRunId, 'r2'); t.ctl.close();
   });
 }
+
+it('SCRP-R1-23 version load failures use literal copy and mapped next step', async () => {
+  const t = await openDesk();
+  t.api.preview = async () => { throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'Too many AI and rendering requests this minute.', 'Try again in 30 s.'); };
+  click(act(t.host, 'view', 'r0')); await settle();
+  assert.match(t.host.querySelector('.scribe__compare-cap').textContent, /didn’t load.*Too many requests right now.*Try again in 30 s\./); t.ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-R1-D19 ${which} Bring back passes its own doc`, async () => {
+  const t = await openDesk({ doc: which }); let body;
+  const restore = t.api.restore; t.api.restore = (id, request) => { body = plain(request); return restore(id); };
+  click(act(t.host, 'bring', 'r0')); click(act(t.host, 'confirm', 'r0')); await settle();
+  assert.deepEqual(body, { doc: which }); t.ctl.close();
+});

@@ -52,8 +52,8 @@
     if (code === "invalid_json" || code === "schema_invalid") code = "unreadable_reply";
     if (code === "writer_truncated") code = "reply_cut_off";
     if (code === "writer_blocked") code = "provider_refused";
-    if (code === "no_pin") code = "llm_unconfigured";
-    if (code === "network" || code === "timeout" || /^http_(?!429)/.test(code || "")) code = "provider_failed";
+    if (code === "no_pin" || /^http_(401|403|404)$/.test(code || "")) code = "llm_unconfigured";
+    if (code === "network" || code === "timeout" || /^http_5\d\d$/.test(code || "")) code = "provider_failed";
     var copy = {
       provider_failed: "The AI provider didn’t respond. Your document is unchanged.",
       unreadable_reply: "Scribe’s reply couldn’t be read. Your document is unchanged.",
@@ -63,12 +63,19 @@
       too_many_in_flight: "Too many requests right now. Try again in a minute. Your request is kept.",
       reply_cut_off: "Scribe’s reply was cut off. Your document is unchanged.",
       provider_refused: "The AI provider declined this request. Your document is unchanged. Try rewording it.",
-      llm_unconfigured: "No AI model is set up. Choose one in Settings, then try again.",
+      llm_unconfigured: "The AI model isn’t set up correctly. Check it in Settings, then try again.",
       materials_pending: "JobBored is still working on this role. Try again in a moment.",
       stale_base: "Not saved — a newer version exists.",
       server_unreachable: "Scribe can’t reach your JobBored server. Start it, then Retry.",
     };
     return copy[code] || "That didn’t work. Try again.";
+  }
+
+  function errorText(err, fallback) {
+    var mapped = errorCopy(err && err.code);
+    var message = mapped !== "That didn’t work. Try again." ? mapped : (err instanceof ScribeApiError ? safeText(err.message) : "") || fallback || mapped;
+    var fix = safeText(err && err.fix);
+    return message + (fix ? " " + fix : "");
   }
 
   function clientDoc(value) { return value === "coverLetter" ? "cover_letter" : value; }
@@ -232,7 +239,7 @@
     { event: "stage", data: { stage: "drafting" } },
     { event: "stage", data: { stage: "checking", done: 1, total: 3 } },
     { event: "op", data: { op: { opId: "o1", op: "replace", node: "b:acme:c14", text: "Measured carrier delays and reduced delays through a weekly operations dashboard." } } },
-    { event: "blocked", data: { op: { opId: "o4", op: "replace", node: "stmt", text: "Shortened the statement." }, reason: "locked", detail: "38%" } },
+    { event: "blocked", data: { op: { opId: "o4" }, reason: "locked", detail: "That would change a locked fact." } },
     { event: "stage", data: { stage: "measuring" } },
     { event: "proposal", data: { summary: { changes: 1, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 } } },
     { event: "done", data: { status: "ready" } },
@@ -446,7 +453,7 @@
     var prefix = opts.base + "/api/applications/" + encodeURIComponent(opts.slug);
 
     function errorFrom(res, body) {
-      var code = safeText(body && body.code) || "http_" + res.status;
+      var code = safeText(body && body.code) || "status_" + res.status;
       var message = safeText(body && body.message) || safeText(body && body.error) || errorCopy(code);
       var err = new ScribeApiError(res.status, code, message, safeText(body && (body.fix || body.nextStep)) || null);
       err.detail = safeText(body && body.detail) || null;
@@ -529,7 +536,7 @@
       acceptEdit: function (id, body) { return call("POST", "/edits/" + encodeURIComponent(id) + "/accept", body, true); },
       rejectEdit: function (id) { return call("DELETE", "/edits/" + encodeURIComponent(id)); },
       manualEdit: function (body) { return call("POST", "/edits/manual", body, true); },
-      restore: function (runId) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", {}, true); },
+      restore: function (runId, body) { return call("POST", "/versions/" + encodeURIComponent(runId) + "/restore", body || {}, true); },
       star: function (runId, starred) { return call("PUT", "/versions/" + encodeURIComponent(runId) + "/star", { starred: !!starred }); },
     };
   }
@@ -541,6 +548,7 @@
     client.propose = function (body) {
       return startEdit(body).catch(function (err) {
         if (!err || err.status !== 409 || err.code !== "stale_base") throw err;
+        if (Array.isArray(body.scope)) throw new ScribeApiError(409, "selection_stale", "Your selection changed. Select the text again.");
         return client.listVersions(body.doc).then(function (listing) {
           var retry = {};
           Object.keys(body).forEach(function (k) { retry[k] = body[k]; });
@@ -581,6 +589,7 @@
     resolveMode: resolveMode,
     ScribeApiError: ScribeApiError,
     errorCopy: errorCopy,
+    errorText: errorText,
     STUB_FIXTURES: { model: STUB_MODEL, nodes: STUB_NODES, transcript: STUB_TRANSCRIPT },
   };
 })(typeof window !== "undefined" ? window : globalThis);

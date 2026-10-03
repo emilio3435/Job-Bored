@@ -193,7 +193,7 @@ describe("A proposal lands as marks on the render", () => {
     ] });
     const lines = env.host.querySelectorAll(".scribe__msg--blocked").map((m) => m.textContent);
     assert.deepEqual(plain(lines), [
-      "Blocked: “2019–2023” is a locked fact.",
+      "Blocked: that would change a locked fact.",
       "Blocked: that change was outside what you asked Scribe to edit.",
     ]);
   });
@@ -356,7 +356,7 @@ describe("Stop", () => {
     const p = env.ctl.state.proposal;
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. 2 changes ready to review\./);
     assert.match(bar(env).textContent, /Save as v5/);
     press(env, "j");
     press(env, "a");
@@ -372,7 +372,7 @@ describe("Stop", () => {
     assert.ok(p, "the proposal is kept");
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. 2 changes ready to review\./);
     assert.doesNotMatch(env.host.querySelector(".scribe__log").textContent, /No changes suggested/);
     assert.match(bar(env).textContent, /Save as v5/);
   });
@@ -422,4 +422,10 @@ describe("Targets (SPEC §4, Grok F2-HIT)", () => {
     const small = [...desktop.matchAll(/min-height:\s*(\d+)px/g)].map((m) => Number(m[1])).filter((n) => n < 32);
     assert.deepEqual(small, [], "no desktop control under 32px");
   });
+});
+
+it('SCRP-F57 review has exactly one Discard control after Reject all', async () => {
+  const env = await openWithProposal({ ops: OPS.slice(0, 2) });
+  click(bar(env).querySelector('[data-review="reject-all"]'));
+  assert.equal(bar(env).querySelectorAll('[data-review="discard"]').length, 1); env.ctl.close();
 });

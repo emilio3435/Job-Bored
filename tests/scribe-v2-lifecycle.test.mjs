@@ -539,12 +539,12 @@ describe('SCRP-F6 ASTRA-01 persisted recovery for both documents', () => {
       const t = reliabilityApi(which); const ctl = t.mount(); await flush(); await t.submit(ctl);
       const p = ctl.state.proposal;
       t.api.rejectEdit = async () => { throw Object.assign(new Error('failed'), { status: 503 }); };
-      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
       assert.equal(ctl.state.proposal, p); assert.match(ctl.refs.status.textContent, /still open/);
-      assert.ok(ctl.refs.recover.querySelector('[data-action="discard-request"]'));
+      assert.ok(ctl.refs.reviewbar.querySelector('[data-review="discard"]'));
       const before = t.calls.filter(c => c[0] === 'open').length;
       t.api.rejectEdit = async () => { t.api.open = null; throw Object.assign(new Error('gone'), { status: 404 }); };
-      tap(ctl.refs.recover.querySelector('[data-action="discard-request"]')); await flush();
+      tap(ctl.refs.reviewbar.querySelector('[data-review="discard"]')); await flush();
       assert.equal(t.calls.filter(c => c[0] === 'open').length, before + 1);
       assert.equal(ctl.state.proposal, null); ctl.close();
     });
@@ -639,6 +639,145 @@ for (const which of ['resume', 'cover_letter']) {
     tap(ctl.refs.stage.querySelector('[data-scribe="stop"]')); await flush();
     assert.doesNotMatch(ctl.refs.log.textContent, /Stopped/);
     assert.ok(ctl.refs.recover.querySelector('[data-action="stop-request"]'));
-    assert.equal(ctl.state.proposal.id, 'p1'); ctl.close();
+    assert.equal(ctl.openProposal.proposalId, 'p1'); ctl.close();
   });
 }
+
+it('SCRP-R1-9 Continue then Discard aborts the request and permits Send', async () => {
+  const t = reliabilityApi(); t.env.win.AbortController = AbortController; const pending = defer(); let signal;
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [] };
+  t.api.stream = async (_id, handlers) => { signal = handlers.signal; return pending.promise; };
+  const ctl = t.mount(); await flush();
+  const discard = ctl.refs.recover.querySelector('[data-action="discard-request"]');
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true, 'running request has no recovery controls');
+  tap(discard); await flush();
+  assert.equal(signal.aborted, true); assert.equal(ctl.state.busy, false); assert.equal(ctl.state.stage, null);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
+  pending.resolve(); ctl.close();
+});
+
+it('SCRP-R1-10 locked blocks use fixed copy rather than echoing detail', async () => {
+  const t = reliabilityApi();
+  t.api.stream = async (_id, h) => { h.onEvent({ event: 'blocked', data: { op: { opId: 'locked' }, reason: 'locked', detail: 'That would change a locked fact.' } }); h.onEvent({ event: 'done', data: { status: 'ready' } }); };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.log.querySelector('.scribe__msg--blocked').textContent, 'Blocked: that would change a locked fact.'); ctl.close();
+});
+
+for (const rejected of [false, true]) it(`SCRP-R1-11 stop ${rejected ? 'rejection hydrates terminal state' : 'keeps late stream frames'}`, async () => {
+  const t = reliabilityApi(); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; };
+  t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } });
+  handlers.onEvent({ event: 'proposal', data: { summary: { changes: 1, wordsDelta: -2 } } });
+  handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  assert.equal(ctl.state.proposal.ops.length, 1, 'validated frames survive a pending stop');
+  assert.equal(ctl.state.proposal.summary.wordsDelta, -2);
+  if (rejected) {
+    t.api.open = { proposalId: ctl.state.proposal.id, doc: 'resume', baseRunId: 'r2', status: 'ready', ops: [ROP] };
+    reply.reject({ code: 'proposal_not_running' });
+  } else reply.resolve({ status: 'partial', ops: [ROP] });
+  await flush();
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.request, null);
+  assert.equal(ctl.state.proposal.status, rejected ? 'ready' : 'partial');
+  assert.notEqual(ctl.refs.status.getAttribute('data-state'), 'error');
+  assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  stream.resolve(); ctl.close();
+});
+
+it('SCRP-R1-13 known server errors use copy plus nextStep', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  const rec = t.env.win.JBScribeApi.create({ slug: 'acme-example', base: 'http://127.0.0.1:1', fetchImpl: async () => ({ ok: false, status: 429, text: async () => JSON.stringify({ error: 'Too many AI and rendering requests this minute.', code: 'rate_limited', retryable: true, nextStep: 'Try again in 30 s.' }) }) });
+  t.api.propose = body => rec.propose(body);
+  await t.submit(ctl);
+  assert.equal(ctl.refs.statusText.textContent, 'Too many requests right now. Try again in a minute. Your request is kept. Try again in 30 s.'); ctl.close();
+});
+
+for (const state of ['pending', 'ready', 'partial']) it(`SCRP-R1-14 recovered ${state} controls respect terminal readiness`, async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: state, ops: [ROP] };
+  const ctl = t.mount(); await flush();
+  assert.equal(!!ctl.refs.rail.querySelector('[data-review="accept"]'), state !== 'pending');
+  assert.equal(!!ctl.refs.reviewbar.querySelector('[data-review="save"]'), state !== 'pending'); ctl.close();
+});
+
+it('SCRP-R1-15 late save clears the matching unfinished-save gate', async () => {
+  const t = reliabilityApi(); const saved = defer(); t.api.acceptEdit = () => saved.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const id = ctl.state.proposal.id;
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+  t.api.open.status = 'accepting'; ctl.setDoc('cover_letter'); await flush();
+  assert.equal(ctl.openProposal.proposalId, id);
+  t.api.open = null; saved.resolve({ run: { runId: 'r3', n: 3 } }); await flush();
+  assert.equal(ctl.openProposal, null); await t.submit(ctl, 'Next request');
+  assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
+});
+
+it('SCRP-R1-16 per-op validation blocks stay in the log', async () => {
+  const t = reliabilityApi();
+  t.api.stream = async (_id, h) => { h.onEvent({ event: 'blocked', data: { op: { opId: 'bad-layout' }, reason: 'invalid_model' } }); h.onEvent({ event: 'op', data: { op: ROP } }); h.onEvent({ event: 'done', data: { status: 'ready' } }); };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.notEqual(ctl.refs.status.getAttribute('data-state'), 'error'); assert.equal(ctl.state.proposal.failure, undefined);
+  assert.match(ctl.refs.log.textContent, /Blocked: that change doesn’t fit/); ctl.close();
+});
+
+it('SCRP-R1-17 Continue recreates a missing local proposal', async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', instruction: 'Earlier request', status: 'pending', ops: [] };
+  const ctl = t.mount(); await flush(); ctl.state.proposal = null;
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.state.proposal?.id, 'earlier'); assert.equal(ctl.state.proposal?.ops.length, 1); ctl.close();
+});
+it('SCRP-R1-17 programmer exceptions never appear as user-facing server copy', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  t.api.propose = async () => { throw new Error('TypeError: internal controller detail'); };
+  await t.submit(ctl); assert.equal(ctl.refs.statusText.textContent, 'That didn’t work. Try again.'); ctl.close();
+});
+
+it('SCRP-R1-18 active proposals have no recovery banner or lost-choice warning', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  assert.doesNotMatch(ctl.refs.statusText.textContent, /choices weren’t kept/); ctl.close();
+});
+it('SCRP-R1-18 only ready recovered proposals warn about lost choices', async () => {
+  const t = reliabilityApi(); t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r2', status: 'pending', ops: [ROP] };
+  const ctl = t.mount(); await flush(); assert.doesNotMatch(ctl.refs.statusText.textContent, /choices weren’t kept/); ctl.close();
+});
+
+it('SCRP-R1-19 starting and successfully finishing clears obsolete status', async () => {
+  const t = reliabilityApi(); const ctl = t.mount(); await flush();
+  t.api.propose = async () => { throw { code: 'rate_limited' }; }; await t.submit(ctl);
+  assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  let statusAtPost; t.api.propose = async () => { statusAtPost = ctl.refs.status.hasAttribute('hidden'); return { proposalId: 'next' }; };
+  await t.submit(ctl); assert.equal(statusAtPost, true); assert.equal(ctl.refs.status.hasAttribute('hidden'), true);
+  await t.submit(ctl, 'Blocked second request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
+  ctl.setDoc('cover_letter'); await flush(); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();
+});
+
+it('SCRP-R1-20 an older initial load cannot overwrite the exact recovered base', async () => {
+  const t = reliabilityApi(); const first = defer(); let reads = 0;
+  t.api.listVersions = async () => { if (++reads === 1) return first.promise; return { currentRunId: 'r2', versions: [{ runId: 'r2', n: 2 }, { runId: 'r1', n: 1 }] }; };
+  const ctl = t.mount(); await flush();
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r1', status: 'ready', ops: [ROP] };
+  // A materials-pending reply reads the open proposal while the initial list is pending.
+  ctl.state.loading = false;
+  t.api.propose = async () => { throw { code: 'materials_pending' }; }; await t.submit(ctl); await flush();
+  assert.equal(ctl.state.currentRunId, 'r1');
+  first.resolve({ currentRunId: 'r2', versions: [{ runId: 'r2', n: 2 }] }); await flush();
+  assert.equal(ctl.state.currentRunId, 'r1'); assert.equal(ctl.refs.frame.srcdoc, '<p data-node="b:acme:c14">r1 original block</p>'); ctl.close();
+});
+
+it('SCRP-R1-21 a saved response without n never invents a version number', async () => {
+  const t = reliabilityApi(); t.api.acceptEdit = async () => { t.api.open = null; return { textSaved: true, run: { runId: 'r3', pdf: 'stale' } }; };
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]')); await flush();
+  assert.equal(ctl.refs.statusText.textContent, 'Text saved as a new version. PDF unavailable — it’s rebuilt on your next save.'); ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F58 ${which} recovery Review opens the Doc segment on phones`, async () => {
+  const t = reliabilityApi(which); t.env.win.matchMedia = () => ({ matches: true });
+  t.api.open = { proposalId: 'earlier', doc: which, baseRunId: 'r1', status: 'ready', ops: [ROP] };
+  const ctl = t.mount(); await flush(); ctl.setSeg('chat');
+  tap(ctl.refs.recover.querySelector('[data-action="review-request"]')); await flush();
+  assert.equal(ctl.state.seg, 'doc'); assert.equal(ctl.refs.segs[0].getAttribute('aria-selected'), 'true'); ctl.close();
+});

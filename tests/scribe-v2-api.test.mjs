@@ -23,7 +23,11 @@ import { deriveNodes } from "../server/materials-nodes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(repoRoot, rel), "utf8");
-const fixture = (name) => JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+const fixture = (name) => {
+  const data = JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+  return name === 'sse-transcript.json' ? data.map(frame => frame.event === 'blocked'
+    ? { event: 'blocked', data: { op: { opId: 'o4' }, reason: 'locked', detail: 'That would change a locked fact.' } } : frame) : data;
+};
 
 const BASE = "http://127.0.0.1:3847";
 const SLUG = "acme-platform-engineer";
@@ -449,7 +453,7 @@ describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
       ['error', 'http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
       ['error', 'writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
       ['error', 'writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
-      ['error', 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.', 'Settings'],
+      ['error', 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.', 'Settings'],
     ]) {
       it(`SCRP-F13 ${which} ${channel} ${code} uses safe per-code copy and action`, async () => {
         const data = channel === 'blocked' ? { reason: code, detail: '/private/secret/raw-provider-payload' } : { code, message: '<script>raw provider payload</script>' };
@@ -481,7 +485,7 @@ for (const which of ['resume', 'cover_letter']) {
 for (const which of ['resume', 'cover_letter']) {
   it(`SCRP-F33 ${which} HTTP no-model has Settings and a kept request`, async () => {
     const t = await outcomeDesk(which); t.ctl.close();
-    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'No AI model is set up. Choose one in Settings, then try again.'); };
+    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.'); };
     const ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await t.flush();
     ctl.refs.prompt.value = 'Keep this request'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await t.flush();
     assert.equal(ctl.refs.statusAction.textContent, 'Settings');
@@ -498,3 +502,33 @@ for (const which of ['resume', 'cover_letter']) {
     assert.equal(t.ctl.state.proposal.id, 'p1'); t.ctl.close();
   });
 }
+
+it('SCRP-F48 GAP-02 scoped stale starts never retry against another base', async () => {
+  const { JBScribeApi } = loadApi();
+  const fetcher = recordingFetch(() => response(409, { code: 'stale_base', error: 'Newer version.' }));
+  const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: fetcher.fetchImpl });
+  await assert.rejects(api.propose({ doc: 'resume', baseRunId: 'r0', scope: ['b:acme:c14'], instruction: 'Shorten.', lockFacts: true }), err => err.code === 'selection_stale');
+  assert.equal(fetcher.calls.length, 1);
+});
+
+it('SCRP-R1-12 bodiless local HTTP failures never become writer failures', async () => {
+  for (const status of [401, 403, 404, 429, 503]) {
+    const { JBScribeApi } = loadApi();
+    const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: async () => response(status, null, { text: '' }) });
+    await assert.rejects(client.listVersions('resume'), err => {
+      assert.equal(err.code, `status_${status}`); assert.equal(err.message, 'That didn’t work. Try again.'); return true;
+    });
+  }
+});
+
+it('SCRP-R1-D19 restore sends the desk document', async () => {
+  const { JBScribeApi } = loadApi(); const rec = recordingFetch(() => response(200, { run: { runId: 'r3', n: 1 } }));
+  const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: rec.fetchImpl });
+  await client.restore('r0', { doc: 'cover_letter' }); assert.deepEqual(rec.calls[0].body, { doc: 'cover_letter' });
+});
+
+it('SCRP-R1-D20 writer auth and missing-model codes direct users to Settings', () => {
+  const { JBScribeApi } = loadApi();
+  for (const code of ['http_401', 'http_403', 'http_404', 'llm_unconfigured', 'no_pin']) assert.equal(JBScribeApi.errorCopy(code), 'The AI model isn’t set up correctly. Check it in Settings, then try again.');
+  for (const code of ['network', 'timeout', 'http_500', 'http_503']) assert.equal(JBScribeApi.errorCopy(code), 'The AI provider didn’t respond. Your document is unchanged.');
+});

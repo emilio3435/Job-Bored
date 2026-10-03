@@ -501,7 +501,8 @@
         /* The page already shown stays up; keep it listening. */
         watchFig(fig);
         fig.box.setAttribute("aria-busy", "false");
-        fig.caption.textContent += " — " + ((err && err.message) || "this version did not load.");
+        var explanation = root.JBScribeApi && root.JBScribeApi.errorText ? root.JBScribeApi.errorText(err) : "That didn’t work. Try again.";
+        fig.caption.textContent += " — This version didn’t load. " + explanation;
       });
     }
 
@@ -662,7 +663,9 @@
 
     /* ---------- modes ---------- */
 
-    function enter(mode, a, b, opener) {
+    function enter(mode, a, b, opener, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { enter(mode, a, b, opener, true); });
+      if (typeof ctl.invalidateSelection === "function") ctl.invalidateSelection();
       var token = ++ui.token;
       var wasOpen = !!ui.mode;
       ui.mode = mode;
@@ -744,9 +747,9 @@
       compareWith(null, opener || doc.activeElement);
     };
 
-    ui.view = function (runId, opener) {
+    ui.view = function (runId, opener, keepDraft) {
       if (!byId(runId)) return;
-      enter("view", runId, null, opener);
+      enter("view", runId, null, opener, keepDraft);
     };
 
     ui.exit = exit;
@@ -760,7 +763,8 @@
       if (target && typeof target.focus === "function") target.focus();
     }
 
-    function askBringBack(runId) {
+    function askBringBack(runId, approved) {
+      if (!approved && typeof ctl.guardNavigation === "function") return ctl.guardNavigation(function () { askBringBack(runId, true); });
       var v = byId(runId);
       if (!v || v.runId === ctl.state.currentRunId) return;
       if (ctl.state.busy) { announce("Wait for Scribe to finish, or press Stop.", true); return; }
@@ -788,7 +792,7 @@
       var proposal = ctl.state.proposal;
       ui.restoring = true;
       deps.renderVersions();
-      ctl.api.restore(runId).then(function (res) {
+      ctl.api.restore(runId, { doc: which }).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
         if (ctl.closed || generation !== ctl.generation) {
@@ -803,7 +807,7 @@
         }) : Promise.resolve();
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
         var unavailable = res && res.textSaved || res && res.run && res.run.pdf === "stale";
-        var msg = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
+        var msg = unavailable ? (n == null ? "Text saved as a new version." : "Text saved as v" + n + ".") + " PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
         if (deps.setStatus) deps.setStatus(unavailable ? "saved-pdf-unavailable" : "saved", msg);
         deps.logMessage("note", [msg]);
         return rejected.then(function () {
@@ -815,8 +819,8 @@
         if (ctl.closed || generation !== ctl.generation) return;
         deps.renderVersions();
         var mapped = root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(err && err.code) : "That didn’t work. Try again.";
-        var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : (err && err.message) || mapped;
-        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+        var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : root.JBScribeApi.errorText(err);
+        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin" || /^http_(401|403|404)$/.test(err.code || ""));
         if (deps.setStatus) deps.setStatus("error", msg, settings ? "Settings" : "Try again", function () {
           if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
           else confirmBringBack();
