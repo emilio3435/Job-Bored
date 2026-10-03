@@ -781,3 +781,16 @@ for (const which of ['resume', 'cover_letter']) it(`SCRP-F58 ${which} recovery R
   tap(ctl.refs.recover.querySelector('[data-action="review-request"]')); await flush();
   assert.equal(ctl.state.seg, 'doc'); assert.equal(ctl.refs.segs[0].getAttribute('aria-selected'), 'true'); ctl.close();
 });
+
+for (const which of ['resume', 'cover_letter']) it(`SCRP-F74 R2-#5 ${which} interrupted pending streams expose Continue Stop and Discard`, async () => {
+  const t = reliabilityApi(which); const stream = defer(); t.api.stream = () => stream.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  stream.reject({ code: 'network' }); await flush();
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.state.proposal.status, 'pending');
+  assert.equal(ctl.refs.recover.hasAttribute('hidden'), false);
+  for (const action of ['continue-request', 'stop-request', 'discard-request']) assert.ok(ctl.refs.recover.querySelector(`[data-action="${action}"]`));
+  t.api.stream = async () => new Promise(() => {});
+  tap(ctl.refs.recover.querySelector('[data-action="continue-request"]')); await flush();
+  assert.equal(ctl.state.busy, true); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true); ctl.close();
+});

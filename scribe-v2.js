@@ -1058,7 +1058,9 @@
     var rows = ctl.openProposals || (ctl.openProposal ? [ctl.openProposal] : []);
     if (ctl.request && ctl.state.busy) rows = rows.filter(function (p) { return p.proposalId !== ctl.request.proposalId; });
     rows = rows.filter(function (p) {
-      return !ctl.state.proposal || ctl.state.proposal.id !== p.proposalId || p.baseRunId !== ctl.state.latestRunId;
+      var current = ctl.state.proposal;
+      return !current || current.id !== p.proposalId || p.baseRunId !== ctl.state.latestRunId ||
+        !reviewReady(current) || !current.changes || !current.changes.length;
     });
     if (!rows.length) { r.setAttribute("hidden", ""); r.removeAttribute("data-recover-doc"); return; }
     r.removeAttribute("hidden");
