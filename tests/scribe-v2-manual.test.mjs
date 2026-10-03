@@ -376,7 +376,13 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D2
     inner.dispatchEvent({ type: 'dblclick', target: els[0] });
     const staged = edge === 'after' ? base.replace('38', '38 ,000') : base.replace('38', ',000 38');
     els[0].textContent = staged; inner.dispatchEvent({ type: 'input', target: els[0] });
-    assert.equal(els[0].textContent, staged, 'unchanged immediate neighbours permit distant edits');
+    // D28 now treats a single space between numeric components as part of the run.
+    if (edge === 'before') {
+      assert.equal(els[0].textContent, base, 'grouped numeric prefix is blocked before it can be joined');
+      assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+      ctl.close('role-closed'); continue;
+    }
+    assert.equal(els[0].textContent, staged, 'a space before punctuation still separates the runs');
     const separator = edge === 'after' ? at + 2 : at + 4;
     caret(inner, els[0], separator + 1);
     const deletion = { type: 'beforeinput', target: els[0], inputType: 'deleteContentBackward', data: null };
@@ -583,5 +589,18 @@ for (const which of ['resume', 'cover_letter']) for (const channel of ['beforein
       ['Hit `38%` across teams.', 'Hit `38%` across all teams.'],
       ['Cut defects 38%*5 across teams.', 'Cut defects 38%*50 across teams.'],
     ]) await checkNumericRun(which, base, after, after.includes('*50'), ['38%'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F110 R6-#1 ${which} ${channel} D28 blocks value-changing figure attachments`, async () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      await checkNumericRun(which, 'Processed 38 shipments.', `Processed ${figure} shipments.`, true, ['38'], channel);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) await checkNumericRun(which, base, after, false, ['38'], channel);
   });
 }

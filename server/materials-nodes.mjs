@@ -141,19 +141,19 @@ function normalizedNumericText(value) {
 
 /** @param {string} text @param {number} start @param {number} end */
 function numericRun(text, start, end) {
-  while (start > 0) {
-    const prev = Array.from(text.slice(0, start)).at(-1) || "";
-    const before = Array.from(text.slice(0, start - prev.length)).at(-1) || "";
-    if (!/[\p{L}\p{N}%$€£¥]/u.test(prev) && !(/[.,]/.test(prev) && /\p{N}/u.test(before))) break;
-    start -= prev.length;
-  }
-  while (end < text.length) {
-    const next = String.fromCodePoint(text.codePointAt(end) || 0);
-    const after = String.fromCodePoint(text.codePointAt(end + next.length) || 0);
-    if (!/[\p{L}\p{N}%$€£¥]/u.test(next) && !(/[.,]/.test(next) && /\p{N}/u.test(after))) break;
-    end += next.length;
-  }
-  return [start, end];
+  const points = Array.from(text), offsets = [0];
+  for (const point of points) offsets.push(offsets[offsets.length - 1] + point.length);
+  let left = offsets.indexOf(start), right = offsets.indexOf(end);
+  if (left < 0 || right < 0) return [start, end];
+  const attached = /^[\p{L}\p{N}\p{M}\p{Cf}.,%‰$€£¥+\-−–—/:×x^']$/u;
+  /** Spaces bridge figure components, not a preceding prose word (D28 movement). */
+  const joins = (i) => /^[ \u00a0\u202f]$/.test(points[i]) &&
+    (/^[\p{N}%‰]$/u.test(points[i - 1] || "") && /^[\p{N}%‰]$/u.test(points[i + 1] || "") ||
+     /^[+\-−]$/.test(points[i - 1] || "") && /^\p{N}$/u.test(points[i + 1] || ""));
+  while (left > 0 && (attached.test(points[left - 1]) || joins(left - 1))) left--;
+  while (right < points.length && (attached.test(points[right]) || joins(right))) right++;
+  while (right > left && /^[.,:;–—\-/]$/.test(points[right - 1])) right--;
+  return [offsets[left], offsets[right]];
 }
 
 /** Match the locked base runs as a multiset, in any order, returning raw offsets.

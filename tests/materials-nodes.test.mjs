@@ -212,3 +212,21 @@ for (const doc of ['resume', 'coverLetter']) {
     assert.throws(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: 'Cut defects 38%*50 across teams.' }]), { reason: 'locked' });
   });
 }
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B70 R6-#1 ${doc} D28 blocks value-changing figure attachments atomically`, () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      const { before, id } = numericModel(doc, 'Processed 38 shipments.'), original = structuredClone(before);
+      assert.throws(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: `Processed ${figure} shipments.`, flags: ['unverified'] }]), { reason: 'locked' }, figure);
+      assert.deepEqual(before, original);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) {
+      const { before, id } = numericModel(doc, base);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: after }]));
+    }
+  });
+}
