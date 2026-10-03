@@ -107,3 +107,40 @@ for (const metric of ["38%", "58%"]) it(`GRADE-B FIX4-R4-2: claim-id-only resume
   await rescoreRun({ slug: "acme", runId: result.runId }, deps);
   assert.equal((await json(join(version, "qa.resume.json"))).disposition, metric === "38%" ? "READY" : "FAIL");
 }));
+
+for (const linked of [false, true]) it(`GRADE-B FIX5-R5-1: a borrowed two-sentence bullet stays unsupported ${linked ? "with an unverified c20 link" : "without links"}`, async () => application("resume", async ({ app, run, model, draft, draftName, ledger, deps }) => {
+  const costs = "Reduced carrier costs 38% through weekly audits.";
+  const handoff = "Documented handoff procedures for new coordinators.";
+  const borrowed = `${costs} ${handoff}`;
+  const bullets = model.documents.resume.sections[0].entries[0].bullets;
+  bullets[1] = { claimId: "c20", runs: [{ t: borrowed }] };
+  bullets[2] = { claimId: "c19", runs: [{ t: handoff }] };
+  // The older saved draft has only the verified c14 slot, not the neighbour.
+  draft.bullets = draft.bullets.slice(0, 1);
+  ledger.claims.find(c => c.id === "c20").verified = false;
+  const refs = { resume: linked ? [{ sentence: costs, claimIds: ["c20"] }] : [] };
+  const originalText = [draft.statement, ...bullets.map(b => b.runs[0].t)].join("\n");
+  assert.equal(runHardGates({ document: "resume", finalText: originalText, draft, ledger, sourceRefs: refs.resume }).find(g => g.id === "invented_fact").pass, false, "costs starts unsupported");
+  for (const dir of [app, run]) {
+    await save(join(dir, "render-model.json"), model);
+    await save(join(dir, draftName), draft);
+    await save(join(dir, "writer-sources.json"), refs);
+    const context = await json(join(dir, "judge-context.resume.json"));
+    context.ledger = ledger;
+    context.sources.claims.find(c => c.id === "claim:c20").verified = false;
+    await save(join(dir, "judge-context.resume.json"), context);
+    await writeFile(join(dir, "resume.txt"), originalText);
+  }
+  const before = await readFile(join(app, draftName), "utf8");
+  bullets[0].runs = [{ t: borrowed }];
+  bullets.splice(1, 1);
+  const result = await commitModelAsRun({ dir: app, model, feature: "resume", source: "edit", parentRunId: "original", edit: { prompt: "Replace first bullet and remove its old neighbour", accepted: ["replace-1", "remove-1"], rejected: [], ops: [
+    { opId: "replace-1", op: "replace", node: "b:acme:c14", text: borrowed }, { opId: "remove-1", op: "remove", node: "b:acme:c20" },
+  ] } }, deps);
+  const version = join(app, "runs", result.runId);
+  assert.equal((await json(join(version, "qa.resume.json"))).gates.find(g => g.id === "invented_fact").pass, false, "an existing unsupported sentence cannot borrow c14");
+  for (const dir of [app, run, version]) assert.equal(await readFile(join(dir, draftName), "utf8"), before);
+  assert.deepEqual(await json(join(version, "writer-sources.json")), refs);
+  await rescoreRun({ slug: "acme", runId: result.runId }, deps);
+  assert.equal((await json(join(version, "qa.resume.json"))).gates.find(g => g.id === "invented_fact").pass, false);
+}));
