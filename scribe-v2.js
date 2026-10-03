@@ -966,13 +966,18 @@
       ctl.recoverySeq++;
       m.saving = false; m.drafts = Object.create(null); m.base = null;
       emitSaved(ctl, res && res.run && res.run.runId, which);
-      if (ctl.closed || generation !== ctl.generation) return true;
+      var owner = ctl;
+      if (ctl.closed || generation !== ctl.generation) {
+        if (!active || active.closed || active.manual !== m || active.state.doc !== which) return true;
+        owner = active; owner.recoverySeq++;
+      }
+      owner.refs.unsaved.setAttribute("hidden", "");
       var n = res.n == null ? res.run && res.run.n : res.n;
       var text = n == null ? "Text saved as a new version." : res.textSaved ? "Text saved as v" + n + "." : "Saved as v" + n;
       if (res.textSaved) text += " PDF unavailable — it’s rebuilt on your next save.";
-      manualMessage(ctl, "saved", text);
-      if (res.textSaved) status(ctl, "saved-pdf-unavailable", text);
-      return loadDoc(ctl, true).then(function () { return true; });
+      manualMessage(owner, "saved", text);
+      if (res.textSaved) status(owner, "saved-pdf-unavailable", text);
+      return loadDoc(owner, true).then(function () { return true; });
     }).catch(function (err) {
       m.saving = false;
       if (ctl.closed || generation !== ctl.generation) return false;

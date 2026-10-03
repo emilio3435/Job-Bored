@@ -246,3 +246,19 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 R3-#2 F42/F72 ${w
   inner.dispatchEvent({ type: 'focusout', target: els[0] });
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} adopted in-flight save refreshes the reopened desk`, async () => {
+  let finish; const pending = new Promise(resolve => { finish = resolve; });
+  const { win, api, ctl, inner, els, edit, flush, calls } = await desk(which, () => pending);
+  edit(els[0], 'Tracked operations.'); await flush(); assert.equal(ctl.manual.saving, true);
+  ctl.close('role-closed');
+  const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+  reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+  assert.equal(reopened.manual, ctl.manual); assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+  api.listVersions = async () => ({ currentRunId: 'r1', versions: [{ runId: 'r1', n: 1 }, { runId: 'r0', n: 0 }] });
+  finish({ run: { runId: 'r1', n: 1 } }); await settle(); await settle();
+  assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+  assert.equal(reopened.state.currentRunId, 'r1'); assert.equal(reopened.state.latestRunId, 'r1');
+  assert.equal(reopened.manual.saving, false); assert.equal(Object.keys(reopened.manual.drafts).length, 0);
+  assert.match(reopened.refs.manualState.textContent, /Saved as v1/); assert.equal(calls.length, 1); reopened.close();
+});
