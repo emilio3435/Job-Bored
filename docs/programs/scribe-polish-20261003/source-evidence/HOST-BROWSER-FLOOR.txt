@@ -1,0 +1,12 @@
+
+Running 5 tests using 1 worker
+
+(node:98973) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e-journey/scribe-edit-journey.spec.mjs:156:1 › should take a resume from Edit through review, save, stop, compare and bring back (4.0s)
+  ✓  2 tests/e2e-journey/scribe-v2-desk.spec.mjs:186:1 › should open the desk from a role's Edit button and return focus on close (4.3s)
+  ✓  3 tests/e2e-journey/scribe-v2-desk.spec.mjs:286:1 › should fit a phone: one pane at a time, 44px targets, no sideways scroll (1.8s)
+  ✓  4 tests/e2e-journey/scribe-v2-desk.spec.mjs:341:1 › should call the live routes, not the fixtures, when no stub flag is set (1.5s)
+  ✓  5 tests/e2e-journey/scribe-v2-desk.spec.mjs:376:1 › should view, compare and bring back versions at 1440 and 390 (3.6s)
+
+  5 passed (16.0s)

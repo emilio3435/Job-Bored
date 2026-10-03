@@ -1,0 +1,13 @@
+{
+  "proof": "instrumented source-copy scheduling probe; real service and persistence, injected valid proposal",
+  "heldBoundary": "after measuring persistence, before ready assignment",
+  "stopReply": "partial",
+  "persistedAfterStop": "partial",
+  "persistedAfterProcess": "ready",
+  "doneEvents": [
+    "partial",
+    "ready"
+  ],
+  "operationCount": 1,
+  "modelChanged": false
+}

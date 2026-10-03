@@ -1,0 +1,7 @@
+{
+  "family": "opus",
+  "model": "claude-opus-5-5",
+  "effort": "high",
+  "source": "explicit user request 2026-10-03",
+  "scope": "receiving orchestrator and its restarts"
+}

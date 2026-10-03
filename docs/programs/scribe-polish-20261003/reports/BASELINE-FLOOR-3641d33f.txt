@@ -1,0 +1,50 @@
+## A 2026-10-03T06:48:01Z HEAD 3641d33fc26e20c22c7a22c15e600ccba8a7de45
+  ✔ passes the materials job deadline signal to each writer and judge (21.683958ms)
+  ✔ G4: gives each document its own sentence-linked voice, metric and scope advisory (22.197333ms)
+  ✔ B1: rejects an empty ledger before any writer call (1.296042ms)
+✔ MREV B1 pipeline (856.074083ms)
+ℹ tests 100
+ℹ suites 4
+ℹ pass 100
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2789.5515
+exit 
+## B
+  ✔ should reload the page rather than keep stale marks (3.523208ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (3.592375ms)
+ℹ tests 137
+ℹ suites 39
+ℹ pass 137
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 117.645
+exit 
+## C
+
+Running 5 tests using 1 worker
+
+  ✓  1 tests/e2e-journey/scribe-edit-journey.spec.mjs:156:1 › should take a resume from Edit through review, save, stop, compare and bring back (4.3s)
+  ✓  2 tests/e2e-journey/scribe-v2-desk.spec.mjs:186:1 › should open the desk from a role's Edit button and return focus on close (4.3s)
+  ✓  3 tests/e2e-journey/scribe-v2-desk.spec.mjs:286:1 › should fit a phone: one pane at a time, 44px targets, no sideways scroll (1.9s)
+  ✓  4 tests/e2e-journey/scribe-v2-desk.spec.mjs:341:1 › should call the live routes, not the fixtures, when no stub flag is set (1.6s)
+  ✓  5 tests/e2e-journey/scribe-v2-desk.spec.mjs:376:1 › should view, compare and bring back versions at 1440 and 390 (3.8s)
+
+  5 passed (17.2s)
+exit 
+## materials-contract
+OK budget: statement 28 words passes
+OK budget: statement 48 words passes
+OK budget: no capabilities section is never flagged
+OK budget: repair prompt names the table band 120–200
+OK budget: family signal letter band matches the table
+OK budget: family dossier letter band matches the table
+OK budget: family editorial letter band matches the table
+materials budget contract: no drift
+exit 
+
+[exited with code 0]

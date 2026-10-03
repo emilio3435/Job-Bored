@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "checked_at": "2026-09-28T21:04:55-05:00",
+  "families": {
+    "opus": {
+      "id": "claude-opus-5-5",
+      "version": [
+        5,
+        5
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "cursor-agent models"
+    },
+    "sonnet": {
+      "id": "claude-sonnet-5-5",
+      "version": [
+        5,
+        5
+      ],
+      "seen": "2026-09-28T21:04:55-05:00",
+      "source": "cursor-agent models (claude-sonnet-5-5-high listed); set by hand 2026-09-28: --apply adopts only families already locked. Id is the claude CLI's own, confirmed live in a claude-sonnet-5-5 session"
+    },
+    "sol": {
+      "id": "gpt-6.1-sol",
+      "version": [
+        6,
+        1
+      ],
+      "seen": "2026-09-29T16:53:06-05:00",
+      "source": "set by hand 2026-09-29 on Emilio's ruling (Sol 6.1 at xhigh implements FE and BE): not yet in codex-cache, so --apply cannot adopt it; live run confirmed in codex session 01a0ef28-37ee-75d2-833b-9bc4e02c402b"
+    },
+    "astra": {
+      "id": "gpt-6-astra",
+      "version": [
+        6,
+        0
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "codex-cache"
+    },
+    "grok": {
+      "id": "grok-4.7-build-fast",
+      "version": [
+        4,
+        7
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "grok models (fast variant; set by hand 2026-09-23: same 4.7 version, so --apply keeps the held id)"
+    },
+    "gemini": {
+      "id": "gemini-3.8-flash",
+      "version": [
+        3,
+        8
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "agy models"
+    },
+    "muse": {
+      "id": "muse-spark-1.3-contributor",
+      "version": [
+        1,
+        3
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "cursor-agent models"
+    },
+    "fable": {
+      "id": "claude-fable-5-1",
+      "version": [
+        5,
+        1
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "cursor-agent models"
+    },
+    "bench": {
+      "id": "gpt-6-luna",
+      "version": [
+        6,
+        0
+      ],
+      "seen": "2026-09-28T09:15:08-05:00",
+      "source": "codex-cache (flickers like sol); live run confirmed in codex session 01a0cbdf-eb2c-7fd0-955f-c3fd000698e7"
+    }
+  },
+  "pending": []
+}
