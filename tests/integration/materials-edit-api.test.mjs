@@ -1351,3 +1351,33 @@ it("SCRP-B26 R1-#7 proposal promise queues are pruned after terminal close, acce
   await svc.stop(stopped.slug, partial.proposalId);
   await drained(partial.proposalId);
 });
+
+
+it("SCRP-B28 R1-#25 production error envelope preserves a committed nonretryable 503", async () => {
+  // Import the real envelope while suppressing index's auto-start and startup migrations.
+  // No serving stack or default port is opened by this test.
+  const listen = express.application.listen;
+  let preventedStartup = false;
+  let withApiErrorEnvelope;
+  try {
+    express.application.listen = function () { preventedStartup = true; return this; };
+    ({ withApiErrorEnvelope } = await import("../../server/index.mjs"));
+  } finally { express.application.listen = listen; }
+  assert.equal(preventedStartup, true);
+  assert.equal(typeof withApiErrorEnvelope, "function", "the real production envelope must be exported");
+  const pkg = await seed();
+  browserAvailable = false;
+  let saved;
+  try { saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true); }
+  finally { browserAvailable = true; }
+  const body = withApiErrorEnvelope(saved.statusCode, saved.body);
+  assert.equal(saved.statusCode, 503);
+  assert.equal(body.retryable, false);
+  assert.equal(body.code, "browser_unavailable");
+  assert.deepEqual(body.run, saved.body.run);
+  assert.deepEqual(body.versions, saved.body.versions);
+  assert.equal(body.run.pdf, "stale");
+  assert.ok(body.run.runId);
+  assert.equal(body.versions[0].runId, body.run.runId);
+  assert.equal(withApiErrorEnvelope(503, { error: "A fictional transient failure", code: "internal_error" }).retryable, true);
+});
