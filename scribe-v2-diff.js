@@ -397,6 +397,7 @@
     var line = t("--jb-line", "currentColor");
     var inkSoft = t("--jb-ink-2", "currentColor");
     return [
+      "[data-node]:focus-visible{outline:2px solid " + t("--jb-focus-color", pending) + ";outline-offset:" + t("--jb-space-1", "4px") + "}",
       "[data-scribe-selected]{outline:2px solid " + t("--jb-focus-color", pending) + ";outline-offset:2px;background:" + t("--jb-info-tint", "transparent") + "}",
       "[data-scribe-editing]{outline:2px solid " + pending + ";outline-offset:2px;background:" + t("--jb-paper", "white") + ";white-space:pre-wrap}",
       "ins.scribe-mark{text-decoration:none;background:" + ins + ";box-shadow:inset 0 -2px 0 " + inkAccent + ";border-radius:2px}",

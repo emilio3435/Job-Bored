@@ -216,7 +216,7 @@
     r.frame = h("iframe", { class: "scribe__frame", sandbox: "allow-same-origin", title: "Document preview", tabindex: "-1" });
     r.pageBox = h("div", { class: "scribe__page" }, [r.frame]);
     r.docNote = h("p", { class: "scribe__docnote", hidden: true });
-    r.docscroll = h("div", { class: "scribe__docscroll", id: ids.doc, role: "region", tabindex: "-1", "aria-busy": "true" }, [r.docNote, r.pageBox]);
+    r.docscroll = h("div", { class: "scribe__docscroll", id: ids.doc, role: "region", tabindex: "0", "aria-busy": "true" }, [r.docNote, r.pageBox]);
     /* region:F2-marks — proposal marks and the margin rail render over
        the preview here, keyed by data-node inside the iframe. */
     /* The page and its margin rail sit side by side: the marks live in
@@ -687,7 +687,7 @@
     if (focus) {
       var target = ctl.scope && ctl.scope.anchor;
       ctl.selectionFocusReturn = true;
-      if (target && typeof target.focus === "function") target.focus();
+      if (target && typeof target.focus === "function") focusBlock(ctl, target);
       else ctl.refs.docscroll.focus();
       ctl.selectionFocusReturn = false;
     }
@@ -872,7 +872,7 @@
     el.textContent = text;
     m.active = { el: el, node: node, last: text, spans: spans };
     el.setAttribute("contenteditable", "plaintext-only"); el.setAttribute("data-scribe-editing", "");
-    el.setAttribute("tabindex", "0"); hideSelectionActions(ctl); el.focus();
+    hideSelectionActions(ctl); focusBlock(ctl, el);
     manualMessage(ctl, "editing", "Editing " + labelFor({ op: "replace", node: id }, frameNodes(frameDoc(ctl))) + ". Saves when you leave the block.");
   }
 
@@ -1040,13 +1040,81 @@
     el.querySelector("button").focus(); return false;
   }
 
+  function editableBlock(node) {
+    return node && ["statement", "intro", "bullet", "line", "toolkit", "salutation", "paragraph"].indexOf(node.kind) >= 0 && !(node.locked && node.locked.whole);
+  }
+
+  function documentBlocks(ctl) {
+    var inner = frameDoc(ctl), map = nodeMap(ctl);
+    return inner && typeof inner.querySelectorAll === "function" ? Array.prototype.filter.call(inner.querySelectorAll("[data-node]"), function (el) {
+      return map[el.getAttribute("data-node")] && !el.hasAttribute("hidden") &&
+        (typeof el.getClientRects !== "function" || el.getClientRects().length);
+    }) : [];
+  }
+
+  function currentBlock(ctl, el) {
+    var blocks = documentBlocks(ctl);
+    if (blocks.indexOf(el) < 0) return;
+    ctl.blockId = el.getAttribute("data-node");
+    blocks.forEach(function (block) { block.setAttribute("tabindex", block === el ? "0" : "-1"); });
+    announce(el.getAttribute("aria-label"));
+  }
+
+  function focusBlock(ctl, el) {
+    var blocks = documentBlocks(ctl);
+    el = el || blocks.filter(function (block) { return block.getAttribute("data-node") === ctl.blockId; })[0] || blocks[0];
+    if (!el) return;
+    currentBlock(ctl, el);
+    ctl.blockFocusMove = true; el.focus(); ctl.blockFocusMove = false;
+  }
+
+  function documentKey(ctl, e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    var blocks = documentBlocks(ctl), at = blocks.indexOf(e.target), key = e.key;
+    if (at < 0) return false;
+    if (key === "Escape") {
+      e.preventDefault();
+      if (ctl.manual.active) { var el = ctl.manual.active.el; finishManual(ctl); focusBlock(ctl, el); }
+      else if (!ctl.refs.selectionActions.hasAttribute("hidden")) hideSelectionActions(ctl, true);
+      else { ctl.docFocusReturn = true; ctl.refs.docscroll.focus(); ctl.docFocusReturn = false; }
+      return true;
+    }
+    if (ctl.manual.active) {
+      if (key !== "Tab") return false;
+      finishManual(ctl);
+    } else if (!ctl.state.proposal && (key === "ArrowDown" || key === "ArrowUp" || key === "j" || key === "k")) {
+      e.preventDefault(); hideSelectionActions(ctl);
+      focusBlock(ctl, blocks[(at + (key === "ArrowDown" || key === "j" ? 1 : -1) + blocks.length) % blocks.length]);
+      return true;
+    } else if (key === "Enter" || key === " " || key === "F2") {
+      e.preventDefault();
+      var inner = frameDoc(ctl), selection = inner.getSelection && inner.getSelection();
+      if (selection && selection.removeAllRanges) selection.removeAllRanges();
+      pickSelection(ctl, { type: "pointerup", target: e.target });
+      var node = nodeMap(ctl)[e.target.getAttribute("data-node")];
+      if (!editableBlock(node)) { hideSelectionActions(ctl); status(ctl, "selection", lockText(node)); }
+      else if (!ctl.refs.selectionActions.hasAttribute("hidden")) ctl.refs.selectionActions.querySelector("button").focus();
+      return true;
+    }
+    if (key !== "Tab") return false;
+    e.preventDefault();
+    if (!ctl.refs.selectionActions.hasAttribute("hidden")) {
+      var actions = ctl.refs.selectionActions.querySelectorAll("button");
+      actions[e.shiftKey ? actions.length - 1 : 0].focus();
+    } else {
+      var list = focusables(ctl), index = list.indexOf(ctl.refs.docscroll);
+      if (list.length) list[(index + (e.shiftKey ? -1 : 1) + list.length) % list.length].focus();
+    }
+    return true;
+  }
+
   function bindCapabilities(ctl, inner) {
     ensureMarkStyles(inner);
     ctl.frameHandlers = {
       selectionchange: function (e) { pickSelection(ctl, e); },
-      focusin: function (e) { pickSelection(ctl, e); },
+      focusin: function (e) { if (!ctl.blockFocusMove) { currentBlock(ctl, e.target); pickSelection(ctl, e); } },
       pointerup: function (e) { pickSelection(ctl, e); },
-      keyup: function (e) { if (!ctl.manual.active && /^(Arrow|Home|End|Page)/.test(e.key || "")) pickSelection(ctl, e); },
+      keyup: function (e) { if (!ctl.manual.active && !documentBlocks(ctl).some(function (block) { return block === e.target; }) && /^(Arrow|Home|End|Page)/.test(e.key || "")) pickSelection(ctl, e); },
       dblclick: function (e) { var el = e.target; while (el && !el.getAttribute("data-node")) el = el.parentElement; beginManual(ctl, el); },
       beforeinput: function (e) { manualBeforeInput(ctl, e); },
       input: function () { captureManual(ctl); },
@@ -1056,7 +1124,15 @@
     };
     Object.keys(ctl.frameHandlers).forEach(function (name) { inner.addEventListener(name, ctl.frameHandlers[name]); });
     var els = frameNodes(inner), map = nodeMap(ctl);
-    Object.keys(map).forEach(function (id) { if (els[id]) { els[id].setAttribute("tabindex", "0"); if (!ctl.state.proposal && ctl.manual.drafts[id]) els[id].textContent = ctl.manual.drafts[id].text; } });
+    var blocks = documentBlocks(ctl);
+    var current = blocks.filter(function (block) { return block.getAttribute("data-node") === ctl.blockId; })[0] || blocks[0];
+    Object.keys(map).forEach(function (id) {
+      if (!els[id]) return;
+      var node = map[id], locked = !editableBlock(node);
+      els[id].setAttribute("tabindex", els[id] === current ? "0" : "-1");
+      els[id].setAttribute("aria-label", labelFor({ op: "replace", node: id }, els) + ", " + (locked ? "locked" : "editable"));
+      if (!ctl.state.proposal && ctl.manual.drafts[id]) els[id].textContent = ctl.manual.drafts[id].text;
+    });
   }
 
   /* ---------------- Loading a document ---------------- */
@@ -1533,7 +1609,7 @@
      review bar. Nothing reaches disk until Save (SPEC §2). */
 
   var AUTO_SAVE_MS = 3000;
-  var FRAME_REVIEW_KEYS = { j: 1, k: 1, a: 1, r: 1, A: 1, d: 1, D: 1 };
+  var FRAME_REVIEW_KEYS = { j: 1, k: 1, a: 1, r: 1, A: 1, d: 1, D: 1, c: 1, C: 1, "/": 1, F6: 1 };
   var LOSS_BANNER_PCT = 20;
   var KIND_NAME = { stmt: "summary", intro: "intro", seat: "role title", line: "earlier role", cred: "education", sal: "greeting" };
   var DEFAULT_NOTE = { replace: "rewrite", insert: "new line", remove: "removal" };
@@ -2178,7 +2254,7 @@
       var last = list[list.length - 1];
       var activeEl = doc().activeElement;
       /* Focus on <body> or in the preview iframe is outside the trap. */
-      var outside = !within(r.sheet, activeEl) || activeEl === r.frame;
+      var outside = !within(r.sheet, activeEl) || list.indexOf(activeEl) < 0;
       if (e.shiftKey && (outside || activeEl === first)) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && (outside || activeEl === last)) { e.preventDefault(); first.focus(); }
       return;
@@ -2382,9 +2458,10 @@
     var r = this.refs;
     r.host.setAttribute("data-doc", this.state.doc);
     this.onKey = function (e) { onKeydown(self, e); };
-    /* Review keys (lane F2) work from inside the page too; c stays with
-       compare's own frames. */
+    /* Desk shortcuts also work in the main preview; comparison frames
+       keep their own key handlers. */
     this.onFrameKey = function (e) {
+      if (documentKey(self, e)) return;
       if (e.key === "Tab" && !self.manual.active && !self.refs.selectionActions.hasAttribute("hidden")) {
         e.preventDefault(); var actions = self.refs.selectionActions.querySelectorAll("button"); actions[e.shiftKey ? actions.length - 1 : 0].focus();
       } else if (e.key === "Escape" || e.key === "Tab" || FRAME_REVIEW_KEYS[e.key]) onKeydown(self, e);
@@ -2392,6 +2469,9 @@
         e.preventDefault(); self.refs.selectionActions.querySelector("button").focus();
       }
     };
+    this.onDocFocus = function () { if (!self.docFocusReturn && !self.closed) focusBlock(self); };
+    r.docscroll.addEventListener("focus", this.onDocFocus);
+    r.frame.addEventListener("focus", this.onDocFocus);
     this.onViewport = function () { fitViewport(self); };
     this.onHostClick = function (e) { onClick(self, e); };
     this.onSubmit = function (e) { e.preventDefault(); send(self); };
@@ -2447,6 +2527,8 @@
       root.visualViewport.removeEventListener("resize", this.onViewport);
       root.visualViewport.removeEventListener("scroll", this.onViewport);
     }
+    r.docscroll.removeEventListener("focus", this.onDocFocus);
+    r.frame.removeEventListener("focus", this.onDocFocus);
     r.host.removeEventListener("click", this.onHostClick);
     r.composer.removeEventListener("submit", this.onSubmit);
     r.prompt.removeEventListener("input", this.onInput);
