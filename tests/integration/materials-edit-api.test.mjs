@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -430,7 +430,7 @@ function streamEvents(res) {
   });
 }
 
-async function heldMeasuring({ fail = false } = {}) {
+async function heldMeasuring({ fail = false, reconnectWhileHeld = false } = {}) {
   const pkg = await seed();
   const entered = deferred(), release = deferred(), claimed = deferred(), finished = deferred();
   let held = false;
@@ -459,6 +459,15 @@ async function heldMeasuring({ fail = false } = {}) {
   await entered.promise;
   const stopping = svc.stop(pkg.slug, started.proposalId);
   await claimed.promise;
+  if (reconnectWhileHeld) {
+    const connected = deferred();
+    const reconnect = fakeStream();
+    reconnect.flushHeaders = connected.resolve;
+    const joining = svc.stream(pkg.slug, started.proposalId, new EventEmitter(), reconnect);
+    await connected.promise;
+    try { assert.deepEqual(streamEvents(reconnect).filter((row) => row.event === "done"), []); }
+    finally { release.resolve(); await joining; await stopping; }
+  }
   release.resolve(); // Release the serialized writer before awaiting Stop.
   const stopped = await stopping;
   await finished.promise;
@@ -487,6 +496,10 @@ it("SCRP-B2 processing exception after Stop preserves partial; repeated Stop and
   assert.equal(new Set(stored.ops.map((row) => row.opId)).size, stored.ops.length);
 });
 
+it("SCRP-B17 reconnect cannot replay a queued done before its snapshot persists", async () => {
+  await heldMeasuring({ reconnectWhileHeld: true });
+});
+
 it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async () => {
   const pkg = await seed();
   const entered = deferred(), release = deferred(), wrote = deferred(), claimed = deferred();
@@ -511,6 +524,117 @@ it("SCRP-B3 reject drains queued writes without resurrecting a proposal", async 
   await Promise.all([rejecting, wrote.promise]);
   await assert.rejects(readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`)), { code: "ENOENT" });
   res.emit("close");
+});
+
+async function storedProposal(pkg, overrides = {}) {
+  const id = randomUUID();
+  const row = { id, doc: "resume", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: new Date().toISOString(), status: "ready", ops: [op], events: [{ event: "blocked", data: { reason: "locked", detail: "Protected fact." } }], summary: { changes: 1 }, factCheck: "model", factCheckReason: "Checked.", targetPages: 1, chips: ["shorter"], dir: "private-path", profile: { private: true }, ...overrides };
+  await mkdir(join(pkg.dir, "proposals"), { recursive: true });
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify(row));
+  return row;
+}
+
+it("SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text", async () => {
+  for (const [code, expectedCode, message] of [
+    ["network", "provider_failed", "The AI provider did not complete the request. Try again."],
+    ["http_429", "rate_limited", "The AI provider is rate limited. Wait and try again."],
+    ["writer_truncated", "reply_cut_off", "The AI reply was cut off. Try a smaller edit."],
+    ["writer_blocked", "provider_refused", "The AI provider declined this edit. Try another instruction."],
+    ["llm_unconfigured", "llm_unconfigured", "Choose an AI model in Settings before editing."],
+    ["ENOENT", "editor_failed", "Scribe could not complete this edit. Try again."],
+  ]) {
+    const pkg = await seed();
+    const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => { throw Object.assign(new Error("private payload /secret/path stack token=example"), { code }); } });
+    const id = await readyProposal(svc, pkg);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${id}.json`), "utf8"));
+    assert.deepEqual(stored.events.find((row) => row.event === "error").data, { code: expectedCode, message });
+    assert.deepEqual(stored.events.filter((row) => row.event === "done").map((row) => row.data.status), ["failed"]);
+    assert.doesNotMatch(JSON.stringify(stored.events), /private|secret|stack|token=/);
+  }
+});
+
+it("SCRP-B19 recovery and replay project safe legacy blocked/error rows without writing them", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { events: [
+    { event: "blocked", data: { reason: "invalid_model", detail: "private provider payload /secret/path", op: { opId: "old-1", node: "private/path", headers: { Authorization: "example" } } } },
+    { event: "error", data: { code: "ENOENT", message: "private stack /secret/path" } },
+    { event: "done", data: { status: "ready" } },
+  ] });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const open = await service.open(pkg.slug);
+  assert.deepEqual(open.proposal.blocked, [{ op: { opId: "old-1" }, reason: "invalid_model", detail: "The suggested edit is not valid for this document." }]);
+  const res = fakeStream(); await service.stream(pkg.slug, row.id, new EventEmitter(), res);
+  assert.doesNotMatch(res.chunks.join(""), /private|secret|stack|Authorization|headers/);
+  assert.equal(await readFile(path, "utf8"), before);
+});
+
+it("SCRP-B4 GET open projects safe fields across restart and sibling documents", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { doc: "coverLetter" });
+  const path = join(pkg.dir, "proposals", `${row.id}.json`);
+  const before = await readFile(path, "utf8");
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 200);
+  const expected = { proposalId: row.id, doc: "coverLetter", baseRunId: "r0", instruction: "Shorten", scope: "all", lockFacts: true, createdAt: row.createdAt, status: "ready", ops: [op], blocked: [{ reason: "locked", detail: "This edit would change a protected fact." }], summary: row.summary, factCheck: "model", factCheckReason: "Checked." };
+  assert.deepEqual(response.data, { proposal: expected });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root });
+  assert.deepEqual(await restarted.open(pkg.slug), { proposal: expected });
+  assert.equal(await readFile(path, "utf8"), before);
+  await assert.rejects(service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }), { code: "materials_pending" });
+});
+
+it("SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const missing = await seed();
+  assert.deepEqual((await request(`${missing.path}/edits/open`)).data, { proposal: null });
+  await assert.rejects(readdir(join(missing.dir, "proposals")), { code: "ENOENT" });
+  const pkg = await seed();
+  for (const status of ["accepted", "failed", "rejected"]) await storedProposal(pkg, { status });
+  for (const status of ["ready", "partial"]) await storedProposal(pkg, { status, ops: [] });
+  await storedProposal(pkg, { status: "pending", createdAt: "2000-01-01T00:00:00.000Z" });
+  const files = await readdir(join(pkg.dir, "proposals"));
+  assert.deepEqual((await request(`${pkg.path}/edits/open`)).data, { proposal: null });
+  assert.deepEqual(await readdir(join(pkg.dir, "proposals")), files);
+  for (const status of ["pending", "partial", "accepting"]) {
+    const row = await storedProposal(pkg, { status });
+    assert.equal((await request(`${pkg.path}/edits/open`)).data.proposal.status, status);
+    await rm(join(pkg.dir, "proposals", `${row.id}.json`));
+  }
+});
+
+it("SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const pkg = await seed();
+  const rows = [await storedProposal(pkg), await storedProposal(pkg, { doc: "coverLetter", status: "partial" })];
+  const response = await request(`${pkg.path}/edits/open`);
+  assert.equal(response.status, 409);
+  assert.equal(response.data.code, "multiple_open_proposals");
+  assert.deepEqual(response.data.proposals.sort((a, b) => a.proposalId.localeCompare(b.proposalId)), rows.map(({ id, doc, status }) => ({ proposalId: id, doc, status })).sort((a, b) => a.proposalId.localeCompare(b.proposalId)));
+  assert.equal((await request('/api/applications/bad%2Fslug/edits/open')).status, 400);
+  const escape = await seed();
+  await symlink(root, join(escape.dir, "proposals"));
+  assert.equal((await request(`${escape.path}/edits/open`)).data.code, "path_escape");
+  const guarded = express();
+  guarded.use((_req, res) => res.status(401).json({ code: "unauthorized" }));
+  registerMaterialsEditRoutes(guarded, { service });
+  const listener = await new Promise((done) => { const handle = guarded.listen(0, "127.0.0.1", () => done(handle)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${listener.address().port}${pkg.path}/edits/open`)).status, 401); }
+  finally { await new Promise((done) => listener.close(done)); }
+});
+
+it("SCRP-B7 restarted pending stream resets ops and journal before reprocessing", async () => {
+  const pkg = await seed();
+  const row = await storedProposal(pkg, { status: "pending", events: [{ event: "op", data: { op: { ...op, text: "Old text." } } }, { event: "done", data: { status: "ready" } }] });
+  const restarted = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, propose: async () => ({ ops: [op], blocked: [], summary: { changes: 1 }, factCheck: "model" }) });
+  const res = fakeStream(); const ended = once(res, "end");
+  await restarted.stream(pkg.slug, row.id, new EventEmitter(), res); await ended;
+  const saved = JSON.parse(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"));
+  assert.deepEqual(saved.ops, [op]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(saved.events.filter((event) => event.event === "done").map((event) => event.data.status), ["ready"]);
+  assert.deepEqual(streamEvents(res).filter((event) => event.event === "op").map((event) => event.data.op.text), [op.text]);
 });
 
 it("GET versions and model expose immutable runs, nodes and 404 errors", async (t) => {
@@ -659,6 +783,56 @@ it("POST accept writes selected ops as a new run and rejects unconfirmed or stal
   assert.equal((await request(`${pkg.path}/edits/${id}/accept`, "POST", { accept: ["o1"], confirmUnverified: [] })).data.code, "proposal_not_ready");
 });
 
+it("SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  browserAvailable = false;
+  try {
+    const accepted = await service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    const manual = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: accepted.body.run.runId, manualOps: [{ ...op, text: "Tracked daily shipments." }] }, true);
+    const restored = await service.restore(pkg.slug, "r0");
+    for (const [index, result] of [accepted, manual, restored].entries()) {
+      assert.equal(result.statusCode, 503);
+      assert.equal(result.body.code, "browser_unavailable");
+      assert.equal(result.body.run.pdf, "stale");
+      assert.ok(result.body.run.runId);
+      assert.equal(result.body.retryable, false);
+      assert.equal(result.body.run.n, index + 1);
+      assert.ok(result.body.versions.some((version) => version.runId === result.body.run.runId));
+    }
+    assert.equal(restored.body.run.restoredFrom, "r0");
+  } finally { browserAvailable = true; }
+  const restored = await service.restore(pkg.slug, "r0");
+  assert.equal(restored.body.run.n, 4);
+  assert.equal(restored.body.versions.length, 5);
+  const ordinary = createMaterialsVersionService({ applicationsRoot: root, commit: async () => { throw Object.assign(new Error("Provider failed."), { statusCode: 503, code: "provider_failed" }); } });
+  const before = await readFile(join(pkg.dir, "run.json"), "utf8");
+  await assert.rejects(ordinary.restore(pkg.slug, "r0"), { statusCode: 503, code: "provider_failed" });
+  assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), before);
+});
+
+it("SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs", async () => {
+  for (const [doc, stem, sibling, change] of [
+    ["resume", "resume", "cover-letter", op],
+    ["coverLetter", "cover-letter", "resume", { opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations." }],
+  ]) {
+    for (const available of [true, false]) {
+      const pkg = await seed();
+      await writeFile(join(pkg.dir, `${sibling}.pdf`), "sibling PDF bytes");
+      const beforeModel = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+      browserAvailable = available;
+      try {
+        const result = await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [change] }, true);
+        assert.equal(result.statusCode, available ? 200 : 503);
+        assert.equal(await readFile(join(pkg.dir, `${sibling}.pdf`), "utf8"), "sibling PDF bytes");
+        const saved = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+        assert.deepEqual(saved.documents[doc === "resume" ? "coverLetter" : "resume"], beforeModel.documents[doc === "resume" ? "coverLetter" : "resume"]);
+        if (!available) await assert.rejects(readFile(join(pkg.dir, `${stem}.pdf`)), { code: "ENOENT" });
+      } finally { browserAvailable = true; }
+    }
+  }
+});
+
 it("POST accept returns 503 browser_unavailable after saving HTML and a stale-PDF run", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -683,6 +857,28 @@ it("DELETE proposal rejects all and leaves the run untouched", async (t) => {
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).runId, "r0");
 });
 
+it("SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const status of ["pending", "ready", "partial", "accepting"]) {
+    for (const proposalDoc of ["resume", "coverLetter"]) {
+      const pkg = await seed();
+      const row = await storedProposal(pkg, { status, doc: proposalDoc });
+      const runBefore = await readFile(join(pkg.dir, "run.json"), "utf8");
+      const proposalBefore = await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8");
+      const result = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
+      assert.equal(result.status, 409);
+      assert.equal(result.data.code, "materials_pending");
+      assert.equal(await readFile(join(pkg.dir, "run.json"), "utf8"), runBefore);
+      assert.equal(await readFile(join(pkg.dir, "proposals", `${row.id}.json`), "utf8"), proposalBefore);
+      await service.reject(pkg.slug, row.id);
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "missing", manualOps: [op] })).data.code, "stale_base");
+      const invented = { ...op, text: "Tracked 72 daily shipments for Kafka in 2025." };
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [invented] })).data.code, "unverified_confirmation_required");
+      assert.equal((await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] })).status, 200);
+    }
+  }
+});
+
 it("POST manual saves a manual version and rejects cross-document ops", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
@@ -691,6 +887,18 @@ it("POST manual saves a manual version and rejects cross-document ops", async (t
   const saved = await request(`${pkg.path}/edits/manual`, "POST", { doc: "resume", baseRunId: "r0", manualOps: [op] });
   assert.equal(saved.status, 200);
   assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).template.source, "manual");
+});
+
+it("SCRP-B10 restore adds n and versions for ready and stale PDFs", async () => {
+  for (const available of [true, false]) {
+    const pkg = await seed(); browserAvailable = available;
+    try {
+      const result = await service.restore(pkg.slug, "r0");
+      assert.equal(result.body.run.n, 1);
+      assert.equal(result.body.versions.length, 2);
+      assert.equal(result.body.versions[0].runId, result.body.run.runId);
+    } finally { browserAvailable = true; }
+  }
 });
 
 it("POST restore appends a new run without deleting its source and errors on an unknown source", async (t) => {
@@ -723,6 +931,7 @@ it("all Scribe routes honor pending.json before edits", async (t) => {
   const pkg = await seed();
   await writeFile(join(pkg.dir, "pending.json"), "{}");
   for (const [path, method, body] of [
+    [`${pkg.path}/edits/open`, "GET"],
     [`${pkg.path}/versions/r0/model`, "GET"],
     [`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0" }],
     [`${pkg.path}/edits`, "POST", { doc: "resume", baseRunId: "r0", instruction: "edit", lockFacts: true }],

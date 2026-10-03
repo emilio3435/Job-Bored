@@ -1,0 +1,220 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (2.638625ms)
+  ✔ should serve exactly the node ids the server derives from the model (1.146875ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (4.241958ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (0.889625ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.138667ms)
+  ✔ should refuse to open without a package slug (0.462541ms)
+✔ scribe-v2-api mode flag (2.612209ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.842ms)
+  ✔ should keep a separate history per document (0.592084ms)
+  ✔ should preview the package's real rendered file for each document (0.756042ms)
+  ✔ should say which document failed when the preview file is missing (0.453458ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.764208ms)
+  ✔ should refuse an empty or over-long instruction (0.553667ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.4775ms)
+  ✔ should end a stopped stream as partial (1.079667ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (0.848834ms)
+✔ scribe-v2-api stub behaviour (7.62075ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (1.356417ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.52525ms)
+  ✔ should map a server refusal to one error shape (0.733625ms)
+  ✔ should tell the user how to start a server that is not answering (0.835083ms)
+  ✔ should retry a stale base once onto the current run (0.683ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.627667ms)
+✔ scribe-v2-api live mode: the SPEC §3.2 routes (4.896667ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✔ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (1.042916ms)
+  ✔ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.45825ms)
+  ✔ SCRP-F3 resume manualEdit resolves only the committed 503 (0.318334ms)
+  ✔ SCRP-F3 resume restore resolves only the committed 503 (0.308834ms)
+  ✔ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.434625ms)
+  ✔ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.387167ms)
+  ✔ SCRP-F3 cover_letter restore resolves only the committed 503 (0.329375ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.575458ms)
+  ✔ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.490625ms)
+✔ SCRP-F2 R1 open route and R2 truthful transport (4.511084ms)
+▶ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
+  ✔ SCRP-F12 resume committed 503 clears review and emits one saved event (14.820667ms)
+  ✔ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (1.821708ms)
+  ✔ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (2.118292ms)
+  ✔ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (1.468958ms)
+  ✔ SCRP-F13 resume error http_429 uses safe per-code copy and action (1.45775ms)
+  ✔ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (1.234ms)
+  ✔ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (1.246834ms)
+  ✔ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (1.780542ms)
+  ✔ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (2.188292ms)
+  ✔ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (1.553667ms)
+  ✔ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (1.787875ms)
+  ✔ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (2.894667ms)
+  ✔ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (1.345458ms)
+  ✔ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.803875ms)
+  ✔ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (1.775375ms)
+  ✔ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (1.665167ms)
+✔ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics (41.399458ms)
+✖ SCRP-F30 resume a late committed save emits once for its original document (2.863417ms)
+✖ SCRP-F30 cover_letter a late committed save emits once for its original document (2.503375ms)
+▶ diffWords: word-level A → B
+  ✔ should return one unchanged run for identical text (1.210875ms)
+  ✔ should mark only the words that changed (0.155167ms)
+  ✔ should fold an unchanged gap of two words or fewer into one change (0.17775ms)
+  ✔ should keep a gap of three words as unchanged text (0.098334ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.08925ms)
+  ✔ should show an added or emptied block as one insertion or deletion (0.060667ms)
+✔ diffWords: word-level A → B (2.525292ms)
+▶ diffNodes: which blocks differ
+  ✔ should list changed, added and removed blocks in reading order and skip the same ones (0.230417ms)
+  ✔ should report nothing when the wording is the same (0.059375ms)
+  ✔ should keep the letter's blocks apart from the resume's (0.0735ms)
+✔ diffNodes: which blocks differ (0.448042ms)
+▶ sourceLabel
+  ✔ should name every run source the server writes (0.091167ms)
+✔ sourceLabel (0.119625ms)
+▶ Versions rail rows
+  ✔ should show each version's source, and View, Compare and Bring back on older ones (9.007333ms)
+✔ Versions rail rows (9.087542ms)
+▶ View
+  ✔ should show an older version read-only and go back to the live preview (3.108292ms)
+✔ View (3.1805ms)
+▶ Compare
+  ✔ should mark the A → B wording and offer no accept controls (4.215167ms)
+  ✔ should toggle with the c key, but not while typing (2.256375ms)
+  ✔ should re-pick A from the select and say when nothing differs (2.842083ms)
+  ✔ should leave compare when the document tab changes (1.612792ms)
+✔ Compare (11.065708ms)
+▶ Bring back as new
+  ✔ should ask first, then append a version and delete none (2.7655ms)
+  ✔ should keep every version and say so when the server refuses (2.088ms)
+✔ Bring back as new (4.951542ms)
+▶ Keys from inside a View or Compare page (F3-trap)
+  ✔ should take Tab, c and Esc from a compare page back to the desk (2.633167ms)
+  ✔ should unhook a page's forwarder when its frame is replaced (3.22725ms)
+✔ Keys from inside a View or Compare page (F3-trap) (5.967375ms)
+▶ Bring back and an open proposal (F3-discard)
+  ✔ should keep the proposal and say so when bring back fails (1.664ms)
+  ✔ should discard the proposal only after the new run exists (1.5855ms)
+✔ Bring back and an open proposal (F3-discard) (3.351458ms)
+▶ A page given the same document again (F3-rebind)
+  ✔ should keep forwarding keys when View becomes Compare on the same render (2.665958ms)
+  ✔ should keep the page still shown listening when a preview fails (3.657ms)
+✔ A page given the same document again (F3-rebind) (6.518ms)
+▶ A kept page with the last comparison's marks (F3-rebind)
+  ✔ should reload the page rather than keep stale marks (3.246584ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (3.405916ms)
+✔ SCRP-F20 resume committed bring-back 503 reports one saved version (2.549542ms)
+✔ SCRP-F20 cover_letter committed bring-back 503 reports one saved version (1.899542ms)
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.285875ms)
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.292917ms)
+ℹ tests 76
+ℹ suites 17
+ℹ pass 72
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 150.923333
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:466:3
+✖ SCRP-F30 resume a late committed save emits once for its original document (2.863417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + []
+  - [
+  -   {
+  -     doc: 'resume',
+  -     runId: 'saved-late',
+  -     slug: 'acme-example'
+  -   }
+  - ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:474:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { slug: 'acme-example', doc: 'resume', runId: 'saved-late' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:466:3
+✖ SCRP-F30 cover_letter a late committed save emits once for its original document (2.503375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + []
+  - [
+  -   {
+  -     doc: 'cover_letter',
+  -     runId: 'saved-late',
+  -     slug: 'acme-example'
+  -   }
+  - ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:474:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { slug: 'acme-example', doc: 'cover_letter', runId: 'saved-late' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:536:3
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.285875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      {
+  +     doc: 'cover_letter',
+  -     doc: 'resume',
+        runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:544:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'r3' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:536:3
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.292917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      {
+  +     doc: 'resume',
+  -     doc: 'cover_letter',
+        runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:544:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r3' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

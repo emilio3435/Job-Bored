@@ -1,0 +1,122 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (2.550292ms)
+  ✔ should serve exactly the node ids the server derives from the model (1.013041ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (4.056084ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (1.41875ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.137625ms)
+  ✔ should refuse to open without a package slug (0.513834ms)
+✔ scribe-v2-api mode flag (3.281709ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.225208ms)
+  ✔ should keep a separate history per document (0.51225ms)
+  ✔ should preview the package's real rendered file for each document (0.786667ms)
+  ✔ should say which document failed when the preview file is missing (0.454958ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.719625ms)
+  ✔ should refuse an empty or over-long instruction (0.510916ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.430458ms)
+  ✔ should end a stopped stream as partial (0.397833ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (0.7025ms)
+✔ scribe-v2-api stub behaviour (5.956458ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.566791ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.335167ms)
+  ✔ should map a server refusal to one error shape (0.697958ms)
+  ✔ should tell the user how to start a server that is not answering (0.348084ms)
+  ✔ should retry a stale base once onto the current run (0.568375ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (1.248583ms)
+✔ scribe-v2-api live mode: the SPEC §3.2 routes (3.879083ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✖ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (1.693875ms)
+  ✖ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.769875ms)
+  ✖ SCRP-F3 resume manualEdit resolves only the committed 503 (0.46375ms)
+  ✖ SCRP-F3 resume restore resolves only the committed 503 (0.363375ms)
+  ✖ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.36725ms)
+  ✖ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.369375ms)
+  ✖ SCRP-F3 cover_letter restore resolves only the committed 503 (0.350833ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.4985ms)
+  ✖ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.548375ms)
+✖ SCRP-F2 R1 open route and R2 truthful transport (5.659458ms)
+ℹ tests 29
+ℹ suites 5
+ℹ pass 21
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 112.76025
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:339:3
+✖ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (1.693875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'undefined'
+  - 'function'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:343:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at node:internal/test_runner/test:1516:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.769875ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume manualEdit resolves only the committed 503 (0.46375ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 resume restore resolves only the committed 503 (0.363375ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.36725ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.369375ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:350:7
+✖ SCRP-F3 cover_letter restore resolves only the committed 503 (0.350833ms)
+  { name: 'ScribeApiError', status: 503, code: 'browser_unavailable', message: 'The materials server answered 503.', fix: null }
+
+test at tests/scribe-v2-api.test.mjs:374:3
+✖ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.548375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'The materials server answered 409.'
+  - 'Safe explanation'
+
+      at Object.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:385:16)
+      at expectedException (node:assert:578:17)
+      at expectsError (node:assert:703:21)
+      at strict.rejects (node:assert:769:3)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:384:7)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'The materials server answered 409.',
+    expected: 'Safe explanation',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,54 @@
+
+Running 4 tests using 1 worker
+
+  ✓  1 tests/e2e-visual/scribe-v2.spec.mjs:179:3 › the sheet at 1440, reduced motion reduce (1.8s)
+  ✓  2 tests/e2e-visual/scribe-v2.spec.mjs:179:3 › the sheet at 1440, reduced motion no-preference (1.7s)
+  ✘  3 tests/e2e-visual/scribe-v2.spec.mjs:202:1 › a landed proposal at 1440: marks, rail, and a readable primary button (6.6s)
+  ✓  4 tests/e2e-visual/scribe-v2.spec.mjs:230:1 › full screen at 390, one segment at a time (2.1s)
+
+
+  1) tests/e2e-visual/scribe-v2.spec.mjs:202:1 › a landed proposal at 1440: marks, rail, and a readable primary button
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByRole('dialog', { name: 'Scribe' }).getByRole('log', { name: 'Conversation with Scribe' })
+    Expected substring: "3 changes are ready"
+    Received string:    "Ask for a change. You review every suggested change before it’s saved.Make the bullets punchierBlocked: “38%” is a locked fact.3 suggested changes3 changes · +12 words · still 1 page"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" getByRole('dialog', { name: 'Scribe' }).getByRole('log', { name: 'Conversation with Scribe' }) with timeout 5000ms
+      - waiting for getByRole('dialog', { name: 'Scribe' }).getByRole('log', { name: 'Conversation with Scribe' })
+        14 × locator resolved to <div role="log" class="scribe__log" aria-label="Conversation with Scribe">…</div>
+           - unexpected value "Ask for a change. You review every suggested change before it’s saved.Make the bullets punchierBlocked: “38%” is a locked fact.3 suggested changes3 changes · +12 words · still 1 page"
+
+
+      143 |   api.emit(id, "done", { status: "ready" });
+      144 |   api.end(id);
+    > 145 |   await expect(desk.getByRole("log", { name: "Conversation with Scribe" })).toContainText("3 changes are ready");
+          |                                                                             ^
+      146 |   await expect(page.frameLocator("jb-scribe .scribe__docscroll iframe").locator("[data-scribe-id]")).toHaveCount(3);
+      147 | }
+      148 |
+        at landProposal (/Users/emilionunezgarcia/Job-Bored.worktrees/scribe-polish-integration/tests/e2e-visual/scribe-v2.spec.mjs:145:77)
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scribe-polish-integration/tests/e2e-visual/scribe-v2.spec.mjs:205:3
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/host-FE1/vis/scribe-v2-a-landed-proposa-f55e3-d-a-readable-primary-button/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/host-FE1/vis/scribe-v2-a-landed-proposa-f55e3-d-a-readable-primary-button/error-context.md
+
+    Error Context: .lane-evidence/host-FE1/vis/scribe-v2-a-landed-proposa-f55e3-d-a-readable-primary-button/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/host-FE1/vis/scribe-v2-a-landed-proposa-f55e3-d-a-readable-primary-button/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/host-FE1/vis/scribe-v2-a-landed-proposa-f55e3-d-a-readable-primary-button/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e-visual/scribe-v2.spec.mjs:202:1 › a landed proposal at 1440: marks, rail, and a readable primary button
+  3 passed (13.8s)

@@ -1,0 +1,395 @@
+▶ Scribe v2 is absent until a package binds it (R1)
+  ✔ should put no Scribe node in the page on boot (3.936209ms)
+  ✔ should mount nothing without a package slug (0.727459ms)
+✔ Scribe v2 is absent until a package binds it (R1) (5.136ms)
+▶ Scribe v2 open
+  ✔ should mount one modal dialog bound to the role's package (5.654875ms)
+  ✔ should render the real document in a script-less sandboxed srcdoc iframe (2.081125ms)
+  ✔ should list every version newest first, marking the current one (2.623417ms)
+  ✔ should fill the composer from a chip without sending (2.260708ms)
+  ✔ should switch documents through a real tablist (5.350042ms)
+✔ Scribe v2 open (18.395ms)
+▶ Scribe v2 close
+  ✔ should remove the node and return focus to the Edit button (4.461917ms)
+  ✔ should close on Esc (1.128041ms)
+  ✔ should stop a request in flight on the first Esc, not close (3.211333ms)
+  ✔ should close when the role closes, and ignore it afterwards (1.781042ms)
+  ✔ should find the live Edit button when the rows were repainted (1.488791ms)
+  ✔ should keep exactly one desk when a second Edit opens (5.239916ms)
+  ✔ should close when the boot contract unmounts the v2 surfaces (2.3805ms)
+✔ Scribe v2 close (20.002833ms)
+▶ Scribe v2 keeps the keyboard while it is open (F1-trap)
+  ✔ should close on Esc even when focus has fallen to the page body (1.794709ms)
+  ✔ should pull Tab from the page body back into the dialog (1.954167ms)
+  ✔ should stop listening on the document once closed (1.438125ms)
+  ✔ should keep focus on Stop when a stage tick re-renders it (5.296583ms)
+  ✔ B1M-STAGE shows checking facts as the current step (3.519834ms)
+  ✔ should hand focus to the composer when the run ends under a focused Stop (2.583833ms)
+  ✔ should take Esc and Tab from inside the preview iframe (1.873ms)
+✔ Scribe v2 keeps the keyboard while it is open (F1-trap) (19.006167ms)
+▶ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)
+  ✔ should shrink the sheet above the keyboard and follow it (1.391625ms)
+  ✔ should drop its visualViewport listeners on close (0.952958ms)
+  ✔ should leave the CSS sizing alone on a wide screen (1.95825ms)
+✔ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard) (4.389042ms)
+▶ Scribe v2 speaks each result once (F1-announce)
+  ✔ should keep the transcript a log but not a second live region (0.768208ms)
+✔ Scribe v2 speaks each result once (F1-announce) (0.802291ms)
+✔ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (0.969458ms)
+▶ SCRP-F6 ASTRA-01 persisted recovery for both documents
+  ✖ SCRP-F6 resume close preserves one open request and its exact base (10.611333ms)
+  ✖ SCRP-F6 resume switch preserves one open request and its exact base (3.762583ms)
+  ✖ SCRP-F6 resume resubmit preserves one open request and its exact base (2.772417ms)
+  ✖ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (2.677667ms)
+  ✖ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (3.581125ms)
+  ✖ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (3.254625ms)
+  ✖ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (3.18375ms)
+  ✖ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (2.750583ms)
+  ✖ SCRP-F6 cover_letter close preserves one open request and its exact base (3.970666ms)
+  ✖ SCRP-F6 cover_letter switch preserves one open request and its exact base (4.362833ms)
+  ✖ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.901125ms)
+  ✖ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (2.380458ms)
+  ✖ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (3.039708ms)
+  ✖ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (3.518208ms)
+  ✖ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (4.63575ms)
+  ✖ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (4.183667ms)
+  ✔ SCRP-F9 missing GET open, 404 and network failure leave the desk usable (4.792959ms)
+  ✖ SCRP-F10 materials_pending performs one open read: null (1.88825ms)
+  ✖ SCRP-F10 materials_pending performs one open read: 409 (1.963959ms)
+  ✖ SCRP-F10 materials_pending performs one open read: proposal (2.374291ms)
+  ✖ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (1.869625ms)
+✖ SCRP-F6 ASTRA-01 persisted recovery for both documents (75.377042ms)
+ℹ tests 47
+ℹ suites 7
+ℹ pass 27
+ℹ fail 20
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 195.018542
+
+✖ failing tests:
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume close preserves one open request and its exact base (10.611333ms)
+  TypeError: Cannot read properties of null (reading 'id')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:514:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume switch preserves one open request and its exact base (3.762583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  null !== 'resume'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:510:18)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: 'resume',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 resume resubmit preserves one open request and its exact base (2.772417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'A second typed request'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:513:92)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'A second typed request',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (2.677667ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopping…/. Input:
+
+  'Reading resumeReading resumeDrafting editsChecking factsMeasuring lengthReadyStop'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:526:100)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Reading resumeReading resumeDrafting editsChecking factsMeasuring lengthReadyStop',
+    expected: /Stopping…/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (3.581125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (3.254625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (3.18375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:538:5
+✖ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (2.750583ms)
+  AssertionError [ERR_ASSERTION]: control exists
+      at tap (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:455:30)
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:542:7)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter close preserves one open request and its exact base (3.970666ms)
+  TypeError: Cannot read properties of null (reading 'id')
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:514:41)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter switch preserves one open request and its exact base (4.362833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + null
+  - 'cover_letter'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:510:18)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: 'cover_letter',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:504:7
+✖ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.901125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'A second typed request'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:513:92)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'A second typed request',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (2.380458ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopping…/. Input:
+
+  'Reading cover letterReading cover letterDrafting editsChecking factsMeasuring lengthReadyStop'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:526:100)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Reading cover letterReading cover letterDrafting editsChecking factsMeasuring lengthReadyStop',
+    expected: /Stopping…/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (3.039708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (3.518208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:523:7
+✖ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (4.63575ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:531:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:538:5
+✖ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (4.183667ms)
+  AssertionError [ERR_ASSERTION]: control exists
+      at tap (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:455:30)
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:542:7)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: null (1.88825ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: 409 (1.963959ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:561:5
+✖ SCRP-F10 materials_pending performs one open read: proposal (2.374291ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:568:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-lifecycle.test.mjs:574:3
+✖ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (1.869625ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /A save didn’t finish/. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-lifecycle.test.mjs:576:48)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /A save didn’t finish/,
+    operator: 'match',
+    diff: 'simple'
+  }

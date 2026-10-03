@@ -11,7 +11,7 @@
 ℹ skipped 0
 ℹ todo 0
 ℹ duration_ms 2789.5515
-exit 
+exit
 ## B
   ✔ should reload the page rather than keep stale marks (3.523208ms)
 ✔ A kept page with the last comparison's marks (F3-rebind) (3.592375ms)
@@ -23,7 +23,7 @@ exit
 ℹ skipped 0
 ℹ todo 0
 ℹ duration_ms 117.645
-exit 
+exit
 ## C
 
 Running 5 tests using 1 worker
@@ -35,7 +35,7 @@ Running 5 tests using 1 worker
   ✓  5 tests/e2e-journey/scribe-v2-desk.spec.mjs:376:1 › should view, compare and bring back versions at 1440 and 390 (3.8s)
 
   5 passed (17.2s)
-exit 
+exit
 ## materials-contract
 OK budget: statement 28 words passes
 OK budget: statement 48 words passes
@@ -45,6 +45,6 @@ OK budget: family signal letter band matches the table
 OK budget: family dossier letter band matches the table
 OK budget: family editorial letter band matches the table
 materials budget contract: no drift
-exit 
+exit
 
 [exited with code 0]

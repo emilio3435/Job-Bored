@@ -167,7 +167,7 @@ describe("A proposal lands as marks on the render", () => {
     const confirm = rail(env)[2].querySelector('[data-review="accept"]');
     assert.equal(confirm.getAttribute("aria-label"), "Confirm and accept change 3 of 4: new bullet, Operations Analyst");
     assert.equal(confirm.textContent, "Confirm");
-    assert.match(rail(env)[2].textContent, /Unverified: please confirm\. “4 coordinators” isn’t in your profile\./);
+    assert.match(rail(env)[2].textContent, /Not in your saved facts — confirm before accepting\. “4 coordinators” isn’t in your profile\./);
   });
 
   it("should keep the loss banner away while 20% or less is removed", async () => {
@@ -193,7 +193,7 @@ describe("A proposal lands as marks on the render", () => {
     ] });
     const lines = env.host.querySelectorAll(".scribe__msg--blocked").map((m) => m.textContent);
     assert.deepEqual(plain(lines), [
-      "Blocked: would change “2019–2023”.",
+      "Blocked: “2019–2023” is a locked fact.",
       "Blocked: that change was outside what you asked Scribe to edit.",
     ]);
   });
@@ -298,8 +298,9 @@ describe("The same controls by mouse", () => {
     click(bar(env).querySelector('[data-review="reject-all"]'));
     assert.deepEqual(plain(Object.values(env.ctl.state.proposal.decisions)), ["rejected", "rejected", "rejected", "rejected"]);
     const close = bar(env).querySelector('[data-review="discard"]');
-    assert.equal(close.textContent, "Close without saving");
+    assert.equal(close.textContent, "Discard");
     click(close);
+    await settle();
     assert.equal(env.ctl.state.proposal, null);
     assert.deepEqual(plain(env.calls.filter((c) => c[0] === "rejectEdit")), [["rejectEdit", "p1"]]);
     assert.equal(env.inner.querySelectorAll(".scribe-mark").length, 0, "the page is back to its saved text");
@@ -335,7 +336,7 @@ describe("Saving", () => {
     press(env, "k");
     press(env, "k");
     press(env, "a");
-    assert.match(bar(env).querySelector(".scribe__autosave").textContent, /Saving as v5 in a moment/);
+    assert.match(bar(env).querySelector(".scribe__autosave").textContent, /Saving as v5…/);
     assert.equal(env.calls.filter((c) => c[0] === "acceptEdit").length, 0, "not before the 3 s pass");
     env.win.flushTimers();
     await settle();
@@ -355,7 +356,7 @@ describe("Stop", () => {
     const p = env.ctl.state.proposal;
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped early/);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
     assert.match(bar(env).textContent, /Save as v5/);
     press(env, "j");
     press(env, "a");
@@ -371,8 +372,8 @@ describe("Stop", () => {
     assert.ok(p, "the proposal is kept");
     assert.equal(p.status, "partial");
     assert.deepEqual(plain(p.changes.map((c) => c.opId)), ["o2", "o1"]);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped early/);
-    assert.doesNotMatch(env.host.querySelector(".scribe__log").textContent, /No changes were proposed/);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped./);
+    assert.doesNotMatch(env.host.querySelector(".scribe__log").textContent, /No changes suggested/);
     assert.match(bar(env).textContent, /Save as v5/);
   });
 
@@ -381,7 +382,7 @@ describe("Stop", () => {
     click(env.host.querySelector('[data-scribe="stop"]'));
     await settle();
     assert.equal(env.ctl.state.proposal, null);
-    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. No changes were proposed\./);
+    assert.match(env.host.querySelector(".scribe__log").textContent, /Stopped\. No changes suggested\./);
   });
 });
 

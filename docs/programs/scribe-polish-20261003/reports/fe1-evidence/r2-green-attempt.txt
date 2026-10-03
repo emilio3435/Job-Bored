@@ -1,0 +1,378 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (2.71575ms)
+  ✔ should serve exactly the node ids the server derives from the model (1.494125ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (4.6955ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (1.273709ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (1.636583ms)
+  ✔ should refuse to open without a package slug (0.655875ms)
+✔ scribe-v2-api mode flag (3.72025ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (1.755167ms)
+  ✔ should keep a separate history per document (0.565417ms)
+  ✔ should preview the package's real rendered file for each document (0.672292ms)
+  ✔ should say which document failed when the preview file is missing (0.401958ms)
+  ✔ should replay the SSE transcript in order and finish ready (0.5685ms)
+  ✔ should refuse an empty or over-long instruction (0.39225ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.357042ms)
+  ✔ should end a stopped stream as partial (0.520583ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (1.680542ms)
+✔ scribe-v2-api stub behaviour (7.092625ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.948917ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.605875ms)
+  ✔ should map a server refusal to one error shape (0.486875ms)
+  ✔ should tell the user how to start a server that is not answering (0.526583ms)
+  ✔ should retry a stale base once onto the current run (0.598959ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.807459ms)
+✔ scribe-v2-api live mode: the SPEC §3.2 routes (4.13325ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✔ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.839208ms)
+  ✔ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.520334ms)
+  ✔ SCRP-F3 resume manualEdit resolves only the committed 503 (0.3935ms)
+  ✔ SCRP-F3 resume restore resolves only the committed 503 (0.399959ms)
+  ✔ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.445416ms)
+  ✔ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.401583ms)
+  ✔ SCRP-F3 cover_letter restore resolves only the committed 503 (0.468417ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.691791ms)
+  ✔ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.628417ms)
+✔ SCRP-F2 R1 open route and R2 truthful transport (4.967459ms)
+▶ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
+  ✔ SCRP-F12 resume committed 503 clears review and emits one saved event (15.267166ms)
+  ✔ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (2.647292ms)
+  ✔ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (2.444625ms)
+  ✔ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (2.27925ms)
+  ✔ SCRP-F13 resume error http_429 uses safe per-code copy and action (1.525042ms)
+  ✔ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (1.881583ms)
+  ✔ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (1.642916ms)
+  ✔ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (1.932958ms)
+  ✔ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (3.791583ms)
+  ✔ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (4.101708ms)
+  ✔ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (1.739959ms)
+  ✔ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (1.3705ms)
+  ✔ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (2.000583ms)
+  ✔ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (2.182417ms)
+  ✔ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (1.89025ms)
+  ✔ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (1.730583ms)
+✔ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics (48.987458ms)
+▶ keyword coverage is free, whole-word and case-folded (C14)
+  ✔ should count which of the posting's terms the text covers (2.689834ms)
+  ✔ should not match a term inside a longer word (0.511958ms)
+✔ keyword coverage is free, whole-word and case-folded (C14) (3.767125ms)
+▶ the score adapter never shows a number it does not have (SCRIBE-02)
+  ✔ should call an empty document empty, not scored (0.680834ms)
+  ✔ should call a document with text but no score 'not scored', which is not a zero (0.568375ms)
+  ✔ should keep loading and error apart, and never give an error a result (0.423833ms)
+  ✔ should drop a finished score as soon as a newer run starts loading (0.490542ms)
+  ✔ should hydrate from the state the bus already holds at mount (0.729625ms)
+✔ the score adapter never shows a number it does not have (SCRIBE-02) (3.069083ms)
+▶ the score adapter only spends on an explicit Rescore (SCRIBE-02)
+  ✔ should ask the bus to re-broadcast and start no analysis (0.624584ms)
+  ✔ should start exactly one analysis with the payload the real pipeline builds (0.511625ms)
+  ✔ should not fire a second paid call while the first is loading (0.5865ms)
+  ✔ should refuse an empty document with a reason (0.642708ms)
+  ✔ should refuse without a bound role, since a score needs a job (0.47025ms)
+✔ the score adapter only spends on an explicit Rescore (SCRIBE-02) (2.993666ms)
+▶ the score adapter refuses another role's score (SCRIBE-02b)
+  ✔ should not show a score measured against a different role (0.58775ms)
+  ✔ should show the score again once the same role is scored (0.461208ms)
+  ✔ should ignore the text hash, so an edit does not make its own score foreign (0.390917ms)
+  ✔ should never refuse when no role is bound to contradict the score (0.406917ms)
+✔ the score adapter refuses another role's score (SCRIBE-02b) (1.932833ms)
+▶ jb:draft:saved means the save landed
+  ✔ should be dispatched on the initial draft and both refine paths (0.048875ms)
+  ✔ should fire only after saveGeneratedDraft resolved, inside the same try (0.196917ms)
+  ✔ should carry the role, the document and the saved draft id (0.099417ms)
+✔ jb:draft:saved means the save landed (0.402ms)
+▶ the v2 rail tells the truth about what is saved (from scribe-state)
+  ✔ should say it is loading rather than claim the role has no versions (4.0335ms)
+  ✔ should say so plainly when the document has no saved versions (5.994709ms)
+✔ the v2 rail tells the truth about what is saved (from scribe-state) (10.1165ms)
+✔ SCRP-F14 ASTRA-04 resume installs the exact rebase before streaming and marking (6.233333ms)
+✔ SCRP-F14 ASTRA-04 cover_letter installs the exact rebase before streaming and marking (2.960917ms)
+▶ diffWords: word-level Myers
+  ✔ should find no change in identical text (1.112167ms)
+  ✔ should mark one swapped word and keep the rest (0.14475ms)
+  ✔ should always reproduce both sides exactly (0.830416ms)
+  ✔ should fold an unchanged gap of two words into one change (0.083375ms)
+  ✔ should keep an unchanged gap of three words as its own text (0.163166ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.081667ms)
+  ✔ should not call a template's line breaks an edit (0.060625ms)
+  ✔ should mark a whole insertion or a whole removal (0.053083ms)
+  ✔ should replace a block too large to diff rather than hang (1.598416ms)
+✔ diffWords: word-level Myers (4.744167ms)
+▶ changesFromOps: the structural diff by node id
+  ✔ should give each op its glyph, block and word tallies (0.256041ms)
+  ✔ should carry the Unverified flag from the server (0.082375ms)
+✔ changesFromOps: the structural diff by node id (0.413042ms)
+▶ summarize: what saving now would do
+  ✔ should count every change as proposed until it is decided (0.0985ms)
+  ✔ should drop a rejected change out of the words and the loss (0.035125ms)
+  ✔ should stop counting an unverified change as to-check once it is confirmed (0.0565ms)
+✔ summarize: what saving now would do (0.280334ms)
+▶ markElement: marks written into the template's own markup
+  ✔ should mark a rewrite around a bold metric and keep the metric's element (0.98975ms)
+  ✔ should give screen readers inserted and deleted boundaries (0.122833ms)
+  ✔ should strike every text run of a removed block, nested ones too (0.155459ms)
+  ✔ should put an insertion at the end of the block (0.107959ms)
+  ✔ should fill a copied neighbour so a new block keeps the template's structure (0.130667ms)
+  ✔ should write a new bullet into the content, not a metric kicker (Grok F2-LEAD) (0.063542ms)
+  ✔ should put a block back exactly as it was (0.155334ms)
+✔ markElement: marks written into the template's own markup (1.810667ms)
+▶ markStyles: one stylesheet for marks in a frame
+  ✔ should read every colour from the app's tokens (0.227ms)
+✔ markStyles: one stylesheet for marks in a frame (0.269709ms)
+▶ A proposal lands as marks on the render
+  ✔ should mark each op in its block and list it in the rail in reading order (11.4665ms)
+  ✖ should say the summary line and name each control for a screen reader (5.310166ms)
+  ✔ should keep the loss banner away while 20% or less is removed (3.469416ms)
+  ✔ should list a change the template doesn't render, first, without crashing (3.521917ms)
+  ✖ should word the blocked-op chat line by its reason (3.151ms)
+✖ A proposal lands as marks on the render (27.927459ms)
+▶ Review keys (SPEC §4)
+  ✔ should walk the changes with j and k and focus each one's note (3.976375ms)
+  ✔ should accept with a and reject with r, on the focused change only (3.115333ms)
+  ✔ should not decide anything on a or r before a change is picked (2.731084ms)
+  ✔ should accept every verified change on Shift+A and leave the unverified one (2.98275ms)
+  ✔ should hide the marks on D and bring them back (3.661083ms)
+  ✔ should ignore every review key while typing in the composer (2.676625ms)
+✔ Review keys (SPEC §4) (19.520167ms)
+▶ The same controls by mouse
+  ✔ should decide from the rail's ✓ and ✗, and undo (2.862042ms)
+  ✔ should accept all but the unverified, then count it in Save as v5 (4.070334ms)
+  ✔ should toggle Show changes from the header button (3.900167ms)
+  ✔ should reject all, then offer to close without saving (2.904833ms)
+  ✔ should not save with nothing accepted (2.778416ms)
+✔ The same controls by mouse (16.749084ms)
+▶ Saving
+  ✔ should save the accepted ops, confirming the unverified one, from the Save button (4.316ms)
+  ✔ should save by itself once every change is decided and the desk sits idle (3.121291ms)
+✔ Saving (7.582125ms)
+▶ Stop
+  ✔ should keep the validated ops and mark the proposal partial (3.524292ms)
+  ✔ should keep the ops the server validated when Stop lands before any op arrived (Grok F2-STOP) (2.842791ms)
+  ✖ should still say so when Stop comes back with nothing (2.73325ms)
+✖ Stop (9.414708ms)
+▶ Review keys from inside the preview (Grok F2-KEYS)
+  ✔ should take j, a, r, Shift+A and D pressed inside the page (3.273375ms)
+  ✔ should leave Cmd/Ctrl combinations and other keys in the page alone (2.728583ms)
+✔ Review keys from inside the preview (Grok F2-KEYS) (6.1805ms)
+▶ Targets (SPEC §4, Grok F2-HIT)
+  ✔ should give every rail and card control at least 32px on desktop (1.321292ms)
+✔ Targets (SPEC §4, Grok F2-HIT) (1.363584ms)
+▶ Scribe v2 is absent until a package binds it (R1)
+  ✔ should put no Scribe node in the page on boot (2.154375ms)
+  ✔ should mount nothing without a package slug (0.777833ms)
+✔ Scribe v2 is absent until a package binds it (R1) (3.898666ms)
+▶ Scribe v2 open
+  ✔ should mount one modal dialog bound to the role's package (5.291875ms)
+  ✔ should render the real document in a script-less sandboxed srcdoc iframe (1.644875ms)
+  ✔ should list every version newest first, marking the current one (2.581917ms)
+  ✔ should fill the composer from a chip without sending (1.897208ms)
+  ✔ should switch documents through a real tablist (2.358208ms)
+✔ Scribe v2 open (14.060583ms)
+▶ Scribe v2 close
+  ✔ should remove the node and return focus to the Edit button (1.434625ms)
+  ✔ should close on Esc (0.990792ms)
+  ✔ should stop a request in flight on the first Esc, not close (1.760791ms)
+  ✔ should close when the role closes, and ignore it afterwards (1.009667ms)
+  ✔ should find the live Edit button when the rows were repainted (0.893208ms)
+  ✔ should keep exactly one desk when a second Edit opens (1.326ms)
+  ✔ should close when the boot contract unmounts the v2 surfaces (1.763709ms)
+✔ Scribe v2 close (9.452084ms)
+▶ Scribe v2 keeps the keyboard while it is open (F1-trap)
+  ✔ should close on Esc even when focus has fallen to the page body (0.933958ms)
+  ✔ should pull Tab from the page body back into the dialog (0.999167ms)
+  ✔ should stop listening on the document once closed (1.428292ms)
+  ✔ should keep focus on Stop when a stage tick re-renders it (2.344875ms)
+  ✔ B1M-STAGE shows checking facts as the current step (2.027375ms)
+  ✔ should hand focus to the composer when the run ends under a focused Stop (1.266ms)
+  ✔ should take Esc and Tab from inside the preview iframe (3.0945ms)
+✔ Scribe v2 keeps the keyboard while it is open (F1-trap) (12.315416ms)
+▶ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)
+  ✔ should shrink the sheet above the keyboard and follow it (1.124375ms)
+  ✔ should drop its visualViewport listeners on close (0.834375ms)
+  ✔ should leave the CSS sizing alone on a wide screen (1.00025ms)
+✔ Scribe v2 sizes to the visual viewport on a phone (F1-keyboard) (3.04075ms)
+▶ Scribe v2 speaks each result once (F1-announce)
+  ✔ should keep the transcript a log but not a second live region (0.86675ms)
+✔ Scribe v2 speaks each result once (F1-announce) (0.90925ms)
+✔ SCRP-F1 skeleton supplies stable hidden recovery and outcome mounts (0.964459ms)
+▶ SCRP-F6 ASTRA-01 persisted recovery for both documents
+  ✔ SCRP-F6 resume close preserves one open request and its exact base (6.632125ms)
+  ✔ SCRP-F6 resume switch preserves one open request and its exact base (4.323625ms)
+  ✔ SCRP-F6 resume resubmit preserves one open request and its exact base (2.677333ms)
+  ✔ SCRP-F7 resume deferred start then stop stops the late ID without mutating another editor (2.920834ms)
+  ✔ SCRP-F7 resume deferred start then close stops the late ID without mutating another editor (3.306166ms)
+  ✔ SCRP-F7 resume deferred start then switch stops the late ID without mutating another editor (2.754125ms)
+  ✔ SCRP-F7 resume deferred start then new editor stops the late ID without mutating another editor (2.128209ms)
+  ✔ SCRP-F8 resume failed DELETE keeps changes and a 404 rechecks open once (2.842792ms)
+  ✔ SCRP-F6 cover_letter close preserves one open request and its exact base (3.407542ms)
+  ✔ SCRP-F6 cover_letter switch preserves one open request and its exact base (5.152958ms)
+  ✔ SCRP-F6 cover_letter resubmit preserves one open request and its exact base (2.34975ms)
+  ✔ SCRP-F7 cover_letter deferred start then stop stops the late ID without mutating another editor (3.188584ms)
+  ✔ SCRP-F7 cover_letter deferred start then close stops the late ID without mutating another editor (2.224833ms)
+  ✔ SCRP-F7 cover_letter deferred start then switch stops the late ID without mutating another editor (3.09275ms)
+  ✔ SCRP-F7 cover_letter deferred start then new editor stops the late ID without mutating another editor (2.518417ms)
+  ✔ SCRP-F8 cover_letter failed DELETE keeps changes and a 404 rechecks open once (2.824208ms)
+  ✔ SCRP-F9 missing GET open, 404 and network failure leave the desk usable (6.299167ms)
+  ✔ SCRP-F10 materials_pending performs one open read: null (1.775584ms)
+  ✔ SCRP-F10 materials_pending performs one open read: 409 (2.270083ms)
+  ✔ SCRP-F10 materials_pending performs one open read: proposal (1.782083ms)
+  ✔ SCRP-F11 accepting and multiple-open proposals have explicit discard controls (1.672333ms)
+✔ SCRP-F6 ASTRA-01 persisted recovery for both documents (66.947458ms)
+✔ SCRP-F15 resume base-load failure keeps the created ID recoverable (1.575833ms)
+✔ SCRP-F16 resume stale recovery keeps Save CAS and reviews current without discarding (3.102166ms)
+✔ SCRP-F15 cover_letter base-load failure keeps the created ID recoverable (1.918208ms)
+✔ SCRP-F16 cover_letter stale recovery keeps Save CAS and reviews current without discarding (2.855958ms)
+▶ diffWords: word-level A → B
+  ✔ should return one unchanged run for identical text (0.80675ms)
+  ✔ should mark only the words that changed (0.141333ms)
+  ✔ should fold an unchanged gap of two words or fewer into one change (0.133208ms)
+  ✔ should keep a gap of three words as unchanged text (0.084083ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.079083ms)
+  ✔ should show an added or emptied block as one insertion or deletion (0.057917ms)
+✔ diffWords: word-level A → B (1.81025ms)
+▶ diffNodes: which blocks differ
+  ✔ should list changed, added and removed blocks in reading order and skip the same ones (0.22325ms)
+  ✔ should report nothing when the wording is the same (0.084208ms)
+  ✔ should keep the letter's blocks apart from the resume's (0.085959ms)
+✔ diffNodes: which blocks differ (0.490292ms)
+▶ sourceLabel
+  ✔ should name every run source the server writes (0.0975ms)
+✔ sourceLabel (0.131458ms)
+▶ Versions rail rows
+  ✔ should show each version's source, and View, Compare and Bring back on older ones (10.296875ms)
+✔ Versions rail rows (10.400083ms)
+▶ View
+  ✔ should show an older version read-only and go back to the live preview (3.094834ms)
+✔ View (3.177667ms)
+▶ Compare
+  ✔ should mark the A → B wording and offer no accept controls (3.495417ms)
+  ✔ should toggle with the c key, but not while typing (3.255041ms)
+  ✔ should re-pick A from the select and say when nothing differs (2.55275ms)
+  ✔ should leave compare when the document tab changes (2.456667ms)
+✔ Compare (11.958959ms)
+▶ Bring back as new
+  ✖ should ask first, then append a version and delete none (2.397709ms)
+  ✔ should keep every version and say so when the server refuses (3.590542ms)
+✖ Bring back as new (6.1495ms)
+▶ Keys from inside a View or Compare page (F3-trap)
+  ✔ should take Tab, c and Esc from a compare page back to the desk (3.492625ms)
+  ✔ should unhook a page's forwarder when its frame is replaced (3.509125ms)
+✔ Keys from inside a View or Compare page (F3-trap) (7.134208ms)
+▶ Bring back and an open proposal (F3-discard)
+  ✖ should keep the proposal and say so when bring back fails (2.578125ms)
+  ✔ should discard the proposal only after the new run exists (2.263834ms)
+✖ Bring back and an open proposal (F3-discard) (4.953583ms)
+▶ A page given the same document again (F3-rebind)
+  ✔ should keep forwarding keys when View becomes Compare on the same render (4.380458ms)
+  ✔ should keep the page still shown listening when a preview fails (4.163917ms)
+✔ A page given the same document again (F3-rebind) (8.685208ms)
+▶ A kept page with the last comparison's marks (F3-rebind)
+  ✔ should reload the page rather than keep stale marks (2.408833ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (2.476166ms)
+ℹ tests 190
+ℹ suites 42
+ℹ pass 185
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 171.266042
+
+✖ failing tests:
+
+test at tests/scribe-v2-keyboard.test.mjs:160:3
+✖ should say the summary line and name each control for a screen reader (5.310166ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Unverified: please confirm\. “4 coordinators” isn’t in your profile\./. Input:
+
+  '+new lineConfirm✗Not in your saved facts — confirm before accepting. “4 coordinators” isn’t in your profile.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-keyboard.test.mjs:170:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '+new lineConfirm✗Not in your saved facts — confirm before accepting. “4 coordinators” isn’t in your profile.',
+    expected: /Unverified: please confirm\. “4 coordinators” isn’t in your profile\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:189:3
+✖ should word the blocked-op chat line by its reason (3.151ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  +   'Blocked: “2019–2023” is a locked fact.',
+  -   'Blocked: would change “2019–2023”.',
+      'Blocked: that change was outside what you asked Scribe to edit.'
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-keyboard.test.mjs:195:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Blocked: “2019–2023” is a locked fact.', 'Blocked: that change was outside what you asked Scribe to edit.' ],
+    expected: [ 'Blocked: would change “2019–2023”.', 'Blocked: that change was outside what you asked Scribe to edit.' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-keyboard.test.mjs:380:3
+✖ should still say so when Stop comes back with nothing (2.73325ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Stopped\. No changes were proposed\./. Input:
+
+  'Ask for a change. You review every suggested change before it’s saved.Make it punchierStopped. No changes suggested.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-keyboard.test.mjs:385:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Ask for a change. You review every suggested change before it’s saved.Make it punchierStopped. No changes suggested.',
+    expected: /Stopped\. No changes were proposed\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:299:3
+✖ should ask first, then append a version and delete none (2.397709ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Bring back v0 as v3\? v2 and every other version stay in the list\./. Input:
+
+  'Bring back v0 as v3? All versions are kept.Bring back as v3Cancel'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:305:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Bring back v0 as v3? All versions are kept.Bring back as v3Cancel',
+    expected: /Bring back v0 as v3\? v2 and every other version stay in the list\./,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:403:3
+✖ should keep the proposal and say so when bring back fails (2.578125ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /^Bring back didn’t save: The materials server is not answering\. Your versions and open suggested changes will be discarded\.$/. Input:
+
+  'Bring back didn’t save. Nothing changed. Try again.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:413:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Bring back didn’t save. Nothing changed. Try again.',
+    expected: /^Bring back didn’t save: The materials server is not answering\. Your versions and open suggested changes will be discarded\.$/,
+    operator: 'match',
+    diff: 'simple'
+  }

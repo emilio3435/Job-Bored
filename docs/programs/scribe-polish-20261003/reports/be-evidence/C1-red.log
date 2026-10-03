@@ -1,0 +1,76 @@
+✖ SCRP-B4 GET open projects safe fields across restart and sibling documents (22.891334ms)
+✖ SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes (5.620292ms)
+✖ SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards (6.339792ms)
+✖ SCRP-B7 restarted pending stream resets ops and journal before reprocessing (7.644458ms)
+✖ all Scribe routes honor pending.json before edits (5.210458ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 0
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 351.046084
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:524:1
+✖ SCRP-B4 GET open projects safe fields across restart and sibling documents (22.891334ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:530:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3)
+
+test at tests/integration/materials-edit-api.test.mjs:540:1
+✖ SCRP-B5 GET open excludes finished empty and expired rows without filesystem changes (5.620292ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:543:21)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:559:1
+✖ SCRP-B6 GET open returns explicit multiple-open conflict and inherits path/auth guards (6.339792ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:563:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)
+
+test at tests/integration/materials-edit-api.test.mjs:579:1
+✖ SCRP-B7 restarted pending stream resets ops and journal before reprocessing (7.644458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+  +   'Old text.'
+  -   'Tracked shipments.'
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:589:10)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'Old text.' ],
+    expected: [ 'Tracked shipments.' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:797:1
+✖ all Scribe routes honor pending.json before edits (5.210458ms)
+  SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+      at JSON.parse (<anonymous>)
+      at request (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:313:81)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:808:20)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7)

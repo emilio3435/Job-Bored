@@ -1,0 +1,58 @@
+✖ SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text (19.608708ms)
+▶ materials edit proposal
+  ✖ SCRP-B11 writer transport, unreadable reply and apply rejection have distinct safe codes (73.988125ms)
+✖ materials edit proposal (74.593042ms)
+ℹ tests 2
+ℹ suites 1
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 299.593583
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:524:1
+✖ SCRP-B12 thrown SSE failures expose fixed code messages and no private exception text (19.608708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   code: 'network',
+  +   message: 'private payload /secret/path stack token=example'
+  -   code: 'provider_failed',
+  -   message: 'The AI provider did not complete the request. Try again.'
+    }
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:537:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { code: 'network', message: 'private payload /secret/path stack token=example' },
+    expected: { code: 'provider_failed', message: 'The AI provider did not complete the request. Try again.' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/materials-edit.test.mjs:270:3
+✖ SCRP-B11 writer transport, unreadable reply and apply rejection have distinct safe codes (73.988125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'invalid_model'
+  - 'provider_failed'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/materials-edit.test.mjs:282:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Promise.all (index 12)
+      at async Suite.run (node:internal/test_runner/test:1518:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'invalid_model',
+    expected: 'provider_failed',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

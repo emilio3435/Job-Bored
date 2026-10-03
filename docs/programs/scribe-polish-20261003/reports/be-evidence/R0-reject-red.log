@@ -1,0 +1,25 @@
+✖ SCRP-B3 reject drains queued writes without resurrecting a proposal (13.983333ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 258.770208
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:490:1
+✖ SCRP-B3 reject drains queued writes without resurrecting a proposal (13.983333ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:512:3)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: { code: 'ENOENT' },
+    operator: 'rejects',
+    diff: 'simple'
+  }

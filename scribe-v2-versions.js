@@ -41,7 +41,7 @@
 
   var SOURCE_LABEL = {
     draft: "Draft",
-    edit: "Scribe edit",
+    edit: "Scribe",
     manual: "Manual",
     regenerate: "Regenerated",
     restore: "Brought back",
@@ -783,29 +783,44 @@
       var runId = ui.confirm;
       var v = byId(runId);
       if (!v || ui.restoring) return;
+      var which = ctl.state.doc;
+      var generation = ctl.generation;
+      var proposal = ctl.state.proposal;
       ui.restoring = true;
       deps.renderVersions();
       ctl.api.restore(runId).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
-        /* Only now that a new run exists is the open proposal stale; a
-           failed restore leaves it open (Grok F3-discard). */
-        var p = ctl.state.proposal;
-        if (p && p.id) ctl.api.rejectEdit(p.id).catch(function () { /* the proposal was never saved */ });
-        if (ctl.closed) return null;
+        if (ctl.closed || generation !== ctl.generation) {
+          if (deps.notifySaved) deps.notifySaved(res, which);
+          return null;
+        }
+        var keep = null;
+        var rejected = proposal && proposal.id ? ctl.api.rejectEdit(proposal.id).catch(function () {
+          keep = { proposalId: proposal.id, doc: which, baseRunId: proposal.baseRunId || ctl.state.currentRunId,
+            ops: proposal.ops || [], status: proposal.status || "ready", instruction: proposal.instruction };
+          deps.logMessage("blocked", ["Couldn’t discard. The suggested changes are still open."]);
+        }) : Promise.resolve();
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
-        var msg = "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ". Nothing was deleted.";
+        var unavailable = res && res.textSaved || res && res.run && res.run.pdf === "stale";
+        var msg = unavailable ? "Text saved as v" + n + ". PDF unavailable — it’s rebuilt on your next save." : "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ".";
+        if (deps.setStatus) deps.setStatus(unavailable ? "saved-pdf-unavailable" : "saved", msg);
         deps.logMessage("note", [msg]);
-        announce(msg);
-        return deps.reload().then(function () {
-          focusIn(r.versions, '[aria-current="true"] button');
+        return rejected.then(function () {
+          if (ctl.closed || generation !== ctl.generation) { if (deps.notifySaved) deps.notifySaved(res, which); return null; }
+          return deps.reload(res, keep).then(function () { focusIn(r.versions, '[aria-current="true"] button'); });
         });
       }).catch(function (err) {
         ui.restoring = false;
-        if (ctl.closed) return;
+        if (ctl.closed || generation !== ctl.generation) return;
         deps.renderVersions();
-        var msg = "Bring back didn’t save" + (err && err.message ? ": " + err.message : ".") +
-          (ctl.state.proposal ? " Your versions and open proposal are unchanged." : " Your versions are unchanged.");
+        var mapped = root.JBScribeApi && root.JBScribeApi.errorCopy ? root.JBScribeApi.errorCopy(err && err.code) : "That didn’t work. Try again.";
+        var msg = mapped === "That didn’t work. Try again." ? "Bring back didn’t save. Nothing changed. Try again." : (err && err.message) || mapped;
+        var settings = err && (err.code === "llm_unconfigured" || err.code === "no_pin");
+        if (deps.setStatus) deps.setStatus("error", msg, settings ? "Settings" : "Try again", function () {
+          if (settings && typeof root.openCommandCenterSettingsModal === "function") root.openCommandCenterSettingsModal({ tab: "ai" });
+          else confirmBringBack();
+        });
         deps.logMessage("blocked", [msg]);
         announce(msg, true);
         focusIn(r.versions, '[data-ver-act="confirm"]');
@@ -833,11 +848,9 @@
       if (ui.confirm === v.runId) {
         var top = versions()[0];
         var next = top ? top.n + 1 : null;
-        var cur = current();
         confirm = h("div", { class: "scribe__compare-confirm", role: "group", "aria-label": "Bring back v" + v.n }, [
-          h("p", { text: "Bring back v" + v.n + " as " + (next != null ? "v" + next : "a new version") + "? " +
-            (cur ? "v" + cur.n + " and every other version stay in the list." : "Every version stays in the list.") +
-            (ctl.state.proposal ? " The open proposal will be discarded." : "") }),
+          h("p", { text: "Bring back v" + v.n + " as " + (next != null ? "v" + next : "a new version") + "? All versions are kept." +
+            (ctl.state.proposal ? " Your open suggested changes will be discarded." : "") }),
           h("div", { class: "scribe__compare-acts" }, [
             h("button", { type: "button", class: "scribe__btn scribe__btn--small scribe__btn--primary", "data-ver-act": "confirm", "data-run": v.runId, "aria-disabled": ui.restoring ? "true" : null, text: ui.restoring ? "Bringing back…" : "Bring back as " + (next != null ? "v" + next : "new") }),
             h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-ver-act": "cancel", "data-run": v.runId, text: "Cancel" }),
