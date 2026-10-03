@@ -1384,7 +1384,9 @@
       ctl.abort = null; ctl.request = null;
       ctl.state.busy = false; ctl.state.stage = null;
       ctl.refs.docscroll.setAttribute("aria-busy", "false");
-      clearReview(ctl); ctl.state.proposal = null;
+      var p = ctl.state.proposal;
+      if (reviewReady(p) && p.ops.length) finishRun(ctl);
+      else { clearReview(ctl); ctl.state.proposal = null; }
       return readOpen(ctl).then(function () { renderAll(ctl); });
     });
     return request.stopReply;

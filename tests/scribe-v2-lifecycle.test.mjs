@@ -829,3 +829,20 @@ it('SCRP-F76 R2-#7 an older recovery read cannot reinstate an accepting gate aft
   assert.equal(ctl.openProposal, null); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
   await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
 });
+
+it('SCRP-F77 R2-#8 Stop keeps the received terminal result when recovery is offline', async () => {
+  const t = reliabilityApi(); const reply = defer(); const stream = defer(); let handlers;
+  t.api.stream = async (_id, h) => { handlers = h; return stream.promise; }; t.api.stopEdit = () => reply.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  tap(ctl.refs.stage.querySelector('[data-scribe="stop"]'));
+  handlers.onEvent({ event: 'op', data: { op: ROP } });
+  handlers.onEvent({ event: 'proposal', data: { summary: { changes: 1, wordsDelta: -2 } } });
+  handlers.onEvent({ event: 'done', data: { status: 'ready' } });
+  const terminal = ctl.state.proposal;
+  t.api.getOpenEdit = async () => { throw { code: 'network' }; }; reply.reject({ code: 'proposal_not_running' }); await flush();
+  assert.equal(ctl.state.proposal, terminal); assert.equal(terminal.status, 'ready');
+  assert.equal(terminal.ops[0].opId, 'o1'); assert.equal(terminal.summary.wordsDelta, -2);
+  assert.equal(ctl.state.busy, false); assert.equal(ctl.request, null);
+  assert.ok(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+  stream.resolve(); ctl.close();
+});
