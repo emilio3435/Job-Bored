@@ -76,7 +76,7 @@
 test at tests/integration/materials-edit-api.test.mjs:386:1
 ✖ service SSE emits blocked shape and Stop retains validated partial ops (12.819791ms)
   AssertionError [ERR_ASSERTION]: The input did not match the regular expression /event: done\ndata: {"status":"partial"}/. Input:
-  
+
   'event: stage\n' +
     'data: {"stage":"reading"}\n' +
     '\n' +
@@ -107,7 +107,7 @@ test at tests/integration/materials-edit-api.test.mjs:386:1
     'event: done\n' +
     'data: {"status":"ready"}\n' +
     '\n'
-  
+
       at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored/.worktrees/scribe-editor-fix/tests/integration/materials-edit-api.test.mjs:417:10)
       at async Test.run (node:internal/test_runner/test:1113:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {

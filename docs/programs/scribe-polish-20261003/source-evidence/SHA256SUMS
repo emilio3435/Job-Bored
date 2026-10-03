@@ -8,3 +8,4 @@ f766e443e9a9b197abc3b7e93ce39daa09ff583eb6a3672e40d827b9b6b30323  astra-targeted
 4404a61dce755749b871b7009ba28b4c28cc17273024a3b28c5123fdd4a3c996  astra-stop-rerun.log
 18dd420dd12381de6b0fab09f3b90b5f3fb2d2675779287f4d3caabdb502bb53  HOST-STOP-RACE-PROBE.txt
 18dd420dd12381de6b0fab09f3b90b5f3fb2d2675779287f4d3caabdb502bb53  sol-stop-measuring-result.json
+NOTE 2026-10-03 08:24Z: hashes above verified the copies at 06:52Z; trailing whitespace was then stripped from *.log/*.txt/*.md copies for git diff --check, so current bytes differ only in trailing whitespace.
