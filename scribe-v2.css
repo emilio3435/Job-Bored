@@ -524,7 +524,8 @@ jb-scribe.scribe:has(.scribe__reviewbar [data-review="save"][aria-disabled="fals
   background: var(--jb-paper); border-color: var(--jb-line); color: var(--jb-ink);
 }
 jb-scribe.scribe .scribe__recover p,
-jb-scribe.scribe .scribe__unsaved p {
+jb-scribe.scribe .scribe__unsaved p,
+jb-scribe.scribe .scribe__unsaved > span {
   flex-basis: 100%; margin: 0; font-size: var(--jb-type-small);
   line-height: 1.5; color: var(--jb-ink);
 }
@@ -559,9 +560,13 @@ jb-scribe.scribe .scribe__scope .scribe__pill {
 }
 jb-scribe.scribe [data-action="clear-scope"] {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  min-width: 36px; min-height: 36px; padding: 0 var(--jb-space-2);
+  min-width: 44px; min-height: 44px; padding: 0 var(--jb-space-2);
   border: 1px solid var(--jb-line); border-radius: var(--jb-radius-pill);
   background: var(--jb-paper); color: var(--jb-ink); font-size: var(--jb-type-body);
+}
+/* A selected scope is visible in Chat after leaving the document. */
+jb-scribe.scribe .scribe__scope:has([data-action="clear-scope"]:not([hidden])) .scribe__pill {
+  background: var(--jb-info-tint); border-color: var(--jb-action); color: var(--jb-ink);
 }
 jb-scribe.scribe .scribe__docscroll { position: relative; }
 jb-scribe.scribe .scribe__selection-actions {
@@ -572,13 +577,35 @@ jb-scribe.scribe .scribe__selection-actions {
   border: 1px solid var(--jb-line); border-radius: var(--jb-radius-md);
   box-shadow: var(--jb-shadow-md);
 }
+/* FE supplies the exact hint through title. Make it visible on touch as
+   well as hover, preserving the focusable aria-disabled control. */
+jb-scribe.scribe .scribe__selection-actions [data-selection="edit"][aria-disabled="true"] {
+  flex-basis: 100%; flex-wrap: wrap; justify-content: flex-start;
+  gap: var(--jb-space-1) var(--jb-space-2); padding: var(--jb-space-2) var(--jb-space-3);
+  opacity: 1; background: var(--jb-paper-2); border-style: dashed; color: var(--jb-ink-3);
+}
+jb-scribe.scribe .scribe__selection-actions [data-selection="edit"][aria-disabled="true"]::after {
+  content: attr(title); min-width: 0; white-space: normal; overflow-wrap: anywhere;
+  font-weight: 400; text-align: left;
+}
+jb-scribe.scribe .scribe__selection-actions .scribe__btn,
+jb-scribe.scribe .scribe__manual-state .scribe__btn,
+jb-scribe.scribe .scribe__unsaved .scribe__btn { min-height: 44px; min-width: 44px; }
 jb-scribe.scribe .scribe__manual-state {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2);
-  flex-basis: 100%; min-height: var(--jb-space-10); padding: var(--jb-space-2);
+  flex-basis: 100%; min-height: var(--jb-space-16); padding: var(--jb-space-2);
   border-left: 3px solid var(--jb-line); border-radius: var(--jb-radius-sm);
   background: var(--jb-paper);
 }
 jb-scribe.scribe .scribe__manual-state > span { flex: 1 1 16ch; min-width: 0; }
+/* The live editing line owns its actions; the stage's auto-margin must not
+   split Try again / Review current / Reapply across an accidental gap. */
+jb-scribe.scribe .scribe__manual-state .scribe__btn { margin-left: 0; }
+jb-scribe.scribe .scribe__manual-state[data-state="editing"] {
+  border-left-color: var(--jb-action); background: var(--jb-info-tint); color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__manual-state[data-state="saving"] { border-left-color: var(--jb-action); }
+
 jb-scribe.scribe .scribe__unsaved {
   position: absolute; left: 50%; bottom: var(--jb-space-6); transform: translateX(-50%);
   z-index: var(--jb-z-modal); display: flex; flex-wrap: wrap; gap: var(--jb-space-2);

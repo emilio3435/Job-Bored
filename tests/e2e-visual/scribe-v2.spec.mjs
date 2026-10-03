@@ -259,7 +259,7 @@ test("full screen at 390, one segment at a time", async ({ page }) => {
 
 /* SCRP: injected presentation states use the real FE mount points. These
  * checks prove styling only; recovery/manual behavior belongs to FE's floor.
- * No new pixel baselines are recorded until the host's FE-COPY signal. */
+ * FE-COPY is merged; live capability states below complement these injections. */
 async function injectPresentation(page, kind, state = "idle") {
   await page.evaluate(({ kind, state }) => {
     const host = document.querySelector("jb-scribe.scribe");
@@ -299,14 +299,14 @@ async function injectPresentation(page, kind, state = "idle") {
       const scope = host.querySelector(".scribe__scope");
       scope.querySelector(".scribe__pill").textContent = "Selected: Introduction and supporting operations experience";
       const clear = scope.querySelector('[data-action="clear-scope"]'); clear.hidden = false;
-      // FE-2 owns these two anchors; the injected shape matches SPEC §4.
+      // FE-2 hides the mounted toolbar with inline display:none as well as hidden.
       let toolbar = host.querySelector(".scribe__selection-actions");
       if (!toolbar) {
         toolbar = document.createElement("div"); toolbar.className = "scribe__selection-actions";
         toolbar.role = "toolbar"; toolbar.setAttribute("aria-label", "Selected text actions");
         host.querySelector(".scribe__docscroll").append(toolbar);
       }
-      toolbar.hidden = false; toolbar.style.left = "8px"; toolbar.style.top = "8px";
+      toolbar.hidden = false; toolbar.style.display = "flex"; toolbar.style.left = "8px"; toolbar.style.top = "8px";
       toolbar.replaceChildren(...["Rewrite", "Shorten", "Emphasize", "Ask…", "Edit text"].map(text => button(text)));
     } else if (kind === "manual") {
       let el = host.querySelector(".scribe__manual-state");
@@ -326,7 +326,7 @@ async function injectPresentation(page, kind, state = "idle") {
       if (state === "confirm") el.append(button("Save anyway"), button("Edit"));
     } else if (kind === "unsaved") {
       const el = host.querySelector(".scribe__unsaved"); el.hidden = false;
-      const text = document.createElement("p"); text.textContent = "You have unsaved text.";
+      const text = document.createElement("span"); text.textContent = "You have unsaved text.";
       el.replaceChildren(text, button("Save", true), button("Discard"), button("Stay"));
     }
   }, { kind, state });
@@ -367,15 +367,15 @@ async function expectPresentation(page, locator, mobile) {
     });
   });
   expect(contrastFailures, "anchor text meets WCAG AA contrast").toEqual([]);
-  const focusable = locator.locator("button:visible").first();
-  if (await focusable.count()) {
-    await page.keyboard.press("Tab");
-    await focusable.focus();
-    const ring = await focusable.evaluate(el => {
+  const focusable = await locator.locator("button:visible").all();
+  if (focusable.length) await page.keyboard.press("Tab");
+  for (const button of focusable) {
+    await button.focus();
+    const ring = await button.evaluate(el => {
       const cs = getComputedStyle(el);
       return el.matches(":focus-visible") && (cs.boxShadow !== "none" || (cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2));
     });
-    expect(ring, "keyboard focus has a visible ring").toBe(true);
+    expect(ring, "every action has a visible keyboard focus ring").toBe(true);
   }
 }
 
@@ -465,6 +465,83 @@ for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
     const status = desk.locator('.scribe__status[data-state="recovered"]');
     await expect(status).toContainText("Your earlier accept/reject choices weren’t kept. Review again.");
     await expectPresentation(page, status, width === 375);
+    expectHermetic(booted);
+  });
+}
+
+
+// FE-COPY: select real iframe nodes so the toolbar, scope and manual prompt
+// are rendered by FE. The earlier U2 injections still cover every outcome.
+async function selectLiveBlocks(page, ids) {
+  await page.evaluate(ids => {
+    const inner = document.querySelector("jb-scribe .scribe__frame").contentDocument;
+    const nodes = ids.map(id => [...inner.querySelectorAll("[data-node]")].find(el => el.dataset.node === id));
+    const range = inner.createRange();
+    const first = inner.createTreeWalker(nodes[0], 4).nextNode();
+    const walker = inner.createTreeWalker(nodes.at(-1), 4);
+    let last = walker.nextNode();
+    for (let next = walker.nextNode(); next; next = walker.nextNode()) last = next;
+    range.setStart(first, 0);
+    range.setEnd(last, last.textContent.length);
+    const selection = inner.getSelection();
+    selection.removeAllRanges(); selection.addRange(range);
+    inner.dispatchEvent(new Event("selectionchange"));
+  }, ids);
+}
+
+for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
+  test(`SCRP-U5 ${doc} ${width}: live scope, multi-block hint, manual editing and unsaved navigation`, async ({ page }) => {
+    const mobile = width === 375;
+    const booted = await openDesk(page, { width, height: mobile ? 667 : 1000 }, "reduce", doc);
+    const { desk } = booted;
+    const single = doc === "resume" ? "b:acme:c14" : "p:p3";
+    const multiple = doc === "resume" ? ["b:acme:c14", "b:acme:c19"] : ["p:p2", "p:p3"];
+    await selectLiveBlocks(page, multiple);
+    const toolbar = desk.locator(".scribe__selection-actions");
+    await expectPresentation(page, toolbar, true);
+    const edit = toolbar.locator('[data-selection="edit"]');
+    await expect(edit).toHaveAttribute("aria-disabled", "true");
+    await expect(edit).toHaveAttribute("title", "Select one block to edit its text.");
+    const hint = await edit.evaluate(el => {
+      const cs = getComputedStyle(el, "::after");
+      return { content: cs.content, wrap: cs.whiteSpace };
+    });
+    expect(hint.content, "multi-block Edit text explains its disabled state on screen").toBe('"Select one block to edit its text."');
+    expect(hint.wrap).toBe("normal");
+    await page.keyboard.press("Tab"); await edit.focus();
+    expect(await edit.evaluate(el => el.matches(":focus-visible") && getComputedStyle(el).boxShadow !== "none"), "disabled Edit text remains keyboard discoverable").toBe(true);
+    await compareScreenshot(page, `scrp-u5-${doc}-${width}-selection.png`);
+    if (mobile) await desk.getByRole("tab", { name: "Chat", exact: true }).click();
+    const scope = desk.locator(".scribe__scope");
+    await expect(scope).toContainText("Selected: 2 blocks");
+    await expectPresentation(page, scope, true);
+    await scope.getByRole("button", { name: "Use whole document" }).click();
+    await expect(scope).toContainText("Whole document");
+    await expect(scope.getByRole("button", { name: "Use whole document" })).toBeHidden();
+    if (mobile) await desk.getByRole("tab", { name: "Doc", exact: true }).click();
+    await selectLiveBlocks(page, [single]);
+    await expect(edit).toHaveAttribute("aria-disabled", "false");
+    await expect(edit).not.toHaveAttribute("title");
+    await expectPresentation(page, toolbar, true);
+    await edit.click();
+    const block = page.frameLocator("jb-scribe .scribe__frame").locator(`[data-node="${single}"]`);
+    await expect(block).toHaveAttribute("contenteditable", "plaintext-only");
+    const manual = desk.locator('.scribe__manual-state[data-state="editing"]');
+    await expect(manual).toContainText("Saves when you leave the block.");
+    await expectPresentation(page, manual, true);
+    // A retained draft opens FE's real Save / Discard / Stay prompt.
+    const original = await block.textContent();
+    await block.fill(`${original} Clear wording.`);
+    await desk.getByRole("button", { name: "Close Scribe", exact: true }).click();
+    const unsaved = desk.getByRole("alertdialog", { name: "Unsaved text" });
+    await expect(unsaved).toContainText("You have unsaved text.");
+    await expectPresentation(page, unsaved, true);
+    const message = await unsaved.locator("span").boundingBox();
+    const save = await unsaved.getByRole("button", { name: "Save", exact: true }).boundingBox();
+    expect(save.y, "unsaved actions sit below the message").toBeGreaterThanOrEqual(message.y + message.height);
+    await compareScreenshot(page, `scrp-u5-${doc}-${width}-unsaved.png`);
+    // Discard only this fictional manual draft before checking the fence.
+    await unsaved.getByRole("button", { name: "Discard", exact: true }).click();
     expectHermetic(booted);
   });
 }
