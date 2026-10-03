@@ -540,7 +540,7 @@ it("SCRP-B12 thrown SSE failures expose fixed code messages and no private excep
     ["http_429", "rate_limited", "The AI provider is rate limited. Wait and try again."],
     ["writer_truncated", "reply_cut_off", "The AI reply was cut off. Try a smaller edit."],
     ["writer_blocked", "provider_refused", "The AI provider declined this edit. Try another instruction."],
-    ["llm_unconfigured", "llm_unconfigured", "Choose an AI model in Settings before editing."],
+    ["llm_unconfigured", "llm_unconfigured", "The AI model isn’t set up correctly. Check it in Settings, then try again."],
     ["ENOENT", "editor_failed", "Scribe could not complete this edit. Try again."],
   ]) {
     const pkg = await seed();
@@ -1208,4 +1208,176 @@ it("legacy paragraph splitting preserves link labels and refuses ambiguous shape
     const svc = createMaterialsVersionService({ applicationsRoot: root });
     await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
   }
+});
+
+
+it("SCRP-B21 R1-#1 regenerate merges each document's current run after single-document saves", async () => {
+  for (const savedDocs of [["resume"], ["coverLetter"], ["resume", "coverLetter"]]) {
+    const pkg = await seed();
+    for (const doc of savedDocs) {
+      await service.accept(pkg.slug, "", { doc, baseRunId: "r0", manualOps: [doc === "resume" ? op : {
+        opId: "letter-edit", op: "replace", node: "p:p3", text: "I welcome a conversation about improving daily operations.",
+      }], confirmUnverified: [] }, true);
+    }
+    const sources = {};
+    for (const doc of ["resume", "coverLetter"]) {
+      const listing = await service.versions(pkg.dir, doc);
+      sources[doc] = (await service.model(pkg.slug, listing.currentRunId)).model.documents[doc];
+      sources[doc].templateId = doc === "resume" ? "dossier.resume" : "dossier.letter";
+    }
+    const result = await regeneratePackage({ slug: pkg.slug, template: "dossier" }, {
+      applicationsRoot: root, pdfSession, critic: async () => ({ status: "pass", issues: [] }),
+      targetLogoLoader: async () => null, employerLogoLoader: async () => [], readSavedResume: async () => null,
+    });
+    assert.deepEqual(result.template.templateIds, { resume: "dossier.resume", coverLetter: "dossier.letter" });
+    const published = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+    assert.deepEqual(published.documents, sources);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "both");
+    for (const stem of ["resume", "cover-letter"]) assert.match(await readFile(join(pkg.dir, `${stem}.html`), "utf8"), /data-family="dossier"/);
+  }
+});
+
+
+it("SCRP-B22 R1-#2+#3 D19 letter restore has its own numbering and leaves the resume byte-equal", async (t) => {
+  if (!(await needsSocket(t))) return;
+  for (const available of [true, false]) {
+    const pkg = await seed();
+    const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+    const before = {};
+    for (const name of ["resume.html", "resume.pdf", "resume.txt", "qa.resume.json"]) before[name] = await readFile(join(pkg.dir, name));
+    const original = await readFile(join(pkg.dir, "runs", "r0", "render-model.json"));
+    const resumeList = await service.versions(pkg.dir, "resume");
+    browserAvailable = available;
+    let restored;
+    try { restored = await request(`${pkg.path}/versions/r0/restore`, "POST", { doc: "cover_letter" }); }
+    finally { browserAvailable = true; }
+    assert.equal(restored.status, available ? 200 : 503);
+    assert.equal(restored.data.run.n, 1);
+    assert.deepEqual(restored.data.versions.map((row) => row.source), ["restore", "draft"]);
+    assert.equal(restored.data.versions[0].runId, restored.data.run.runId);
+    assert.deepEqual(await service.versions(pkg.dir, "resume"), resumeList);
+    assert.equal((await service.versions(pkg.dir, "resume")).currentRunId, saved.body.run.runId);
+    for (const [name, bytes] of Object.entries(before)) assert.deepEqual(await readFile(join(pkg.dir, name)), bytes, name);
+    assert.deepEqual(await readFile(join(pkg.dir, "runs", "r0", "render-model.json")), original);
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).feature, "cover_letter");
+  }
+});
+
+
+it("SCRP-B23 R1-#4 a failed terminal write delivers done and reconnect replays without rejection", async () => {
+  const pkg = await seed();
+  let failed = false;
+  const svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl,
+    persistProposal: async (path, snapshot) => {
+      if (!failed && snapshot.events.at(-1)?.event === "done") {
+        failed = true;
+        throw Object.assign(new Error("Fictional terminal persistence failure"), { code: "ENOSPC" });
+      }
+      const temporary = `${path}.tmp`;
+      await writeFile(temporary, JSON.stringify(snapshot));
+      await rename(temporary, path);
+    },
+  });
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  const first = fakeStream();
+  const ended = once(first, "end");
+  let timer;
+  try {
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), first);
+    const delivered = await Promise.race([ended.then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), 500); })]);
+    assert.equal(delivered, true, "failed terminal persistence must not hang the stream");
+    assert.equal(failed, true);
+    assert.equal(first.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(first.chunks.join(""), /"status":"ready"/);
+    assert.doesNotMatch(first.chunks.join(""), /Fictional terminal persistence failure|ENOSPC/);
+    // Let final housekeeping finish, then reconnect through the same real queue.
+    await new Promise((resolve) => setImmediate(resolve));
+    const replay = fakeStream();
+    const replayed = once(replay, "end");
+    await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), replay);
+    await replayed;
+    assert.equal(replay.chunks.join("").match(/event: done/g)?.length, 1);
+    assert.match(replay.chunks.join(""), /"status":"ready"/);
+    const stored = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+    assert.equal(stored.status, "ready");
+    assert.equal(stored.events.filter((row) => row.event === "done").length, 1);
+  } finally { clearTimeout(timer); first.end(); first.emit("close"); }
+});
+
+
+it("SCRP-B24 R1-#5 malformed ready rows agree between GET open and the role gates", async () => {
+  const pkg = await seed();
+  await mkdir(join(pkg.dir, "proposals"));
+  const id = randomUUID();
+  await writeFile(join(pkg.dir, "proposals", `${id}.json`), JSON.stringify({
+    id, doc: "resume", status: "ready", baseRunId: "r0", createdAt: new Date().toISOString(), events: [],
+  }));
+  assert.deepEqual(await service.open(pkg.slug), { proposal: null });
+  const started = await service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await service.reject(pkg.slug, started.proposalId);
+  const saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true);
+  assert.equal(saved.statusCode, 200);
+});
+
+
+it("SCRP-B26 R1-#7 proposal promise queues are pruned after terminal close, accept and reject", async () => {
+  const observed = [];
+  const NativeMap = globalThis.Map;
+  let svc;
+  try {
+    globalThis.Map = class extends NativeMap { constructor(...args) { super(...args); observed.push(this); } };
+    svc = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl, commit });
+  } finally { globalThis.Map = NativeMap; }
+  const queues = (id) => observed.map((map) => map.get(id)).filter((value) => value instanceof Promise);
+  const drained = async (id) => {
+    for (let i = 0; i < 3; i++) {
+      await Promise.all(queues(id).map((promise) => promise.catch(() => {})));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(queues(id).length, 0, "settled per-proposal promises must be released");
+  };
+  const rejected = await seed();
+  const pending = await svc.start(rejected.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  assert.equal(queues(pending.proposalId).length, 1, "instrumentation observes the real persistence queue");
+  await svc.reject(rejected.slug, pending.proposalId);
+  await drained(pending.proposalId);
+  const accepted = await seed();
+  const id = await readyProposal(svc, accepted);
+  await drained(id);
+  await svc.accept(accepted.slug, id, { accept: ["o1"], confirmUnverified: [] });
+  await drained(id);
+  const stopped = await seed();
+  const partial = await svc.start(stopped.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten", lockFacts: true });
+  await svc.stop(stopped.slug, partial.proposalId);
+  await drained(partial.proposalId);
+});
+
+
+it("SCRP-B28 R1-#25 production error envelope preserves a committed nonretryable 503", async () => {
+  // Import the real envelope while suppressing index's auto-start and startup migrations.
+  // No serving stack or default port is opened by this test.
+  const listen = express.application.listen;
+  let preventedStartup = false;
+  let withApiErrorEnvelope;
+  try {
+    express.application.listen = function () { preventedStartup = true; return this; };
+    ({ withApiErrorEnvelope } = await import("../../server/index.mjs"));
+  } finally { express.application.listen = listen; }
+  assert.equal(preventedStartup, true);
+  assert.equal(typeof withApiErrorEnvelope, "function", "the real production envelope must be exported");
+  const pkg = await seed();
+  browserAvailable = false;
+  let saved;
+  try { saved = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [op], confirmUnverified: [] }, true); }
+  finally { browserAvailable = true; }
+  const body = withApiErrorEnvelope(saved.statusCode, saved.body);
+  assert.equal(saved.statusCode, 503);
+  assert.equal(body.retryable, false);
+  assert.equal(body.code, "browser_unavailable");
+  assert.deepEqual(body.run, saved.body.run);
+  assert.deepEqual(body.versions, saved.body.versions);
+  assert.equal(body.run.pdf, "stale");
+  assert.ok(body.run.runId);
+  assert.equal(body.versions[0].runId, body.run.runId);
+  assert.equal(withApiErrorEnvelope(503, { error: "A fictional transient failure", code: "internal_error" }).retryable, true);
 });

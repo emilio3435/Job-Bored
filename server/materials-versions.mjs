@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { editDiagnostic, flagUnverifiedOps, proposeEdits, safeBlockedEdit } from "./materials-edit.mjs";
@@ -69,7 +69,7 @@ async function assertChildDirectory(dir, child) {
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") return false;
     throw error;
   }
-  if (!actual.startsWith(dir + sep)) throw failure("Path escape detected", 400, "path_escape");
+  if (!actual.startsWith(await realpath(dir) + sep)) throw failure("Path escape detected", 400, "path_escape");
   return true;
 }
 
@@ -238,6 +238,21 @@ async function versions(dir, doc) {
   return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : latestAdopted?.run.runId || current.runId };
 }
 
+/** Read each document from its own current immutable run for a package-wide template change. */
+/** @param {string} dir */
+export async function currentDocuments(dir) {
+  dir = await resolveApplicationDir(basename(dir), { root: dirname(dir) });
+  /** @type {Record<string, any>} */
+  const documents = {};
+  for (const doc of ["resume", "coverLetter"]) {
+    const listing = await versions(dir, doc);
+    if (!listing.versions.length) continue;
+    const { model } = await runFiles(dir, listing.currentRunId);
+    documents[doc] = model.documents[doc];
+  }
+  return documents;
+}
+
 /** @param {Record<string, any>} proposal @param {string} event @param {unknown} data */
 function addEvent(proposal, event, data) {
   proposal.events.push({ event, data });
@@ -273,9 +288,17 @@ export function createMaterialsVersionService(deps = {}) {
   const writes = new Map();
   /** @type {Map<string, Promise<void>>} */
   const terminals = new Map();
+  /** Only settled queues with no audience can be released. */
+  /** @param {Record<string, any>} proposal */
+  const pruneQueues = (proposal) => {
+    if (["pending", "accepting"].includes(proposal.status) || listeners.get(proposal.id)?.size) return;
+    writes.delete(proposal.id);
+    terminals.delete(proposal.id);
+  };
   /** Snapshot and event delivery share one queue; a failed write cannot poison Stop. */
   /** @param {Record<string, any>} proposal @param {string} [event] @param {any} [data] */
   const save = (proposal, event, data) => {
+    if (proposal.status === "rejected") return Promise.resolve();
     const snapshot = structuredClone(persisted(proposal));
     const payload = data === undefined ? undefined : structuredClone(data);
     const queued = (writes.get(proposal.id) || Promise.resolve()).catch(() => {}).then(async () => {
@@ -286,6 +309,8 @@ export function createMaterialsVersionService(deps = {}) {
       }
     });
     writes.set(proposal.id, queued);
+    const settled = () => { if (writes.get(proposal.id) === queued) pruneQueues(proposal); };
+    void queued.then(settled, settled);
     return queued;
   };
   /** @param {Record<string, any>} proposal @param {string} event @param {any} data */
@@ -338,13 +363,7 @@ export function createMaterialsVersionService(deps = {}) {
   /** @param {string} dir */
   const openProposal = async (dir) => {
     await sweep(dir);
-    for (const name of await readdir(join(dir, "proposals"))) {
-      if (!name.endsWith(".json")) continue;
-      const row = await json(join(dir, "proposals", name));
-      const emptyFinished = row && ["ready", "partial"].includes(row.status) && Array.isArray(row.ops) && row.ops.length === 0;
-      if (row && !emptyFinished && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
-    }
-    return false;
+    return (await readOpenProposals(dir)).length > 0;
   };
   /** Read-only recovery scan: expiration never deletes or creates files. */
   /** @param {string} dir */
@@ -427,7 +446,7 @@ export function createMaterialsVersionService(deps = {}) {
         { event: "done", data: { status: "failed" } },
       ]);
     } finally {
-      await terminals.get(proposal.id);
+      await terminals.get(proposal.id)?.catch(() => {});
       proposal.running = false;
       validated.delete(proposal.id);
       if (proposal.status !== "rejected") await save(proposal);
@@ -577,23 +596,32 @@ export function createMaterialsVersionService(deps = {}) {
         }
         return row;
       });
-      const replay = (writes.get(id) || Promise.resolve()).then(() => {
+      const replay = (writes.get(id) || Promise.resolve()).catch(() => {}).then(() => {
         if (proposal.status === "rejected") return;
         for (const row of replayRows) send(row.event, row.data);
       });
       writes.set(id, replay);
       await replay;
-      if (res.writableEnded) return;
+      if (res.writableEnded) { pruneQueues(proposal); return; }
       let audience = listeners.get(id);
       if (!audience) { audience = new Set(); listeners.set(id, audience); }
       audience.add(send);
       heartbeat = setInterval(() => { if (!res.writableEnded) res.write(": ping\n\n"); }, 15_000);
       heartbeat.unref();
-      close = () => { clearInterval(heartbeat); audience.delete(send); if (!audience.size) listeners.delete(id); };
+      close = () => {
+        clearInterval(heartbeat);
+        audience.delete(send);
+        if (!audience.size) listeners.delete(id);
+        const queue = writes.get(id);
+        void queue?.catch(() => {}).then(() => { if (writes.get(id) === queue) pruneQueues(proposal); });
+      };
       res.once("close", close);
       if (!proposal.running && proposal.status === "pending") {
         void processProposal(proposal).then(() => {
           if (!res.writableEnded) send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+        }).catch(() => {
+          const data = { status: proposal.status, message: editDiagnostic("editor_failed").detail };
+          for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
         });
       } else if (!proposal.running) {
         send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
@@ -705,16 +733,23 @@ export function createMaterialsVersionService(deps = {}) {
         await writes.get(id)?.catch(() => {});
         await rm(proposalPath(proposal), { force: true });
         live.delete(id);
+        writes.delete(id);
+        terminals.delete(id);
       } finally { reserved.delete(dir); }
     },
-    /** @param {string} slug @param {string} id */
-    async restore(slug, id) {
+    /** @param {string} slug @param {string} id @param {Record<string, any>} [body] */
+    async restore(slug, id, body = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const current = await currentRun(dir);
         const { model } = await runFiles(dir, id);
-        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id);
-        const doc = model.documents?.resume ? "resume" : "coverLetter";
+        const selectedDoc = body.doc === undefined ? undefined : documentName(body.doc);
+        if (selectedDoc) {
+          if (!model.documents?.[selectedDoc]) throw failure("Document not in version", 404, "document_not_found");
+          delete model.documents[selectedDoc === "resume" ? "coverLetter" : "resume"];
+        }
+        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id, undefined, selectedDoc);
+        const doc = selectedDoc || (model.documents?.resume ? "resume" : "coverLetter");
         const listed = await versions(dir, doc);
         const row = listed.versions.find((version) => version.runId === committed.runId);
         return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, restoredFrom: id, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
@@ -761,7 +796,7 @@ export function registerMaterialsEditRoutes(app, options = {}) {
   app.post(`${base}/edits/:id/accept`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, req.params.id, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.delete(`${base}/edits/:id`, wrap(async (req, res) => { await service.reject(req.params.slug, req.params.id); res.sendStatus(204); }));
   app.post(`${base}/edits/manual`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, "", object(req.body), true); res.status(result.statusCode).json(result.body); }));
-  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId); res.status(result.statusCode).json(result.body); }));
+  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.put(`${base}/versions/:runId/star`, wrap(async (req, res) => { res.json(await service.star(req.params.slug, req.params.runId, object(req.body).starred)); }));
   return service;
 }

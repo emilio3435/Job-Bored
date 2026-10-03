@@ -269,7 +269,7 @@ describe("materials edit proposal", () => {
 
   it("SCRP-B13 writer diagnostic table covers every emitted code without payloads", () => {
     for (const [code, reason] of [
-      ["network", "provider_failed"], ["timeout", "provider_failed"], ["http_5xx", "provider_failed"], ["http_401", "provider_failed"],
+      ["network", "provider_failed"], ["timeout", "provider_failed"], ["http_5xx", "provider_failed"], ["http_401", "llm_unconfigured"], ["http_403", "llm_unconfigured"], ["http_404", "llm_unconfigured"],
       ["http_429", "rate_limited"], ["invalid_json", "unreadable_reply"], ["schema_invalid", "unreadable_reply"],
       ["writer_truncated", "reply_cut_off"], ["writer_blocked", "provider_refused"], ["no_pin", "llm_unconfigured"], ["llm_unconfigured", "llm_unconfigured"],
       ["invalid_model", "invalid_model"], ["locked", "locked"], ["out_of_scope", "out_of_scope"], ["shape", "shape"],
@@ -298,7 +298,7 @@ describe("materials edit proposal", () => {
   it("SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads", async () => {
     const result = await propose({ ops: [{ opId: "/secret/path", op: "replace", node: "private/path", text: "private provider payload", headers: { Authorization: "example" } }] });
     assert.equal(result.blocked[0].reason, "invalid_model");
-    assert.deepEqual(result.blocked[0].op, { opId: "edit-1" });
+    assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
     assert.doesNotMatch(JSON.stringify(result.blocked), /secret|private|Authorization|headers/);
     assert.deepEqual(result.ops, []);
   });
@@ -336,4 +336,26 @@ it("keeps duplicate IDs and malformed edit fields invalid", async () => {
   assert.equal(result.ops.length, 1);
   assert.equal(result.blocked.length, 3);
   assert.ok(result.blocked.every((block) => block.reason === "invalid_model"));
+});
+
+
+it("SCRP-B25 R1-#6 D20 writer credentials and model failures point to Settings", async () => {
+  for (const status of [401, 403, 404]) {
+    const result = await propose({}, { fetchImpl: async () => ({ ok: false, status, text: async () => "Fictional provider error" }) });
+    assert.deepEqual(result.ops, []);
+    assert.deepEqual(result.blocked, [{ reason: "llm_unconfigured", detail: "The AI model isn’t set up correctly. Check it in Settings, then try again." }]);
+  }
+  for (const code of ["network", "timeout", "http_500", "http_503", "http_5xx"]) assert.equal(editDiagnostic(code).reason, "provider_failed");
+  assert.equal(editDiagnostic("http_400").reason, "editor_failed");
+});
+
+
+it("SCRP-B27 R1-#8 blocked fallback IDs do not alias generated edit IDs", async () => {
+  const result = await propose({ ops: [
+    { opId: "/fictional/path", op: "replace", node: "unknown", text: "Rejected text." },
+    { opId: "edit-1", op: "replace", node: "line:beta", text: "Tracked shipments." },
+  ] });
+  assert.equal(result.ops[0].opId, "edit-1");
+  assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
+  assert.notEqual(result.blocked[0].op.opId, result.ops[0].opId);
 });
