@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:
 import { join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { editDiagnostic, flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
+import { editDiagnostic, flagUnverifiedOps, proposeEdits, safeBlockedEdit } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
@@ -407,7 +407,7 @@ export function createMaterialsVersionService(deps = {}) {
       }
       for (const blocked of result.blocked) {
         if (proposal.status !== "pending") return;
-        await emit(proposal, "blocked", blocked);
+        await emit(proposal, "blocked", safeBlockedEdit(blocked, proposal.events.length));
       }
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "measuring" });
@@ -487,7 +487,7 @@ export function createMaterialsVersionService(deps = {}) {
       return { proposal: {
         proposalId: row.id, doc: row.doc, baseRunId: row.baseRunId, instruction: row.instruction,
         scope: row.scope, lockFacts: true, createdAt: row.createdAt, status: row.status, ops: row.ops,
-        blocked: (row.events || []).filter((/** @type {any} */ event) => event.event === "blocked").map((/** @type {any} */ event) => event.data),
+        blocked: (row.events || []).filter((/** @type {any} */ event) => event.event === "blocked").map((/** @type {any} */ event, /** @type {number} */ index) => safeBlockedEdit(event.data, index)),
         ...(row.summary ? { summary: row.summary } : {}),
         ...(row.factCheck ? { factCheck: row.factCheck } : {}),
         ...(row.factCheckReason ? { factCheckReason: row.factCheckReason } : {}),
@@ -569,7 +569,14 @@ export function createMaterialsVersionService(deps = {}) {
       };
       // Reconnect delivery belongs to the same queue as new events: a terminal
       // journal in memory may still be waiting behind an earlier snapshot.
-      const replayRows = structuredClone(proposal.events);
+      const replayRows = structuredClone(proposal.events).map((/** @type {any} */ row, /** @type {number} */ index) => {
+        if (row.event === "blocked") return { event: row.event, data: safeBlockedEdit(row.data, index) };
+        if (row.event === "error") {
+          const diagnostic = editDiagnostic(String(row.data?.code || "editor_failed"));
+          return { event: row.event, data: { code: diagnostic.reason, message: diagnostic.detail } };
+        }
+        return row;
+      });
       const replay = (writes.get(id) || Promise.resolve()).then(() => {
         if (proposal.status === "rejected") return;
         for (const row of replayRows) send(row.event, row.data);
