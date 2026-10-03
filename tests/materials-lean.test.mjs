@@ -58,11 +58,12 @@ test('L2 unit mismatch falls back; legal count rounding keeps units', () => {
   v.roles[0].bullets[0].text = 'Supported planning for 999 accounts using Postgres.';
   assert.equal(check(v, { resumeText: resumeText + '\nMapTool 999', resumeRead: { ...resumeRead, skills: { tools: ['Postgres', 'Kafka', 'MapTool 999'] } } }).draft.bullets[0].text, ledger.claims[0].text, 'skills cannot supply bullet numbers');
 });
-test('L3 cross-role basedOn fails shape and retries exactly once', async () => {
+test('L3 cross-role basedOn is dropped without a second model call', async () => {
   const bad = response(); bad.roles[0].bullets[0].basedOn = 'B1';
   const stub = provider([bad, response()]); const out = await api('runLean')({ ...input(), pin: { ...pin, fallback: { stages: { '*': pin } } }, fetchImpl: stub.fetchImpl });
-  assert.equal(stub.requests.length, 2); assert.equal(out.disposition, 'REVIEW');
-  assert.equal(out.draft.bullets[0].claimId, 'claim-1');
+  assert.equal(stub.requests.length, 1); assert.equal(out.disposition, 'REVIEW');
+  assert.ok(!out.draft.bullets.some(b => b.claimId === 'claim-1'));
+  assert.ok(out.shapeErrors.some(e => e.includes('another role')));
 });
 test('L4 invented Meta and TikTok fall back to the source', () => {
   const v = response(); v.roles[0].bullets[0].text += ' Used Meta and TikTok.';
@@ -193,10 +194,11 @@ test('L19 insert into a multi-role employer maintains visible role membership', 
   assert.match(renderDocument(edited, 'resume'), /field reports/);
   assert.ok(edited.documents.resume.sections.find(s => s.kind === 'experience').entries[0].roles[0].claimIds.includes('inserted'));
 });
-test('L20 first-run shape FAIL is held; only two calls, no default', async () => {
-  const bad = response(); bad.roles[0].bullets[0].basedOn = 'missing';
+test('L20 first-run unusable reply is held; one call, no default', async () => {
+  const bad = response(); bad.statement = ''; bad.roles = []; bad.earlier = [];
+  for (const beat of Object.keys(bad.letter)) bad.letter[beat] = '';
   const { result, dir, stub } = await pipeline('both', [bad]);
-  assert.equal(stub.requests.length, 2); assert.equal(result.outcome, 'held'); assert.equal(result.qa.disposition, 'FAIL');
+  assert.equal(stub.requests.length, 1); assert.equal(result.outcome, 'held'); assert.equal(result.qa.disposition, 'FAIL');
   await assert.rejects(readFile(join(dir, 'run.json')), { code: 'ENOENT' });
   assert.equal((await json(join(dir, 'runs', 'lean-1'), 'run.json')).held !== null, true);
 });
@@ -256,7 +258,7 @@ test('F1-8 OpenAI strict body omits unsupported bounds; Ajv retains them', async
   const transformed = body.response_format.json_schema.schema;
   assert.doesNotMatch(JSON.stringify(transformed), /"(?:minLength|maxLength|minItems|maxItems|pattern|uniqueItems)"/);
   assert.equal(transformed.additionalProperties, false); assert.deepEqual(transformed.required, schema.required);
-  const bad = response(); bad.statement = ''; assert.equal(check(bad).disposition, 'FAIL');
+  const bad = response(); bad.statement = ''; bad.roles = []; assert.equal(check(bad).disposition, 'FAIL');
 });
 test('F1-9 node validation reads the configured employer bullet budget', async () => {
   // Inject a tighter budget into this module only, while running the real edit code.
@@ -270,13 +272,13 @@ test('F1-9 node validation reads the configured employer bullet budget', async (
   assert.throws(() => configured.applyOps(m, [{ op: 'replace', opId: 'cap', node: node.id, text: node.text }]), { reason: 'shape' });
 });
 test('F1-11 basedOn cannot repeat within bullets or earlier lines', () => {
-  const v = response(); v.roles[0].bullets[1].basedOn = 'A1'; assert.equal(check(v).disposition, 'FAIL');
-  const earlier = response(); earlier.earlier.push({ ...earlier.earlier[0] }); assert.equal(check(earlier).disposition, 'FAIL');
+  const v = response(); v.roles[0].bullets[1].basedOn = 'A1'; const c = check(v); assert.equal(c.disposition, 'REVIEW'); assert.equal(c.draft.bullets.filter(b => b.claimId === 'claim-1').length, 1);
+  const earlier = response(); earlier.earlier.push({ ...earlier.earlier[0] }); assert.equal(check(earlier).disposition, 'REVIEW'); assert.equal(check(earlier).draft.earlier.length, 1);
 });
 test('F1-11 employer shape requires 2–5 bullets and at most three employers', () => {
-  const short = response(); short.roles = [short.roles[3]]; short.roles[0].bullets.pop(); assert.equal(check(short).disposition, 'FAIL');
+  const short = response(); short.roles = [short.roles[3]]; short.roles[0].bullets.pop(); assert.equal(check(short).disposition, 'REVIEW');
   const long = response(); long.roles[1].bullets.push({ text: ledger.claims[3].text, basedOn: 'B2' }); long.roles[2].bullets.push({ text: ledger.claims[5].text, basedOn: 'C2' });
-  assert.equal(check(long).disposition, 'FAIL'); // Northwind totals six across its roles.
+  assert.equal(check(long).disposition, 'REVIEW'); assert.equal(check(long).outline.featured.find(g => g.employerId === 'north').claimIds.length, 5); // Six source bullets are trimmed to five.
   const v = response(); const l = structuredClone(ledger); let text = resumeText;
   v.earlier = [];
   v.roles.push({ roleId: 'harbor-r1', bullets: [{ text: ledger.claims[8].text, basedOn: 'E1' }, { text: 'Supported field reports.', basedOn: 'E2' }] });
@@ -285,12 +287,12 @@ test('F1-11 employer shape requires 2–5 bullets and at most three employers', 
   for (let n = 1; n <= 2; n++) l.claims.push({ ...ledger.claims[8], id: `fourth-${n}`, roleId: 'fourth-r1', employerId: 'fourth', text: `Supported field reports for ${n} clients.` });
   text += '\nSupported field reports for 1 clients.\nSupported field reports for 2 clients.';
   v.roles.push({ roleId: 'fourth-r1', bullets: [{ text: l.claims.at(-2).text, basedOn: 'F1' }, { text: l.claims.at(-1).text, basedOn: 'F2' }] });
-  assert.equal(check(v, { ledger: l, resumeText: text }).disposition, 'FAIL');
+  const normalized = check(v, { ledger: l, resumeText: text }); assert.equal(normalized.disposition, 'REVIEW'); assert.equal(normalized.outline.featured.length, 3); assert.ok(normalized.draft.earlier.some(b => b.claimId === 'fourth-1'));
 });
 test('F1-11 letter shape enforces 120–200 words', () => {
   const short = response(); for (const key of Object.keys(short.letter)) short.letter[key] = 'I supported route planning.';
-  assert.equal(check(short).disposition, 'FAIL');
-  const long = response(); long.letter.ask = Array(201).fill('route').join(' '); assert.equal(check(long).disposition, 'FAIL');
+  assert.equal(check(short).disposition, 'REVIEW');
+  const long = response(); long.letter.ask = Array(201).fill('route').join(' '); assert.equal(check(long).disposition, 'REVIEW'); assert.equal(check(long).draft.letter.ask, long.letter.ask);
 });
 test('F1-11 actual pipelines sharing a cache miss across engines', async () => {
   const { dir, result } = await pipeline();
@@ -393,4 +395,48 @@ test('F2-6 Rescore judges a lean run in place and persists real qa.v3', async ()
   assert.deepEqual(await json(dir, 'qa.resume.json'), qa);
   assert.equal((await json(dir, 'run.json')).engine, 'lean');
   assert.deepEqual(await readFile(join(dir, 'resume.pdf')), pdf, 'Rescore retains the rendered artifact');
+});
+test('F2-7 repair membership and optional arrays before shape validation', () => {
+  const v = response(); delete v.needs; delete v.skills; delete v.earlier;
+  v.roles[0].bullets.push({ basedOn: 'B1', text: ledger.claims[2].text }, { basedOn: 'A1', text: ledger.claims[0].text }, { basedOn: 'absent', text: 'Supported planning.' });
+  v.roles.push({ roleId: 'missing-role', bullets: [{ basedOn: 'A2', text: ledger.claims[1].text }] });
+  const c = check(v);
+  assert.notEqual(c.disposition, 'FAIL');
+  assert.equal(new Set(c.draft.bullets.map(b => b.claimId)).size, c.draft.bullets.length);
+  assert.ok(c.shapeErrors.some(e => e.includes('B1') && e.includes('role')));
+  assert.ok(c.shapeErrors.some(e => e.includes('duplicate') && e.includes('A1')));
+  assert.ok(c.shapeErrors.some(e => e.includes('absent')));
+  assert.deepEqual(c.skills, []);
+});
+test('F2-8 unparseable provider reply is kept exactly', async () => {
+  const rawReply = 'broken JSON: { definitely not valid';
+  const {result, dir} = await pipeline('resume', [], { fetchImpl: async () => ({ok:true,json:async()=>({candidates:[{content:{parts:[{text:rawReply}]},finishReason:'STOP'}]})}) });
+  assert.equal(result.qa.disposition, 'FAIL');
+  const saved = await json(join(dir,'runs','lean-1'),'lean.json');
+  assert.equal(saved.rawReply, rawReply);
+  assert.ok(saved.checks.shapeErrors.length);
+});
+test('F2-9 real-shaped output normalizes and keeps raw response and exact QA reasons', async () => {
+  const fixture = await json(new URL('./fixtures/lean/', import.meta.url), 'real-shaped-reply.json');
+  const {result,dir,stub}=await pipeline('both',[fixture.value],{ledger:fixture.ledger,resumeText:fixture.resumeText});
+  assert.equal(stub.requests.length,1);
+  assert.notEqual(result.qa.disposition,'FAIL');
+  const saved=await json(dir,'lean.json'); assert.deepEqual(saved.response,fixture.value);
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('5 bullets')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('earlier')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('unknown')));
+  assert.ok(saved.checks.shapeErrors.some(e=>e.includes('230')&&e.includes('120')));
+  const draft=await json(dir,'draft.json');
+  assert.equal(draft.bullets.filter(b=>fixture.ledger.claims.find(c=>c.id===b.claimId).employerId==='north').length,5);
+  assert.ok(draft.earlier.some(b=>b.claimId==='fourth-1'));
+  assert.equal(words(Object.values(draft.letter).join(' ')),230);
+  const qa=await json(dir,'qa.resume.json');
+  for(const error of saved.checks.shapeErrors) assert.ok(qa.reasons.some(r=>r.checkId==='lean.shape'&&r.text===error),error);
+  assert.doesNotMatch(JSON.stringify(stub.requests[0].generationConfig.responseSchema), /"maxItems"/);
+});
+test('F2-8 valid JSON with unusable shape keeps its value and names the shape error', async () => {
+  const stub = provider([[]]); const out = await api('runLean')({...input(),pin,fetchImpl:stub.fetchImpl});
+  assert.equal(out.disposition,'FAIL'); assert.deepEqual(out.response,[]);
+  assert.ok(out.shapeErrors.some(e=>e.includes('must be object')));
+  assert.doesNotMatch(JSON.stringify(out.call), /not valid JSON/);
 });

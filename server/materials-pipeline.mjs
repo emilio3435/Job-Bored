@@ -782,7 +782,7 @@ async function runLeanPipeline(input, assertBase) {
   record({ stage: "prepare", status: "ok", ms: Date.now() - prepareStart, llm: false, out: ["jd-extract.json"], detail: "deterministic keyword extraction; saved ledger and voice" });
   const writeStart = Date.now();
   const checked = await runLean({ ledger, resumeText, jdText, feature: payload.feature, resumeRead, pin, fetchImpl, voiceProfile, voice: input.voice || [], notes: input.repair?.instruction || payload.notes, signal: input.signal });
-  await writeJson(join(runDir, "lean.json"), { response: checked.response, checks: { notes: checked.notes, shapeErrors: checked.shapeErrors, disposition: checked.disposition }, provenance: checked.provenance, promptVersion: LEAN_PROMPT_VERSION });
+  await writeJson(join(runDir, "lean.json"), { response: checked.response, ...(checked.rawReply !== undefined ? { rawReply: checked.rawReply } : {}), checks: { notes: checked.notes, shapeErrors: checked.shapeErrors, disposition: checked.disposition }, provenance: checked.provenance, promptVersion: LEAN_PROMPT_VERSION });
   await writeJson(join(runDir, "draft.json"), checked.draft);
   for (const feature of ["resume", "cover_letter"]) await writeJson(join(runDir, `draft.${feature}.json`), {
     ...checked.draft, ...(feature === "resume" ? { letter: { hook: "", companyInsight: "", proof1: "", proof2: "", ask: "" } } : { statement: "", bullets: [], earlier: [] }),

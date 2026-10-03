@@ -1062,6 +1062,7 @@ export async function callWriter(input) {
  * @property {AbortSignal} [signal] overall materials job deadline
  * @property {(ms: number) => Promise<void>} [sleep] backoff sleeper (tests)
  * @property {(line: string) => void} [log] fallback switch logger (default console.warn)
+ * @property {boolean} [captureRawReply] Keep the last parser input for opt-in evidence.
  */
 
 /**
@@ -1118,9 +1119,10 @@ function fallbackPinFor(pin, stage) {
  * on the fallback model and logs the switch.
  *
  * @param {JsonStageInput} input
- * @returns {Promise<{ value: Record<string, unknown> | null, call: StageCallRecord }>}
+ * @returns {Promise<{ value: Record<string, unknown> | null, call: StageCallRecord, rawReply?: string }>}
  */
 export async function runJsonStage(input) {
+  let rawReply;
   const log = typeof input.log === "function" ? input.log : (/** @type {string} */ line) => console.warn(line);
   /**
    * @param {WriterPin} pin
@@ -1145,7 +1147,7 @@ export async function runJsonStage(input) {
     try {
       const { value, attempts } = await runModelCall(stageInput, "", {
         budget: maxTokens(stageInput),
-        parse: (text) => { const value = parseStageJson(text); input.validate?.(value); return value; },
+        parse: (text) => { if (input.captureRawReply) rawReply = text; const value = parseStageJson(text); input.validate?.(value); return value; },
         sleep: input.sleep,
       });
       return { value, provider, model, attempts, error: null };
@@ -1188,7 +1190,7 @@ export async function runJsonStage(input) {
     call.errorCode = errorCodeOf(final.error);
     call.degradedReason = describeStageFailure(call.errorCode, final.attempts, final.model);
   }
-  return { value: final.value, call };
+  return { value: final.value, call, ...(input.captureRawReply && rawReply !== undefined ? { rawReply } : {}) };
 }
 
 /**
