@@ -504,6 +504,25 @@ jb-scribe.scribe .scribe__recover {
   border-left: 3px solid var(--jb-action); border-radius: var(--jb-radius-sm);
   background: var(--jb-info-tint);
 }
+/* FE-1 recovery messages/actions are nested rows, including multiple docs. */
+jb-scribe.scribe .scribe__recover > [data-recover-doc] {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--jb-space-2);
+  flex-basis: 100%; min-width: 0;
+}
+jb-scribe.scribe .scribe__recover > [data-recover-doc] > span { flex-basis: 100%; min-width: 0; }
+jb-scribe.scribe .scribe__recover > [data-recover-doc] + [data-recover-doc] {
+  padding-top: var(--jb-space-2); border-top: 1px solid var(--jb-line);
+}
+jb-scribe.scribe .scribe__recover [data-action="review-request"],
+jb-scribe.scribe .scribe__recover [data-action="continue-request"],
+jb-scribe.scribe .scribe__status-action {
+  background: var(--jb-action); border-color: var(--jb-action); color: var(--jb-on-action);
+}
+/* Once review is open, Accept/Save owns the primary weight. */
+jb-scribe.scribe:has(.scribe__reviewbar [data-review="accept-all"][aria-disabled="false"]) .scribe__recover [data-action="review-request"],
+jb-scribe.scribe:has(.scribe__reviewbar [data-review="save"][aria-disabled="false"]) .scribe__recover [data-action="review-request"] {
+  background: var(--jb-paper); border-color: var(--jb-line); color: var(--jb-ink);
+}
 jb-scribe.scribe .scribe__recover p,
 jb-scribe.scribe .scribe__unsaved p {
   flex-basis: 100%; margin: 0; font-size: var(--jb-type-small);

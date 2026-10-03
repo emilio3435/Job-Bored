@@ -86,7 +86,7 @@ test.afterAll(async () => {
   if (app) await app.close();
 });
 
-async function openDesk(page, viewport, motion, doc = "resume") {
+async function openDesk(page, viewport, motion, doc = "resume", openProposal = null) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.setViewportSize(viewport);
@@ -103,6 +103,10 @@ async function openDesk(page, viewport, motion, doc = "resume") {
       { runId: "run-01", createdAt: hoursAgo(26), source: "edit", prompt: "Shorter summary", model: MODEL },
     ],
   });
+  if (openProposal) await page.route(`${DISPOSABLE_AUTH.materialsOrigin}/api/applications/${HERMETIC_APPLICATION_SLUG}/edits/open`, route => route.fulfill({
+    status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" },
+    body: JSON.stringify({ proposal: openProposal }),
+  }));
   await stageSignedInDisposableAuth(page, DISPOSABLE_AUTH);
   await page.emulateMedia({ reducedMotion: motion });
   await page.goto(`${app.baseUrl}/?jb-v2=1`, { waitUntil: "load" });
@@ -124,7 +128,8 @@ async function openDesk(page, viewport, motion, doc = "resume") {
     return sheet && sheet.getAnimations().every((a) => a.playState !== "running") && getComputedStyle(sheet).opacity === "1";
   });
   await expect(page.frameLocator("jb-scribe .scribe__docscroll iframe").locator(`[data-family="${FAMILY}"]`)).toHaveCount(1);
-  await expect(desk.getByRole("region", { name: doc === "resume" ? /^Resume, version 1/ : /^Cover letter, version 1/ })).toHaveAttribute("aria-busy", "false");
+  const version = openProposal?.doc === doc && openProposal.status !== "accepting" && openProposal.baseRunId === "run-00" ? 0 : 1;
+  await expect(desk.getByRole("region", { name: new RegExp(`^${doc === "resume" ? "Resume" : "Cover letter"}, version ${version}`) })).toHaveAttribute("aria-busy", "false");
   return { desk, errors, fence };
 }
 
@@ -142,7 +147,7 @@ async function landProposal(page, desk) {
   api.emit(id, "proposal", { summary: { changes: 3, removals: 0, wordsDelta: 12, lossPct: 3, pages: 1, unverified: 1 } });
   api.emit(id, "done", { status: "ready" });
   api.end(id);
-  await expect(desk.getByRole("log", { name: "Conversation with Scribe" })).toContainText("3 changes are ready");
+  await expect(desk.getByRole("log", { name: "Conversation with Scribe" })).toContainText("3 suggested changes");
   await expect(page.frameLocator("jb-scribe .scribe__docscroll iframe").locator("[data-scribe-id]")).toHaveCount(3);
 }
 
@@ -205,7 +210,7 @@ test("a landed proposal at 1440: marks, rail, and a readable primary button", as
   await landProposal(page, desk);
   const rail = desk.locator(".scribe__rail");
   await expect(rail.locator(".scribe__mm")).toHaveCount(3);
-  await expect(rail.locator('.scribe__mm[data-op="o2"]')).toContainText("Unverified: please confirm. Northwind");
+  await expect(rail.locator('.scribe__mm[data-op="o2"]')).toContainText("Not in your saved facts — confirm before accepting. Northwind");
   const primary = desk.getByRole("button", { name: "Accept all verified" });
   await expect(primary).toHaveClass(/scribe__btn--primary/);
   const contrast = await primary.evaluate((el) => {
@@ -362,7 +367,7 @@ async function expectPresentation(page, locator, mobile) {
     });
   });
   expect(contrastFailures, "anchor text meets WCAG AA contrast").toEqual([]);
-  const focusable = locator.locator("button").first();
+  const focusable = locator.locator("button:visible").first();
   if (await focusable.count()) {
     await page.keyboard.press("Tab");
     await focusable.focus();
@@ -433,3 +438,33 @@ test("SCRP-U3 composer: 44px phone field and keyboard focus ring", async ({ page
   await expectNoSidewaysScroll(page);
   expectHermetic(booted);
 });
+
+
+/* FE-1 now renders these rows through GET open and its own recovery code,
+ * rather than the earlier presentation injection. */
+for (const doc of ["resume", "cover_letter"]) for (const width of [1440, 375]) {
+  test(`SCRP-U4 ${doc} ${width}: live recovery rows and recovered status`, async ({ page }) => {
+    const proposal = {
+      proposalId: "ux-recovered-request", doc, baseRunId: "run-00", instruction: "Clarify the wording",
+      scope: "all", lockFacts: true, status: "ready", createdAt: "2026-10-03T07:00:00.000Z",
+      ops: doc === "resume" ? PROPOSAL.slice(0, 1) : [{ opId: "letter-1", op: "replace", node: "p:p1", text: "I turn operations data into clear daily decisions that teams can act on.", rationale: "Lead with the outcome", flags: [], facts: [] }],
+      blocked: [], summary: { changes: 1, removals: 0, wordsDelta: 2, lossPct: 0, pages: 1, unverified: 0 },
+    };
+    const booted = await openDesk(page, { width, height: width === 375 ? 667 : 1000 }, "reduce", doc, proposal);
+    const { desk } = booted;
+    if (width === 375) await desk.getByRole("tab", { name: "Chat", exact: true }).click();
+    const recovery = desk.locator(".scribe__recover");
+    await expect(recovery).toContainText("These changes were suggested for v0; v1 is now current.");
+    await expectPresentation(page, recovery, width === 375);
+    const row = recovery.locator("[data-recover-doc]");
+    const text = await row.locator("span").boundingBox();
+    const review = await row.getByRole("button", { name: "Review", exact: true }).boundingBox();
+    const current = await row.getByRole("button", { name: "Review current", exact: true }).boundingBox();
+    expect(review.y, "live recovery actions sit below the message").toBeGreaterThanOrEqual(text.y + text.height);
+    expect(current.x - (review.x + review.width), "live recovery actions have an 8px gap").toBeGreaterThanOrEqual(8);
+    const status = desk.locator('.scribe__status[data-state="recovered"]');
+    await expect(status).toContainText("Your earlier accept/reject choices weren’t kept. Review again.");
+    await expectPresentation(page, status, width === 375);
+    expectHermetic(booted);
+  });
+}
