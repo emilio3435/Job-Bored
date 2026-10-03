@@ -256,7 +256,7 @@ function normalizeLean(input, catalog) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   /** @type {any} */
   const value = { needs: [], statement: str(source.statement), roles: [], earlier: [], skills: [], letter: { ...EMPTY_LETTER } };
-  for (const key of ["needs", "roles", "earlier", "skills"]) if (!Array.isArray(source[key])) errors.push(`${key}: defaulted missing or invalid optional array to []`);
+  for (const key of input.feature === "cover_letter" ? ["needs"] : ["needs", "roles", "earlier", "skills"]) if (!Array.isArray(source[key])) errors.push(`${key}: defaulted missing or invalid optional array to []`);
   value.needs = Array.isArray(source.needs) ? source.needs.filter((/** @type {any} */ item) => typeof item === "string" && item.trim()) : [];
   value.skills = Array.isArray(source.skills) ? [...new Set(source.skills.filter((/** @type {any} */ item) => typeof item === "string"))] : [];
   for (const beat of Object.keys(EMPTY_LETTER)) value.letter[beat] = str(source.letter?.[beat]);
@@ -385,7 +385,7 @@ function proseErrors(text, source, input, ownership, factSource = source) {
   }) || /\b(?:as|am|was|became|served as)[ \t]+(?:(?:an?|the)[ \t]+)?executive\b|\bexecutive[ \t]+of\b/iu.test(text) && !hasWord(factSource, "executive")) errors.push("credentials");
   const extra = (input.voiceProfile?.avoid || []).map((/** @type {any} */ v) => typeof v === "string" ? { pattern: v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") } : v);
   if (detectAiWords(text, extra).length || detectGush(text).length || detectContrastFrames(text).length || detectOffVoice(text).length || detectCannedAsides(text).length || detectPurposeOpeners(text).length) errors.push("voice");
-  if (/<[^>]+>|\[[^\]]+\]\(|(?:\*\*|__|`)/.test(text)) errors.push("markup");
+  if (/<[^<>]+>|\[[^\]]+\]\(|(?:\*\*|__|`)/.test(text)) errors.push("markup");
   return errors;
 }
 
@@ -442,7 +442,10 @@ export function checkLean(input) {
     if (failures.length) { for (const check of failures) notes.push({ field, check, action: "fallback", claimId: claim.id }); text = claim.text; }
     // Verbatim source is an allowed voice fallback; all fact checks still run.
     const final = proseErrors(text, claim.text + "\n" + catalog.skills.join("\n"), input, true, claim.text).filter(check => check !== "voice" || text !== claim.text);
-    if (final.length) { notes.push({ field, check: final.join(","), action: "drop", claimId: claim.id }); return ""; }
+    if (final.length) {
+      const detail = `${field}: dropped ${claim.id} after checking (${final.join(",")})`;
+      notes.push({ field, check: final.join(","), action: "drop", claimId: claim.id, detail }); errors.push(detail); dropped = true; return "";
+    }
     recordProvenance(text, field, claim);
     return text;
   };
@@ -499,7 +502,12 @@ export function checkLean(input) {
     errors.push(detail); notes.push({ field: "shape", check: "shape", action: "normalize", detail });
   }
   outline.featured = outline.featured.filter((/** @type {any} */ group) => group.claimIds.length >= 2);
+  if (feature !== "cover_letter" && !draft.statement.trim()) {
+    const detail = "statement: empty after checking; retained for review";
+    errors.push(detail); notes.push({ field: "shape", check: "shape", action: "normalize", detail });
+  }
   const finalErrors = [];
+  if (feature !== "cover_letter" && !outline.featured.length) finalErrors.push("resume: no featured employer remains");
   if (feature !== "cover_letter" && !draft.statement && !draft.bullets.length) finalErrors.push("resume: no usable statement or bullets remain");
   if (feature !== "resume") for (const [beat, text] of Object.entries(draft.letter)) if (!text.trim()) finalErrors.push(`letter.${beat}: empty after checking`);
   for (const detail of finalErrors) notes.push({ field: "shape", check: "shape", action: "fail", detail });
