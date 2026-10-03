@@ -819,3 +819,88 @@ it("editing an older combined run preserves the newer sibling document", async (
     assert.equal(await readFile(join(pkg.dir, siblingFile), "utf8"), "current sibling artifact");
   }
 });
+
+
+it("edits a legacy two-paragraph letter using its existing sentences", async () => {
+  const legacy = structuredClone(model); delete legacy.documents.resume;
+  const letter = legacy.documents.coverLetter;
+  const first = { id: "p1", beat: "thesis", text: "I build daily reports and reduced delays 38%. I turn clear data into useful decisions. I also built a daily exception review.", words: 24,
+    links: [{ text: "daily reports", href: "https://example.com/reports" }] };
+  const close = { id: "p1-split", beat: "next-step", text: "Could we compare one daily operations report?" };
+  letter.paragraphs = [first, close];
+  letter.pullQuote = { text: "I also built a daily exception review.", fromParagraph: first.id };
+  const pkg = await seed(legacy, "cover_letter");
+  const change = { opId: "letter-close", op: "replace", node: "p:p1-split", text: "Could we review one daily operations report?" };
+  const svc = createMaterialsVersionService({ applicationsRoot: root, commit, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      const content = body.messages[0].content.includes("materials.fact-check.v1")
+        ? [{ opId: change.opId, supported: true, reason: "Supported paraphrase." }] : { ops: [change] };
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+    },
+  });
+  const rawBefore = await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8");
+  const loaded = await svc.model(pkg.slug, "r0");
+  assert.deepEqual(await svc.model(pkg.slug, "r0"), loaded, "normalization is idempotent");
+  const normalized = loaded.model.documents.coverLetter;
+  assert.equal(normalized.paragraphs.length, 3);
+  assert.equal(new Set(normalized.paragraphs.map((p) => p.id)).size, 3);
+  assert.equal(normalized.paragraphs.map((p) => p.text).join(" "), [first.text, close.text].join(" "));
+  assert.equal(normalized.paragraphs.filter((p) => p.links?.length).length, 1);
+  assert.deepEqual(normalized.paragraphs.find((p) => p.links?.length).links, first.links);
+  const quoted = normalized.paragraphs.find((p) => p.id === normalized.pullQuote.fromParagraph);
+  assert.ok(quoted.text.includes(normalized.pullQuote.text));
+  for (const part of normalized.paragraphs.filter((p) => "words" in p)) assert.equal(part.words, part.text.trim().split(/\s+/).length);
+  const metric = loaded.nodes.find((n) => n.text.includes("38%"));
+  await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "metric", op: "replace", node: metric.id, text: metric.text.replace("38%", "39%") }] }), { reason: "locked" });
+  assert.ok((await svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [change] })).html.includes(change.text));
+  const started = await svc.start(pkg.slug, { doc: "coverLetter", baseRunId: "r0", instruction: "Make the close clearer", scope: "all", lockFacts: true });
+  const res = fakeStream(); const ended = once(res, "end");
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res); await ended;
+  const proposed = JSON.parse(await readFile(join(pkg.dir, "proposals", `${started.proposalId}.json`), "utf8"));
+  assert.equal(proposed.ops.length, 1);
+  assert.deepEqual(proposed.events.filter((e) => e.event === "blocked"), []);
+  const saved = await svc.accept(pkg.slug, started.proposalId, { accept: [change.opId], confirmUnverified: [] });
+  assert.equal(saved.statusCode, 200);
+  assert.equal((await svc.model(pkg.slug, saved.body.run.runId)).nodes.find((n) => n.id === change.node).text, change.text);
+  assert.equal(await readFile(join(pkg.dir, "runs/r0/render-model.json"), "utf8"), rawBefore);
+});
+
+it("keeps unsplittable legacy letters and other invalid models blocked", async () => {
+  const legacy = structuredClone(model); delete legacy.documents.resume;
+  legacy.documents.coverLetter.paragraphs = [
+    { id: "p1", beat: "thesis", text: "One unbroken sentence" },
+    { id: "p2", beat: "next-step", text: "Another unbroken sentence" },
+  ];
+  const pkg = await seed(legacy, "cover_letter");
+  const svc = createMaterialsVersionService({ applicationsRoot: root });
+  await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "close", op: "replace", node: "p:p2", text: "Another clear sentence" }] }), { reason: "invalid_model" });
+});
+
+
+it("legacy paragraph splitting preserves link labels and refuses ambiguous shapes", async () => {
+  const blockedParagraphs = [
+    [],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results. I act on findings." }],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results." }, { id: "p2", beat: "next-step", text: "" }],
+    [{ id: "p1", beat: "thesis", text: "Mr. Rivera builds reports" }, { id: "p2", beat: "next-step", text: "No boundary here" }],
+    [{ id: "p1", beat: "thesis", text: "I build reports. I review results.", links: [{ text: "I build reports. I review results.", href: "https://example.com/reports" }] }, { id: "p2", beat: "next-step", text: "No boundary here" }],
+  ];
+  for (const paragraphs of blockedParagraphs) {
+    const legacy = structuredClone(model); delete legacy.documents.resume;
+    legacy.documents.coverLetter.paragraphs = paragraphs;
+    const pkg = await seed(legacy, "cover_letter");
+    const svc = createMaterialsVersionService({ applicationsRoot: root });
+    await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
+  }
+  for (const feature of ["both", "unknown"]) {
+    const legacy = structuredClone(model);
+    legacy.documents.coverLetter.paragraphs = [
+      { id: "p1", beat: "thesis", text: "I build reports. I review results." },
+      { id: "p2", beat: "next-step", text: "Could we compare notes?" },
+    ];
+    const pkg = await seed(legacy, feature);
+    const svc = createMaterialsVersionService({ applicationsRoot: root });
+    await assert.rejects(svc.preview(pkg.slug, { doc: "coverLetter", baseRunId: "r0", ops: [{ opId: "sal", op: "replace", node: "sal", text: "Dear hiring team," }] }), { reason: "invalid_model" });
+  }
+});

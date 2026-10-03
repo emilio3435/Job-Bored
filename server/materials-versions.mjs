@@ -73,6 +73,45 @@ async function assertChildDirectory(dir, child) {
   return true;
 }
 
+/** Split legacy letter copy into the template's three paragraphs using existing sentences.
+ * @param {Record<string, any>} model @param {unknown} feature
+ */
+function normalizeLegacyLetter(model, feature) {
+  const letter = model.documents?.coverLetter;
+  const paragraphs = letter?.paragraphs;
+  if (feature !== "cover_letter" || !Array.isArray(paragraphs) || paragraphs.length !== 2 ||
+    !paragraphs.every((p) => typeof p?.text === "string" && p.text.trim())) return;
+  const abbreviations = new Set(["mr", "ms", "mrs", "dr", "prof", "sr", "jr", "st", "vs", "etc", "inc", "ltd", "co", "no", "dept"]);
+  const candidates = [];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    for (const match of paragraph.text.matchAll(/[.!?]\s+(?=[\p{Lu}“"'])/gu)) {
+      const cut = match.index + 1;
+      const lastWord = paragraph.text.slice(0, match.index).match(/([\p{L}.]+)$/u)?.[1] || "";
+      if (match[0][0] === "." && (lastWord.length === 1 || lastWord.includes(".") || abbreviations.has(lastWord.toLowerCase()))) continue;
+      const left = paragraph.text.slice(0, cut).trimEnd();
+      const right = paragraph.text.slice(cut).trimStart();
+      if (!left || !right) continue;
+      const labels = [...(paragraph.links || []).map((/** @type {any} */ link) => link.text),
+        ...(letter.pullQuote?.fromParagraph === paragraph.id ? [letter.pullQuote.text] : [])];
+      if (labels.some((text) => !left.includes(text) && !right.includes(text))) continue;
+      candidates.push({ index, left, right, balance: Math.abs(wordCount(left) - wordCount(right)) });
+    }
+  }
+  candidates.sort((a, b) => a.balance - b.balance || a.index - b.index);
+  const split = candidates[0];
+  if (!split) return;
+  const original = paragraphs[split.index];
+  let id = `${original.id}-split`;
+  while (paragraphs.some((p) => p.id === id)) id += "-2";
+  const parts = [split.left, split.right].map((text, index) => ({ ...original, id: index ? id : original.id, text,
+    ...("words" in original ? { words: wordCount(text) } : {}),
+    ...(original.links ? { links: original.links.filter((/** @type {any} */ link) => text.includes(link.text)) } : {}),
+  }));
+  if (letter.pullQuote?.fromParagraph === original.id && !split.left.includes(letter.pullQuote.text)) letter.pullQuote.fromParagraph = id;
+  paragraphs.splice(split.index, 1, ...parts);
+  if ("bodyWords" in letter) letter.bodyWords = paragraphs.reduce((sum, p) => sum + wordCount(p.text), 0);
+}
+
 /** @param {string} dir @param {string} runId */
 async function runFiles(dir, runId) {
   const id = checkedId(runId, RUN_ID, "run_id");
@@ -85,6 +124,7 @@ async function runFiles(dir, runId) {
   // Expose the run's requested documents without changing its immutable files.
   if (run.feature === "resume") delete model.documents?.coverLetter;
   else if (run.feature === "cover_letter") delete model.documents?.resume;
+  normalizeLegacyLetter(model, run.feature);
   return { run, model };
 }
 
