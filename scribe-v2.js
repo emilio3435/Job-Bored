@@ -946,6 +946,7 @@
     m.saving = true; hideSelectionActions(ctl);
     manualMessage(ctl, "saving", "Saving…");
     return ctl.api.manualEdit({ doc: which, baseRunId: base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
+      ctl.recoverySeq++;
       m.saving = false; m.drafts = Object.create(null); m.base = null;
       emitSaved(ctl, res && res.run && res.run.runId, which);
       if (ctl.closed || generation !== ctl.generation) return true;
@@ -1147,20 +1148,20 @@
   }
 
   function readOpen(ctl, pending) {
-    var generation = ctl.generation;
+    var generation = ctl.generation, sequence = ++ctl.recoverySeq;
     if (typeof ctl.api.getOpenEdit !== "function") {
       if (pending) status(ctl, "error", copy("materials_pending"));
       return Promise.resolve(null);
     }
     return ctl.api.getOpenEdit().then(function (res) {
-      if (ctl.closed || generation !== ctl.generation) return null;
+      if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
       if (res && res.proposal) return recoverProposal(ctl, res.proposal);
       ctl.openProposal = null; ctl.openProposals = null;
       if (pending) status(ctl, "error", copy("materials_pending"));
       renderRecovery(ctl);
       return null;
     }).catch(function (err) {
-      if (ctl.closed || generation !== ctl.generation) return null;
+      if (ctl.closed || generation !== ctl.generation || sequence !== ctl.recoverySeq) return null;
       if (err && err.code === "multiple_open_proposals") {
         ctl.openProposals = err.proposals || []; ctl.openProposal = null; renderRecovery(ctl);
       } else if (pending || err && err.code === "materials_pending") status(ctl, "error", copy("materials_pending"));
@@ -1456,6 +1457,7 @@
       button.setAttribute("disabled", ""); button.setAttribute("aria-disabled", "true");
     });
     function completed(recoveryKnown) {
+      ctl.recoverySeq++;
       detachRequest(ctl); clearReview(ctl);
       ctl.state.proposal = null; ctl.openProposal = null; ctl.openProposals = null; ctl.request = null;
       status(ctl, "idle", "Discarded.");
@@ -1962,6 +1964,7 @@
       accept: accepted.map(function (c) { return c.opId; }),
       confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
     }).then(function (res) {
+      ctl.recoverySeq++;
       if (ctl.closed || ctl.state.proposal !== p) {
         emitSaved(ctl, res && res.run && res.run.runId, which);
         if (!ctl.closed) return readOpen(ctl);
@@ -2241,6 +2244,7 @@
     this.closed = false;
     this.loadToken = 0;
     this.generation = 0;
+    this.recoverySeq = 0;
     this.request = null;
     this.openProposal = null;
     this.openProposals = null;

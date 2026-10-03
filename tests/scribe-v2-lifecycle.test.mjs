@@ -815,3 +815,17 @@ for (const running of [false, true]) it(`SCRP-F75 R2-#6 discard 404 ${running ? 
   await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 1);
   stream.resolve(); ctl.close();
 });
+
+it('SCRP-F76 R2-#7 an older recovery read cannot reinstate an accepting gate after Save', async () => {
+  const t = reliabilityApi(); const saved = defer(); const oldRead = defer(); let reads = 0;
+  t.api.acceptEdit = () => saved.promise;
+  const ctl = t.mount(); await flush(); await t.submit(ctl);
+  const accepting = { ...t.api.open, status: 'accepting' };
+  tap(ctl.refs.reviewbar.querySelector('[data-review="accept-all"]')); tap(ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+  t.api.getOpenEdit = () => { reads++; return reads === 1 ? oldRead.promise : Promise.resolve({ proposal: null }); };
+  ctl.setDoc('cover_letter'); await flush();
+  saved.resolve({ run: { runId: 'r3', n: 3 } }); await flush(); assert.equal(reads, 2);
+  oldRead.resolve({ proposal: accepting }); await flush();
+  assert.equal(ctl.openProposal, null); assert.equal(ctl.refs.recover.hasAttribute('hidden'), true);
+  await t.submit(ctl, 'Next request'); assert.equal(t.calls.filter(c => c[0] === 'post').length, 2); ctl.close();
+});
