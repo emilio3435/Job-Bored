@@ -316,7 +316,7 @@ export function safeBlockedEdit(block, index) {
   const diagnostic = editDiagnostic(String(block?.reason || "invalid_model"));
   if (!block?.op) return diagnostic;
   const sourceId = block.op.opId;
-  const opId = typeof sourceId === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(sourceId) ? sourceId : `edit-${index + 1}`;
+  const opId = typeof sourceId === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(sourceId) ? sourceId : `blocked-${index + 1}`;
   return { op: { opId }, ...diagnostic };
 }
 

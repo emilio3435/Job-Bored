@@ -298,7 +298,7 @@ describe("materials edit proposal", () => {
   it("SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads", async () => {
     const result = await propose({ ops: [{ opId: "/secret/path", op: "replace", node: "private/path", text: "private provider payload", headers: { Authorization: "example" } }] });
     assert.equal(result.blocked[0].reason, "invalid_model");
-    assert.deepEqual(result.blocked[0].op, { opId: "edit-1" });
+    assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
     assert.doesNotMatch(JSON.stringify(result.blocked), /secret|private|Authorization|headers/);
     assert.deepEqual(result.ops, []);
   });
@@ -347,4 +347,15 @@ it("SCRP-B25 R1-#6 D20 writer credentials and model failures point to Settings",
   }
   for (const code of ["network", "timeout", "http_500", "http_503", "http_5xx"]) assert.equal(editDiagnostic(code).reason, "provider_failed");
   assert.equal(editDiagnostic("http_400").reason, "editor_failed");
+});
+
+
+it("SCRP-B27 R1-#8 blocked fallback IDs do not alias generated edit IDs", async () => {
+  const result = await propose({ ops: [
+    { opId: "/fictional/path", op: "replace", node: "unknown", text: "Rejected text." },
+    { opId: "edit-1", op: "replace", node: "line:beta", text: "Tracked shipments." },
+  ] });
+  assert.equal(result.ops[0].opId, "edit-1");
+  assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
+  assert.notEqual(result.blocked[0].op.opId, result.ops[0].opId);
 });
