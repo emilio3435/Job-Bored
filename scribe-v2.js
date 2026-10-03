@@ -1093,8 +1093,9 @@
   /* Runs are immutable. Install one exact render without dropping the
      proposal, then wait for its iframe before replaying validated ops. */
   function installExactBase(ctl, runId, which, generation) {
+    var token = ++ctl.loadToken;
     return Promise.all([ctl.api.listVersions(which), ctl.api.getModel(runId), ctl.api.preview({ doc: which, baseRunId: runId })]).then(function (parts) {
-      if (ctl.closed || generation !== ctl.generation || which !== ctl.state.doc) return false;
+      if (ctl.closed || token !== ctl.loadToken || generation !== ctl.generation || which !== ctl.state.doc) return false;
       clearReview(ctl);
       var st = ctl.state;
       st.versions = parts[0].versions || [];
@@ -1104,7 +1105,9 @@
       st.nodes = parts[1].nodes || [];
       st.loading = false;
       renderAll(ctl);
-      return showPreview(ctl, String(parts[2].html || ""));
+      return showPreview(ctl, String(parts[2].html || "")).then(function (loaded) {
+        return loaded && token === ctl.loadToken && generation === ctl.generation && !ctl.closed;
+      });
     });
   }
 

@@ -753,3 +753,16 @@ it('SCRP-R1-19 starting and successfully finishing clears obsolete status', asyn
   await t.submit(ctl, 'Blocked second request'); assert.equal(ctl.refs.status.hasAttribute('hidden'), false);
   ctl.setDoc('cover_letter'); await flush(); assert.equal(ctl.refs.status.hasAttribute('hidden'), true); ctl.close();
 });
+
+it('SCRP-R1-20 an older initial load cannot overwrite the exact recovered base', async () => {
+  const t = reliabilityApi(); const first = defer(); let reads = 0;
+  t.api.listVersions = async () => { if (++reads === 1) return first.promise; return { currentRunId: 'r2', versions: [{ runId: 'r2', n: 2 }, { runId: 'r1', n: 1 }] }; };
+  const ctl = t.mount(); await flush();
+  t.api.open = { proposalId: 'earlier', doc: 'resume', baseRunId: 'r1', status: 'ready', ops: [ROP] };
+  // A materials-pending reply reads the open proposal while the initial list is pending.
+  ctl.state.loading = false;
+  t.api.propose = async () => { throw { code: 'materials_pending' }; }; await t.submit(ctl); await flush();
+  assert.equal(ctl.state.currentRunId, 'r1');
+  first.resolve({ currentRunId: 'r2', versions: [{ runId: 'r2', n: 2 }] }); await flush();
+  assert.equal(ctl.state.currentRunId, 'r1'); assert.equal(ctl.refs.frame.srcdoc, '<p data-node="b:acme:c14">r1 original block</p>'); ctl.close();
+});
