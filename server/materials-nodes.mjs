@@ -120,9 +120,9 @@ function assertUnlocked(node, nextText) {
       const before = Array.from(nextText.slice(0, at)).at(-1) || "";
       const rest = nextText.slice(at + token.length);
       const after = Array.from(rest)[0] || "";
-      // A sentence-ending period is punctuation; a period joined to a
-      // following digit extends the figure just as a decimal prefix does.
-      if (!/[\p{L}\p{N}]/u.test(before + after) && before !== "." && !/^\.\p{N}/u.test(rest)) break;
+      const baseBefore = Array.from(node.text.slice(0, start)).at(-1) || "";
+      const baseAfter = Array.from(node.text.slice(end))[0] || "";
+      if (before === baseBefore && after === baseAfter) break;
       at = nextText.indexOf(token, at + 1);
     }
     if (at < 0) throw new MaterialsEditError("locked", token);

@@ -329,3 +329,56 @@ for (const which of ['resume', 'cover_letter']) {
     ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
   });
 }
+
+// Selection offsets are UTF-16, matching the browser Range contract.
+function caret(inner, el, start, end = start) {
+  const range = { startContainer: el, endContainer: el, startOffset: start,
+    toString: () => el.textContent.slice(start, end),
+    cloneRange: () => ({ selectNodeContents() {}, setEnd() {}, toString: () => el.textContent.slice(0, start) }) };
+  inner.getSelection = () => ({ rangeCount: 1, isCollapsed: start === end, getRangeAt: () => range });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D26 validates full blocks for input, beforeinput and paste`, async () => {
+  const cases = [
+    ['Processed 38 shipments.', 'Processed 38% shipments.', 12, 12, '%'],
+    ['Processed 38 shipments.', 'Processed $38 shipments.', 10, 10, '$'],
+    ['Processed 38 shipments.', 'Processed %38 shipments.', 10, 10, '%'],
+    ['Processed 38 shipments.', 'Processed 38$ shipments.', 12, 12, '$'],
+    ['Processed 38 shipments.', 'Processed 38,000 shipments.', 12, 12, ',000'],
+    ['Processed 38 shipments.', 'Processed ,00038 shipments.', 10, 10, ',000'],
+    [' 38 shipments.', '38 shipments.', 0, 1, ''],
+    ['38 shipments.', '$38 shipments.', 0, 0, '$'],
+    ['Processed 38', 'Processed 38%', 12, 12, '%'],
+  ];
+  for (const [base, after, start, end, data] of cases) {
+    const t = await desk(which); const { ctl, inner, els, nodes } = t;
+    nodes[0].text = base; const at = base.indexOf('38'); nodes[0].locked.spans = [[at, at + 2]]; els[0].textContent = base;
+    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    caret(inner, els[0], start, end);
+    const event = { type: 'beforeinput', target: els[0], inputType: data ? 'insertText' : 'deleteByCut', data };
+    inner.dispatchEvent(event); assert.equal(event.defaultPrevented, true, after);
+    if (data) {
+      const paste = { type: 'paste', target: els[0], clipboardData: { getData: () => data } };
+      inner.dispatchEvent(paste); assert.equal(els[0].textContent, base, after);
+    }
+    els[0].textContent = after; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, base, after); assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/);
+    assert.equal(Object.keys(ctl.manual.drafts).length, 0); ctl.close();
+  }
+  for (const edge of ['before', 'after']) {
+    const { ctl, inner, els, nodes } = await desk(which);
+    const base = 'Processed 38 shipments.'; const at = base.indexOf('38');
+    nodes[0].text = base; nodes[0].locked.spans = [[at, at + 2]]; els[0].textContent = base;
+    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    const staged = edge === 'after' ? base.replace('38', '38 ,000') : base.replace('38', ',000 38');
+    els[0].textContent = staged; inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, staged, 'unchanged immediate neighbours permit distant edits');
+    const separator = edge === 'after' ? at + 2 : at + 4;
+    caret(inner, els[0], separator + 1);
+    const deletion = { type: 'beforeinput', target: els[0], inputType: 'deleteContentBackward', data: null };
+    inner.dispatchEvent(deletion); assert.equal(deletion.defaultPrevented, true, edge);
+    els[0].textContent = staged.slice(0, separator) + staged.slice(separator + 1);
+    inner.dispatchEvent({ type: 'input', target: els[0] }); assert.equal(els[0].textContent, staged, edge);
+    ctl.close('role-closed');
+  }
+});

@@ -812,24 +812,31 @@
     return { start: start, end: end, delta: after.length - before.length };
   }
 
-  function touches(spans, start, end, inserted) {
-    var chars = Array.from(inserted || ""), edge = /[\p{L}\p{N}.,%$]/u;
-    return spans.some(function (span) {
-      return (start === end ? start > span[0] && start < span[1] : start < span[1] && end > span[0]) ||
-        end === span[0] && edge.test(chars[chars.length - 1] || "") || start === span[1] && edge.test(chars[0] || "");
-    });
+  function manualSpans(a, text) {
+    var diff = changedRange(a.last, text), shifted = [];
+    for (var i = 0; i < a.spans.length; i++) {
+      var span = a.spans[i];
+      if (diff.start < span[1] && diff.end > span[0]) return null;
+      var move = span[0] >= diff.end ? diff.delta : 0;
+      var start = span[0] + move, end = span[1] + move;
+      if (text.slice(start, end) !== a.last.slice(span[0], span[1]) ||
+          text.charAt(start - 1) !== a.last.charAt(span[0] - 1) ||
+          text.charAt(end) !== a.last.charAt(span[1])) return null;
+      shifted.push([start, end]);
+    }
+    return shifted;
   }
 
   function captureManual(ctl) {
     var m = ctl.manual, a = m.active;
     if (!a) return;
     var text = String(a.el.textContent || "");
-    var diff = changedRange(a.last, text);
-    if (touches(a.spans, diff.start, diff.end, text.slice(diff.start, diff.end + diff.delta))) {
+    var spans = manualSpans(a, text);
+    if (!spans) {
       a.el.textContent = a.last;
       manualMessage(ctl, "error", lockText(a.node)); return;
     }
-    a.spans = a.spans.map(function (span) { return span[0] >= diff.end ? [span[0] + diff.delta, span[1] + diff.delta] : span; });
+    a.spans = spans;
     a.last = text;
     if (text === a.node.text) delete m.drafts[a.node.id];
     else {
@@ -895,9 +902,11 @@
     var offsets = editOffsets(frameDoc(ctl), a.el);
     if (!offsets) { if (a.spans.length) e.preventDefault(); return; }
     var start = offsets.start, end = offsets.end;
-    if (start === end && e.inputType === "deleteContentBackward") start--;
-    if (start === end && e.inputType === "deleteContentForward") end++;
-    if (touches(a.spans, start, end, e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : ""))) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
+    if (start === end && e.inputType === "deleteContentBackward") start = Math.max(0, start - 1);
+    if (start === end && e.inputType === "deleteContentForward") end = Math.min(a.last.length, end + 1);
+    var inserted = e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : "");
+    var text = a.last.slice(0, start) + inserted + a.last.slice(end);
+    if (!manualSpans(a, text)) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
   }
 
   function manualPaste(ctl, e) {
@@ -906,7 +915,7 @@
     e.preventDefault();
     var text = e.clipboardData && e.clipboardData.getData("text/plain") || "";
     var offsets = editOffsets(frameDoc(ctl), a.el);
-    if (offsets && touches(a.spans, offsets.start, offsets.end, text)) { manualMessage(ctl, "error", lockText(a.node)); return; }
+    if (offsets && !manualSpans(a, a.last.slice(0, offsets.start) + text + a.last.slice(offsets.end))) { manualMessage(ctl, "error", lockText(a.node)); return; }
     if (!offsets && a.spans.length) return;
     if (offsets) {
       var range = offsets.range, inner = frameDoc(ctl), selection = inner.getSelection();
