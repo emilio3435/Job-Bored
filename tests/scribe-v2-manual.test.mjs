@@ -382,3 +382,23 @@ for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 R4-#1 ${which} D2
     ctl.close('role-closed');
   }
 });
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F94 R4-#5 ${which} shared-high-surrogate mutations compare whole locked neighbours`, async () => {
+  for (const edge of ['before', 'after']) {
+    const { ctl, inner, els, nodes } = await desk(which);
+    const base = edge === 'before' ? 'Processed 🎉38% shipments.' : 'Processed 38%🎉 shipments.';
+    const at = base.indexOf('38%'); nodes[0].text = base; nodes[0].locked.spans = [[at, at + 3]]; els[0].textContent = base;
+    inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    // IME/non-cancellable input uses the same full-block backstop.
+    els[0].textContent = base.replace('🎉', '🄁'); inner.dispatchEvent({ type: 'input', target: els[0] });
+    assert.equal(els[0].textContent, base, edge); assert.equal(Object.keys(ctl.manual.drafts).length, 0);
+    const low = base.indexOf('🎉') + 1;
+    assert.equal('🎉'[0], '🄁'[0], 'regression isolates a shared high surrogate');
+    caret(inner, els[0], low, low + 1);
+    const ev = { type: 'beforeinput', target: els[0], inputType: 'insertText', data: '🄁'[1] };
+    inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true, edge);
+    const paste = { type: 'paste', target: els[0], clipboardData: { getData: () => '🄁'[1] } };
+    inner.dispatchEvent(paste); assert.equal(els[0].textContent, base, edge);
+    assert.match(ctl.refs.manualState.textContent, /Figures in this line are locked/); ctl.close();
+  }
+});

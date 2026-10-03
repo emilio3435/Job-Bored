@@ -820,8 +820,8 @@
       var move = span[0] >= diff.end ? diff.delta : 0;
       var start = span[0] + move, end = span[1] + move;
       if (text.slice(start, end) !== a.last.slice(span[0], span[1]) ||
-          text.charAt(start - 1) !== a.last.charAt(span[0] - 1) ||
-          text.charAt(end) !== a.last.charAt(span[1])) return null;
+          (Array.from(text.slice(0, start)).pop() || "") !== (Array.from(a.last.slice(0, span[0])).pop() || "") ||
+          (Array.from(text.slice(end))[0] || "") !== (Array.from(a.last.slice(span[1]))[0] || "")) return null;
       shifted.push([start, end]);
     }
     return shifted;
@@ -902,8 +902,8 @@
     var offsets = editOffsets(frameDoc(ctl), a.el);
     if (!offsets) { if (a.spans.length) e.preventDefault(); return; }
     var start = offsets.start, end = offsets.end;
-    if (start === end && e.inputType === "deleteContentBackward") start = Math.max(0, start - 1);
-    if (start === end && e.inputType === "deleteContentForward") end = Math.min(a.last.length, end + 1);
+    if (start === end && e.inputType === "deleteContentBackward") start -= (Array.from(a.last.slice(0, start)).pop() || "").length;
+    if (start === end && e.inputType === "deleteContentForward") end += (Array.from(a.last.slice(end))[0] || "").length;
     var inserted = e.data || (/^insert(LineBreak|Paragraph)$/.test(e.inputType) ? "\n" : "");
     var text = a.last.slice(0, start) + inserted + a.last.slice(end);
     if (!manualSpans(a, text)) { e.preventDefault(); manualMessage(ctl, "error", lockText(a.node)); }
