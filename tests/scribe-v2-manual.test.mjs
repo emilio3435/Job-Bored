@@ -25,7 +25,7 @@ async function desk(which = 'resume', result) {
     el.textContent = text; inner.dispatchEvent({ type: 'input', target: el }); inner.dispatchEvent({ type: 'focusout', target: el });
   };
   const flush = async () => { for (const [id, t] of [...timers]) if (t.ms === 2000) { timers.delete(id); t.fn(); } await settle(); };
-  return { ctl, inner, els, nodes, calls, timers, edit, flush };
+  return { win, api, ctl, inner, els, nodes, calls, timers, edit, flush };
 }
 for (const which of ['resume', 'cover_letter']) {
   test(`SCRP-F39 GAP-01 ${which} batches unique replacements on one base after 2 seconds`, async () => {
@@ -125,3 +125,24 @@ test('SCRP-F55 GAP-01 pending sibling Continue retains the draft behind unsaved 
   ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
   ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
 });
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F71 R2-#1 ${which} confirmation quotes and freezes every replacement`, async () => {
+    const { ctl, els, calls, edit, flush } = await desk(which, (_body, n) => {
+      if (n === 1) throw { code: 'unverified_confirmation_required' };
+      throw { code: 'locked' };
+    });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Contoso operations in 2025.'); await flush();
+    const prompt = ctl.refs.manualState.textContent;
+    assert.ok(prompt.includes('“Tracked operations.”'));
+    assert.ok(prompt.includes('“Led Contoso operations in 2025.”'));
+    const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+    confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].confirmUnverified)), calls[0].manualOps.map(op => op.opId));
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].manualOps)), JSON.parse(JSON.stringify(calls[0].manualOps)));
+    // A detached old confirmation cannot approve a newly edited batch.
+    edit(els[1], 'Led Example operations.'); confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.equal(calls.length, 2);
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}

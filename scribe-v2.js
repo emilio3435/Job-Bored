@@ -836,6 +836,7 @@
       if (node) manualMessage(ctl, "error", lockText(node)); return;
     }
     var m = ctl.manual;
+    m.confirmation = null;
     if (m.active && m.active.el === el) return;
     if (m.active) finishManual(ctl);
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
@@ -926,6 +927,7 @@
 
   function saveManual(ctl, confirmed) {
     var m = ctl.manual;
+    if (confirmed && m.confirmation !== confirmed) return Promise.resolve(false);
     if (m.active) finishManual(ctl);
     if (m.timer) root.clearTimeout(m.timer); m.timer = null;
     if (!dirtyManual(ctl)) return Promise.resolve(true);
@@ -933,11 +935,13 @@
     if (ctl.state.proposal || ctl.openProposal || ctl.openProposals && ctl.openProposals.length || ctl.state.busy) {
       manualMessage(ctl, "error", "Not saved. Your text is kept."); return Promise.resolve(false);
     }
-    var ops = Object.keys(m.drafts).map(function (id) { return m.drafts[id]; });
-    var which = m.doc, generation = ctl.generation;
+    var ops = confirmed ? confirmed.ops : Object.keys(m.drafts).map(function (id) { return Object.assign({}, m.drafts[id]); });
+    var which = confirmed ? confirmed.doc : m.doc, generation = ctl.generation;
+    var base = confirmed ? confirmed.base : m.base;
+    m.confirmation = null;
     m.saving = true; hideSelectionActions(ctl);
     manualMessage(ctl, "saving", "Saving…");
-    return ctl.api.manualEdit({ doc: which, baseRunId: m.base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
+    return ctl.api.manualEdit({ doc: which, baseRunId: base, manualOps: ops, confirmUnverified: confirmed ? ops.map(function (op) { return op.opId; }) : [] }).then(function (res) {
       m.saving = false; m.drafts = Object.create(null); m.base = null;
       emitSaved(ctl, res && res.run && res.run.runId, which);
       if (ctl.closed || generation !== ctl.generation) return true;
@@ -952,10 +956,10 @@
       if (ctl.closed || generation !== ctl.generation) return false;
       if (err && err.code === "stale_base") manualConflict(ctl);
       else if (err && err.code === "unverified_confirmation_required") {
-        /* C4 has no fact list. Quote the user's retained replacement rather
-           than invent a fact that the server did not identify. */
-        manualMessage(ctl, "confirm", "“" + ops[0].text + "” isn’t in your saved facts.", [
-          ["confirm", "Save anyway", function () { saveManual(ctl, true); }],
+        /* C4 has no per-op fact list: identify the entire batch being approved. */
+        var batch = m.confirmation = { doc: which, base: base, ops: ops };
+        manualMessage(ctl, "confirm", ops.map(function (op) { return "“" + op.text + "”"; }).join(" · ") + " isn’t in your saved facts.", [
+          ["confirm", "Save anyway", function () { saveManual(ctl, batch); }],
           ["edit", "Edit", function () { beginManual(ctl, frameNodes(frameDoc(ctl))[ops[0].node]); }],
         ]);
       } else if (err && err.code === "locked") manualMessage(ctl, "error", lockText(nodeMap(ctl)[ops[0].node]));
@@ -973,7 +977,7 @@
     if (m.active) { m.active.el.removeAttribute("contenteditable"); m.active.el.removeAttribute("data-scribe-editing"); }
     var nodes = nodeMap(ctl), els = frameNodes(frameDoc(ctl));
     Object.keys(m.drafts).forEach(function (id) { if (els[id] && nodes[id]) els[id].textContent = nodes[id].text; });
-    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null;
+    m.drafts = Object.create(null); m.active = null; m.base = null; m.timer = null; m.confirmation = null;
     ctl.refs.manualState.setAttribute("hidden", "");
   }
 
