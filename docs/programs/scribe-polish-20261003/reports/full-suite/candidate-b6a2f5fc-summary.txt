@@ -1,0 +1,16 @@
+✖ answers 501 logos_unavailable when the resolver script is absent (726.19425ms)
+ℹ cancelled 0
+ℹ duration_ms 33889.819125
+✖ E5 server-only boot (Docker context simulation) (2127.128375ms)
+ℹ fail 4
+✖ failing tests:
+✖ G15/E5 logo resolver guard (6.662292ms)
+ℹ pass 7826
+✖ persists and can remove the canonical submission evidence record (3.660791ms) # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store
+✖ POST /api/brand-logos/:slug accepts a real image upload and exposes it via GET (700.594959ms)
+✖ POST /api/brand-logos/:slug rejects uploads when uploads dir escapes template root (16.630875ms)
+✖ runResolver rejects logos_unavailable when the script is missing (5.865542ms)
+ℹ skipped 0
+ℹ suites 1656
+ℹ tests 7837
+ℹ todo 7

@@ -1,0 +1,222 @@
+▶ scribe-v2-api stub: the C0 fixtures, not invented data
+  ✔ should carry fixtures/model.json and sse-transcript.json verbatim (3.372083ms)
+  ✔ should serve exactly the node ids the server derives from the model (1.208417ms)
+✔ scribe-v2-api stub: the C0 fixtures, not invented data (5.029625ms)
+▶ scribe-v2-api mode flag
+  ✔ should talk to the real server unless the stub is asked for (1.148834ms)
+  ✔ should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub' (2.002667ms)
+  ✔ should refuse to open without a package slug (0.825042ms)
+✔ scribe-v2-api mode flag (4.169958ms)
+▶ scribe-v2-api stub behaviour
+  ✔ should list versions newest first in the §3.2 shape, with v0 pinned (2.171ms)
+  ✔ should keep a separate history per document (0.890791ms)
+  ✔ should preview the package's real rendered file for each document (1.040416ms)
+  ✔ should say which document failed when the preview file is missing (1.047792ms)
+  ✔ should replay the SSE transcript in order and finish ready (1.487458ms)
+  ✔ should refuse an empty or over-long instruction (0.785417ms)
+  ✔ should rebase a stale request onto the current run instead of failing (0.895958ms)
+  ✔ should end a stopped stream as partial (1.716833ms)
+  ✔ should append, never replace, on accept and restore, and remember stars (1.41125ms)
+✔ scribe-v2-api stub behaviour (12.016625ms)
+▶ scribe-v2-api live mode: the SPEC §3.2 routes
+  ✔ should call each route with its method, path and body (0.955125ms)
+  ✔ should go through the hosted-auth transport when it is loaded (0.6535ms)
+  ✔ should map a server refusal to one error shape (0.6585ms)
+  ✔ should tell the user how to start a server that is not answering (0.663292ms)
+  ✔ should retry a stale base once onto the current run (0.631833ms)
+  ✔ should read SSE frames split across chunks and skip heartbeats (0.637958ms)
+✔ scribe-v2-api live mode: the SPEC §3.2 routes (4.353ms)
+▶ SCRP-F2 R1 open route and R2 truthful transport
+  ✔ SCRP-F2 GET open is slug-bound and maps the server coverLetter name (0.7145ms)
+  ✔ SCRP-F3 resume acceptEdit resolves only the committed 503 (0.564167ms)
+  ✔ SCRP-F3 resume manualEdit resolves only the committed 503 (0.580625ms)
+  ✔ SCRP-F3 resume restore resolves only the committed 503 (0.609333ms)
+  ✔ SCRP-F3 cover_letter acceptEdit resolves only the committed 503 (0.39125ms)
+  ✔ SCRP-F3 cover_letter manualEdit resolves only the committed 503 (0.34ms)
+  ✔ SCRP-F3 cover_letter restore resolves only the committed 503 (0.410833ms)
+  ✔ SCRP-F4 ordinary 503 and incomplete committed bodies still fail (0.731166ms)
+  ✔ SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable (0.727916ms)
+✔ SCRP-F2 R1 open route and R2 truthful transport (5.2085ms)
+▶ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics
+  ✔ SCRP-F12 resume committed 503 clears review and emits one saved event (16.575375ms)
+  ✔ SCRP-F13 resume blocked provider_failed uses safe per-code copy and action (2.289666ms)
+  ✔ SCRP-F13 resume blocked unreadable_reply uses safe per-code copy and action (3.896666ms)
+  ✔ SCRP-F13 resume blocked invalid_model uses safe per-code copy and action (2.633917ms)
+  ✔ SCRP-F13 resume error http_429 uses safe per-code copy and action (2.348333ms)
+  ✔ SCRP-F13 resume error writer_truncated uses safe per-code copy and action (1.645458ms)
+  ✔ SCRP-F13 resume error writer_blocked uses safe per-code copy and action (1.251542ms)
+  ✔ SCRP-F13 resume error llm_unconfigured uses safe per-code copy and action (2.524333ms)
+  ✔ SCRP-F12 cover_letter committed 503 clears review and emits one saved event (2.2635ms)
+  ✔ SCRP-F13 cover_letter blocked provider_failed uses safe per-code copy and action (3.268416ms)
+  ✔ SCRP-F13 cover_letter blocked unreadable_reply uses safe per-code copy and action (3.084917ms)
+  ✔ SCRP-F13 cover_letter blocked invalid_model uses safe per-code copy and action (1.472042ms)
+  ✔ SCRP-F13 cover_letter error http_429 uses safe per-code copy and action (1.500708ms)
+  ✔ SCRP-F13 cover_letter error writer_truncated uses safe per-code copy and action (1.903792ms)
+  ✔ SCRP-F13 cover_letter error writer_blocked uses safe per-code copy and action (2.184208ms)
+  ✔ SCRP-F13 cover_letter error llm_unconfigured uses safe per-code copy and action (1.87625ms)
+✔ SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics (51.280209ms)
+✔ SCRP-F30 resume a late committed save emits once for its original document (2.6025ms)
+✔ SCRP-F30 cover_letter a late committed save emits once for its original document (3.093125ms)
+✖ SCRP-F33 resume HTTP no-model has Settings and a kept request (3.825791ms)
+✖ SCRP-F34 resume HTTP save rate-limit keeps the specific safe explanation (4.539ms)
+✖ SCRP-F33 cover_letter HTTP no-model has Settings and a kept request (2.434333ms)
+✖ SCRP-F34 cover_letter HTTP save rate-limit keeps the specific safe explanation (3.723042ms)
+▶ diffWords: word-level A → B
+  ✔ should return one unchanged run for identical text (1.247958ms)
+  ✔ should mark only the words that changed (0.261458ms)
+  ✔ should fold an unchanged gap of two words or fewer into one change (0.191958ms)
+  ✔ should keep a gap of three words as unchanged text (0.10625ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.082292ms)
+  ✔ should show an added or emptied block as one insertion or deletion (0.33975ms)
+✔ diffWords: word-level A → B (2.770041ms)
+▶ diffNodes: which blocks differ
+  ✔ should list changed, added and removed blocks in reading order and skip the same ones (0.251833ms)
+  ✔ should report nothing when the wording is the same (0.0645ms)
+  ✔ should keep the letter's blocks apart from the resume's (0.077458ms)
+✔ diffNodes: which blocks differ (0.487709ms)
+▶ sourceLabel
+  ✔ should name every run source the server writes (0.211125ms)
+✔ sourceLabel (0.363375ms)
+▶ Versions rail rows
+  ✔ should show each version's source, and View, Compare and Bring back on older ones (11.968375ms)
+✔ Versions rail rows (12.063208ms)
+▶ View
+  ✔ should show an older version read-only and go back to the live preview (4.400959ms)
+✔ View (4.483459ms)
+▶ Compare
+  ✔ should mark the A → B wording and offer no accept controls (3.394416ms)
+  ✔ should toggle with the c key, but not while typing (2.951542ms)
+  ✔ should re-pick A from the select and say when nothing differs (3.675375ms)
+  ✔ should leave compare when the document tab changes (2.290375ms)
+✔ Compare (12.590459ms)
+▶ Bring back as new
+  ✔ should ask first, then append a version and delete none (3.979459ms)
+  ✔ should keep every version and say so when the server refuses (3.495458ms)
+✔ Bring back as new (7.626417ms)
+▶ Keys from inside a View or Compare page (F3-trap)
+  ✔ should take Tab, c and Esc from a compare page back to the desk (3.654417ms)
+  ✔ should unhook a page's forwarder when its frame is replaced (3.113291ms)
+✔ Keys from inside a View or Compare page (F3-trap) (6.884958ms)
+▶ Bring back and an open proposal (F3-discard)
+  ✔ should keep the proposal and say so when bring back fails (2.351917ms)
+  ✔ should discard the proposal only after the new run exists (2.917291ms)
+✔ Bring back and an open proposal (F3-discard) (5.419667ms)
+▶ A page given the same document again (F3-rebind)
+  ✔ should keep forwarding keys when View becomes Compare on the same render (3.777542ms)
+  ✔ should keep the page still shown listening when a preview fails (2.487542ms)
+✔ A page given the same document again (F3-rebind) (6.394584ms)
+▶ A kept page with the last comparison's marks (F3-rebind)
+  ✔ should reload the page rather than keep stale marks (3.249917ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (3.320083ms)
+✔ SCRP-F20 resume committed bring-back 503 reports one saved version (4.870458ms)
+✔ SCRP-F20 cover_letter committed bring-back 503 reports one saved version (3.567125ms)
+✔ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.996416ms)
+✔ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.473042ms)
+✔ SCRP-F32 resume saved bring-back with failed discard keeps recovery controls (2.256333ms)
+✔ SCRP-F32 cover_letter saved bring-back with failed discard keeps recovery controls (1.733833ms)
+✖ SCRP-F35 HTTP bring-back rate-limit keeps its explanation and retry action (2.306833ms)
+ℹ tests 83
+ℹ suites 17
+ℹ pass 78
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 218.573167
+
+✖ failing tests:
+
+test at tests/scribe-v2-api.test.mjs:480:3
+✖ SCRP-F33 resume HTTP no-model has Settings and a kept request (3.825791ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'Try again'
+  - 'Settings'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:485:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Try again',
+    expected: 'Settings',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:488:3
+✖ SCRP-F34 resume HTTP save rate-limit keeps the specific safe explanation (4.539ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'Not saved. Your accepted changes are still here.'
+  - 'Too many requests right now. Try again in a minute. Your request is kept.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:494:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Not saved. Your accepted changes are still here.',
+    expected: 'Too many requests right now. Try again in a minute. Your request is kept.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:480:3
+✖ SCRP-F33 cover_letter HTTP no-model has Settings and a kept request (2.434333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'Try again'
+  - 'Settings'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:485:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Try again',
+    expected: 'Settings',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-api.test.mjs:488:3
+✖ SCRP-F34 cover_letter HTTP save rate-limit keeps the specific safe explanation (3.723042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'Not saved. Your accepted changes are still here.'
+  - 'Too many requests right now. Try again in a minute. Your request is kept.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-api.test.mjs:494:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Not saved. Your accepted changes are still here.',
+    expected: 'Too many requests right now. Try again in a minute. Your request is kept.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:564:1
+✖ SCRP-F35 HTTP bring-back rate-limit keeps its explanation and retry action (2.306833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + ''
+  - 'Too many requests right now. Try again in a minute. Your request is kept.'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:569:10)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: 'Too many requests right now. Try again in a minute. Your request is kept.',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

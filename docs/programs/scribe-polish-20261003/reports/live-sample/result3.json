@@ -1,0 +1,110 @@
+{
+ "provider": "gemini",
+ "model": "gemini-flash-latest",
+ "results": [
+  {
+   "doc": "resume",
+   "instruction": "Make the earlier-role line shorter.",
+   "ok": true,
+   "started": true,
+   "ops": 1,
+   "blocked": 0,
+   "done": [
+    "ready"
+   ],
+   "verifiedOps": 1,
+   "acceptStatus": 200,
+   "newVersion": true,
+   "provenance": "edit",
+   "savedContainsAccepted": true,
+   "savedCheckDetail": [
+    {
+     "len": 42,
+     "hasLeafEqual": true
+    }
+   ],
+   "previewContainsAccepted": true,
+   "reopenPersists": true,
+   "siblingEqual": true
+  },
+  {
+   "doc": "resume",
+   "instruction": "Make two experience bullets punchier.",
+   "ok": true,
+   "started": true,
+   "ops": 2,
+   "blocked": 0,
+   "done": [
+    "ready"
+   ],
+   "verifiedOps": 2,
+   "acceptStatus": 200,
+   "newVersion": true,
+   "provenance": "edit",
+   "savedContainsAccepted": true,
+   "savedCheckDetail": [
+    {
+     "len": 97,
+     "hasLeafEqual": true
+    },
+    {
+     "len": 89,
+     "hasLeafEqual": true
+    }
+   ],
+   "previewContainsAccepted": true,
+   "reopenPersists": true,
+   "siblingEqual": true
+  },
+  {
+   "doc": "cover_letter",
+   "instruction": "Make the last paragraph warmer.",
+   "ok": true,
+   "started": true,
+   "ops": 1,
+   "blocked": 0,
+   "done": [
+    "ready"
+   ],
+   "verifiedOps": 1,
+   "acceptStatus": 200,
+   "newVersion": true,
+   "provenance": "edit",
+   "savedContainsAccepted": true,
+   "savedCheckDetail": [
+    {
+     "len": 145,
+     "hasLeafEqual": true
+    }
+   ],
+   "previewContainsAccepted": true,
+   "reopenPersists": true,
+   "siblingEqual": true
+  },
+  {
+   "doc": "cover_letter",
+   "instruction": "Make the first paragraph more formal.",
+   "ok": true,
+   "started": true,
+   "ops": 1,
+   "blocked": 0,
+   "done": [
+    "ready"
+   ],
+   "verifiedOps": 1,
+   "acceptStatus": 200,
+   "newVersion": true,
+   "provenance": "edit",
+   "savedContainsAccepted": true,
+   "savedCheckDetail": [
+    {
+     "len": 89,
+     "hasLeafEqual": true
+    }
+   ],
+   "previewContainsAccepted": true,
+   "reopenPersists": true,
+   "siblingEqual": true
+  }
+ ]
+}

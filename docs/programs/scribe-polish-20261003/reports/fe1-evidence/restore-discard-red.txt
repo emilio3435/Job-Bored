@@ -1,0 +1,147 @@
+▶ diffWords: word-level A → B
+  ✔ should return one unchanged run for identical text (0.862333ms)
+  ✔ should mark only the words that changed (0.145333ms)
+  ✔ should fold an unchanged gap of two words or fewer into one change (0.146209ms)
+  ✔ should keep a gap of three words as unchanged text (0.089167ms)
+  ✔ should treat punctuation as its own token and keep figures whole (0.070083ms)
+  ✔ should show an added or emptied block as one insertion or deletion (0.384458ms)
+✔ diffWords: word-level A → B (2.276542ms)
+▶ diffNodes: which blocks differ
+  ✔ should list changed, added and removed blocks in reading order and skip the same ones (0.258875ms)
+  ✔ should report nothing when the wording is the same (0.130166ms)
+  ✔ should keep the letter's blocks apart from the resume's (0.13775ms)
+✔ diffNodes: which blocks differ (0.622792ms)
+▶ sourceLabel
+  ✔ should name every run source the server writes (0.088875ms)
+✔ sourceLabel (0.120792ms)
+▶ Versions rail rows
+  ✔ should show each version's source, and View, Compare and Bring back on older ones (9.777541ms)
+✔ Versions rail rows (9.843791ms)
+▶ View
+  ✔ should show an older version read-only and go back to the live preview (2.5555ms)
+✔ View (2.631167ms)
+▶ Compare
+  ✔ should mark the A → B wording and offer no accept controls (2.987875ms)
+  ✔ should toggle with the c key, but not while typing (2.337625ms)
+  ✔ should re-pick A from the select and say when nothing differs (2.143208ms)
+  ✔ should leave compare when the document tab changes (2.460167ms)
+✔ Compare (10.124375ms)
+▶ Bring back as new
+  ✔ should ask first, then append a version and delete none (2.771041ms)
+  ✔ should keep every version and say so when the server refuses (2.506625ms)
+✔ Bring back as new (5.371041ms)
+▶ Keys from inside a View or Compare page (F3-trap)
+  ✔ should take Tab, c and Esc from a compare page back to the desk (2.4145ms)
+  ✔ should unhook a page's forwarder when its frame is replaced (3.061917ms)
+✔ Keys from inside a View or Compare page (F3-trap) (5.615542ms)
+▶ Bring back and an open proposal (F3-discard)
+  ✔ should keep the proposal and say so when bring back fails (2.690833ms)
+  ✔ should discard the proposal only after the new run exists (2.217709ms)
+✔ Bring back and an open proposal (F3-discard) (5.0535ms)
+▶ A page given the same document again (F3-rebind)
+  ✔ should keep forwarding keys when View becomes Compare on the same render (2.447416ms)
+  ✔ should keep the page still shown listening when a preview fails (2.409167ms)
+✔ A page given the same document again (F3-rebind) (4.978166ms)
+▶ A kept page with the last comparison's marks (F3-rebind)
+  ✔ should reload the page rather than keep stale marks (5.591666ms)
+✔ A kept page with the last comparison's marks (F3-rebind) (5.682917ms)
+✔ SCRP-F20 resume committed bring-back 503 reports one saved version (2.298334ms)
+✔ SCRP-F20 cover_letter committed bring-back 503 reports one saved version (1.741792ms)
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.502584ms)
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.528042ms)
+✖ SCRP-F32 resume saved bring-back with failed discard keeps recovery controls (2.476916ms)
+✖ SCRP-F32 cover_letter saved bring-back with failed discard keeps recovery controls (2.440125ms)
+ℹ tests 31
+ℹ suites 11
+ℹ pass 27
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 115.011042
+
+✖ failing tests:
+
+test at tests/scribe-v2-versions.test.mjs:536:3
+✖ SCRP-F31 resume a late bring-back never reloads or discards the next document (2.502584ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      {
+  +     doc: 'cover_letter',
+  -     doc: 'resume',
+        runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:544:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'r3' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:536:3
+✖ SCRP-F31 cover_letter a late bring-back never reloads or discards the next document (2.528042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      {
+  +     doc: 'resume',
+  -     doc: 'cover_letter',
+        runId: 'r3',
+        slug: 'acme-platform-engineer'
+      }
+    ]
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:544:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { slug: 'acme-platform-engineer', doc: 'resume', runId: 'r3' } ],
+    expected: [ { slug: 'acme-platform-engineer', doc: 'cover_letter', runId: 'r3' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:551:3
+✖ SCRP-F32 resume saved bring-back with failed discard keeps recovery controls (2.476916ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 'p1'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:558:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'p1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/scribe-v2-versions.test.mjs:551:3
+✖ SCRP-F32 cover_letter saved bring-back with failed discard keeps recovery controls (2.440125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 'p1'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/scribe-v2-versions.test.mjs:558:12)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'p1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { deriveNodes, lockedSpans, applyOps } from "../server/materials-nodes.mjs";
-import { retargetModel, validateRenderModel } from "../server/materials-render.mjs";
+import { proposeEdits } from "../server/materials-edit.mjs";
+import { retargetModel, runsToText, validateRenderModel } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../docs/programs/editor-20260927/fixtures/${name}.json`, import.meta.url), "utf8"));
@@ -53,7 +54,7 @@ describe("materials node ids and edits", () => {
 
   it("enforces statement and letter paragraph limits by actual text and count", () => {
     assert.throws(() => applyOps(model(), [{ opId: "short", op: "replace", node: "stmt", text: "Only 38% here." }], { scope: "all" }), { reason: "shape" });
-    assert.throws(() => applyOps(model(), [{ opId: "long", op: "replace", node: "stmt", text: `${Array(55).fill("word").join(" ")} 38%` }]), { reason: "shape" });
+    assert.throws(() => applyOps(model(), [{ opId: "long", op: "replace", node: "stmt", text: `${Array(55).fill("word").join(" ")} 38% through review.` }]), { reason: "shape" });
     assert.throws(() => applyOps(model(), [{ opId: "less", op: "remove", node: "p:p1" }], { scope: "all" }), { reason: "shape" });
     const four = applyOps(model(), [{ opId: "p4", op: "insert", after: "p:p2", claimId: "c22", beat: "ai-ops-proof", text: "I also built a daily exception review for the team." }]);
     assert.equal(four.documents.coverLetter.paragraphs.length, 4);
@@ -63,7 +64,265 @@ describe("materials node ids and edits", () => {
       { opId: "c23", op: "insert", after: "b:acme:c22", claimId: "c23", text: "Wrote a guide to act on exceptions." },
     ]);
     const fiveBullets = applyOps(fourBullets, [{ opId: "c24", op: "insert", after: "b:acme:c23", claimId: "c24", text: "Reviewed daily reports." }]);
+    assert.equal(fiveBullets.documents.resume.sections.find((section) => section.kind === "experience").entries[0].bullets.length, 5);
+    assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Reviewed weekly reports." }]), { reason: "shape" });
     assert.equal(deriveNodes(fiveBullets).filter(node => node.kind === "bullet").length, 5);
     assert.throws(() => applyOps(fiveBullets, [{ opId: "c25", op: "insert", after: "b:acme:c24", claimId: "c25", text: "Prepared route reports." }]), { reason: "shape" });
   });
+});
+
+
+it("edits a published five-bullet employer without dropping its proof", () => {
+  const before = model();
+  const entry = before.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+  for (const id of ["c22", "c23", "c24"]) entry.bullets.push({ claimId: id, runs: [{ t: "Built a clear daily report for operations teams." }] });
+  const after = applyOps(before, [{ opId: "rewrite", op: "replace", node: "b:acme:c22", text: "Built clear daily reports for operations teams." }]);
+  const edited = after.documents.resume.sections.find((section) => section.kind === "experience").entries[0];
+  assert.equal(edited.bullets.length, 5);
+  assert.equal(runsToText(edited.bullets[2].runs), "Built clear daily reports for operations teams.");
+  assert.equal(runsToText(entry.bullets[2].runs), "Built a clear daily report for operations teams.");
+});
+
+it('SCRP-B40 R3-#2 locked figures reject embedded tokens at both edges on an atomic clone', () => {
+  for (const id of ['stmt', 'p:p2']) {
+    const before = model(); const original = structuredClone(before);
+    const node = deriveNodes(before).find(n => n.id === id);
+    for (const figure of ['138%', '38%5', '2.38%', '38%.5', 'A38%', '38%é']) {
+      assert.throws(() => applyOps(before, [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38%', figure), flags: ['unverified'] }]), { reason: 'locked' }, figure);
+      assert.deepEqual(before, original);
+    }
+    const sentence = node.text.replace('38%', '38%.');
+    assert.equal(deriveNodes(applyOps(before, [{ opId: 'punctuation', op: 'replace', node: id, text: sentence }])).find(n => n.id === id).text, sentence);
+  }
+});
+
+it('SCRP-B41 R3-#2 confirmed manual figure-edge changes return 400 locked without a version', async () => {
+  const { startScribeRealService } = await import('./e2e-fixtures/scribe-real-service.mjs');
+  const fixture = await startScribeRealService();
+  try {
+    const seed = await fixture.seed();
+    for (const [doc, id] of [['resume', 'stmt'], ['coverLetter', 'p:p2']]) {
+      const node = deriveNodes(seed.model).find(n => n.id === id);
+      for (const figure of ['138%', '38%5', '2.38%', '38%.5']) {
+        const res = await fetch(fixture.baseUrl + seed.path + '/edits/manual', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38%', figure) }], confirmUnverified: ['edge'] }),
+        });
+        assert.equal(res.status, 400); assert.equal((await res.json()).code, 'locked');
+      }
+    }
+    const listing = await (await fetch(fixture.baseUrl + seed.path + '/versions?doc=resume')).json();
+    assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    const saved = await (await fetch(fixture.baseUrl + seed.path + '/versions/r0/model')).json();
+    assert.deepEqual(saved.model, seed.model);
+  } finally { await fixture.close(); }
+});
+
+it('SCRP-B50 R4-#1 D27 preserves numeric runs on both documents', () => {
+  for (const doc of ['resume', 'coverLetter']) for (const [prefix, suffix] of [['Processed ', ' shipments.'], [' ', ' shipments.'], ['', ' shipments.'], ['Processed ', '']]) {
+    const before = model();
+    const id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+    if (doc === 'resume') before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: prefix }, { n: '38' }, { t: suffix }].filter(r => Object.values(r)[0]);
+    else before.documents.coverLetter.paragraphs[1].text = prefix + '38' + suffix;
+    const original = structuredClone(before); const node = deriveNodes(before).find(n => n.id === id);
+    for (const figure of ['38%', '%38', '$38', '38$', '38,000', ',00038', '🄁38', '38🄁']) {
+      assert.throws(() => applyOps(before, [{ opId: 'edge', op: 'replace', node: id, text: node.text.replace('38', figure), flags: ['unverified'] }]), { reason: 'locked' }, doc + figure);
+      assert.deepEqual(before, original);
+    }
+    if (prefix.trim() && suffix) {
+      const staged = node.text.replace('38', '38 ,000');
+      // D29 bridges the whitespace before separators, blocking the first value change.
+      assert.throws(() => applyOps(before, [{ opId: 'stage', op: 'replace', node: id, text: staged }]), { reason: 'locked' });
+      assert.throws(() => applyOps(before, [{ opId: 'join', op: 'replace', node: id, text: staged.replace('38 ,000', '38,000') }]), { reason: 'locked' });
+    }
+    if (prefix) assert.equal(deriveNodes(applyOps(before, [{ opId: 'leading', op: 'replace', node: id, text: node.text.slice(prefix.length) }])).find(n => n.id === id).text, node.text.slice(prefix.length).trim());
+  }
+});
+
+
+function numericModel(doc, text, tokens = ['38']) {
+  const before = model(), id = doc === 'resume' ? 'b:acme:c14' : 'p:p2';
+  if (doc === 'resume') {
+    const runs = []; let from = 0;
+    for (const token of tokens) { const at = text.indexOf(token, from); if (at > from) runs.push({ t: text.slice(from, at) }); runs.push({ n: token }); from = at + token.length; }
+    if (from < text.length) runs.push({ t: text.slice(from) });
+    before.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = runs;
+  } else before.documents.coverLetter.paragraphs[1].text = text;
+  return { before, id };
+}
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B61 R5-#1 ${doc} numeric runs block joiners and count each locked occurrence`, () => {
+    for (const [base, next, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'], ['Processed 38 shipments.', 'Processed 𝟙38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) {
+      const { before, id } = numericModel(doc, base, tokens), original = structuredClone(before);
+      assert.throws(() => applyOps(before, [{ opId: 'numeric', op: 'replace', node: id, text: next, flags: ['unverified'] }]), { reason: 'locked' }, `${base} -> ${next}`);
+      assert.deepEqual(before, original);
+    }
+    for (const [base, next] of [['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', 'Processed (38) shipments.']]) {
+      const { before, id } = numericModel(doc, base);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'numeric', op: 'replace', node: id, text: next }]));
+    }
+  });
+
+
+}
+
+
+it('SCRP-B62 R5-#1 confirmed manual requests cannot override numeric-run locks on either document', async () => {
+  const { startScribeRealService } = await import('./e2e-fixtures/scribe-real-service.mjs');
+  const fixture = await startScribeRealService();
+  try {
+    for (const doc of ['resume', 'coverLetter']) for (const [base, next, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) {
+      const { before, id } = numericModel(doc, base, tokens);
+      const seed = await fixture.seed({ model: before });
+      const res = await fetch(fixture.baseUrl + seed.path + '/edits/manual', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc, baseRunId: 'r0', manualOps: [{ opId: 'numeric', op: 'replace', node: id, text: next }], confirmUnverified: ['numeric'] }),
+      });
+      assert.equal(res.status, 400, `${doc}: ${base} -> ${next}`); assert.equal((await res.json()).code, 'locked');
+      const listing = await (await fetch(fixture.baseUrl + seed.path + '/versions?doc=' + doc)).json();
+      assert.equal(listing.versions.length, 1); assert.equal(listing.currentRunId, 'r0');
+    }
+  } finally { await fixture.close(); }
+});
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B63 R5-#3 ${doc} writer proposals may move an unchanged locked run`, () => {
+    const { before, id } = numericModel(doc, 'Cut delays 38% through weekly measurement.', ['38%']);
+    const after = applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: 'Through weekly measurement, cut delays 38%.' }]);
+    assert.equal(deriveNodes(after).find(n => n.id === id).text, 'Through weekly measurement, cut delays 38%.');
+  });
+}
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B67 R5-#7 ${doc} markup normalization preserves unchanged runs and refuses joined digits`, () => {
+    for (const base of ['Cut defects 38%* across teams.', 'Hit `38%` across teams.', 'Hit [38%](https://example.com) across teams.']) {
+      const { before, id } = numericModel(doc, base, ['38%']);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: base.replace('across teams', 'across all teams') }]));
+    }
+    const { before, id } = numericModel(doc, 'Cut defects 38%*5 across teams.', ['38%']);
+    assert.throws(() => applyOps(before, [{ opId: 'plain', op: 'replace', node: id, text: 'Cut defects 38%*50 across teams.' }]), { reason: 'locked' });
+  });
+}
+
+for (const doc of ['resume', 'coverLetter']) {
+  it(`SCRP-B70 R6-#1 ${doc} D28 blocks value-changing figure attachments atomically`, () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      const { before, id } = numericModel(doc, 'Processed 38 shipments.'), original = structuredClone(before);
+      assert.throws(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: `Processed ${figure} shipments.`, flags: ['unverified'] }]), { reason: 'locked' }, figure);
+      assert.deepEqual(before, original);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) {
+      const { before, id } = numericModel(doc, base);
+      assert.doesNotThrow(() => applyOps(before, [{ opId: 'figure', op: 'replace', node: id, text: after }]));
+    }
+  });
+}
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B71 R6-#2 ${doc} shared runs consume one occurrence and distinct runs keep multiplicity`, () => {
+  for (const joiner of ['x', 'e']) {
+    const { before, id } = numericModel(doc, `Processed 38${joiner}40 sheets.`, ['38', '40']);
+    const text = `We processed 38${joiner}40 sheets.`;
+    const after = applyOps(before, [{ opId: 'group', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text); assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), ['38', '40']);
+    assert.throws(() => applyOps(after, [{ opId: 'change', op: 'replace', node: id, text: text.replace('40', '50') }]), { reason: 'locked' });
+    const repeated = numericModel(doc, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, ['38', '40', '38', '40']);
+    assert.throws(() => applyOps(repeated.before, [{ opId: 'lost', op: 'replace', node: repeated.id, text }]), { reason: 'locked' });
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B74 R6-#5 ${doc} Unicode decimal figures have UTF-16 locks and cannot change`, () => {
+  for (const [figure, changed] of [['３８', '３９'], ['٣٨', '٣٩'], ['𝟛𝟠', '𝟛𝟡']]) {
+    const { before, id } = numericModel(doc, `😀 Processed ${figure} shipments.`, [figure]);
+    const node = deriveNodes(before).find(n => n.id === id);
+    assert.deepEqual(node.locked.spans.map(([a, b]) => node.text.slice(a, b)), [figure]);
+    assert.throws(() => applyOps(before, [{ opId: 'unicode', op: 'replace', node: id, text: node.text.replace(figure, changed), flags: ['unverified'] }]), { reason: 'locked' });
+    assert.doesNotThrow(() => applyOps(before, [{ opId: 'move', op: 'replace', node: id, text: `${figure} shipments were processed.` }]));
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B75 R6-#6 ${doc} D28 preserves numbered text and NFC figure runs through storage`, () => {
+  for (const [base, text] of [
+    ['38. Shipments processed.', '38. All shipments processed.'],
+    ['😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.'],
+    ['Processed 38 shipments.', 'Processed 3**8** shipments.'],
+    ['Processed - 38 shipments.', 'We processed - 38 shipments.'],
+  ]) {
+    const { before, id } = numericModel(doc, base);
+    const after = applyOps(before, [{ opId: 'normalize', op: 'replace', node: id, text }]);
+    const node = deriveNodes(after).find(n => n.id === id);
+    assert.equal(node.text, text.normalize('NFC').replace(/[*_`~]/g, ''));
+    assert.ok(node.locked.spans.length); assert.equal(node.text.slice(...node.locked.spans[0]), '38');
+    assert.throws(() => applyOps(after, [{ opId: 'mutate', op: 'replace', node: id, text: node.text.replace('38', '39') }]), { reason: 'locked' });
+  }
+  const { before, id } = numericModel(doc, 'Processed 38 shipments.');
+  assert.throws(() => applyOps(before, [{ opId: 'html', op: 'replace', node: id, text: 'Processed 38<b>0</b> shipments.' }]), { reason: 'locked' }, 'storage cleanup cannot join an extra digit to a locked figure');
+});
+
+const r7Figures = {
+  A: ['38\u2009000', '38\u2007000', '38\u2008000', '38\u200a000', '38\u2002000', '38\u2003000', '38\u205f000', '38\u3000000', '38  000', '38\n000', '38\t000', '38 \u00a0000', '38\u2009%', '38  %', '38\n%', '-  38', '-\n38', '38\u2800000', '38\u2028000', '38\u2029000'],
+  B: ['‐38', '‑38', '‒38', '－38', '﹣38', '⁻38', '38‒40', '38‐40', '38‑40', '38―40', '38〜40', '38～40'],
+  C: ['38’000', '38‘000', '38´000', '38٬000', '38，000', '38·5', '38٫5', '38．5', '38⁄5', '38∕5', '38÷2'],
+  D: ['38％', '38٪', '38﹪', '38‱', '₹38', '₩38', '₽38', '38¢', '₿38', '＄38'],
+  E: ['38 M', '38 k', '38 K', '38 dozen', '38 times', '38 percent', 'minus 38', 'negative 38', '38 million', '38 thousand', '38 bn', '38 pct', '38 - 40', '38 – 40', '38 to 40', '38 x 40', '38 / 40', '38 b', '38 mm', '38 billion', '38 hundred', '38 per cent', '38\nper\tcent', '38  MILLION', 'negative\n\t38'],
+};
+for (const doc of ['resume', 'coverLetter']) for (const [group, figures] of Object.entries(r7Figures)) {
+  it(`SCRP-B81 AI-hardening ${doc} blocks every R7 group ${group} value change`, async () => {
+    const allowed = [];
+    for (const figure of figures) {
+      const { before, id } = numericModel(doc, 'Processed 38 shipments.');
+      const original = structuredClone(before);
+      try { applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.`, flags: ['unverified'] }]); allowed.push(figure); }
+      catch (error) { assert.equal(error.reason, 'locked', figure); }
+      assert.deepEqual(before, original);
+      const proposal = await proposeEdits({ model: before, nodes: deriveNodes(before), instruction: 'Shorten this line.', scope: [id], lockFacts: true,
+        pin: { provider: 'openai', resolvedModel: 'fixture', apiKey: 'example' }, ledger: {}, jdExtract: {},
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ops: [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.` }] }) } }] }) }),
+      });
+      assert.deepEqual(proposal.ops, [], figure); assert.equal(proposal.blocked[0].reason, 'locked', figure);
+    }
+    assert.deepEqual(allowed, []);
+  });
+}
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B82 AI-hardening ${doc} blocks native Unicode separators and preserves figure movement`, () => {
+  const allowed = [];
+  for (const [base, figures] of [['٣٨', ['٣٨٫٥', '٣٨٬٠٠٠']], ['３８', ['３８．５', '３８，０００', '３８％', '－３８', '３８／４０']]]) {
+    for (const figure of figures) {
+      const { before, id } = numericModel(doc, `Processed ${base} shipments.`, [base]);
+      try { applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: `Processed ${figure} shipments.` }]); allowed.push(figure); }
+      catch (error) { assert.equal(error.reason, 'locked'); }
+    }
+  }
+  assert.deepEqual(allowed, []);
+  for (const [base, next] of [['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', '38 shipments were processed.']]) {
+    const { before, id } = numericModel(doc, base);
+    assert.equal(deriveNodes(applyOps(before, [{ opId: 'ai', op: 'replace', node: id, text: next }])).find(n => n.id === id).text, next);
+  }
+});
+
+for (const doc of ['resume', 'coverLetter']) it(`SCRP-B84 R7-#4 ${doc} approximation survives unrelated AI edits and cannot be created or lost`, () => {
+  const base = 'Cut costs ~40% across teams.', next = 'Cut costs ~40% across all teams.';
+  const { before, id } = numericModel(doc, base, ['40%']);
+  const after = applyOps(before, [{ opId: 'approx', op: 'replace', node: id, text: next }]);
+  assert.equal(deriveNodes(after).find(n => n.id === id).text, next);
+  assert.throws(() => applyOps(before, [{ opId: 'exact', op: 'replace', node: id, text: base.replace('~', '') }]), { reason: 'locked' });
+  const exact = numericModel(doc, base.replace('~', ''), ['40%']);
+  assert.throws(() => applyOps(exact.before, [{ opId: 'approx', op: 'replace', node: exact.id, text: base }]), { reason: 'locked' });
 });

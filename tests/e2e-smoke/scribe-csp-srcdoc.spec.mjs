@@ -1,3 +1,4 @@
+/* global document, DataTransfer, ClipboardEvent, InputEvent */
 /**
  * scribe-csp-srcdoc.spec.mjs — EDITOR lane P0, the SPEC §5 CSP probe.
  *
@@ -30,6 +31,7 @@ import {
   retargetModel,
   validateRenderModel,
 } from "../../server/materials-render.mjs";
+import { deriveNodes } from "../../server/materials-nodes.mjs";
 import { resolveFamily } from "../../server/materials-templates.mjs";
 
 const MODEL_PATH = join(
@@ -267,3 +269,47 @@ test("control: should see a frame violation when the srcdoc breaks img-src", asy
   expect(logCsp.join("\n")).toContain("img-src");
   expect(frameRequests).toContain("http://csp-probe.invalid/x.png");
 });
+
+
+for (const which of ["resume", "cover_letter"]) {
+  test(`SCRP-F47 GAP-01/02 ${which} parent selection, paste and input handlers cause zero CSP violations`, async ({ page }) => {
+    const { fence, consoleCsp, logCsp } = await openDashboard(page);
+    const model = probeModel("signal");
+    const html = renderDocument(model, which === "resume" ? "resume" : "coverLetter");
+    await page.evaluate(({ which, html, nodes, model }) => {
+      globalThis.JB_SCRIBE_V2.open({ slug: "acme-csp-example", doc: which, api: {
+        listVersions: async () => ({ currentRunId: "r0", versions: [{ runId: "r0", n: 0 }] }),
+        getModel: async () => ({ nodes, model }), preview: async () => ({ html }),
+      } });
+    }, { which, html, nodes: deriveNodes(model), model });
+    const desk = page.locator("jb-scribe");
+    await expect(desk.locator(".scribe__docscroll")).toHaveAttribute("aria-busy", "false");
+    const id = which === "resume" ? "line:beta" : "p:p3";
+    await page.evaluate(id => {
+      const inner = document.querySelector("jb-scribe iframe").contentDocument;
+      inner.addEventListener("securitypolicyviolation", e => globalThis.__cspViolations.push({ directive: e.effectiveDirective, blocked: e.blockedURI }));
+      const el = [...inner.querySelectorAll("[data-node]")].find(node => node.dataset.node === id);
+      const range = inner.createRange(); range.selectNodeContents(el); inner.getSelection().addRange(range);
+      inner.dispatchEvent(new Event("selectionchange"));
+    }, id);
+    await expect(desk.locator(".scribe__scope")).toContainText("Selected:");
+    await desk.locator('[data-selection="edit"]').click();
+    const el = page.frameLocator("jb-scribe .scribe__frame").locator(`[data-node="${id}"]`);
+    await expect(el).toHaveAttribute("contenteditable", "plaintext-only");
+    await el.evaluate(el => {
+      const inner = el.ownerDocument, range = inner.createRange(); range.selectNodeContents(el); inner.getSelection().removeAllRanges(); inner.getSelection().addRange(range);
+      const data = new DataTransfer(); data.setData("text/html", "<b>Tracked work.</b>"); data.setData("text/plain", "Tracked work.");
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      const event = new InputEvent("beforeinput", { inputType: "formatBold", bubbles: true, cancelable: true });
+      el.dispatchEvent(event); globalThis.__scribeFormatBlocked = event.defaultPrevented;
+    });
+    await expect(el).toHaveText("Tracked work."); expect(await el.locator("b").count()).toBe(0);
+    expect(await page.evaluate(() => document.querySelector("jb-scribe .scribe__frame").contentDocument.defaultView.__scribeFormatBlocked)).toBe(true);
+    expect(await desk.locator("iframe").getAttribute("sandbox")).toBe("allow-same-origin");
+    expect(await page.evaluate(() => document.querySelector("jb-scribe .scribe__frame").contentDocument.querySelectorAll("script").length)).toBe(0);
+    await desk.locator('[data-scribe="close"]').click(); await desk.locator('[data-unsaved="discard"]').click();
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => globalThis.__cspViolations)).toEqual([]); expect(consoleCsp).toEqual([]); expect(logCsp).toEqual([]);
+    expect(fence.unexpectedExternal).toEqual([]);
+  });
+}

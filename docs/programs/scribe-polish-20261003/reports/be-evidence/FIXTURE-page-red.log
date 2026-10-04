@@ -1,0 +1,18 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+undefined !== 'r0'
+
+    at file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/.lane-evidence/fixture-page-probe.mjs:9:40 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: undefined,
+  expected: 'r0',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.13.0

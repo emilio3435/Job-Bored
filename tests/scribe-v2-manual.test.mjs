@@ -1,0 +1,653 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { test } from 'node:test';
+import { FakeDocument, makeEnv } from './fixtures/jb-dom.mjs';
+const settle = () => new Promise(resolve => setImmediate(resolve));
+async function desk(which = 'resume', result, locked = false) {
+  const win = makeEnv(); const calls = []; const timers = new Map(); let seq = 0;
+  win.setTimeout = (fn, ms) => { timers.set(++seq, { fn, ms }); return seq; }; win.clearTimeout = id => timers.delete(id);
+  win.JBScribeApi = { MAX_INSTRUCTION: 2000 };
+  for (const file of ['scribe-v2-diff.js', 'scribe-v2.js']) vm.runInNewContext(readFileSync(new URL('../' + file, import.meta.url), 'utf8'), win);
+  const ids = which === 'resume' ? ['line:beta', 'b:acme:c14'] : ['p:p3', 'p:p2'];
+  const nodes = ids.map(id => ({ id, kind: which === 'resume' ? 'line' : 'paragraph', text: 'Tracked daily operations.', locked: { whole: false, spans: [] } }));
+  if (locked) { nodes[0].text = 'Processed 38 shipments.'; nodes[0].locked = { whole: locked === 'whole', spans: locked === 'whole' ? [] : [[10, 12]] }; }
+  const api = {
+    listVersions: async () => ({ currentRunId: 'r0', versions: [{ runId: 'r0', n: 0 }] }),
+    getModel: async () => ({ model: {}, nodes }), preview: async () => ({ html: 'preview' }),
+    manualEdit: async body => { calls.push(body); if (result) return result(body, calls.length); return { run: { runId: 'r1', n: 1 } }; },
+  };
+  const ctl = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+  const inner = new FakeDocument(); inner.head = inner.createElement('head'); inner.documentElement.appendChild(inner.head);
+  const els = nodes.map(node => { const el = inner.createElement('p'); el.setAttribute('data-node', node.id); el.textContent = node.text; inner.body.appendChild(el); return el; });
+  ctl.refs.frame.contentDocument = inner; ctl.refs.frame.onload(); await settle();
+  const edit = (el, text) => {
+    inner.dispatchEvent({ type: 'dblclick', target: el }); assert.equal(el.getAttribute('contenteditable'), 'plaintext-only');
+    el.textContent = text; inner.dispatchEvent({ type: 'input', target: el }); inner.dispatchEvent({ type: 'focusout', target: el });
+  };
+  const flush = async () => { for (const [id, t] of [...timers]) if (t.ms === 2000) { timers.delete(id); t.fn(); } await settle(); };
+  return { win, api, ctl, inner, els, nodes, calls, timers, edit, flush };
+}
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F39 GAP-01 ${which} batches unique replacements on one base after 2 seconds`, async () => {
+    const { ctl, els, calls, timers, edit, flush } = await desk(which);
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Tracked daily work.'); edit(els[0], 'Tracked work.');
+    assert.equal(calls.length, 0); assert.equal([...timers.values()].filter(t => t.ms === 2000).length, 1);
+    await flush(); assert.equal(calls.length, 1); assert.equal(calls[0].baseRunId, 'r0'); assert.equal(calls[0].manualOps.length, 2);
+    assert.equal(calls[0].manualOps[0].text, 'Tracked work.'); assert.match(ctl.refs.manualState.textContent, /Saved as v1/); ctl.close();
+  });
+  test(`SCRP-F40 GAP-01 ${which} unchanged and undone edits send nothing`, async () => {
+    const { ctl, els, calls, edit, flush } = await desk(which);
+    edit(els[0], 'Tracked daily operations.'); await flush(); assert.equal(calls.length, 0);
+    edit(els[0], 'Tracked work.'); edit(els[0], 'Tracked daily operations.'); await flush(); assert.equal(calls.length, 0); ctl.close();
+  });
+  test(`SCRP-F41 GAP-01 ${which} fact confirmation keeps exact ops and conflict keeps draft`, async () => {
+    const { ctl, els, calls, edit, flush } = await desk(which, (_body, n) => {
+      if (n === 1) throw { status: 400, code: 'unverified_confirmation_required' };
+      throw { status: 409, code: 'stale_base' };
+    });
+    edit(els[0], 'Tracked Contoso operations.'); await flush();
+    assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'confirm');
+    ctl.refs.manualState.querySelector('[data-manual="confirm"]').dispatchEvent({ type: 'click' }); await settle();
+    assert.equal(calls[1].confirmUnverified[0], calls[0].manualOps[0].opId);
+    assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'conflict'); assert.equal(els[0].textContent, 'Tracked Contoso operations.');
+    assert.equal(ctl.manual.drafts[els[0].getAttribute('data-node')].text, 'Tracked Contoso operations.');
+    ctl.close(); assert.equal(ctl.closed, false); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}
+test('SCRP-F42 D29 locked blocks deny entry while unlocked paste stays text only', async () => {
+  const t = await desk();
+  t.nodes[0].text = '😀 Reduced delays 38%.'; t.nodes[0].locked.spans = [[18, 21]]; t.els[0].textContent = t.nodes[0].text;
+  assertManualLocked(t);
+  t.inner.dispatchEvent({ type: 'dblclick', target: t.els[1] });
+  const ev = { type: 'paste', target: t.els[1], clipboardData: { getData: type => type === 'text/plain' ? 'Plain text' : '<b>Markup</b>' } };
+  t.inner.dispatchEvent(ev); assert.equal(ev.defaultPrevented, true);
+  assert.equal(t.ctl.manual.drafts[t.nodes[1].id].text, 'Tracked daily operations.Plain text');
+  t.ctl.close(); t.ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+test('SCRP-F50 GAP-01 navigation Save, Discard and Stay require an explicit choice', async () => {
+  for (const choice of ['save', 'discard', 'stay']) {
+    const { ctl, els, edit, calls } = await desk(); edit(els[0], 'Tracked operations.');
+    ctl.setDoc('cover_letter'); assert.equal(ctl.state.doc, 'resume'); assert.equal(calls.length, 0);
+    ctl.refs.unsaved.querySelector(`[data-unsaved="${choice}"]`).dispatchEvent({ type: 'click' }); await settle();
+    assert.equal(calls.length, choice === 'save' ? 1 : 0);
+    assert.equal(ctl.state.doc, choice === 'stay' ? 'resume' : 'cover_letter');
+    if (choice === 'stay') { ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); } else ctl.close();
+  }
+});
+test('SCRP-F51 D29 open suggestions pause edits and metric blocks never acquire drafts', async () => {
+  const t = await desk();
+  t.ctl.state.proposal = { ops: [] }; t.inner.dispatchEvent({ type: 'dblclick', target: t.els[0] });
+  assert.equal(t.els[0].getAttribute('contenteditable'), null); t.ctl.state.proposal = null;
+  t.nodes[0].text = '😀 delays 38%.'; t.nodes[0].locked.spans = [[10, 13]]; t.els[0].textContent = t.nodes[0].text;
+  assertManualLocked(t); await t.flush(); assert.equal(t.calls.length, 0); t.ctl.close();
+});
+
+test('SCRP-F52 GAP-01 confirmed locked facts remain blocked and pending recovery reads once', async () => {
+  for (const failure of ['locked', 'materials_pending']) {
+    const { ctl, els, edit, flush, calls } = await desk('resume', (_body, n) => {
+      if (failure === 'locked' && n === 1) throw { code: 'unverified_confirmation_required', status: 400 };
+      throw { code: failure, status: failure === 'locked' ? 400 : 409 };
+    });
+    let reads = 0;
+    ctl.api.getOpenEdit = async () => { reads++; return { proposal: { proposalId: 'other-tab', doc: 'cover_letter', status: 'ready', ops: [] } }; };
+    edit(els[0], 'Tracked Contoso operations.'); await flush();
+    if (failure === 'locked') {
+      ctl.refs.manualState.querySelector('[data-manual="confirm"]').dispatchEvent({ type: 'click' }); await settle();
+      assert.equal(ctl.refs.manualState.getAttribute('data-state'), 'error'); assert.match(ctl.refs.manualState.textContent, /locked/); assert.equal(calls.length, 2); assert.equal(reads, 0);
+    } else { assert.equal(reads, 1); assert.equal(ctl.openProposal.proposalId, 'other-tab'); }
+    assert.equal(ctl.manual.drafts[els[0].getAttribute('data-node')].text, 'Tracked Contoso operations.');
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  }
+});
+
+test('SCRP-F53 GAP-01 zero-change blur releases the base before a newer version is opened', async () => {
+  const { ctl, inner, els, edit } = await desk(); edit(els[0], 'Tracked daily operations.');
+  ctl.state.currentRunId = 'r1'; inner.dispatchEvent({ type: 'dblclick', target: els[1] });
+  assert.equal(els[1].getAttribute('contenteditable'), 'plaintext-only'); assert.equal(ctl.manual.base, 'r1'); ctl.close();
+});
+
+test('SCRP-F54 GAP-01/02 a selected manual committed-503 keeps its truthful saved status', async () => {
+  const { ctl, inner, els, edit, flush } = await desk('resume', () => ({ textSaved: true, run: { runId: 'r1', n: 1, pdf: 'stale' } }));
+  inner.getSelection = () => ({ rangeCount: 1, isCollapsed: false, getRangeAt: () => ({ intersectsNode: el => el === els[0] }) });
+  inner.dispatchEvent({ type: 'selectionchange', target: inner });
+  edit(els[0], 'Tracked operations.'); await flush();
+  assert.equal(ctl.refs.statusText.textContent, 'Text saved as v1. PDF unavailable — it’s rebuilt on your next save.');
+  assert.match(ctl.refs.scope.textContent, /Your selection changed. Select the text again\./); ctl.close();
+});
+
+test('SCRP-F55 GAP-01 pending sibling Continue retains the draft behind unsaved navigation', async () => {
+  const { ctl, els, edit, flush } = await desk('resume', () => { throw { status: 409, code: 'materials_pending' }; });
+  ctl.api.getOpenEdit = async () => ({ proposal: { proposalId: 'pending-sibling', doc: 'cover_letter', baseRunId: 'r0', status: 'pending', ops: [] } });
+  edit(els[0], 'Tracked operations.'); await flush();
+  assert.doesNotThrow(() => ctl.refs.recover.querySelector('[data-action="continue-request"]').dispatchEvent({ type: 'click' }));
+  assert.equal(ctl.refs.unsaved.hasAttribute('hidden'), false); assert.equal(ctl.state.doc, 'resume'); assert.equal(Object.keys(ctl.manual.drafts).length, 1);
+  ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F71 R2-#1 ${which} confirmation quotes and freezes every replacement`, async () => {
+    const { ctl, els, calls, edit, flush } = await desk(which, (_body, n) => {
+      if (n === 1) throw { code: 'unverified_confirmation_required' };
+      throw { code: 'locked' };
+    });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Contoso operations in 2025.'); await flush();
+    const prompt = ctl.refs.manualState.textContent;
+    assert.ok(prompt.includes('“Tracked operations.”'));
+    assert.ok(prompt.includes('“Led Contoso operations in 2025.”'));
+    const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+    confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].confirmUnverified)), calls[0].manualOps.map(op => op.opId));
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1].manualOps)), JSON.parse(JSON.stringify(calls[0].manualOps)));
+    // A detached old confirmation cannot approve a newly edited batch.
+    edit(els[1], 'Led Example operations.'); confirm.dispatchEvent({ type: 'click' }); await settle();
+    assert.equal(calls.length, 2);
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F72 D29 ${which} repeated locked runs cannot enter manual editing`, async () => {
+  await checkNumericRun(which, 'Processed 38 then 38 shipments.', 'Processed 38 then 99 shipments.', true, ['38', '38']);
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F73 R2-#3 ${which} role-close drafts restore from session memory only`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    edit(els[0], 'Tracked operations.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed'); assert.equal(ctl.closed, true); assert.equal(calls.length, 0);
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(els[0].textContent, 'Tracked operations.');
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(reopened.manual.drafts[nodes[0].id].opId, opId);
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/);
+    assert.ok(reopened.refs.unsaved.querySelector('[data-unsaved="save"]'));
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+    assert.equal(els[0].textContent, nodes[0].text); reopened.close('role-closed');
+    const empty = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+    assert.equal(Object.keys(empty.manual.drafts).length, 0); empty.close();
+    // A new script session has no drafts: persistence remains memory-only.
+    const fresh = await desk(which); assert.equal(Object.keys(fresh.ctl.manual.drafts).length, 0); fresh.ctl.close();
+  });
+}
+
+test('SCRP-F78 R2-#9 manual errors use mapped copy plus nextStep and keep Try again', async () => {
+  let win; let fails = true;
+  const t = await desk('resume', () => { if (fails) throw new win.JBScribeApi.ScribeApiError(429, 'rate_limited', 'RAW server response HTTP 429', 'Try again in 30 s.'); return { run: { runId: 'r1', n: 1 } }; });
+  win = t.win; vm.runInNewContext(readFileSync(new URL('../scribe-v2-api.js', import.meta.url), 'utf8'), win);
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.match(t.ctl.refs.manualState.textContent, /Not saved\. Your text is kept\..*Too many requests right now.*Try again in 30 s\./);
+  assert.doesNotMatch(t.ctl.refs.manualState.textContent, /RAW server/);
+  fails = false; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+});
+
+test('SCRP-F79 R2-#10 zero-change blur and document navigation clear manual status', async () => {
+  const t = await desk();
+  t.edit(t.els[0], t.nodes[0].text);
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  // A saved outcome also belongs to its document, and disappears on switch.
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), false);
+  t.ctl.setDoc('cover_letter'); await settle();
+  assert.equal(t.ctl.refs.manualState.hasAttribute('hidden'), true);
+  assert.equal(t.ctl.refs.manualState.textContent, ''); t.ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F80 R3-#1 F73 ${which} draft is adopted after reopening through the sibling row`, async () => {
+    const { win, api, ctl, inner, els, nodes, edit, calls } = await desk(which);
+    edit(els[0], 'Tracked operations.'); const opId = ctl.manual.drafts[nodes[0].id].opId;
+    ctl.close('role-closed');
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: sibling, api }); await settle();
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+    await reopened.setDoc(which); await settle();
+    reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+    assert.equal(reopened.manual.drafts[nodes[0].id]?.opId, opId);
+    assert.equal(reopened.manual.base, 'r0'); assert.equal(els[0].textContent, 'Tracked operations.');
+    assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+    assert.match(reopened.refs.unsaved.textContent, /You have unsaved text/); assert.equal(calls.length, 0);
+    reopened.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); reopened.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F81 D29 ${which} figure edges cannot acquire manual drafts`, async () => {
+  await checkNumericRun(which, '😀 delays 38% through review.', '😀 delays 138% through review.', true, ['38%']);
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F83 R3-#4 ${which} adopted in-flight save refreshes the reopened desk`, async () => {
+  let finish; const pending = new Promise(resolve => { finish = resolve; });
+  const { win, api, ctl, inner, els, edit, flush, calls } = await desk(which, () => pending);
+  edit(els[0], 'Tracked operations.'); await flush(); assert.equal(ctl.manual.saving, true);
+  ctl.close('role-closed');
+  const reopened = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api }); await settle();
+  reopened.refs.frame.contentDocument = inner; reopened.refs.frame.onload(); await settle();
+  assert.equal(reopened.manual, ctl.manual); assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), false);
+  api.listVersions = async () => ({ currentRunId: 'r1', versions: [{ runId: 'r1', n: 1 }, { runId: 'r0', n: 0 }] });
+  finish({ run: { runId: 'r1', n: 1 } }); await settle(); await settle();
+  assert.equal(reopened.refs.unsaved.hasAttribute('hidden'), true);
+  assert.equal(reopened.state.currentRunId, 'r1'); assert.equal(reopened.state.latestRunId, 'r1');
+  assert.equal(reopened.manual.saving, false); assert.equal(Object.keys(reopened.manual.drafts).length, 0);
+  assert.match(reopened.refs.manualState.textContent, /Saved as v1/); assert.equal(calls.length, 1); reopened.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F84 D29 ${which} locked entry preserves pending decisions on other blocks`, async () => {
+  const { ctl, inner, els, nodes, calls, flush } = await desk(which);
+  nodes[0].text = 'Reduced delays 38%.'; nodes[0].locked.spans = [[15, 18]]; els[0].textContent = nodes[0].text;
+  assertManualLocked({ ctl, inner, els, nodes, calls }); await flush(); assert.equal(calls.length, 0);
+  for (const state of ['saving', 'confirm', 'conflict']) {
+    inner.dispatchEvent({ type: 'dblclick', target: els[1] });
+    ctl.refs.manualState.setAttribute('data-state', state);
+    inner.dispatchEvent({ type: 'focusout', target: els[1] });
+    assert.equal(ctl.refs.manualState.getAttribute('data-state'), state);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false);
+  }
+  ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F85 R3-#6 ${which} Save anyway explains the open-change gate and revokes consent`, async () => {
+  const { ctl, els, edit, flush, calls } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+  edit(els[0], 'Led Example operations in 2025.'); await flush();
+  const confirm = ctl.refs.manualState.querySelector('[data-manual="confirm"]');
+  ctl.state.proposal = { ops: [] }; confirm.dispatchEvent({ type: 'click' }); await settle();
+  assert.equal(ctl.refs.manualState.textContent, 'Review or discard the open changes first.Try again');
+  assert.ok(ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+  assert.equal(ctl.manual.confirmation, null); assert.equal(calls.length, 1);
+  ctl.state.proposal = null; confirm.dispatchEvent({ type: 'click' }); await settle(); assert.equal(calls.length, 1);
+  ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F86 R3-#7 ${which} Stay and Escape rearm one manual save with visible status`, async () => {
+  for (const choice of ['stay', 'escape', 'restored-escape']) {
+    const t = await desk(which); t.edit(t.els[0], 'Tracked operations.'); let ctl = t.ctl;
+    if (choice === 'restored-escape') {
+      ctl.close('role-closed'); ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await settle();
+      ctl.refs.frame.contentDocument = t.inner; ctl.refs.frame.onload(); await settle();
+    } else ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+    if (choice === 'stay') ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+    else t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.win.document.activeElement });
+    assert.equal(ctl.refs.unsaved.hasAttribute('hidden'), true); assert.equal(ctl.closed, false);
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+    assert.equal(ctl.refs.manualState.hasAttribute('hidden'), false); assert.match(ctl.refs.manualState.textContent, /[Ss]aves/);
+    await t.flush(); assert.equal(t.calls.length, 1); ctl.close();
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) {
+  test(`SCRP-F811 R3-#12 ${which} generic manual failure has one Try again`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw new Error('fictional transport failure'); });
+    edit(els[0], 'Tracked operations.'); await flush();
+    assert.equal(ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+    assert.ok(ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+  test(`SCRP-F811 R3-#12 ${which} batch confirmation identifies possible novelty and quotes all replacements`, async () => {
+    const { ctl, els, edit, flush } = await desk(which, () => { throw { code: 'unverified_confirmation_required' }; });
+    edit(els[0], 'Tracked operations.'); edit(els[1], 'Led Example operations in 2025.'); await flush();
+    assert.ok(ctl.refs.manualState.textContent.startsWith('Some of this text isn’t in your saved facts:'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Tracked operations.”'));
+    assert.ok(ctl.refs.manualState.textContent.includes('“Led Example operations in 2025.”'));
+    ctl.close(); ctl.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' });
+  });
+}
+
+// D29 replaces partial-span typing: even unchanged figures deny manual entry.
+function assertManualLocked({ ctl, inner, els, nodes, calls }) {
+  inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+  assert.equal(els[0].getAttribute('contenteditable'), null);
+  assert.equal(ctl.manual.active, null);
+  assert.equal(els[0].textContent, nodes[0].text);
+  assert.deepEqual(Object.keys(ctl.manual.drafts), []);
+  assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
+  assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]); assert.equal(calls.length, 0);
+}
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F90 D29 ${which} numeric edge blocks deny entry`, async () => {
+  for (const base of ['Processed 38 shipments.', '38 shipments.', 'Processed 38']) await checkNumericRun(which, base, base, false);
+});
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F94 D29 ${which} surrogate neighbours cannot bypass locked entry`, async () => {
+  for (const base of ['Processed 🎉38% shipments.', 'Processed 38%🎉 shipments.']) await checkNumericRun(which, base, base.replace('🎉', '🄁'), true, ['38%']);
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F92 R4-#3 ${which} gated Stay retains retry and recovery rearms the unchanged CAS save`, async () => {
+  for (const outcome of ['discard', 'other-tab-saved']) {
+    const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    let open = { proposalId: 'other-request', doc: sibling, baseRunId: 'r0', status: 'ready', ops: [{ opId: 'other', op: 'replace', node: sibling === 'resume' ? 'line:beta' : 'p:p3', text: 'Other wording.' }] };
+    t.api.getOpenEdit = async () => ({ proposal: open });
+    t.api.rejectEdit = async () => { open = null; };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+    t.ctl.setDoc(sibling); t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+    await t.flush(); assert.equal(t.calls.length, 1);
+    assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'), 'gated draft always has Try again');
+    assert.match(t.ctl.refs.manualState.textContent, /Review or discard/);
+    if (outcome === 'discard') {
+      t.ctl.refs.recover.querySelector('[data-action="discard-request"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+      assert.equal(t.ctl.openProposal, null); assert.doesNotMatch(t.ctl.refs.manualState.textContent, /Review or discard/);
+      assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+      await t.flush();
+    } else {
+      open = null; t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+    }
+    assert.equal(t.calls.length, 2); assert.equal(t.calls[1].baseRunId, 'r0');
+    assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps)));
+    assert.equal(t.ctl.manual.saving, false); assert.equal(Object.keys(t.ctl.manual.drafts).length, 0);
+    assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F93 R4-#4 ${which} adopted failures resolve conflict, confirmation and retry in the reopened controller`, async () => {
+  for (const code of ['stale_base', 'unverified_confirmation_required', 'provider_failed', 'materials_pending', 'locked']) {
+    let reject; const pending = new Promise((_resolve, fail) => { reject = fail; });
+    const t = await desk(which, (_body, n) => n === 1 ? pending : { run: { runId: 'r1', n: 1 } });
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+    t.ctl.close('role-closed');
+    const owner = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await settle();
+    owner.refs.frame.contentDocument = t.inner; owner.refs.frame.onload(); await settle();
+    let reads = 0;
+    t.api.getOpenEdit = async () => { reads++; return { proposal: { proposalId: 'other-request', doc: which === 'resume' ? 'cover_letter' : 'resume', baseRunId: 'r0', status: 'pending', ops: [] } }; };
+    reject({ code, status: code === 'stale_base' || code === 'materials_pending' ? 409 : 400 }); await settle(); await settle();
+    assert.equal(owner.manual.saving, false); assert.equal(owner.refs.unsaved.hasAttribute('hidden'), true, code);
+    assert.equal(owner.manual.drafts[t.nodes[0].id].text, 'Tracked operations.'); assert.equal(owner.manual.base, 'r0');
+    const action = code === 'stale_base' ? 'reapply' : code === 'unverified_confirmation_required' ? 'confirm' : code === 'locked' ? null : 'retry';
+    assert.equal(owner.refs.manualState.getAttribute('data-state'), code === 'stale_base' ? 'conflict' : code === 'unverified_confirmation_required' ? 'confirm' : 'error');
+    if (action) assert.ok(owner.refs.manualState.querySelector(`[data-manual="${action}"]`), code);
+    else assert.match(owner.refs.manualState.textContent, /locked/);
+    assert.equal(reads, code === 'materials_pending' ? 1 : 0);
+    if (code === 'provider_failed' || code === 'unverified_confirmation_required') {
+      owner.refs.manualState.querySelector(`[data-manual="${action}"]`).dispatchEvent({ type: 'click' }); await settle();
+      assert.equal(t.calls.length, 2); assert.equal(t.calls[1].baseRunId, 'r0');
+      assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps)));
+      assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].confirmUnverified)), code === 'unverified_confirmation_required' ? [t.calls[0].manualOps[0].opId] : []);
+      assert.equal(Object.keys(owner.manual.drafts).length, 0); owner.close();
+    } else { owner.close(); owner.refs.unsaved.querySelector('[data-unsaved="discard"]').dispatchEvent({ type: 'click' }); }
+  }
+});
+
+
+// D27: evaluate the entire replacement, with the server's plain-text normalization.
+async function checkNumericRun(which, base, after, blocked, tokens = ['38'], channel = 'input') {
+  const t = await desk(which); const { ctl, inner, els, nodes } = t;
+  nodes[0].text = base;
+  let from = 0;
+  nodes[0].locked.spans = tokens.map(token => {
+    const start = base.indexOf(token, from); from = start + token.length;
+    return [start, from];
+  });
+  els[0].textContent = base;
+  if (channel === 'input') assertManualLocked(t);
+  else {
+    inner.dispatchEvent({ type: channel === 'beforeinput' ? 'keydown' : 'pointerup', target: els[0], key: 'F2' });
+    if (channel === 'paste') {
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      assert.equal(edit.getAttribute('aria-disabled'), 'true'); edit.dispatchEvent({ type: 'click', target: edit });
+    }
+    assert.equal(ctl.manual.active, null, `${base} -> ${after} (former blocked=${blocked})`);
+    assert.equal(els[0].getAttribute('contenteditable'), null);
+    assert.equal(els[0].textContent, base); assert.equal(t.calls.length, 0);
+    assert.equal(ctl.refs.statusText.textContent, 'This line has locked figures. Ask Scribe to change it.');
+  }
+  ctl.close('role-closed');
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F101 D29 ${which} ${channel} denies manual entry for numeric runs and their multiplicity`, async () => {
+    for (const [base, after, tokens] of [
+      ['Reached 38.', 'Reached 38.5'], ['Reached .38.', 'Reached 1.38.'],
+      ['Reached 38,', 'Reached 38,000,'], ['Processed 38 shipments.', 'Processed 38,000 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38% shipments.'], ['Processed 38 shipments.', 'Processed $38 shipments.'],
+      ['Processed 38 shipments.', 'Processed 38𝟙 shipments.'], ['Processed 38 shipments.', 'Processed 𝟙38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 then 99 more.', ['38', '38']],
+    ]) await checkNumericRun(which, base, after, true, tokens, channel);
+    for (const [base, after, tokens] of [
+      ['Reached 38.', 'Reached 38 today.'], ['Processed 38 shipments.', 'Processed (38) shipments.'], [' 38 shipments.', '38 shipments.'],
+      ['Processed 38 then 38 more.', 'Processed 38 more, then 38.', ['38', '38']],
+    ]) await checkNumericRun(which, base, after, false, tokens, channel);
+  });
+
+
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F103 D29 ${which} ${channel} denies manual movement of a locked numeric run`, async () => {
+    await checkNumericRun(which, 'Cut delays 38% through weekly measurement.', 'Through weekly measurement, cut delays 38%.', false, ['38%'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F104 R5-#4 ${which} clearing a gate waits for an unanswered unsaved choice`, async () => {
+  for (const choice of ['save', 'discard', 'stay']) {
+    const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    let open = { proposalId: 'other-request', doc: sibling, baseRunId: 'r0', status: 'ready', ops: [{ opId: 'other', op: 'replace', node: sibling === 'resume' ? 'line:beta' : 'p:p3', text: 'Other wording.' }] };
+    t.api.getOpenEdit = async () => ({ proposal: open }); t.api.rejectEdit = async () => { open = null; };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush(); t.ctl.setDoc(sibling);
+    assert.equal(t.ctl.refs.unsaved.hasAttribute('hidden'), false);
+    t.ctl.refs.recover.querySelector('[data-action="discard-request"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0, 'an unanswered prompt never arms a save');
+    assert.doesNotMatch(t.ctl.refs.manualState.textContent, /Review or discard|Saves in 2 seconds/);
+    await t.flush(); assert.equal(t.calls.length, 1); assert.equal(Object.keys(t.ctl.manual.drafts).length, 1);
+    assert.equal(t.ctl.refs.unsaved.hasAttribute('hidden'), false);
+    t.ctl.refs.unsaved.querySelector(`[data-unsaved="${choice}"]`).dispatchEvent({ type: 'click' }); await settle(); await settle();
+    if (choice === 'stay') { assert.equal(t.calls.length, 1); await t.flush(); }
+    assert.equal(t.calls.length, choice === 'discard' ? 1 : 2);
+    assert.equal(t.ctl.state.doc, choice === 'stay' ? which : sibling);
+    if (choice !== 'discard') { assert.equal(t.calls[1].baseRunId, 'r0'); assert.deepEqual(JSON.parse(JSON.stringify(t.calls[1].manualOps)), JSON.parse(JSON.stringify(t.calls[0].manualOps))); }
+    t.ctl.close();
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F105 R5-#5 ${which} pending without recoverable changes keeps truthful retry copy`, async () => {
+  for (const recovery of ['refused', 'missing-api', 'offline']) {
+    const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+    if (recovery !== 'missing-api') t.api.getOpenEdit = async () => { throw recovery === 'refused' ? { code: 'materials_pending', status: 409 } : new Error('offline'); };
+    t.edit(t.els[0], 'Tracked operations.'); await t.flush(); await settle();
+    assert.equal(t.ctl.refs.recover.hasAttribute('hidden'), true);
+    assert.equal(t.ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+    assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'));
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+    t.ctl.close('role-closed');
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} pending retries stop after three automatic attempts and restart only explicitly`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  let reads = 0; t.api.getOpenEdit = async () => { reads++; return { proposal: null }; };
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  for (let i = 0; i < 6; i++) await t.flush();
+  assert.equal(t.calls.length, 4, 'initial POST plus at most three automatic retries');
+  assert.equal(reads, 4); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  assert.equal(t.ctl.refs.manualState.textContent, 'Not saved. Your text is kept.Try again');
+  assert.equal(t.ctl.manual.drafts[t.nodes[0].id].text, 'Tracked operations.');
+  assert.ok(t.calls.every(body => body.baseRunId === 'r0'));
+  assert.ok(t.calls.every(body => JSON.stringify(body.manualOps) === JSON.stringify(t.calls[0].manualOps)));
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  assert.equal(t.calls.length, 5);
+  for (let i = 0; i < 6; i++) await t.flush();
+  assert.equal(t.calls.length, 8); assert.equal(reads, 9, "Try again performs one explicit recovery read in addition to pending-error recovery"); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F106 R5-#6 ${which} a transient gate can save on the third automatic retry`, async () => {
+  const t = await desk(which, (_body, n) => { if (n <= 3) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.');
+  for (let i = 0; i < 4; i++) await t.flush();
+  assert.equal(t.calls.length, 4); assert.equal(Object.keys(t.ctl.manual.drafts).length, 0);
+  assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+});
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F107 D29 ${which} ${channel} denies manual entry beside locked markup`, async () => {
+    for (const [base, after] of [
+      ['Cut defects 38%* across teams.', 'Cut defects 38%* across all teams.'],
+      ['Hit `38%` across teams.', 'Hit `38%` across all teams.'],
+      ['Cut defects 38%*5 across teams.', 'Cut defects 38%*50 across teams.'],
+    ]) await checkNumericRun(which, base, after, after.includes('*50'), ['38%'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F110 D29 ${which} ${channel} denies manual entry for figure attachment cases`, async () => {
+    for (const figure of ['.38', '-38', '- 38', '38 000', '38\u00a0000', '38\u202f000', '38 %', '38 ‰', '38–40', '38\u200b0', '38\u03010', '+38', '38/40', '38:40', '38×40', "38'000", '38^2']) {
+      await checkNumericRun(which, 'Processed 38 shipments.', `Processed ${figure} shipments.`, true, ['38'], channel);
+    }
+    for (const [base, after] of [
+      ['Reached 38.', 'Reached 38 today.'],
+      ['Processed 38 shipments.', '38 shipments were processed.'],
+      ['USD 38', 'USD 38 total'],
+    ]) await checkNumericRun(which, base, after, false, ['38'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F111 D29 ${which} ${channel} denies manual entry for shared and repeated locks`, async () => {
+    for (const joiner of ['x', 'e']) {
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}40 sheets.`, false, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 sheets.`, `We processed 38${joiner}50 sheets.`, true, ['38', '40'], channel);
+      await checkNumericRun(which, `Processed 38${joiner}40 then 38${joiner}40 sheets.`, `Processed 38${joiner}40 sheets.`, true, ['38', '40', '38', '40'], channel);
+    }
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F111 D29 ${which} grouped UTF-16 locks deny manual entry`, async () => {
+  await checkNumericRun(which, 'Processed 38x40 sheets.', '😀 We processed 38x40 sheets.', false, ['38', '40']);
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} unchanged focus and blur cannot bypass the automatic save budget`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 4); assert.equal(t.ctl.manual.gateRetries, 3);
+  for (const el of [t.els[1], t.els[0], t.els[1]]) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: el });
+    t.inner.dispatchEvent({ type: 'focusout', target: el }); await t.flush();
+    assert.equal(t.calls.length, 4, 'unchanged focus/blur never posts beyond three retries');
+    assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  }
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Stay does not reset an exhausted budget');
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.win.document.dispatchEvent({ type: 'keydown', key: 'Escape', target: t.ctl.refs.unsaved });
+  await t.flush(); assert.equal(t.calls.length, 4, 'Escape does not reset an exhausted budget');
+  t.edit(t.els[0], 'Tracked daily work.');
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 8, 'changed text starts a fresh initial attempt and three retries');
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 12, 'explicit Try again starts a fresh budget');
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F112 R6-#3 ${which} blur and recovery share one budget while explicit Save resets it`, async () => {
+  const t = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  t.api.getOpenEdit = async () => { throw new Error('offline'); };
+  t.edit(t.els[0], 'Tracked operations.'); await t.flush();
+  for (let i = 0; i < 6; i++) {
+    t.inner.dispatchEvent({ type: 'dblclick', target: t.els[1] });
+    t.inner.dispatchEvent({ type: 'focusout', target: t.els[1] }); await t.flush();
+  }
+  assert.equal(t.calls.length, 4, 'blur cannot create an independent retry allowance');
+  t.api.getOpenEdit = async () => ({ proposal: null });
+  t.ctl.refs.manualState.querySelector('[data-manual="retry"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  t.ctl.setDoc(which === 'resume' ? 'cover_letter' : 'resume');
+  t.ctl.refs.unsaved.querySelector('[data-unsaved="stay"]').dispatchEvent({ type: 'click' });
+  t.ctl.refs.manualState.querySelector('[data-manual="save"]').dispatchEvent({ type: 'click' }); await settle(); await settle();
+  for (let i = 0; i < 7; i++) await t.flush();
+  assert.equal(t.calls.length, 9, 'explicit Save has an initial POST and three retries');
+  t.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F113 R6-#4 ${which} recovery keeps Save while a timer is armed and Try again only when it stops`, async () => {
+  const t = await desk(which, (_body, n) => { if (n === 1) throw { code: 'materials_pending', status: 409 }; return { run: { runId: 'r1', n: 1 } }; });
+  t.api.getOpenEdit = async () => ({ proposal: null }); t.edit(t.els[0], 'Tracked operations.'); await t.flush(); await settle();
+  assert.equal(t.calls.length, 1); assert.equal([...t.timers.values()].filter(timer => timer.ms === 2000).length, 1);
+  assert.equal(t.ctl.refs.manualState.textContent, 'Your text is kept. Saves in 2 seconds.Save');
+  assert.ok(t.ctl.refs.manualState.querySelector('[data-manual="save"]'));
+  assert.equal(t.ctl.refs.manualState.querySelector('[data-manual="retry"]'), null);
+  await t.flush(); assert.equal(t.calls.length, 2); assert.match(t.ctl.refs.manualState.textContent, /Saved as v1/); t.ctl.close();
+  const hung = await desk(which, () => { throw { code: 'materials_pending', status: 409 }; });
+  hung.api.getOpenEdit = async () => ({ proposal: null }); hung.edit(hung.els[0], 'Tracked operations.');
+  for (let i = 0; i < 4; i++) {
+    await hung.flush();
+    assert.equal(hung.ctl.refs.manualState.textContent, i < 3 ? 'Your text is kept. Saves in 2 seconds.Save' : 'Not saved. Your text is kept.Try again');
+  }
+  assert.equal([...hung.timers.values()].filter(timer => timer.ms === 2000).length, 0);
+  hung.ctl.close('role-closed');
+});
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F114 D29 ${which} server-discovered Unicode locks block client edits`, async () => {
+  const { deriveNodes } = await import('../server/materials-nodes.mjs');
+  for (const figure of ['３８', '٣٨', '𝟛𝟠']) {
+    const model = JSON.parse(readFileSync(new URL('../docs/programs/editor-20260927/fixtures/model.json', import.meta.url), 'utf8'));
+    model.documents.coverLetter.paragraphs[1].text = `😀 Processed ${figure} shipments.`;
+    model.documents.resume.sections.find(s => s.kind === 'experience').entries[0].bullets[0].runs = [{ t: '😀 Processed ' }, { n: figure }, { t: ' shipments.' }];
+    const node = deriveNodes(model).find(n => n.id === (which === 'resume' ? 'b:acme:c14' : 'p:p2'));
+    const t = await desk(which); t.nodes[0].text = node.text; t.nodes[0].locked = node.locked; t.els[0].textContent = node.text;
+    assertManualLocked(t); await t.flush();
+    assert.equal(t.els[0].textContent, node.text, 'discovered locks reach client input validation'); assert.equal(t.calls.length, 0);
+    t.ctl.close('role-closed');
+  }
+});
+
+for (const which of ['resume', 'cover_letter']) for (const channel of ['beforeinput', 'input', 'paste']) {
+  test(`SCRP-F115 D29 ${which} ${channel} denies manual entry for locked numbered text and NFC runs`, async () => {
+    await checkNumericRun(which, '38. Shipments processed.', '38. All shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '38. Shipments processed.', '39. All shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false, ['38'], channel);
+    await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café39 shipments processed.', true, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**8** shipments.', false, ['38'], channel);
+    await checkNumericRun(which, 'Processed 38 shipments.', 'Processed 3**9** shipments.', true, ['38'], channel);
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) test(`SCRP-F115 D29 ${which} NFC figure blocks cannot enter manual editing`, async () => {
+  await checkNumericRun(which, '😀 Cafe\u030138 shipments.', '😀 Café38 shipments processed.', false);
+});
+
+for (const which of ['resume', 'cover_letter']) for (const lock of ['spans', 'whole']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
+  test(`SCRP-F120 D29 ${which} ${lock} locks deny ${entry} and retain composer scope`, async () => {
+    const t = await desk(which, undefined, lock), { ctl, inner, els, nodes } = t;
+    const promptFocuses = ctl.refs.prompt.focusCount;
+    assert.match(els[0].getAttribute('aria-label'), /locked/);
+    if (entry === 'double-click') inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    else if (entry === 'Edit text') {
+      inner.dispatchEvent({ type: 'pointerup', target: els[0] });
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      assert.equal(edit.getAttribute('aria-disabled'), 'true');
+      edit.dispatchEvent({ type: 'click', target: edit });
+    } else inner.dispatchEvent({ type: 'keydown', target: els[0], key: 'F2' });
+    assert.equal(els[0].getAttribute('contenteditable'), null);
+    assert.equal(ctl.manual.active, null);
+    assert.equal(ctl.refs.statusText.textContent, lock === 'whole' ? 'Employer, title and dates are locked.' : 'This line has locked figures. Ask Scribe to change it.');
+    if (lock === 'whole') {
+      assert.equal(ctl.refs.prompt.focusCount, promptFocuses);
+      assert.equal(inner.activeElement, els[0]);
+    } else assert.equal(t.win.document.activeElement, ctl.refs.prompt);
+    assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]);
+    assert.equal(ctl.scope.stale, false);
+    assert.deepEqual(Object.keys(ctl.manual.drafts), []);
+    await t.flush(); assert.equal(t.calls.length, 0); ctl.close();
+  });
+}
+
+for (const kind of ['seat', 'credential']) for (const entry of ['double-click', 'Edit text', 'keyboard']) {
+  test(`SCRP-F130 R8-#4 ${kind} whole lock gives fixed copy and keeps document focus on ${entry}`, async () => {
+    const t = await desk('resume', undefined, 'whole'), { ctl, inner, els, nodes } = t;
+    nodes[0].kind = kind;
+    const promptFocuses = ctl.refs.prompt.focusCount;
+    if (entry === 'double-click') inner.dispatchEvent({ type: 'dblclick', target: els[0] });
+    else if (entry === 'Edit text') {
+      inner.dispatchEvent({ type: 'pointerup', target: els[0] });
+      const edit = ctl.refs.selectionActions.querySelector('[data-selection="edit"]');
+      edit.dispatchEvent({ type: 'click', target: edit });
+    } else inner.dispatchEvent({ type: 'keydown', target: els[0], key: 'F2' });
+    assert.equal(ctl.refs.statusText.textContent, kind === 'credential' ? 'Degree and school are locked.' : 'Employer, title and dates are locked.');
+    assert.equal(ctl.refs.prompt.focusCount, promptFocuses);
+    assert.equal(inner.activeElement, els[0]);
+    assert.deepEqual(Array.from(ctl.scope.ids), [nodes[0].id]);
+    assert.equal(els[0].getAttribute('contenteditable'), null);
+    await t.flush(); assert.equal(t.calls.length, 0); ctl.close();
+  });
+}

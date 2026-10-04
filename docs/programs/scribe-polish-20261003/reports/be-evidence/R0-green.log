@@ -1,0 +1,11 @@
+✔ SCRP-B1 held-measuring Stop persists only partial and unique opIds (15.89575ms)
+✔ SCRP-B2 processing exception after Stop preserves partial; repeated Stop and reconnect agree (7.335583ms)
+✔ SCRP-B3 reject drains queued writes without resurrecting a proposal (3.484709ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 247.906583

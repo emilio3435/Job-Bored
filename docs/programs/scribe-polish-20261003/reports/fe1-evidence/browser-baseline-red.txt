@@ -1,0 +1,992 @@
+
+Running 24 tests using 1 worker
+
+(node:57188) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   1 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal (6.6s)
+(node:57570) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   2 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal (6.3s)
+(node:57927) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   3 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal (6.2s)
+(node:58343) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   4 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID (6.5s)
+(node:58799) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   5 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID (6.2s)
+(node:59123) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   6 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID (6.2s)
+(node:59324) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   7 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID (6.1s)
+(node:60055) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   8 tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once (6.4s)
+(node:60425) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   9 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal (6.6s)
+(node:60782) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  10 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal (6.4s)
+(node:61833) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  11 tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal (6.2s)
+(node:62099) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  12 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID (6.7s)
+(node:62748) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  13 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID (6.2s)
+(node:63206) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  14 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID (6.4s)
+(node:64796) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  15 tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID (6.0s)
+(node:65019) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  16 tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once (6.5s)
+(node:65325) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  17 tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 resume real stale retry uses the exact current redline base (1.4s)
+(node:65379) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  18 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked provider_failed has safe copy and a retry (6.1s)
+(node:65696) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  19 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked unreadable_reply has safe copy and a retry (6.2s)
+(node:65938) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  20 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked invalid_model has safe copy and a retry (6.1s)
+(node:66532) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  21 tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 cover_letter real stale retry uses the exact current redline base (1.4s)
+(node:66580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  22 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked provider_failed has safe copy and a retry (6.1s)
+(node:66798) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  23 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked unreadable_reply has safe copy and a retry (6.3s)
+(node:67378) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  24 tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked invalid_model has safe copy and a retry (6.2s)
+
+
+  1) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]')
+    Expected: 1
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]') with timeout 5000ms
+      - waiting for locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]')
+        13 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      334 |   const desk = page.locator('jb-scribe'); const composer = desk.locator('textarea');
+      335 |   const send = async (text = 'Shorten the wording using only existing facts.') => { await composer.fill(text); await composer.press('Enter'); };
+    > 336 |   const ready = async () => { await expect(page.frameLocator('jb-scribe .scribe__frame').locator('[data-scribe-id]')).toHaveCount(1); await expect(desk.locator('[data-review="accept-all"]')).toBeVisible(); };
+          |                                                                                                                       ^
+      337 |   return { service, pkg, fence, desk, composer, calls, open, send, ready };
+      338 | }
+      339 |
+        at Object.ready (/Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:336:119)
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:347:127
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ae9ad-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__recover')
+    Expected substring: "suggested changes waiting"
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__recover') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__recover')
+        14 × locator resolved to <div hidden="" role="group" class="scribe__recover" aria-label="Unfinished request"></div>
+           - unexpected value ""
+
+
+      348 |         if (action === 'switch') {
+      349 |           await t.desk.getByRole('tab', { name: which === 'resume' ? 'Cover letter' : 'Resume', exact: true }).click();
+    > 350 |           await expect(t.desk.locator('.scribe__recover')).toContainText('suggested changes waiting');
+          |                                                            ^
+      351 |           await t.send('A second request'); await expect(t.composer).toHaveValue('A second request');
+      352 |           await t.desk.locator('[data-action="review-request"]').click(); await t.ready();
+      353 |         }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:350:60
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-ac42c-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal
+
+    Error: expect(locator).toHaveValue(expected) failed
+
+    Locator:  locator('jb-scribe').locator('textarea')
+    Expected: "A second request"
+    Received: ""
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveValue" locator('jb-scribe').locator('textarea') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('textarea')
+        14 × locator resolved to <textarea rows="1" maxlength="2000" id="scribe-prompt-1" placeholder="Ask for a change to your resume…"></textarea>
+           - unexpected value ""
+
+
+      352 |           await t.desk.locator('[data-action="review-request"]').click(); await t.ready();
+      353 |         }
+    > 354 |         if (action === 'resubmit') { await t.send('A second request'); await expect(t.composer).toHaveValue('A second request'); }
+          |                                                                                                 ^
+      355 |         expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal.id)).toBe(id);
+      356 |         expect(t.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'))).toHaveLength(1);
+      357 |         expect(t.calls.filter(c => c.method === 'DELETE')).toHaveLength(0);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:354:97
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-d584a-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID
+
+    Error: ENOTEMPTY: directory not empty, rmdir '/Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/.lane-evidence/tmp/scribe-service-YKOU0m/acme-example'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-fb60b-then-Stop-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-1c140-hen-close-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-0e4aa-en-switch-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  7) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-52a3d-ew-editor-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8) tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Text saved as v1. PDF unavailable — it’s rebuilt on your next save."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      402 |       await t.send(); await t.ready();
+      403 |       await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
+    > 404 |       await expect(t.desk.locator('.scribe__status')).toContainText('Text saved as v1. PDF unavailable — it’s rebuilt on your next save.');
+          |                                                       ^
+      405 |       await expect(t.desk.locator('[data-review="save"]')).toHaveCount(0);
+      406 |       await expect(t.desk.locator('.scribe__status-action')).toBeHidden();
+      407 |       await expect(page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${SCRP_OP[which].node}"]`)).toHaveText(SCRP_OP[which].text);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:404:55
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f46ba-503-saves-text-exactly-once/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  9) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]')
+    Expected: 1
+    Received: 0
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]') with timeout 5000ms
+      - waiting for locator('jb-scribe .scribe__frame').contentFrame().locator('[data-scribe-id]')
+        14 × locator resolved to 0 elements
+           - unexpected value "0"
+
+
+      334 |   const desk = page.locator('jb-scribe'); const composer = desk.locator('textarea');
+      335 |   const send = async (text = 'Shorten the wording using only existing facts.') => { await composer.fill(text); await composer.press('Enter'); };
+    > 336 |   const ready = async () => { await expect(page.frameLocator('jb-scribe .scribe__frame').locator('[data-scribe-id]')).toHaveCount(1); await expect(desk.locator('[data-review="accept-all"]')).toBeVisible(); };
+          |                                                                                                                       ^
+      337 |   return { service, pkg, fence, desk, composer, calls, open, send, ready };
+      338 | }
+      339 |
+        at Object.ready (/Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:336:119)
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:347:127
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-855e1-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  10) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__recover')
+    Expected substring: "suggested changes waiting"
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__recover') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__recover')
+        14 × locator resolved to <div hidden="" role="group" class="scribe__recover" aria-label="Unfinished request"></div>
+           - unexpected value ""
+
+
+      348 |         if (action === 'switch') {
+      349 |           await t.desk.getByRole('tab', { name: which === 'resume' ? 'Cover letter' : 'Resume', exact: true }).click();
+    > 350 |           await expect(t.desk.locator('.scribe__recover')).toContainText('suggested changes waiting');
+          |                                                            ^
+      351 |           await t.send('A second request'); await expect(t.composer).toHaveValue('A second request');
+      352 |           await t.desk.locator('[data-action="review-request"]').click(); await t.ready();
+      353 |         }
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:350:60
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-65482-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  11) tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal
+
+    Error: expect(locator).toHaveValue(expected) failed
+
+    Locator:  locator('jb-scribe').locator('textarea')
+    Expected: "A second request"
+    Received: ""
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveValue" locator('jb-scribe').locator('textarea') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('textarea')
+        14 × locator resolved to <textarea rows="1" maxlength="2000" id="scribe-prompt-1" placeholder="Ask for a change to your cover letter…"></textarea>
+           - unexpected value ""
+
+
+      352 |           await t.desk.locator('[data-action="review-request"]').click(); await t.ready();
+      353 |         }
+    > 354 |         if (action === 'resubmit') { await t.send('A second request'); await expect(t.composer).toHaveValue('A second request'); }
+          |                                                                                                 ^
+      355 |         expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal.id)).toBe(id);
+      356 |         expect(t.calls.filter(c => c.method === 'POST' && c.path.endsWith('/edits'))).toHaveLength(1);
+      357 |         expect(t.calls.filter(c => c.method === 'DELETE')).toHaveLength(0);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:354:97
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-89211-s-a-real-persisted-proposal/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  12) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID
+
+    Error: ENOTEMPTY: directory not empty, rmdir '/Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/.lane-evidence/tmp/scribe-service-KlTsGs/acme-example'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8ffaf-then-Stop-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  13) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-58c2a-hen-close-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  14) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-f2f54-en-switch-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  15) tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 1
+    Received: 0
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      375 |         if (action === 'new editor') await t.open(sibling);
+      376 |         hold.release();
+    > 377 |         await expect.poll(() => t.calls.filter(c => c.path.endsWith('/stop')).length).toBe(1);
+          |                                                                                       ^
+      378 |         await expect.poll(async () => (await (await fetch(`${t.service.baseUrl}${t.pkg.path}/edits/open`)).json()).proposal).toBe(null);
+      379 |         expect(t.calls.filter(c => c.path.endsWith('/stream'))).toHaveLength(0);
+      380 |         if (action === 'switch' || action === 'new editor') expect(await page.evaluate(() => JB_SCRIBE_V2.current().state.proposal)).toBe(null);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:377:87
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-8aed5-ew-editor-stops-the-late-ID/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16) tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Text saved as v1. PDF unavailable — it’s rebuilt on your next save."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      402 |       await t.send(); await t.ready();
+      403 |       await t.desk.locator('[data-review="accept-all"]').click(); await t.desk.locator('[data-review="save"]').click();
+    > 404 |       await expect(t.desk.locator('.scribe__status')).toContainText('Text saved as v1. PDF unavailable — it’s rebuilt on your next save.');
+          |                                                       ^
+      405 |       await expect(t.desk.locator('[data-review="save"]')).toHaveCount(0);
+      406 |       await expect(t.desk.locator('.scribe__status-action')).toBeHidden();
+      407 |       await expect(page.frameLocator('jb-scribe .scribe__frame').locator(`[data-node="${SCRP_OP[which].node}"]`)).toHaveText(SCRP_OP[which].text);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-edit-journey.spec.mjs:404:55
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-edit-journey-SCRP-F-dae95-503-saves-text-exactly-once/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  17) tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 resume real stale retry uses the exact current redline base
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "mr_20261003075123_acme-example_c182"
+    Received: undefined
+
+      552 |         return { currentRunId: c.state.currentRunId, before: p.changes[0].before, baseWords: p.baseWords, baseRunId: p.baseRunId };
+      553 |       });
+    > 554 |       expect(state.currentRunId).toBe(latest); expect(state.baseRunId).toBe(latest); expect(state.before).toBe(baseText);
+          |                                                                        ^
+      555 |       const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json();
+      556 |       const row = listing.versions.find(v => v.runId === latest); expect(state.baseWords).toBe(row.words);
+      557 |       await expect(t.desk.locator('.scribe__stage')).toContainText(`v${row.n}`);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:554:72
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-0f462--exact-current-redline-base/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-0f462--exact-current-redline-base/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-0f462--exact-current-redline-base/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-0f462--exact-current-redline-base/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-0f462--exact-current-redline-base/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  18) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked provider_failed has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "The AI provider didn’t respond. Your document is unchanged."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-094ef-d-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-094ef-d-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-094ef-d-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-094ef-d-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-094ef-d-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  19) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked unreadable_reply has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Scribe’s reply couldn’t be read. Your document is unchanged."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-cb807-y-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-cb807-y-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-cb807-y-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-cb807-y-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-cb807-y-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  20) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked invalid_model has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Blocked: that change doesn’t fit this template’s layout."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-2b463-l-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-2b463-l-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-2b463-l-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-2b463-l-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-2b463-l-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  21) tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 cover_letter real stale retry uses the exact current redline base
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "mr_20261003075146_acme-example_0838"
+    Received: undefined
+
+      552 |         return { currentRunId: c.state.currentRunId, before: p.changes[0].before, baseWords: p.baseWords, baseRunId: p.baseRunId };
+      553 |       });
+    > 554 |       expect(state.currentRunId).toBe(latest); expect(state.baseRunId).toBe(latest); expect(state.before).toBe(baseText);
+          |                                                                        ^
+      555 |       const listing = await (await fetch(`${t.service.baseUrl}${t.pkg.path}/versions?doc=${which}`)).json();
+      556 |       const row = listing.versions.find(v => v.runId === latest); expect(state.baseWords).toBe(row.words);
+      557 |       await expect(t.desk.locator('.scribe__stage')).toContainText(`v${row.n}`);
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:554:72
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-434b3--exact-current-redline-base/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-434b3--exact-current-redline-base/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-434b3--exact-current-redline-base/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-434b3--exact-current-redline-base/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F26-AS-434b3--exact-current-redline-base/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  22) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked provider_failed has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "The AI provider didn’t respond. Your document is unchanged."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-3904b-d-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-3904b-d-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-3904b-d-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-3904b-d-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-3904b-d-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  23) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked unreadable_reply has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Scribe’s reply couldn’t be read. Your document is unchanged."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-08d62-y-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-08d62-y-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-08d62-y-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-08d62-y-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-08d62-y-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  24) tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked invalid_model has safe copy and a retry
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('jb-scribe').locator('.scribe__status')
+    Expected substring: "Blocked: that change doesn’t fit this template’s layout."
+    Received string:    ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('jb-scribe').locator('.scribe__status') with timeout 5000ms
+      - waiting for locator('jb-scribe').locator('.scribe__status')
+        14 × locator resolved to <div hidden="" role="status" data-state="idle" class="scribe__status">…</div>
+           - unexpected value ""
+
+
+      578 |       const t = await realReliabilityDesk(page, which, async () => failed ? { ops: [], blocked: [{ reason, detail: '/private/provider-payload' }], summary: { changes: 0 }, factCheck: 'model' } : { ops: [REAL_OP[which]], blocked: [], summary: { changes: 1 }, factCheck: 'model' });
+      579 |       try {
+    > 580 |         await t.send(); await expect(t.desk.locator('.scribe__status')).toContainText(expected);
+          |                                                                         ^
+      581 |         await expect(t.desk.locator('.scribe__status-action')).toHaveText('Try again');
+      582 |         await expect(t.composer).toHaveValue('Shorten using existing facts.');
+      583 |         await expect(t.desk.locator('.scribe__log')).not.toContainText('/private/provider-payload');
+        at /Users/emilionunezgarcia/Job-Bored.worktrees/scrp-fe/tests/e2e-journey/scribe-v2-desk.spec.mjs:580:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-79262-l-has-safe-copy-and-a-retry/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-79262-l-has-safe-copy-and-a-retry/error-context.md
+
+    Error Context: .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-79262-l-has-safe-copy-and-a-retry/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-79262-l-has-safe-copy-and-a-retry/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/fe-baseline-pw/scribe-v2-desk-SCRP-F27-AS-79262-l-has-safe-copy-and-a-retry/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  24 failed
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume close recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume switch recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 resume resubmit recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then Stop stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then close stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then switch stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 resume deferred POST then new editor stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 resume real committed 503 saves text exactly once
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter close recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter switch recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:342:5 › SCRP-F21 ASTRA-01 cover_letter resubmit recovers a real persisted proposal
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then Stop stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then close stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then switch stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:366:5 › SCRP-F22 ASTRA-02 cover_letter deferred POST then new editor stops the late ID
+    tests/e2e-journey/scribe-edit-journey.spec.mjs:398:3 › SCRP-F24 ASTRA-03 cover_letter real committed 503 saves text exactly once
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 resume real stale retry uses the exact current redline base
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked provider_failed has safe copy and a retry
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked unreadable_reply has safe copy and a retry
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 resume real blocked invalid_model has safe copy and a retry
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:536:3 › SCRP-F26 ASTRA-04 cover_letter real stale retry uses the exact current redline base
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked provider_failed has safe copy and a retry
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked unreadable_reply has safe copy and a retry
+    tests/e2e-journey/scribe-v2-desk.spec.mjs:576:5 › SCRP-F27 ASTRA-05 cover_letter real blocked invalid_model has safe copy and a retry

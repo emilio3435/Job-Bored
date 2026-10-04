@@ -1,0 +1,50 @@
+✖ SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary (115.769ms)
+✖ SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs (22.568208ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 316.52325
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:738:1
+✖ SCRP-B8 committed 503 accept manual restore include nonretryable run metadata; ordinary 503 stays ordinary (115.769ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + undefined
+  - false
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:751:14)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/materials-edit-api.test.mjs:766:1
+✖ SCRP-B9 committed save preserves sibling PDF on success and browser failure for both docs (22.568208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + '%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n'
+  - 'sibling PDF bytes'
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:779:16)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n',
+    expected: 'sibling PDF bytes',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

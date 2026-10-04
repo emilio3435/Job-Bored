@@ -2,10 +2,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
+import { editDiagnostic, flagUnverifiedOps, proposeEdits, safeBlockedEdit } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
@@ -69,8 +69,47 @@ async function assertChildDirectory(dir, child) {
     if (/** @type {NodeJS.ErrnoException} */ (error).code === "ENOENT") return false;
     throw error;
   }
-  if (!actual.startsWith(dir + sep)) throw failure("Path escape detected", 400, "path_escape");
+  if (!actual.startsWith(await realpath(dir) + sep)) throw failure("Path escape detected", 400, "path_escape");
   return true;
+}
+
+/** Split legacy letter copy into the template's three paragraphs using existing sentences.
+ * @param {Record<string, any>} model @param {unknown} feature
+ */
+function normalizeLegacyLetter(model, feature) {
+  const letter = model.documents?.coverLetter;
+  const paragraphs = letter?.paragraphs;
+  if (feature !== "cover_letter" || !Array.isArray(paragraphs) || paragraphs.length !== 2 ||
+    !paragraphs.every((p) => typeof p?.text === "string" && p.text.trim())) return;
+  const abbreviations = new Set(["mr", "ms", "mrs", "dr", "prof", "sr", "jr", "st", "vs", "etc", "inc", "ltd", "co", "no", "dept"]);
+  const candidates = [];
+  for (const [index, paragraph] of paragraphs.entries()) {
+    for (const match of paragraph.text.matchAll(/[.!?]\s+(?=[\p{Lu}“"'])/gu)) {
+      const cut = match.index + 1;
+      const lastWord = paragraph.text.slice(0, match.index).match(/([\p{L}.]+)$/u)?.[1] || "";
+      if (match[0][0] === "." && (lastWord.length === 1 || lastWord.includes(".") || abbreviations.has(lastWord.toLowerCase()))) continue;
+      const left = paragraph.text.slice(0, cut).trimEnd();
+      const right = paragraph.text.slice(cut).trimStart();
+      if (!left || !right) continue;
+      const labels = [...(paragraph.links || []).map((/** @type {any} */ link) => link.text),
+        ...(letter.pullQuote?.fromParagraph === paragraph.id ? [letter.pullQuote.text] : [])];
+      if (labels.some((text) => !left.includes(text) && !right.includes(text))) continue;
+      candidates.push({ index, left, right, balance: Math.abs(wordCount(left) - wordCount(right)) });
+    }
+  }
+  candidates.sort((a, b) => a.balance - b.balance || a.index - b.index);
+  const split = candidates[0];
+  if (!split) return;
+  const original = paragraphs[split.index];
+  let id = `${original.id}-split`;
+  while (paragraphs.some((p) => p.id === id)) id += "-2";
+  const parts = [split.left, split.right].map((text, index) => ({ ...original, id: index ? id : original.id, text,
+    ...("words" in original ? { words: wordCount(text) } : {}),
+    ...(original.links ? { links: original.links.filter((/** @type {any} */ link) => text.includes(link.text)) } : {}),
+  }));
+  if (letter.pullQuote?.fromParagraph === original.id && !split.left.includes(letter.pullQuote.text)) letter.pullQuote.fromParagraph = id;
+  paragraphs.splice(split.index, 1, ...parts);
+  if ("bodyWords" in letter) letter.bodyWords = paragraphs.reduce((sum, p) => sum + wordCount(p.text), 0);
 }
 
 /** @param {string} dir @param {string} runId */
@@ -81,6 +120,11 @@ async function runFiles(dir, runId) {
   const run = await json(join(runDir, "run.json"));
   const model = await json(join(runDir, "render-model.json"));
   if (!run || !model || run.runId !== id) throw failure("Version not found", 404, "version_not_found");
+  // Older single-document drafts stored an unrequested document shell.
+  // Expose the run's requested documents without changing its immutable files.
+  if (run.feature === "resume") delete model.documents?.coverLetter;
+  else if (run.feature === "cover_letter") delete model.documents?.resume;
+  normalizeLegacyLetter(model, run.feature);
   return { run, model };
 }
 
@@ -91,10 +135,18 @@ async function currentRun(dir) {
   return run;
 }
 
-/** @param {string} dir @param {unknown} runId */
-async function assertCurrent(dir, runId) {
+/** @param {string} dir @param {unknown} runId @param {string} doc */
+async function assertCurrent(dir, runId, doc) {
   const current = await currentRun(dir);
-  if (runId !== current.runId) throw failure("The base version is no longer current", 409, "stale_base");
+  if (runId === current.runId) return current;
+  // The sibling document can be the latest package run. Compare against the
+  // selected document while the publish claim still guards the whole package.
+  try { await runFiles(dir, current.runId); }
+  catch (error) {
+    if (/** @type {any} */ (error).code === "version_not_found") throw failure("The base version is no longer current", 409, "stale_base");
+    throw error;
+  }
+  if (runId !== (await versions(dir, doc)).currentRunId) throw failure("The base version is no longer current", 409, "stale_base");
   return current;
 }
 
@@ -182,7 +234,23 @@ async function versions(dir, doc) {
     if (row.source === "restore") row.label = `Restored from v${byId.get(rows[i].run.restoredFrom) ?? "?"}`;
   }
   const current = await currentRun(dir);
-  return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : indexed[0]?.runId || current.runId };
+  const latestAdopted = [...rows].reverse().find(({ run }) => run.repair?.adopted !== false);
+  return { versions: indexed.reverse(), currentRunId: indexed.some((row) => row.runId === current.runId) ? current.runId : latestAdopted?.run.runId || current.runId };
+}
+
+/** Read each document from its own current immutable run for a package-wide template change. */
+/** @param {string} dir */
+export async function currentDocuments(dir) {
+  dir = await resolveApplicationDir(basename(dir), { root: dirname(dir) });
+  /** @type {Record<string, any>} */
+  const documents = {};
+  for (const doc of ["resume", "coverLetter"]) {
+    const listing = await versions(dir, doc);
+    if (!listing.versions.length) continue;
+    const { model } = await runFiles(dir, listing.currentRunId);
+    documents[doc] = model.documents[doc];
+  }
+  return documents;
 }
 
 /** @param {Record<string, any>} proposal @param {string} event @param {unknown} data */
@@ -203,6 +271,8 @@ function persisted(proposal) {
 
 /**
  * @param {{applicationsRoot?:string, propose?:typeof proposeEdits, commit?:typeof commitModelAsRun,
+ * persistProposal?:(path:string,snapshot:Record<string,any>)=>Promise<void>,
+ * onTransition?:(transition:{proposalId:string,from:string,to:string})=>unknown,
  * pdfSession?:import('./materials-regenerate.mjs').RegenerateDeps['pdfSession'], fetchImpl?:import('./materials-writer.mjs').WriterInput['fetchImpl'], pin?:import('./materials-writer.mjs').WriterPin}} [deps]
  */
 export function createMaterialsVersionService(deps = {}) {
@@ -214,11 +284,53 @@ export function createMaterialsVersionService(deps = {}) {
   const validated = new Map();
   /** @type {Map<string, Set<(event:string,data:any)=>void>>} */
   const listeners = new Map();
+  /** @type {Map<string, Promise<void>>} */
+  const writes = new Map();
+  /** @type {Map<string, Promise<void>>} */
+  const terminals = new Map();
+  /** Only settled queues with no audience can be released. */
+  /** @param {Record<string, any>} proposal */
+  const pruneQueues = (proposal) => {
+    if (["pending", "accepting"].includes(proposal.status) || listeners.get(proposal.id)?.size) return;
+    writes.delete(proposal.id);
+    terminals.delete(proposal.id);
+  };
+  /** Snapshot and event delivery share one queue; a failed write cannot poison Stop. */
+  /** @param {Record<string, any>} proposal @param {string} [event] @param {any} [data] */
+  const save = (proposal, event, data) => {
+    if (proposal.status === "rejected") return Promise.resolve();
+    const snapshot = structuredClone(persisted(proposal));
+    const payload = data === undefined ? undefined : structuredClone(data);
+    const queued = (writes.get(proposal.id) || Promise.resolve()).catch(() => {}).then(async () => {
+      if (proposal.status === "rejected") return;
+      await (deps.persistProposal || writeJson)(proposalPath(proposal), snapshot);
+      if (proposal.status !== "rejected" && event) {
+        for (const send of listeners.get(proposal.id) || []) send(event, payload);
+      }
+    });
+    writes.set(proposal.id, queued);
+    const settled = () => { if (writes.get(proposal.id) === queued) pruneQueues(proposal); };
+    void queued.then(settled, settled);
+    return queued;
+  };
   /** @param {Record<string, any>} proposal @param {string} event @param {any} data */
-  const emit = async (proposal, event, data) => {
-    addEvent(proposal, event, data);
-    await writeJson(proposalPath(proposal), persisted(proposal));
-    for (const send of listeners.get(proposal.id) || []) send(event, data);
+  const emit = (proposal, event, data) => {
+    addEvent(proposal, event, structuredClone(data));
+    return save(proposal, event, data);
+  };
+  /** @param {Record<string, any>} proposal @param {string} next */
+  const claimTerminal = (proposal, next) => {
+    if (proposal.status !== "pending") return false;
+    proposal.status = next;
+    deps.onTransition?.({ proposalId: proposal.id, from: "pending", to: next });
+    return true;
+  };
+  /** Enqueue the entire winning terminal journal before yielding. */
+  /** @param {Record<string, any>} proposal @param {Array<{event:string,data:any}>} rows */
+  const finishTerminal = (proposal, rows) => {
+    const completion = Promise.all(rows.map(({ event, data }) => emit(proposal, event, data))).then(() => {});
+    terminals.set(proposal.id, completion);
+    return completion;
   };
   /** @param {string} slug */
   const dirFor = (slug) => resolveApplicationDir(slug, { root: deps.applicationsRoot });
@@ -251,12 +363,23 @@ export function createMaterialsVersionService(deps = {}) {
   /** @param {string} dir */
   const openProposal = async (dir) => {
     await sweep(dir);
-    for (const name of await readdir(join(dir, "proposals"))) {
-      if (!name.endsWith(".json")) continue;
-      const row = await json(join(dir, "proposals", name));
-      if (row && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
+    return (await readOpenProposals(dir)).length > 0;
+  };
+  /** Read-only recovery scan: expiration never deletes or creates files. */
+  /** @param {string} dir */
+  const readOpenProposals = async (dir) => {
+    const folder = join(dir, "proposals");
+    if (!await assertChildDirectory(dir, folder)) return [];
+    const rows = [];
+    for (const name of await readdir(folder)) {
+      if (!name.endsWith(".json") || !PROPOSAL_ID.test(name.slice(0, -5))) continue;
+      const row = await json(join(folder, name));
+      if (!row || Date.now() - Date.parse(row.createdAt) >= WEEK_MS) continue;
+      if (!["pending", "ready", "partial", "accepting"].includes(row.status)) continue;
+      if (["ready", "partial"].includes(row.status) && (!Array.isArray(row.ops) || !row.ops.length)) continue;
+      rows.push(row);
     }
-    return false;
+    return rows;
   };
   /** @param {Record<string, any>} proposal */
   const processProposal = async (proposal) => {
@@ -264,20 +387,30 @@ export function createMaterialsVersionService(deps = {}) {
     proposal.running = true;
     try {
       await emit(proposal, "stage", { stage: "reading" });
+      if (proposal.status !== "pending") return;
       const { model } = await runFiles(proposal.dir, proposal.baseRunId);
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "drafting" });
+      if (proposal.status !== "pending") return;
       const ledgerResult = await readLedger();
+      if (proposal.status !== "pending") return;
       const profileResult = await readProfile();
+      if (proposal.status !== "pending") return;
       const config = loadLlmConfig();
       if (!deps.pin && !config) throw failure("No LLM pin configured", 409, "llm_unconfigured");
       const pin = deps.pin || await resolveActivePin(/** @type {import('./llm-config.mjs').LlmConfig} */ (config));
+      if (proposal.status !== "pending") return;
       const jdExtract = await json(join(proposal.dir, "jd-extract.json")) || {};
+      if (proposal.status !== "pending") return;
+      const documentNodes = deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)))
+        .filter((node) => proposal.doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind));
+      const scope = proposal.scope === "all" ? documentNodes.map((node) => node.id) : proposal.scope;
       const result = await (deps.propose || proposeEdits)({
-        model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))), instruction: proposal.instruction,
-        scope: proposal.scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
+        model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: documentNodes.filter((node) => scope.includes(node.id)), instruction: proposal.instruction,
+        scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
         profile: profileResult.ok ? profileResult.profile : {}, jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
         onFactCheck: async (ops, summary) => {
+          if (proposal.status !== "pending") return;
           validated.set(proposal.id, { ops: structuredClone(ops), summary: { ...summary }, factCheck: "fallback", factCheckReason: "Fact check stopped; token check used." });
           await emit(proposal, "stage", { stage: "checking facts" });
         },
@@ -287,36 +420,42 @@ export function createMaterialsVersionService(deps = {}) {
       await emit(proposal, "stage", { stage: "checking", done: result.ops.length, total: result.ops.length + result.blocked.length });
       for (const op of result.ops) {
         if (proposal.status !== "pending") return;
-        proposal.ops.push(op);
+        if (proposal.ops.some((/** @type {any} */ existing) => existing.opId === op.opId)) continue;
+        proposal.ops.push(structuredClone(op));
         await emit(proposal, "op", { op });
       }
       for (const blocked of result.blocked) {
         if (proposal.status !== "pending") return;
-        await emit(proposal, "blocked", blocked);
+        await emit(proposal, "blocked", safeBlockedEdit(blocked, proposal.events.length));
       }
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "measuring" });
+      if (!claimTerminal(proposal, "ready")) return;
       proposal.summary = result.summary;
       proposal.factCheck = result.factCheck;
       proposal.factCheckReason = result.factCheckReason;
-      proposal.status = "ready";
-      await emit(proposal, "proposal", { summary: result.summary, factCheck: result.factCheck, factCheckReason: result.factCheckReason });
-      await emit(proposal, "done", { status: "ready" });
+      await finishTerminal(proposal, [
+        { event: "proposal", data: { summary: result.summary, factCheck: result.factCheck, factCheckReason: result.factCheckReason } },
+        { event: "done", data: { status: "ready" } },
+      ]);
     } catch (error) {
-      if (proposal.status !== "pending") return;
-      proposal.status = "failed";
-      await emit(proposal, "error", { code: /** @type {any} */ (error).code || "editor_failed", message: /** @type {Error} */ (error).message });
-      await emit(proposal, "done", { status: "failed" });
+      if (!claimTerminal(proposal, "failed")) return;
+      const diagnostic = editDiagnostic(String(/** @type {any} */ (error).code || "editor_failed"));
+      await finishTerminal(proposal, [
+        { event: "error", data: { code: diagnostic.reason, message: diagnostic.detail } },
+        { event: "done", data: { status: "failed" } },
+      ]);
     } finally {
+      await terminals.get(proposal.id)?.catch(() => {});
       proposal.running = false;
       validated.delete(proposal.id);
-      if (proposal.status !== "rejected") await writeJson(proposalPath(proposal), persisted(proposal));
+      if (proposal.status !== "rejected") await save(proposal);
     }
   };
-  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] */
-  const commit = async (dir, model, current, source, edit, restoredFrom) => {
+  /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] @param {string} [editBaseRunId] @param {string} [selectedDoc] */
+  const commit = async (dir, model, current, source, edit, restoredFrom, editBaseRunId, selectedDoc) => {
     return withPackagePublishClaim(dir, current.runId, async (assertBase) => {
-      const input = { dir, model, feature: current.feature || "both", source, parentRunId: restoredFrom || current.runId, ...(edit ? { edit } : {}) };
+      const input = { dir, model, feature: selectedDoc ? (selectedDoc === "resume" ? "resume" : "cover_letter") : model.documents.resume ? (model.documents.coverLetter ? "both" : "resume") : "cover_letter", source, parentRunId: restoredFrom || editBaseRunId || current.runId, ...(edit ? { edit } : {}) };
       try {
         const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession, assertBase });
         return { runId: result.runId, pdf: "ready", stale: false };
@@ -327,11 +466,11 @@ export function createMaterialsVersionService(deps = {}) {
         await assertBase();
         if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
         if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
-        await rm(join(dir, "resume.pdf"), { force: true });
-        await rm(join(dir, "cover-letter.pdf"), { force: true });
+        if (rendered.resumeHtml) await rm(join(dir, "resume.pdf"), { force: true });
+        if (rendered.letterHtml) await rm(join(dir, "cover-letter.pdf"), { force: true });
         const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
         await writeVersionQa({ dir, rendered, runId, issues: rendered.issues || [], notes: ["PDF stale: browser unavailable."], pdfReady: false });
-        const provenance = source === "restore" && restoredFrom ? (await runFiles(dir, restoredFrom)).run : current;
+        const provenance = input.parentRunId === current.runId ? current : (await runFiles(dir, input.parentRunId)).run;
         const { runDir } = await writePackageRecords({ dir, rendered, model, run: {
           runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
           requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
@@ -358,6 +497,22 @@ export function createMaterialsVersionService(deps = {}) {
   };
   return {
     dirFor, versions,
+    /** @param {string} slug */
+    async open(slug) {
+      const dir = await dirFor(slug); pendingGuard(dir);
+      const rows = await readOpenProposals(dir);
+      if (rows.length > 1) return { code: "multiple_open_proposals", error: "More than one unfinished request exists for this role.", retryable: false, proposals: rows.map((row) => ({ proposalId: row.id, doc: row.doc, status: row.status })) };
+      const row = rows[0];
+      if (!row) return { proposal: null };
+      return { proposal: {
+        proposalId: row.id, doc: row.doc, baseRunId: row.baseRunId, instruction: row.instruction,
+        scope: row.scope, lockFacts: true, createdAt: row.createdAt, status: row.status, ops: row.ops,
+        blocked: (row.events || []).filter((/** @type {any} */ event) => event.event === "blocked").map((/** @type {any} */ event, /** @type {number} */ index) => safeBlockedEdit(event.data, index)),
+        ...(row.summary ? { summary: row.summary } : {}),
+        ...(row.factCheck ? { factCheck: row.factCheck } : {}),
+        ...(row.factCheckReason ? { factCheckReason: row.factCheckReason } : {}),
+      } };
+    },
     /** @param {string} slug @param {string} id */
     async model(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
@@ -391,7 +546,7 @@ export function createMaterialsVersionService(deps = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const doc = documentName(body.doc);
-        await assertCurrent(dir, body.baseRunId);
+        await assertCurrent(dir, body.baseRunId, doc);
         const instruction = body.instruction;
         if (typeof instruction !== "string" || !instruction.trim() || instruction.length > 2000) throw failure("instruction must have 1–2000 characters", 400, "invalid_instruction");
         if (body.lockFacts !== true) throw failure("lockFacts must be true", 400, "facts_lock_required");
@@ -406,7 +561,7 @@ export function createMaterialsVersionService(deps = {}) {
         if (await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
         const id = randomUUID();
         const proposal = { id, dir, doc, baseRunId: body.baseRunId, instruction: instruction.trim(), scope, lockFacts: true, targetPages: body.targetPages, chips: body.chips, createdAt: new Date().toISOString(), status: "pending", ops: [], events: [] };
-        await writeJson(proposalPath(proposal), persisted(proposal));
+        await save(proposal);
         live.set(id, proposal);
         return { proposalId: id, streamUrl: `/api/applications/${slug}/edits/${id}/stream` };
       } finally { reserved.delete(dir); }
@@ -415,6 +570,10 @@ export function createMaterialsVersionService(deps = {}) {
     async stream(slug, id, req, res) {
       const dir = await dirFor(slug); pendingGuard(dir);
       const proposal = await loadProposal(dir, id);
+      if (!proposal.running && proposal.status === "pending" && proposal.events.length) {
+        proposal.ops = [];
+        proposal.events = [];
+      }
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -428,18 +587,43 @@ export function createMaterialsVersionService(deps = {}) {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
         if (event === "done") { res.end(); close(); }
       };
-      for (const row of proposal.events) send(row.event, row.data);
-      if (res.writableEnded) return;
+      // Reconnect delivery belongs to the same queue as new events: a terminal
+      // journal in memory may still be waiting behind an earlier snapshot.
+      const replayRows = structuredClone(proposal.events).map((/** @type {any} */ row, /** @type {number} */ index) => {
+        if (row.event === "blocked") return { event: row.event, data: safeBlockedEdit(row.data, index) };
+        if (row.event === "error") {
+          const diagnostic = editDiagnostic(String(row.data?.code || "editor_failed"));
+          return { event: row.event, data: { code: diagnostic.reason, message: diagnostic.detail } };
+        }
+        return row;
+      });
+      const replay = (writes.get(id) || Promise.resolve()).catch(() => {}).then(() => {
+        if (proposal.status === "rejected") return;
+        for (const row of replayRows) send(row.event, row.data);
+      });
+      writes.set(id, replay);
+      await replay;
+      if (res.writableEnded) { pruneQueues(proposal); return; }
       let audience = listeners.get(id);
       if (!audience) { audience = new Set(); listeners.set(id, audience); }
       audience.add(send);
       heartbeat = setInterval(() => { if (!res.writableEnded) res.write(": ping\n\n"); }, 15_000);
       heartbeat.unref();
-      close = () => { clearInterval(heartbeat); audience.delete(send); if (!audience.size) listeners.delete(id); };
+      close = () => {
+        clearInterval(heartbeat);
+        audience.delete(send);
+        if (!audience.size) listeners.delete(id);
+        const queue = writes.get(id);
+        void queue?.catch(() => {}).then(() => { if (writes.get(id) === queue) pruneQueues(proposal); });
+      };
       res.once("close", close);
       if (!proposal.running && proposal.status === "pending") {
         void processProposal(proposal).then(() => {
-          if (!res.writableEnded) send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+          const data = { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" };
+          for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
+        }).catch(() => {
+          const data = { status: proposal.status, message: editDiagnostic("editor_failed").detail };
+          for (const deliver of [...(listeners.get(id) || [])]) deliver("done", data);
         });
       } else if (!proposal.running) {
         send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
@@ -449,23 +633,26 @@ export function createMaterialsVersionService(deps = {}) {
     async stop(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
       const proposal = await loadProposal(dir, id);
-      if (proposal.status === "pending") {
-        proposal.status = "partial";
+      if (claimTerminal(proposal, "partial")) {
+        const rows = [];
         const ready = validated.get(id);
         if (ready) {
           const emitted = new Set(proposal.ops.map((/** @type {any} */ op) => op.opId));
           for (const op of ready.ops) {
             if (emitted.has(op.opId)) continue;
-            proposal.ops.push(op);
-            await emit(proposal, "op", { op });
+            emitted.add(op.opId);
+            proposal.ops.push(structuredClone(op));
+            rows.push({ event: "op", data: { op } });
           }
           proposal.summary = ready.summary;
           proposal.factCheck = ready.factCheck;
           proposal.factCheckReason = ready.factCheckReason;
         }
-        await emit(proposal, "proposal", { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 }, factCheck: proposal.factCheck, factCheckReason: proposal.factCheckReason });
-        await emit(proposal, "done", { status: "partial" });
+        rows.push({ event: "proposal", data: { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 }, factCheck: proposal.factCheck, factCheckReason: proposal.factCheckReason } });
+        rows.push({ event: "done", data: { status: "partial" } });
+        await finishTerminal(proposal, rows);
       } else if (proposal.status !== "partial") throw failure("Proposal is not running", 409, "proposal_not_running");
+      else await terminals.get(id);
       return { status: "partial", ops: proposal.ops };
     },
     /** @param {string} slug @param {string} id @param {Record<string, any>} body @param {boolean} [manual] */
@@ -476,19 +663,24 @@ export function createMaterialsVersionService(deps = {}) {
       let priorStatus = "";
       let markedAccepting = false;
       try {
-        const current = await currentRun(dir);
+        if (manual && await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
+        let current = await currentRun(dir);
         if (!manual) {
           proposal = await loadProposal(dir, id);
           priorStatus = proposal.status;
           if (!["ready", "partial"].includes(priorStatus)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
           proposal.status = "accepting";
           markedAccepting = true;
-          await writeJson(proposalPath(proposal), persisted(proposal));
+          await save(proposal);
         }
-        await assertCurrent(dir, manual ? body.baseRunId : proposal?.baseRunId);
         const doc = documentName(manual ? body.doc : proposal?.doc);
-        const { model } = await runFiles(dir, current.runId);
+        const baseRunId = manual ? body.baseRunId : proposal?.baseRunId;
+        current = await assertCurrent(dir, baseRunId, doc);
+        const { model } = await runFiles(dir, baseRunId);
         const base = /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model));
+        // A newer sibling run owns its own copy and artifacts. Publish only
+        // this selected document when editing its earlier combined version.
+        if (baseRunId !== current.runId) delete base.documents[doc === "resume" ? "coverLetter" : "resume"];
         const proposed = proposal?.ops || [];
         const manualOps = body.manualOps ?? [];
         const acceptedProposal = manual ? [] : body.accept;
@@ -505,6 +697,9 @@ export function createMaterialsVersionService(deps = {}) {
         const selected = [...selectedProposal, ...manualOps];
         const docIds = new Set(deriveNodes(base).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
         if (selected.some((op) => !docIds.has(op.op === "insert" ? op.after : op.node))) throw failure("Edit targets another document", 400, "out_of_scope");
+        // D29 applies to direct edits, including manual ops alongside an AI accept.
+        const lockedIds = new Set(deriveNodes(base).filter((node) => node.locked.whole || node.locked.spans.length).map((node) => node.id));
+        if (manualOps.some((op) => lockedIds.has(op.op === "insert" ? op.after : op.node))) throw failure("This line has locked figures. Ask Scribe to change it.", 400, "locked");
         const ledgerResult = await readLedger();
         const checked = proposal?.factCheck === "model"
           ? [...selectedProposal, ...flagUnverifiedOps(base, manualOps, ledgerResult.ok ? ledgerResult.ledger : {})]
@@ -514,20 +709,28 @@ export function createMaterialsVersionService(deps = {}) {
         try {
           const proposalScope = proposal?.scope || "all";
           if (proposalScope !== "all" && selectedProposal.some((op) => !proposalScope.includes(op.op === "insert" ? op.after : op.node))) throw new MaterialsEditError("out_of_scope", "Proposal edit targets a node outside its scope");
-          candidate = applyOps(base, checked);
+          const manualIds = new Set(manualOps.map((op) => op.opId));
+          candidate = applyOps(base, checked, {
+            plainTextOpIds: [...manualIds],
+            beforeOp(evolving, op) {
+              if (!manualIds.has(op.opId)) return;
+              const lockedIds = new Set(deriveNodes(evolving).filter((node) => node.locked.whole || node.locked.spans.length).map((node) => node.id));
+              if (lockedIds.has(op.op === "insert" ? op.after : op.node)) throw new MaterialsEditError("locked", "This line has locked figures. Ask Scribe to change it.");
+            },
+          });
         }
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
         if (proposal && (proposal.status !== "accepting" || (await json(proposalPath(proposal)))?.status !== "accepting")) throw failure("Proposal is no longer accepting", 409, "proposal_not_ready");
-        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit);
-        if (proposal) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
+        const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit, undefined, baseRunId, doc);
+        if (proposal) { proposal.status = "accepted"; await save(proposal); }
         const listed = await versions(dir, doc);
         const row = listed.versions.find((v) => v.runId === committed.runId);
-        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
+        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
       } catch (error) {
         if (markedAccepting && proposal?.status === "accepting") {
           proposal.status = priorStatus;
-          await writeJson(proposalPath(proposal), persisted(proposal));
+          await save(proposal);
         }
         throw error;
       } finally { reserved.delete(dir); }
@@ -537,19 +740,32 @@ export function createMaterialsVersionService(deps = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const proposal = await loadProposal(dir, id);
+        const prior = proposal.status;
         proposal.status = "rejected";
+        deps.onTransition?.({ proposalId: proposal.id, from: prior, to: "rejected" });
+        await writes.get(id)?.catch(() => {});
         await rm(proposalPath(proposal), { force: true });
         live.delete(id);
+        writes.delete(id);
+        terminals.delete(id);
       } finally { reserved.delete(dir); }
     },
-    /** @param {string} slug @param {string} id */
-    async restore(slug, id) {
+    /** @param {string} slug @param {string} id @param {Record<string, any>} [body] */
+    async restore(slug, id, body = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const current = await currentRun(dir);
         const { model } = await runFiles(dir, id);
-        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id);
-        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, restoredFrom: id, pdf: committed.pdf }, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
+        const selectedDoc = body.doc === undefined ? undefined : documentName(body.doc);
+        if (selectedDoc) {
+          if (!model.documents?.[selectedDoc]) throw failure("Document not in version", 404, "document_not_found");
+          delete model.documents[selectedDoc === "resume" ? "coverLetter" : "resume"];
+        }
+        const committed = await commit(dir, /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), current, "restore", undefined, id, undefined, selectedDoc);
+        const doc = selectedDoc || (model.documents?.resume ? "resume" : "coverLetter");
+        const listed = await versions(dir, doc);
+        const row = listed.versions.find((version) => version.runId === committed.runId);
+        return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, restoredFrom: id, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser.", retryable: false } : {}) } };
       } finally { reserved.delete(dir); }
     },
     /** @param {string} slug @param {string} id @param {unknown} starred */
@@ -583,12 +799,17 @@ export function registerMaterialsEditRoutes(app, options = {}) {
   app.get(`${base}/versions/:runId/model`, wrap(async (req, res) => { res.json(await service.model(req.params.slug, req.params.runId)); }));
   app.post(`${base}/preview`, wrap(async (req, res) => { res.json(await service.preview(req.params.slug, object(req.body))); }));
   app.post(`${base}/edits`, wrap(async (req, res) => { res.status(202).json(await service.start(req.params.slug, object(req.body))); }));
+  app.get(`${base}/edits/open`, wrap(async (req, res) => {
+    const result = await service.open(req.params.slug);
+    if (result.code === "multiple_open_proposals") res.status(409).json(result);
+    else res.json(result);
+  }));
   app.get(`${base}/edits/:id/stream`, wrap(async (req, res) => { await service.stream(req.params.slug, req.params.id, req, res); }));
   app.post(`${base}/edits/:id/stop`, wrap(async (req, res) => { res.json(await service.stop(req.params.slug, req.params.id)); }));
   app.post(`${base}/edits/:id/accept`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, req.params.id, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.delete(`${base}/edits/:id`, wrap(async (req, res) => { await service.reject(req.params.slug, req.params.id); res.sendStatus(204); }));
   app.post(`${base}/edits/manual`, wrap(async (req, res) => { const result = await service.accept(req.params.slug, "", object(req.body), true); res.status(result.statusCode).json(result.body); }));
-  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId); res.status(result.statusCode).json(result.body); }));
+  app.post(`${base}/versions/:runId/restore`, wrap(async (req, res) => { const result = await service.restore(req.params.slug, req.params.runId, object(req.body)); res.status(result.statusCode).json(result.body); }));
   app.put(`${base}/versions/:runId/star`, wrap(async (req, res) => { res.json(await service.star(req.params.slug, req.params.runId, object(req.body).starred)); }));
   return service;
 }

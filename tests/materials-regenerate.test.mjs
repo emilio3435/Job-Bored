@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -21,6 +21,7 @@ import { regeneratePackage, writeVersionQa } from "../server/materials-regenerat
 import { readLedger } from "../server/materials-ledger.mjs";
 import { tenureFloorIds } from "../server/materials-outline.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
+import { createMaterialsVersionService } from "../server/materials-versions.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
@@ -170,6 +171,50 @@ describe("each package records its template", () => {
 });
 
 describe("regenerate in another template", () => {
+  it("SCRP-B29 R1-#1 uses the custom package root through a symlink with JOBBORED_HOME elsewhere", async () => {
+    const packages = join(dir, "packages");
+    const alias = join(dir, "packages-alias");
+    const otherHome = join(dir, "unrelated-home");
+    await mkdir(packages);
+    await mkdir(otherHome);
+    await symlink(packages, alias, "dir");
+    const previousHome = process.env.JOBBORED_HOME;
+    process.env.JOBBORED_HOME = otherHome;
+    try {
+      const slug = "acme-custom-root";
+      await draft(drafterFor(packages), slug);
+      const original = await readJson(join(packages, slug, "run.json"));
+      const immutable = join(packages, slug, "runs", original.runId, "render-model.json");
+      const before = await readFile(immutable);
+      const result = await regeneratePackage({ slug, template: "dossier" }, {
+        applicationsRoot: alias, pdfSession: fakeSession, ...noNetworkLookups,
+        critic: async () => ({ status: "pass", issues: [] }),
+      });
+      assert.deepEqual(result.template.templateIds, { resume: "dossier.resume", coverLetter: "dossier.letter" });
+      for (const stem of ["resume", "cover-letter"]) {
+        assert.match(await readFile(join(packages, slug, `${stem}.html`), "utf8"), /data-family="dossier"/);
+      }
+      const service = createMaterialsVersionService({ applicationsRoot: alias });
+      for (const doc of ["resume", "coverLetter"]) {
+        assert.equal((await service.versions(join(alias, slug), doc)).currentRunId, result.runId);
+      }
+      assert.deepEqual(await readFile(immutable), before);
+      assert.equal(existsSync(join(otherHome, "applications")), false);
+      const runs = join(packages, slug, "runs");
+      const preservedRuns = join(packages, slug, "preserved-runs");
+      await rename(runs, preservedRuns);
+      await symlink(otherHome, runs, "dir");
+      try {
+        await assert.rejects(() => regeneratePackage({ slug, template: "signal" }, {
+          applicationsRoot: alias, pdfSession: fakeSession, ...noNetworkLookups,
+        }), (error) => error.code === "path_escape");
+      } finally { await rm(runs); await rename(preservedRuns, runs); }
+    } finally {
+      if (previousHome === undefined) delete process.env.JOBBORED_HOME;
+      else process.env.JOBBORED_HOME = previousHome;
+    }
+  });
+
   it("R2-B2: keeps the saved tenure floor through an overflowing regenerate", async () => {
     const slug = "acme-floor-regen";
     await draft(drafterFor(dir), slug, { feature: "resume" });

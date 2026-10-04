@@ -1,0 +1,29 @@
+✖ SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals (111.915084ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 331.603
+
+✖ failing tests:
+
+test at tests/integration/materials-edit-api.test.mjs:831:1
+✖ SCRP-B14 manual returns 409 materials_pending for persisted same or sibling open proposals (111.915084ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  200 !== 409
+
+      at TestContext.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/scrp-be/tests/integration/materials-edit-api.test.mjs:840:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

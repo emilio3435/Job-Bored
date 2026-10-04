@@ -23,7 +23,11 @@ import { deriveNodes } from "../server/materials-nodes.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(repoRoot, rel), "utf8");
-const fixture = (name) => JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+const fixture = (name) => {
+  const data = JSON.parse(read(`docs/programs/editor-20260927/fixtures/${name}`));
+  return name === 'sse-transcript.json' ? data.map(frame => frame.event === 'blocked'
+    ? { event: 'blocked', data: { op: { opId: 'o4' }, reason: 'locked', detail: 'That would change a locked fact.' } } : frame) : data;
+};
 
 const BASE = "http://127.0.0.1:3847";
 const SLUG = "acme-platform-engineer";
@@ -275,7 +279,7 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     const { JBScribeApi } = loadApi();
     const api = JBScribeApi.create({
       base: BASE, slug: SLUG, mode: "live",
-      fetchImpl: async () => response(409, { error: "materials_pending", message: "A draft is still running." }),
+      fetchImpl: async () => response(409, { error: "A draft is still running.", code: "materials_pending", message: "A draft is still running." }),
     });
     await assert.rejects(api.startEdit({ doc: "resume", instruction: "x" }), (err) => {
       assert.equal(err.status, 409);
@@ -290,7 +294,7 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: "live", fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
     await assert.rejects(api.listVersions("resume"), (err) => {
       assert.equal(err.code, "server_unreachable");
-      assert.match(err.message, /npm start/);
+      assert.equal(err.message, "Scribe can’t reach your JobBored server. Start it, then Retry.");
       return true;
     });
   });
@@ -333,4 +337,198 @@ describe("scribe-v2-api live mode: the SPEC §3.2 routes", () => {
     assert.equal(rec.calls[0].url, `${prefix}/edits/p1/stream`);
     assert.equal(rec.calls[0].headers.Accept, "text/event-stream");
   });
+});
+
+describe('SCRP-F2 R1 open route and R2 truthful transport', () => {
+  it('SCRP-F2 GET open is slug-bound and maps the server coverLetter name', async () => {
+    const { JBScribeApi } = loadApi();
+    const rec = recordingFetch(() => response(200, { proposal: { proposalId: 'p1', doc: 'coverLetter', status: 'ready' } }));
+    const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: rec.fetchImpl });
+    assert.equal(typeof api.getOpenEdit, 'function');
+    assert.equal((await api.getOpenEdit()).proposal.doc, 'cover_letter');
+    assert.equal(rec.calls[0].url, `${BASE}/api/applications/${SLUG}/edits/open`);
+    assert.equal(rec.calls[0].method, 'GET');
+  });
+  for (const doc of ['resume', 'cover_letter']) {
+    for (const method of ['acceptEdit', 'manualEdit', 'restore']) {
+      it(`SCRP-F3 ${doc} ${method} resolves only the committed 503`, async () => {
+        const { JBScribeApi } = loadApi();
+        const body = { code: 'browser_unavailable', error: 'PDF unavailable.', run: { runId: 'saved-1', n: 1, pdf: 'stale' }, versions: [], retryable: false };
+        const rec = recordingFetch(() => response(503, body));
+        const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: rec.fetchImpl });
+        const res = await api[method](method === 'manualEdit' ? { doc, baseRunId: 'r0', manualOps: [] } : 'p1', { accept: ['o1'] });
+        assert.equal(res.textSaved, true);
+        assert.equal(res.httpStatus, 503);
+        assert.equal(res.run.n, 1);
+        assert.equal(rec.calls.length, 1, 'saved text is never retried');
+      });
+    }
+  }
+  it('SCRP-F4 ordinary 503 and incomplete committed bodies still fail', async () => {
+    const { JBScribeApi } = loadApi();
+    for (const body of [
+      { code: 'provider_failed' },
+      { code: 'browser_unavailable', run: { runId: '', pdf: 'stale' } },
+      { code: 'browser_unavailable', run: { runId: 'r1', pdf: 'ready' } },
+    ]) {
+      const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: async () => response(503, body) });
+      await assert.rejects(api.acceptEdit('p1', {}), (e) => e.status === 503 && !e.textSaved);
+    }
+  });
+  it('SCRP-F5 api-error.v1 preserves safe copy, detail, nextStep and retryable', async () => {
+    const { JBScribeApi } = loadApi();
+    for (const [body, expected] of [
+      [{ error: 'Safe explanation', code: 'stale_base', detail: 'New version', nextStep: 'Review current', retryable: false }, 'Safe explanation'],
+      [{ message: 'Preferred message', error: 'Other', code: 'provider_failed', fix: 'Try again' }, 'Preferred message'],
+      [{ code: 'unreadable_reply' }, 'Scribe’s reply couldn’t be read. Your document is unchanged.'],
+      [{ code: 'unknown' }, 'That didn’t work. Try again.'],
+      [{ code: 'unknown', message: {}, error: {} }, 'That didn’t work. Try again.'],
+      [{ code: 'unknown', message: {}, error: 'A safe explanation' }, 'A safe explanation'],
+      [{ message: 'x'.repeat(500) }, 'x'.repeat(300)],
+    ]) {
+      const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: async () => response(409, body) });
+      await assert.rejects(api.acceptEdit('p1', {}), (e) => {
+        assert.equal(e.message, expected);
+        assert.equal(e.fix, body.fix || body.nextStep || null);
+        assert.equal(e.detail, body.detail || null);
+        assert.equal(e.retryable, body.retryable);
+        return true;
+      });
+    }
+  });
+});
+
+async function outcomeDesk(which, { failure, saved = false } = {}) {
+  const { makeEnv, FakeDocument } = await import('./fixtures/jb-dom.mjs');
+  const win = makeEnv({ bodyClass: 'jb-v2' }); win.Date = Date;
+  vm.runInNewContext(read('scribe-v2-api.js'), win);
+  vm.runInNewContext(read('scribe-v2-diff.js'), win);
+  vm.runInNewContext(read('scribe-v2.js'), win);
+  const calls = [], events = [];
+  win.addEventListener('jb:scribe:saved', e => events.push(plain(e.detail)));
+  let current = 'r0';
+  const api = {
+    listVersions: async () => ({ currentRunId: current, versions: [{ runId: current, n: current === 'r0' ? 0 : 1, words: 10 }] }),
+    preview: async body => { calls.push(['preview', body.baseRunId]); return { html: '<p>Saved text</p>' }; },
+    propose: async () => ({ proposalId: 'p1' }),
+    stream: async (_id, h) => {
+      if (failure) h.onEvent(failure);
+      else h.onEvent({ event: 'op', data: { op: { opId: 'o1', op: 'replace', node: 'p:p3', text: 'Measured delays.' } } });
+      h.onEvent({ event: 'done', data: { status: failure ? 'failed' : 'ready' } }); return 'ready';
+    },
+    acceptEdit: async () => { calls.push(['accept']); current = 'r1'; return { textSaved: saved, httpStatus: saved ? 503 : 200, run: { runId: current, n: 1, pdf: saved ? 'stale' : 'ready' } }; },
+    stopEdit: async () => ({ status: 'partial', ops: [] }),
+  };
+  const ctl = win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api });
+  const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
+  await flush();
+  const inner = new FakeDocument(); const node = inner.createElement('p'); node.setAttribute('data-node', 'p:p3'); node.textContent = 'Original block'; inner.body.appendChild(node);
+  ctl.refs.frame.contentDocument = inner; ctl.refs.frame.onload();
+  ctl.refs.prompt.value = 'Make it punchier'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await flush();
+  const click = el => { assert.ok(el); el.dispatchEvent({ type: 'click', target: el, bubbles: true }); };
+  return { ctl, inner, api, win, calls, events, flush, click };
+}
+
+describe('SCRP-F12 ASTRA-03 committed saves and ASTRA-05 safe stream diagnostics', () => {
+  for (const which of ['resume', 'cover_letter']) {
+    it(`SCRP-F12 ${which} committed 503 clears review and emits one saved event`, async () => {
+      const t = await outcomeDesk(which, { saved: true });
+      t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+      t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]')); await t.flush();
+      assert.equal(t.ctl.state.proposal, null);
+      assert.equal(t.ctl.autoSave, null);
+      assert.equal(t.inner.querySelectorAll('[data-scribe-op]').length, 0);
+      assert.equal(t.ctl.refs.reviewbar.querySelector('[data-review="save"]'), null);
+      assert.match(t.ctl.refs.status.textContent, /Text saved as v1. PDF unavailable — it’s rebuilt on your next save\./);
+      assert.equal(t.ctl.refs.statusAction.hasAttribute('hidden'), true);
+      assert.deepEqual(t.events, [{ slug: 'acme-example', doc: which, runId: 'r1' }]);
+      assert.equal(t.calls.filter(c => c[0] === 'accept').length, 1);
+      assert.ok(t.calls.some(c => c[0] === 'preview' && c[1] === 'r1'));
+      t.ctl.close();
+    });
+    for (const [channel, code, expected, action] of [
+      ['blocked', 'provider_failed', 'The AI provider didn’t respond. Your document is unchanged.', 'Try again'],
+      ['blocked', 'unreadable_reply', 'Scribe’s reply couldn’t be read. Your document is unchanged.', 'Try again'],
+      ['blocked', 'invalid_model', 'Blocked: that change doesn’t fit this template’s layout.', 'Try again'],
+      ['error', 'http_429', 'Too many requests right now. Try again in a minute. Your request is kept.', 'Try again'],
+      ['error', 'writer_truncated', 'Scribe’s reply was cut off. Your document is unchanged.', 'Try again'],
+      ['error', 'writer_blocked', 'The AI provider declined this request. Your document is unchanged. Try rewording it.', 'Try again'],
+      ['error', 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.', 'Settings'],
+    ]) {
+      it(`SCRP-F13 ${which} ${channel} ${code} uses safe per-code copy and action`, async () => {
+        const data = channel === 'blocked' ? { reason: code, detail: '/private/secret/raw-provider-payload' } : { code, message: '<script>raw provider payload</script>' };
+        const t = await outcomeDesk(which, { failure: { event: channel, data } });
+        assert.equal(t.ctl.refs.statusText.textContent, expected);
+        assert.equal(t.ctl.refs.statusAction.textContent, action);
+        assert.doesNotMatch(t.ctl.refs.log.textContent, /private|raw provider|script|No changes suggested/);
+        assert.equal(t.ctl.refs.prompt.value, 'Make it punchier'); t.ctl.close();
+      });
+    }
+  }
+});
+
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F30 ${which} a late committed save emits once for its original document`, async () => {
+    const t = await outcomeDesk(which); let resolve;
+    t.api.acceptEdit = () => new Promise(done => { resolve = done; });
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]'));
+    const sibling = which === 'resume' ? 'cover_letter' : 'resume';
+    const next = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: sibling, api: t.api }); await t.flush();
+    resolve({ textSaved: true, run: { runId: 'saved-late', n: 1, pdf: 'stale' } }); await t.flush();
+    assert.deepEqual(t.events, [{ slug: 'acme-example', doc: which, runId: 'saved-late' }]);
+    assert.equal(next.state.proposal, null); assert.equal(next.state.doc, sibling); next.close();
+  });
+}
+
+for (const which of ['resume', 'cover_letter']) {
+  it(`SCRP-F33 ${which} HTTP no-model has Settings and a kept request`, async () => {
+    const t = await outcomeDesk(which); t.ctl.close();
+    t.api.propose = async () => { throw new t.win.JBScribeApi.ScribeApiError(409, 'llm_unconfigured', 'The AI model isn’t set up correctly. Check it in Settings, then try again.'); };
+    const ctl = t.win.JB_SCRIBE_V2.open({ slug: 'acme-example', doc: which, api: t.api }); await t.flush();
+    ctl.refs.prompt.value = 'Keep this request'; ctl.refs.composer.dispatchEvent({ type: 'submit', target: ctl.refs.composer }); await t.flush();
+    assert.equal(ctl.refs.statusAction.textContent, 'Settings');
+    assert.equal(ctl.refs.prompt.value, 'Keep this request'); ctl.close();
+  });
+  it(`SCRP-F34 ${which} HTTP save rate-limit keeps the specific safe explanation`, async () => {
+    const t = await outcomeDesk(which);
+    const message = 'Too many requests right now. Try again in a minute. Your request is kept.';
+    t.api.acceptEdit = async () => { throw new t.win.JBScribeApi.ScribeApiError(429, 'rate_limited', message); };
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="accept-all"]'));
+    t.click(t.ctl.refs.reviewbar.querySelector('[data-review="save"]')); await t.flush();
+    assert.equal(t.ctl.refs.statusText.textContent, message);
+    assert.equal(t.ctl.refs.statusAction.textContent, 'Try again');
+    assert.equal(t.ctl.state.proposal.id, 'p1'); t.ctl.close();
+  });
+}
+
+it('SCRP-F48 GAP-02 scoped stale starts never retry against another base', async () => {
+  const { JBScribeApi } = loadApi();
+  const fetcher = recordingFetch(() => response(409, { code: 'stale_base', error: 'Newer version.' }));
+  const api = JBScribeApi.create({ base: BASE, slug: SLUG, mode: 'live', fetchImpl: fetcher.fetchImpl });
+  await assert.rejects(api.propose({ doc: 'resume', baseRunId: 'r0', scope: ['b:acme:c14'], instruction: 'Shorten.', lockFacts: true }), err => err.code === 'selection_stale');
+  assert.equal(fetcher.calls.length, 1);
+});
+
+it('SCRP-R1-12 bodiless local HTTP failures never become writer failures', async () => {
+  for (const status of [401, 403, 404, 429, 503]) {
+    const { JBScribeApi } = loadApi();
+    const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: async () => response(status, null, { text: '' }) });
+    await assert.rejects(client.listVersions('resume'), err => {
+      assert.equal(err.code, `status_${status}`); assert.equal(err.message, 'That didn’t work. Try again.'); return true;
+    });
+  }
+});
+
+it('SCRP-R1-D19 restore sends the desk document', async () => {
+  const { JBScribeApi } = loadApi(); const rec = recordingFetch(() => response(200, { run: { runId: 'r3', n: 1 } }));
+  const client = JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: rec.fetchImpl });
+  await client.restore('r0', { doc: 'cover_letter' }); assert.deepEqual(rec.calls[0].body, { doc: 'cover_letter' });
+});
+
+it('SCRP-R1-D20 writer auth and missing-model codes direct users to Settings', () => {
+  const { JBScribeApi } = loadApi();
+  for (const code of ['http_401', 'http_403', 'http_404', 'llm_unconfigured', 'no_pin']) assert.equal(JBScribeApi.errorCopy(code), 'The AI model isn’t set up correctly. Check it in Settings, then try again.');
+  for (const code of ['network', 'timeout', 'http_500', 'http_503']) assert.equal(JBScribeApi.errorCopy(code), 'The AI provider didn’t respond. Your document is unchanged.');
 });

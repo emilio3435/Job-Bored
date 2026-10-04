@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { deriveNodes } from "../server/materials-nodes.mjs";
-import { proposeEdits } from "../server/materials-edit.mjs";
+import { editDiagnostic, proposeEdits } from "../server/materials-edit.mjs";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../docs/programs/editor-20260927/fixtures/${name}.json`, import.meta.url), "utf8"));
 const model = fixture("model");
@@ -267,10 +267,95 @@ describe("materials edit proposal", () => {
     assert.ok(result.summary.lossPct > 20, JSON.stringify(result.summary));
   });
 
+  it("SCRP-B13 writer diagnostic table covers every emitted code without payloads", () => {
+    for (const [code, reason] of [
+      ["network", "provider_failed"], ["timeout", "provider_failed"], ["http_5xx", "provider_failed"], ["http_401", "llm_unconfigured"], ["http_403", "llm_unconfigured"], ["http_404", "llm_unconfigured"],
+      ["http_429", "rate_limited"], ["invalid_json", "unreadable_reply"], ["schema_invalid", "unreadable_reply"],
+      ["writer_truncated", "reply_cut_off"], ["writer_blocked", "provider_refused"], ["no_pin", "llm_unconfigured"], ["llm_unconfigured", "llm_unconfigured"],
+      ["invalid_model", "invalid_model"], ["locked", "locked"], ["out_of_scope", "out_of_scope"], ["shape", "shape"],
+    ]) assert.equal(editDiagnostic(code).reason, reason);
+    assert.equal(editDiagnostic("/private/path").reason, "editor_failed");
+  });
+
+  it("SCRP-B11 writer transport, unreadable reply and apply rejection have distinct safe codes", async () => {
+    const provider = await propose({}, { fetchImpl: async () => { throw new Error("private provider payload /secret/path token=example"); } });
+    const unreadable = await propose("private provider payload /secret/path");
+    const absent = await propose({ value: "private provider payload" });
+    const invalid = await propose({ ops: [{ opId: "bad", op: "replace", node: "private/path", text: "Allowed text." }] });
+    for (const [result, reason, detail] of [
+      [provider, "provider_failed", "The AI provider did not complete the request. Try again."],
+      [unreadable, "unreadable_reply", "The AI reply could not be read as edit operations. Try again."],
+      [absent, "unreadable_reply", "The AI reply could not be read as edit operations. Try again."],
+      [invalid, "invalid_model", "The suggested edit is not valid for this document."],
+    ]) {
+      assert.deepEqual(result.ops, []);
+      assert.equal(result.blocked[0].reason, reason);
+      assert.equal(result.blocked[0].detail, detail);
+      assert.equal(result.summary.changes, 0);
+    }
+  });
+
+  it("SCRP-B18 blocked invalid ops retain only a safe decision ID, never provider payloads", async () => {
+    const result = await propose({ ops: [{ opId: "/secret/path", op: "replace", node: "private/path", text: "private provider payload", headers: { Authorization: "example" } }] });
+    assert.equal(result.blocked[0].reason, "invalid_model");
+    assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
+    assert.doesNotMatch(JSON.stringify(result.blocked), /secret|private|Authorization|headers/);
+    assert.deepEqual(result.ops, []);
+  });
+
   it("turns junk model output into a blocked empty proposal", async () => {
     const result = await propose("this is not JSON");
     assert.deepEqual(result.ops, []);
-    assert.equal(result.blocked[0].reason, "invalid_model");
+    assert.equal(result.blocked[0].reason, "unreadable_reply");
     assert.equal(result.summary.changes, 0);
   });
+});
+
+
+it("assigns proposal-local IDs when the model omits edit IDs", async () => {
+  const result = await propose({ ops: [
+    { op: "replace", node: "line:beta", text: "Tracked daily shipments." },
+    { op: "replace", node: "b:acme:c14", text: "Measured carrier delays and reduced fulfillment delays 38%." },
+    { opId: "edit-1", op: "replace", node: "intro", text: "I build clear reports for operations teams." },
+  ] });
+  assert.deepEqual(result.blocked, []);
+  assert.equal(result.ops.length, 3);
+  assert.ok(result.ops.every((op) => typeof op.opId === "string" && op.opId.length));
+  assert.equal(new Set(result.ops.map((op) => op.opId)).size, 3);
+  assert.equal(result.ops[2].opId, "edit-1", "supplied IDs are preserved");
+});
+
+
+it("keeps duplicate IDs and malformed edit fields invalid", async () => {
+  const result = await propose({ ops: [
+    { opId: "same", op: "replace", node: "line:beta", text: "Tracked daily shipments." },
+    { opId: "same", op: "replace", node: "line:beta", text: "Tracked daily reports." },
+    { opId: null, op: "replace", node: "line:beta", text: "Tracked reports." },
+    { op: "replace", node: "line:beta", text: "Tracked reports.", unexpected: true },
+  ] });
+  assert.equal(result.ops.length, 1);
+  assert.equal(result.blocked.length, 3);
+  assert.ok(result.blocked.every((block) => block.reason === "invalid_model"));
+});
+
+
+it("SCRP-B25 R1-#6 D20 writer credentials and model failures point to Settings", async () => {
+  for (const status of [401, 403, 404]) {
+    const result = await propose({}, { fetchImpl: async () => ({ ok: false, status, text: async () => "Fictional provider error" }) });
+    assert.deepEqual(result.ops, []);
+    assert.deepEqual(result.blocked, [{ reason: "llm_unconfigured", detail: "The AI model isn’t set up correctly. Check it in Settings, then try again." }]);
+  }
+  for (const code of ["network", "timeout", "http_500", "http_503", "http_5xx"]) assert.equal(editDiagnostic(code).reason, "provider_failed");
+  assert.equal(editDiagnostic("http_400").reason, "editor_failed");
+});
+
+
+it("SCRP-B27 R1-#8 blocked fallback IDs do not alias generated edit IDs", async () => {
+  const result = await propose({ ops: [
+    { opId: "/fictional/path", op: "replace", node: "unknown", text: "Rejected text." },
+    { opId: "edit-1", op: "replace", node: "line:beta", text: "Tracked shipments." },
+  ] });
+  assert.equal(result.ops[0].opId, "edit-1");
+  assert.deepEqual(result.blocked[0].op, { opId: "blocked-1" });
+  assert.notEqual(result.blocked[0].op.opId, result.ops[0].opId);
 });

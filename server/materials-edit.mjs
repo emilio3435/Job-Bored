@@ -282,6 +282,44 @@ export function flagUnverifiedOps(model, ops, ledger = {}) {
   });
 }
 
+/** Shared fixed diagnostics for writer blocks and SSE errors. Never use exception text. */
+/** @param {string} code */
+export function editDiagnostic(code) {
+  const mapped = code === "http_429" ? "rate_limited"
+    : ["invalid_json", "schema_invalid"].includes(code) ? "unreadable_reply"
+    : code === "writer_truncated" ? "reply_cut_off"
+    : code === "writer_blocked" ? "provider_refused"
+    : ["no_pin", "http_401", "http_403", "http_404"].includes(code) ? "llm_unconfigured"
+    : ["network", "timeout", "call_failed", "http_5xx"].includes(code) || /^http_5\d\d$/.test(code) ? "provider_failed"
+    : code;
+  /** @type {Record<string,string>} */
+  const messages = {
+    provider_failed: "The AI provider did not complete the request. Try again.",
+    unreadable_reply: "The AI reply could not be read as edit operations. Try again.",
+    invalid_model: "The suggested edit is not valid for this document.",
+    rate_limited: "The AI provider is rate limited. Wait and try again.",
+    reply_cut_off: "The AI reply was cut off. Try a smaller edit.",
+    provider_refused: "The AI provider declined this edit. Try another instruction.",
+    llm_unconfigured: "The AI model isn’t set up correctly. Check it in Settings, then try again.",
+    locked: "This edit would change a protected fact.",
+    out_of_scope: "This edit targets a block outside the selected scope.",
+    shape: "This edit exceeds the document's template limits.",
+    editor_failed: "Scribe could not complete this edit. Try again.",
+  };
+  const reason = Object.hasOwn(messages, mapped) ? mapped : "editor_failed";
+  return { reason, detail: messages[reason] };
+}
+
+/** Project a blocked decision without echoing rejected provider fields. */
+/** @param {any} block @param {number} index */
+export function safeBlockedEdit(block, index) {
+  const diagnostic = editDiagnostic(String(block?.reason || "invalid_model"));
+  if (!block?.op) return diagnostic;
+  const sourceId = block.op.opId;
+  const opId = typeof sourceId === "string" && /^[a-zA-Z0-9_.:-]{1,128}$/.test(sourceId) ? sourceId : `blocked-${index + 1}`;
+  return { op: { opId }, ...diagnostic };
+}
+
 /**
  * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl'], onFactCheck?:(ops:Array<any>,summary:Record<string,number>)=>Promise<void>}} input
  */
@@ -291,6 +329,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   const userText = [
     `<instruction>\n${JSON.stringify(instruction)}\n</instruction>`,
     `<constraints>\n${JSON.stringify({ scope, lockFacts })}\n</constraints>`,
+    dataBlock("edit_op_schema", JSON.parse(readFileSync(new URL("../schemas/materials-edit-op.v1.schema.json", import.meta.url), "utf8"))),
     dataBlock("nodes", suppliedNodes),
     dataBlock("job_posting", jdExtract),
     dataBlock("ledger_claims", ledger?.claims || []),
@@ -301,20 +340,30 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
     response = await callJsonStage({ pin, stage: "draft", systemPrompt: EDIT_SYSTEM_PROMPT, userText, fetchImpl });
   } catch (error) {
     if (!(error instanceof WriterJsonError)) throw error;
-    return { ops: [], blocked: [{ reason: "invalid_model", detail: error.message }], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };
+    return { ops: [], blocked: [editDiagnostic(error.code || "call_failed")], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };
   }
   if (!Array.isArray(response.ops)) {
-    return { ops: [], blocked: [{ reason: "invalid_model", detail: "editor response needs an ops array" }], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };
+    return { ops: [], blocked: [editDiagnostic("unreadable_reply")], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };
   }
   const trusted = trustedFacts(ledger, model, baseNodes, jdExtract, profile);
   const ops = [];
   const blocked = [];
+  const suppliedIds = new Set(response.ops.map((/** @type {any} */ op) => op?.opId).filter((/** @type {any} */ id) => typeof id === "string"));
   const seen = new Set();
   let candidate = model;
   let removedWords = 0;
-  for (const proposed of response.ops) {
+  for (const [index, proposed] of response.ops.entries()) {
     const op = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? { ...proposed } : proposed;
-    if (op && typeof op === "object") { delete op.flags; delete op.facts; }
+    if (op && typeof op === "object") {
+      delete op.flags; delete op.facts;
+      // IDs identify decisions within this proposal; they carry no model authority.
+      if (!("opId" in op)) {
+        let id = `edit-${index + 1}`;
+        while (suppliedIds.has(id)) id += "-auto";
+        op.opId = id;
+        suppliedIds.add(id);
+      }
+    }
     const id = op?.op === "insert" ? op.after : op?.node;
     const candidateNodes = deriveNodes(candidate);
     const before = candidateNodes.find((node) => node.id === id)?.text || "";
@@ -339,7 +388,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
       seen.add(op.opId);
     } catch (error) {
       if (!(error instanceof MaterialsEditError)) throw error;
-      blocked.push({ op: proposed, reason: error.reason, detail: error.detail });
+      blocked.push(safeBlockedEdit({ op: proposed, reason: error.reason }, index));
     }
   }
   const baseWords = count(baseNodes);
